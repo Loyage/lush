@@ -34,6 +34,36 @@ test('project Web Runner API forwards authenticated strict reads/mutations to re
   } finally { f.project.clearing = false; await web.stop(true); await f.close(); }
 });
 
+test('deployment receipt HTTP reads share Project/Host registry, strict authorization and inert nested projection', async () => {
+  const f = await managementFixture(); let opened = 0;
+  const device = new DeviceSettingsService(f.config.env, { runner: f.runnerOptions });
+  const projectWeb = startTestWeb(f.config), hostWeb = startTestWeb(null, 0, { env: f.config.env, deviceSettingsService: device,
+    openProject: async () => { opened++; throw new Error('unexpected project startup'); } });
+  const projectUrl = `http://127.0.0.1:${projectWeb.port}/api/runner/deployments`;
+  const hostUrl = `http://127.0.0.1:${hostWeb.port}/api/host/settings/runner/deployments`;
+  try {
+    for (const url of [projectUrl, hostUrl]) {
+      const response = await fetch(url);
+      expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toEqual({ version: 1, items: [], truncated: false });
+    }
+    const row = f.deployment();
+    for (const url of [projectUrl, hostUrl, hostUrl + '?scope=device']) {
+      const response = await fetch(url); expect(response.status).toBe(200);
+      const body = await response.text(), { items: [item] } = JSON.parse(body);
+      expect(item).toMatchObject({ id: row.id, revision: 1, status: 'planned', project_id: 'deployment-project' });
+      expect(item.plan.actions.find(action => action.id === 'git_install').packages).toEqual(row.plan.actions.find(action => action.id === 'git_install').packages);
+      expect(item.plan.cgroup).toEqual(row.plan.cgroup);
+      for (const secret of [f.secret, f.machine, 'private-receipt-proof', 'unit_text', 'private_data']) expect(body).not.toContain(secret);
+    }
+    for (const query of ['?scope=device', '?_token=x', '?path=/']) expect((await fetch(projectUrl + query)).status).toBe(400);
+    for (const query of ['?scope=project', '?_token=x', '?project_id=x', '?path=/']) expect((await fetch(hostUrl + query)).status).toBe(400);
+    for (const url of [projectUrl, hostUrl]) expect((await fetch(url, { anonymous: true })).status).toBe(401);
+    expect(f.deployments.read(row.id).revision).toBe(1); expect(f.connections()).toBe(0); expect(opened).toBe(0);
+    expect(f.project.writing).toBe(0); expect(f.store.runnerProject().project_id).toBeNull();
+  } finally { await projectWeb.stop(true); await hostWeb.stop(true); await device.stop(); await f.close(); }
+});
+
 test('unselected Host manages device Runner config and explicitly checks paired independent node without attaching a project', async () => {
   const f = await managementFixture(); let opened = 0;
   const device = new DeviceSettingsService(f.config.env, { runner: f.runnerOptions });

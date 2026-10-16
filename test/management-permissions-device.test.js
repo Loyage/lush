@@ -7,6 +7,7 @@ import { readDeviceManagementPermissions as read, saveDeviceManagementPermission
 import { managementPermissionMethods } from '../src/rpc/management-policy.js';
 import { Dispatcher } from '../src/rpc/dispatcher.js';
 import { assertAllowed } from '../src/rpc/registry.js';
+import { RUNNER_METHODS } from '../src/rpc/runner-methods.js';
 
 const fileAt = config => path.join(config.deviceHome, 'management-permissions.json');
 function device() {
@@ -73,8 +74,8 @@ test('complete mapping, review ceilings, non-disableable discovery and revisions
   } finally { f.close(); }
 });
 
-test('new user-only Runner SSH methods stay unavailable when reading an older shared policy', () => {
-  const f = device(), methods = ['runner.ssh.discover', 'runner.ssh.test'];
+test('all user-only Runner methods including deployment/recovery stay unavailable when reading an older shared policy', () => {
+  const f = device(), methods = Object.keys(RUNNER_METHODS);
   try {
     const draft = read(f.config); save(f.config, draft.permissions, draft.revision);
     const file = fileAt(f.config), previous = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -83,7 +84,9 @@ test('new user-only Runner SSH methods stay unavailable when reading an older sh
     const current = read(f.config);
     for (const method of methods) {
       expect(current.permissions[method]).toBe('unavailable');
-      expect(() => save(f.config, { ...current.permissions, [method]: 'read' }, current.revision)).toThrow('elevated');
+      expect(current.methods.find(item => item.method === method).allowed_access).toEqual(['unavailable']);
+      for (const access of ['read', 'automatic', 'confirmation'])
+        expect(() => save(f.config, { ...current.permissions, [method]: access }, current.revision)).toThrow('elevated');
     }
     expect(save(f.config, current.permissions, current.revision).permissions).toEqual(current.permissions);
   } finally { f.close(); }

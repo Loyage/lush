@@ -9,8 +9,10 @@ export const COMMAND_MODULES = Object.freeze({
 });
 const entries = [];
 const directories = {
-  runner: '远端执行节点与项目授权；不安装或迁移工作区。',
+  runner: '远端执行节点、显式部署恢复与项目授权；不迁移已有工作区。',
   'runner ssh': '本机 SSH 别名发现与显式登录试连；不检查 Runner。',
+  'runner deployments': '显式检查、批准安装、独立确认与原请求观察；unknown 不重试，不自动授项目权。',
+  'runner deployments recovery': '仅原已确认安装的显式代次恢复；独立审批，不解除旧命令和 Worker/Run 屏障。',
   'runner nodes': '设备节点配置与显式诊断。', 'runner credentials': '设备私有控制凭据；只写秘密。',
   'runner project': '当前项目节点授权和默认节点。', 'runner worker': '显式核验当前项目的远端现场，不自动恢复调用。',
   daemon: '项目后台的启动、停止与代码身份。', host: '设备 Web 工作台的启动、停止与身份。',

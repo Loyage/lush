@@ -103,7 +103,18 @@ export class RunnerCredentials {
   }
 
   /** User-authorized write. A machine token and/or exactly one project token may be updated. */
-  save(value, expected_revision) {
+  save(value, expected_revision) { return this.#save(value, expected_revision); }
+
+  /** Trusted journal only: pair a fresh node, never update/adopt an existing credential entry. */
+  pairDeployment(value, expected_revision, guard) {
+    check(typeof guard === 'function', 'Deployment credential guard is required');
+    const assert = () => check(!guard()?.then, 'Deployment credential guard must be synchronous');
+    assert();
+    check(isPlainObject(value) && ['machine_token', 'project_id', 'control_token'].every(key => Object.hasOwn(value, key)), 'Deployment requires independent machine and project credentials');
+    return this.#save(value, expected_revision, { fresh: true, guard: assert });
+  }
+
+  #save(value, expected_revision, { fresh = false, guard = null } = {}) {
     fields(value, ['node_id', 'machine_token', 'project_id', 'control_token']); nodeId(value.node_id);
     const machine = Object.hasOwn(value, 'machine_token'), project = Object.hasOwn(value, 'project_id');
     check(machine || project, 'Runner credential update is empty');
@@ -112,6 +123,7 @@ export class RunnerCredentials {
     if (project) { projectId(value.project_id); validateRunnerControlToken(value.control_token); }
     return this.#update(expected_revision, data => {
       let node = data.nodes.find(item => item.node_id === value.node_id);
+      check(!fresh || !node, 'Deployment cannot overwrite existing Runner credentials');
       if (!node) { node = { node_id: value.node_id, machine_token: null, projects: [] }; data.nodes.push(node); }
       if (machine) node.machine_token = value.machine_token;
       if (project) {
@@ -119,7 +131,7 @@ export class RunnerCredentials {
         if (existing) existing.control_token = value.control_token;
         else node.projects.push({ project_id: value.project_id, control_token: value.control_token });
       }
-    });
+    }, guard);
   }
 
   /** Delete exactly one project's control token, or all credentials for one explicitly selected node. */
@@ -138,9 +150,10 @@ export class RunnerCredentials {
     });
   }
 
-  #update(expected_revision, change) {
-    expectedRevision(expected_revision);
+  #update(expected_revision, change, guard = null) {
+    expectedRevision(expected_revision); guard?.();
     return withConfigurationWriteLock(this.#config, 'project', lock => {
+      guard?.();
       const before = load(this.#config);
       check(before.data.revision === expected_revision, 'Runner credential revision changed; reload before saving');
       const data = structuredClone(before.data); change(data); data.revision = randomUUID();
@@ -151,7 +164,7 @@ export class RunnerCredentials {
       try {
         fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
         fs.writeFileSync(fd, source); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
-        lock.assert();
+        guard?.(); lock.assert();
         const current = load(this.#config);
         check(current.data.revision === expected_revision && current.fingerprint === before.fingerprint,
           'Runner credential storage changed before publication');

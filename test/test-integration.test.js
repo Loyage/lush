@@ -75,6 +75,8 @@ test('central groups refer only to existing tests; overlapping groups deduplicat
 test('quick groups include navigation/polling and real CLI/permission migration regressions before the full suite', () => {
   expect(INTEGRATION_GROUPS.page).toContain('test/web/core-api.test.js');
   expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-refresh-performance.test.js');
+  expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-runner-deploy-wizard.test.js');
+  expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-runner-recovery-wizard.test.js');
   for (const file of ['test/management-permissions-device.test.js', 'test/web/management-permissions-host-api.test.js',
     'test/integration/management-permissions.test.js', 'test/web/management-permissions-api.test.js'])
     expect(INTEGRATION_GROUPS.rpc).toContain(file);

@@ -1,17 +1,25 @@
 # Runner 管理接口
 
-这些接口管理设备节点、私有控制凭据及项目授权，不安装远端软件、不迁移已有 Worker。远端执行／交付由 Project 生命周期负责；管理诊断通过不等于完整远端工作流已验收。架构与已确认范围见[设计](../../design/remote-workspaces.md)，节点部署要求和认证格式见[Runner 协议](../../engineering/runner-protocol.md)。
+这些接口管理设备节点、私有控制凭据及项目授权；显式部署／恢复另需下述冻结计划和独立批准，不迁移已有 Worker。远端执行／交付由 Project 生命周期负责；管理诊断通过不等于完整远端工作流已验收。架构与已确认范围见[设计](../../design/remote-workspaces.md)，节点部署要求和认证格式见[Runner 协议](../../engineering/runner-protocol.md)。
 
 ## 权限与入口
 
-全部 `runner.*` 方法仅用户可用，普通 Agent、整合 Agent、Valet 直调及其受控管理代理均拒绝；不是可通过管理确认解锁的能力。`src/rpc/runner-methods.js` 是 RPC 参数、CLI 命令及 HTTP/Host 允许集的共享来源。读配置不发 SSH；`runner.ssh.test` 只测试 SSH 登录、不调用 Runner；诊断 `runner.nodes.check` 和现场核验 `runner.worker.reconcile` 只在显式调用时连接用户预装的 Runner。Runner 生产传输固定使用 SSH alias 和 `lush-runner serve`，不接受自定义传输、命令、安装脚本或远端配置路径。
+全部 `runner.*` 方法仅用户可用，普通 Agent、整合 Agent、Valet 直调及其受控管理代理均拒绝；不是可通过管理确认解锁的能力。`src/rpc/runner-methods.js` 是 RPC 参数、CLI 命令及 HTTP/Host 允许集的共享来源。读配置不发 SSH；`runner.ssh.test` 只测试 SSH 登录、不调用 Runner；诊断 `runner.nodes.check` 和现场核验 `runner.worker.reconcile` 只在显式调用时连接用户预装的 Runner。手工节点固定使用 SSH alias 和 `lush-runner serve`；受管节点仅使用原已确认安装的内部固定启动描述，不接受自定义传输、命令、安装脚本或远端配置路径，也不回退手工入口。
 
-CLI 使用 `bun run lush runner … --json`，不支持 `lushc runner`。默认经所选项目的 RPC；设备命令加 `--scope device` 时直接使用设备服务，不发现项目、不启动 daemon，也不接受 `--project`。`runner project` 必须使用项目 RPC，不接受 `--scope`。写入使用 `--file PATH`，文件为 owner-only 普通 JSON 文件（拒绝符号链接，最多 128 KiB），包含完整 RPC 参数及 `expected_revision`；不接受秘密 argv 或 stdin。确认结果直接返回，不自动追加读请求或重试突变。
+CLI 使用 `bun run lush runner … --json`，不支持 `lushc runner`。默认经所选项目的 RPC；设备命令加 `--scope device` 时直接使用设备服务，不发现项目、不启动 daemon，也不接受 `--project`。`runner project` 必须使用项目 RPC，不接受 `--scope`。写入使用 `--file PATH`，文件为 owner-only 普通 JSON 文件（拒绝符号链接，最多 128 KiB），包含完整 RPC 参数；除初始部署 plan 外，突变需要 `expected_revision`；不接受秘密 argv 或 stdin。确认结果直接返回，不自动追加读请求或重试突变。
 
 ## 参数与结果
 
 | RPC | 参数 | CLI |
 | --- | --- | --- |
+| `runner.deployments.get` | `{}` | `runner deployments get` |
+| `runner.deployments.plan` | `{ssh_alias,name,project_id}` | `runner deployments plan --file PATH` |
+| `runner.deployments.apply` | `{id,expected_revision,approved_actions,confirm:true}` | `runner deployments apply --file PATH` |
+| `runner.deployments.confirm` | `{id,expected_revision,runner_id,confirm:true}` | `runner deployments confirm --file PATH` |
+| `runner.deployments.reconcile` | `{id,expected_revision}` | `runner deployments reconcile --file PATH` |
+| `runner.deployments.recovery.plan` | `{id,expected_revision}` | `runner deployments recovery plan --file PATH` |
+| `runner.deployments.recovery.apply` | `{id,expected_revision,recovery_id,approved_actions,confirm:true}` | `runner deployments recovery apply --file PATH` |
+| `runner.deployments.recovery.reconcile` | `{id,expected_revision,recovery_id}` | `runner deployments recovery reconcile --file PATH` |
 | `runner.ssh.discover` | `{}` | `runner ssh discover` |
 | `runner.ssh.test` | `{ssh_alias}` | `runner ssh test SSH_ALIAS` |
 | `runner.nodes.get` | `{}` | `runner nodes get` |
@@ -44,10 +52,36 @@ Include 仅支持 `.ssh` 内相对路径、`~/.ssh/` 或该目录的绝对路径
 
 **SSH 成功 ≠ Runner 可用**，也不授予项目权限或自动保存节点。新增节点弹窗可选发现的别名或手填，试连是独立可选动作；失败保留填写，输入变更／关闭／离页后的旧响应失效。可信远端的登录 shell 启动文件、SSH 服务端强制命令及认证设施仍由用户负责；固定 `true` 不承诺能阻止远端自己的登录副作用。真实 SSH／系统 OpenSSH 兼容性仍需用户授权实机验证。
 
+## 显式部署与原安装恢复
+
+部署入口均返回下节的单条收据白名单投影；HTTP 200／CLI 退出 0 只表示收到收据，必须检查 status、blockers 和对应恢复状态，不代表安装或恢复成功。所有步骤仅用户可用，支持设备作用域；不接受自选产物来源、远端路径、命令、配置正文或凭据。
+
+- **plan** 显式允许取得固定已审查官方 Bun 与执行版本的 Runner 生产闭包，安全快照后只读探测 SSH；冻结目标、ABI／CPU、产物摘要、文件、完整系统事务、独立动作与节点预算。只返回 planned 或 blocked（不确定为 unknown），不安装、登记节点或生成配对凭据。配置受限／不完整时在产物和 SSH 前拒绝。临时产物仅属本进程，重启后不按旧路径重建／重传。
+- **apply** 的 id 是原部署 UUID，expected_revision 是该收据当前正整数修订；approved_actions 必须恰好完整、不重复地列出 plan.actions 的所有 id。特权 Git 安装与 cgroup 准备各自独立批准，不能继承默认授权。发送前重检原快照与完整字节；仅支持完整的非交互系统子集。新节点先禁用／未 pin，生成独立私有配对，上传并验证真实 Runner、Bun／FFI、活命令原取消、完整输出和树停止屏障，再 seal 为 ready。没有项目执行授权。
+- **confirm** 只处理原 ready 安装，runner_id 必须为该收据已验证的原 ID；重新检查原 seal／配置并认证 hello，才 pin／启用。不是项目授权，也不新开命令。部分写入／ACK 丢失仍为 unknown，不能通过换别名、UUID、重装或认领绕过已有安装保护。
+- **reconcile** 仅记录独立观察并检查原请求；没有安装 intent 时不连接 SSH。不重放安装／sudo／命令，不补确认，不采用新描述或清除任何旧屏障。
+- **recovery.plan** 只检查原 confirmed 安装并追加独立计划，不开始恢复。后续 id 仍是安装 UUID；recovery_id 来自新增 recoveries 条目，expected_revision 仍是根收据当前修订。
+- **recovery.apply** 独立批准该恢复计划的全部动作（总有 bind_runtime_generation；需要时单独批准 start_original_unit 的原精确 path／SHA／摘要／影响）。先关持久普通准入门，再用一次性 provisional 入口认证原 ID、验证原取消与完整屏障、关闭验证连接、seal、中央 gated CAS 发布、激活原 publication，最后记录 ready／新代次。原身份、配置、产物、凭据、项目权及历史未知不变；不清旧 slot。新活动或快照漂移拒绝，不刷新授权。
+- **recovery.reconcile** 仅观察原 recovery_id；即使看到 activated，也不补发布／激活、采纳新代次或打开 gate。恢复 running／unknown 在新控制器和进程重启后仍阻止普通连接及建 Worker；不能重试 apply 或另建计划解除。
+
+当前验证覆盖真实用户 CLI／HTTP 到受控 SSH 的 fail-closed 链及独立产物／Runner 专项；完整上传生产 Runner、专属真实 cgroup 停止和重启恢复正向链仍需明确授权的隔离环境验收。受控进程／系统适配器不等于该证明，不得借现有用户管理器 cgroup 或伪造 seal 跳过。
+
+## 部署收据只读入口
+
+`runner.deployments.get {}` 返回设备私有部署历史的白名单投影 `{version:1,items,truncated}`，最多 64 条；未知／执行中记录优先，其余按最近更新时间排列。读取不创建配置目录、下载产物、连接 SSH、安装、对账或重放。项目入口和 `--scope device` 读取同一设备历史；其中的 project_id 不授予项目执行权限。
+
+每条包含 `{id,revision,status,ssh_alias,name,project_id,node_id?,runner_id?,created_at,updated_at,plan,stages}`。revision 是该收据的正整数修订，不是节点或凭据 revision；status 为 `planned/blocked/running/ready/confirmed/failed/unknown`。plan 仅公开目标摘要、固定安装位置、运行时／Runner 版本及摘要／大小、文件清单、动作与阻塞、依赖和 cgroup 摘要；存在时，`node_budgets` 公开固定的 `max_commands/timeout_ms/output_bytes`，用于核对批准时的节点上限，不随当前默认设置变化。特权动作可包含精确 unit 路径／摘要／作用说明；Git 动作可包含有界依赖包版本事务及截断标志。不返回凭据及其哈希、私有证据、产物本地文件、unit 正文、脚本、argv、仓库资料或原始 SSH 输出。
+
+存在原请求观察时可附 `observation:{id,status,created_at,completed_at?,local?,remote?}`：local 仅含登记／配对是否匹配；remote 仅含完整性／封存／原描述匹配、固定阶段状态及有界系统 installer 终止观察，不含新描述、凭据指纹或 invocation。observation 的 complete 只是本次观察完成，不提升原收据状态、不补 pin／授权或清除旧执行屏障；unknown 也不表示远端没有副作用。私有对账每次保留独立 intent／原请求关联，最多 16 次，达限拒绝而不覆写历史；GET 不发起上述写操作。
+
+已检查原安装恢复时可附 `runtime_generation`（已确认代次数）、`recoveries:[{id,status,created_at,updated_at,plan,stages,observation?}]` 与 `recoveries_truncated`，最多 16 份，不滚动覆盖；恢复 running／unknown 也优先展示。plan 仅含 from/to_generation、boot_changed、前后 cgroup 路径／changed、supported、固定动作／blockers、verification_budgets 及 old_commands 摘要。特权启动动作单列原 unit path／SHA／摘要／影响，其余私有计划哈希、boot／机器／配置／凭据指纹、原命令 ID／proof／完整单元或脚本不公开。原安装仍为 confirmed 不表示新恢复成功；ready 才表示该恢复已完成独立验证、封存、中央发布与原代次激活，unknown 不能重试或另建计划绕过。恢复 observation.complete 也只是查完原请求，不能解除旧屏障、补激活或授项目权；GET 始终不发起检查或恢复。
+
+持久 running 收据没有活动操作锁时，读取结果保守显示 unknown，不改写原收据、释放保护或推断进程已停止。有活动锁时保留 running；未完成 observation 同样只在失去操作锁时投影 unknown。跨进程并发读不抢占操作。私有存储不安全或不可验证时拒绝，不自动修正权限或覆盖文件。ready／confirmed 不是项目授权；读取到任何状态都不是安装、停止或后续 Worker 执行成功的替代证明。
+
 ## HTTP
 
-- 项目：`GET /api/runner/ssh/aliases`、`/api/runner/nodes`、`/api/runner/credentials`、`/api/runner/project`，不接受查询参数；全局工作台需带现有 `/p/<项目路由ID>/` 前缀。所有写入、SSH 试连及显式 check 使用 `POST /api/action`，body 为 `{method,params}`。
-- Host 无项目：`GET /api/host/settings/runner/ssh/aliases`、`/api/host/settings/runner/nodes`、`/api/host/settings/runner/credentials`；可选既有 `scope=device`。设备写入／SSH 试连／check 使用 `POST /api/host/settings/action`，相同 body；不提供 project.get/set。Host check 必须显式 project_id，不为此打开或启动项目。
+- 项目：`GET /api/runner/deployments`、`/api/runner/ssh/aliases`、`/api/runner/nodes`、`/api/runner/credentials`、`/api/runner/project`，不接受查询参数；全局工作台需带现有 `/p/<项目路由ID>/` 前缀。所有写入、SSH 试连及显式 check 使用 `POST /api/action`，body 为 `{method,params}`。
+- Host 无项目：`GET /api/host/settings/runner/deployments`、`/api/host/settings/runner/ssh/aliases`、`/api/host/settings/runner/nodes`、`/api/host/settings/runner/credentials`；可选既有 `scope=device`。设备写入／SSH 试连／check 使用 `POST /api/host/settings/action`，相同 body；不提供 project.get/set。Host check 必须显式 project_id，不为此打开或启动项目。
 - 沿用登录、同源校验、128 KiB 请求限制与 `Cache-Control: no-store`。Runner action 不接受查询参数、额外 envelope 字段、Agent token 或任意路径。公共结果统一白名单投影，原始认证响应不会作为错误或日志返回。HTTP scope 不是跨项目授权。
 
 ## 创建节点选择接缝
@@ -76,7 +110,7 @@ D656 采用独立用户动作，不并入 retry；unknown 绑定的 retry 必须
 
 成功仅更新对应工具收据、Run 停止事实和绑定状态，**不改变 Worker 生命周期／calls，不启动模型，不自动 retry/resume，也不表示工作区干净、已交付或已验收**。用户需另行决定是否重试；按钮应刷新返回的绑定 revision。核验期间使用逻辑门与 revision CAS 排除重试／验收／交付竞争，网络等待不持中央 Git 锁或 SQLite 事务。
 
-## 首次配对与失败处理
+## 手工预装节点首次配对与失败处理
 
 1. 对所选中央项目读 project.get；若 project_id 为空，显式保存空授权和 `default_node_id:"local"`，获得项目 ID。
 2. 在设备登记 SSH alias（不含 pin）。用户按协议在远端预装 Runner、配置 Linux cgroup v2 专属子树及节点 ID；Lush 不替用户设置系统。

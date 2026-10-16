@@ -27,6 +27,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/loading-assets.test.js', // authenticated Host, cold JS/CSS budgets and compression
   ]),
   rpc: Object.freeze([
+    'test/web/runner-deployment-api.test.js', // user HTTP -> real deployment service -> controlled SSH blocked; no install or fabricated production readiness
     'test/project/lifecycle-evidence.test.js', // controlled Provider -> durable phases/input provenance -> existing authenticated history APIs
     'test/web/worker-lifecycle-integration.test.js', // real Project/HTTP facts -> two independent readers and exact source navigation
     'test/project/runner-emission-chain.test.js', // actual user CLI -> persisted selection -> Project/leased Bridge -> independent Runner commit
@@ -80,6 +81,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-runner-choice-legacy.test.js', // legacy draft ACK consumption, failed refresh and stale snapshot guards
     'test/web/dom-runner-settings.test.js', // revisions, secret disposal, explicit pin, fixed source and unknown-write/late response guards
     'test/web/dom-runner-ssh.test.js', // new-node discovery/manual choice, independent single-flight test and stale dialog/input guards
+    'test/web/dom-runner-deploy-wizard.test.js', // frozen action previews/independent approvals and unknown guards; adapter UI only, not production acceptance
+    'test/web/dom-runner-recovery-wizard.test.js', // original installation/generation/observation barriers; adapter UI only, not production recovery proof
     'test/web/dom-runner-detail.test.js', // fixed remote identity, visible barriers, local compatibility and expansion retention
     'test/web/dom-runner-verification.test.js', // revision-bound single flight, false ACK, late navigation and post-ACK read failure
     'test/web/settings-module-boundaries.test.js', // entry exports, acyclic imports and built graph
@@ -95,6 +98,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/runner-tool-reconcile.test.js', // user CLI exact binding revision reaches journal verification, never auto-starts a model
     'test/runner-placement-api.test.js', // placement parser and actual CLI/RPC persistence through reliable emission
     'test/runner-management-api.test.js', // management-only executable, private input and real Runner RPC chain
+    'test/runner-deployment-api.test.js', // all nested deployment/recovery CLI verbs, owner-private files, registry/permissions and actual fail-closed SSH chain
     'test/runner-ssh.test.js', // real user CLI/RPC -> controlled SSH; discovery never executes config, typed user-only schema
     'test/cli-surfaces.test.js', // CLI capability set derives from the registered catalogue
     'test/cli-catalog.test.js', // public catalogue and actual parser/RPC dispatch agree

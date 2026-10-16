@@ -5,10 +5,10 @@ import { exact, option } from '../args.js';
 
 export async function run(command, args, { client }) {
   check(!client.token, 'Runner management is user only');
-  const section = args.shift(), verb = args.shift();
-  const method = Object.keys(RUNNER_METHODS).find(method => RUNNER_METHODS[method].cli === `runner ${section} ${verb}`);
+  const method = Object.keys(RUNNER_METHODS).find(method => RUNNER_METHODS[method].cli.split(' ').slice(1).every((part, index) => args[index] === part));
   check(method, 'unknown Runner command');
   const spec = RUNNER_METHODS[method];
+  args.splice(0, spec.cli.split(' ').length - 1);
   let params = {};
   if (spec.file) {
     const file = option(args, '--file');

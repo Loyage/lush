@@ -4,6 +4,10 @@ import { RunnerCredentials } from './runner-credentials.js';
 import { RunnerClient, SshTransport } from '../runner/index.js';
 import { check } from './types.js';
 import { RunnerSsh } from './runner-ssh.js';
+import { DeploymentStore } from './runner-deployment-store.js';
+import { DeploymentOperations } from './runner-deployment-operations.js';
+import { publicDeployments } from './runner-deployment-view.js';
+import { DeploymentController } from './runner-deployment-controller.js';
 
 export const RUNNER_BINDING_KEYS = Object.freeze(['project_id', 'node_id', 'runner_id', 'worker_id', 'workspace_id', 'generation']);
 export function runnerIdentity(binding, context = {}) {
@@ -19,17 +23,44 @@ const connectionVersion = (node, auth) => digest({ id: node.id, ssh_alias: node.
  * never a JSON setting. Runtime owns write safety, fixed Git receipts and invocation release.
  */
 export class RunnerService {
-  #connections = new Set(); #watches = new Map(); #stops = new Map(); #timer; #checking = null; #closed = false;
-  constructor(config, store = null, { transport_factory = node => new SshTransport({ ssh_alias: node.ssh_alias }), ssh = {} } = {}) {
+  #connections = new Set(); #watches = new Map(); #stops = new Map(); #timer; #checking = null; #closed = false; #deployments = null;
+  constructor(config, store = null, { transport_factory = null, ssh = {}, deployment = {} } = {}) {
     this.config = config; this.store = store;
     this.settings = new RunnerSettings(config); this.credentials = new RunnerCredentials(config);
-    this.transport_factory = transport_factory; this.pending = 0; this.ssh = new RunnerSsh(ssh);
+    this.deployment_options = deployment; this.pending = 0; this.ssh = new RunnerSsh(ssh);
+    this.transport_factory = transport_factory ?? ((node, options) => {
+      const deployment = this.#deployment().managedNode(node, options);
+      return deployment ? this.#deployment().transport_factory(deployment) : new SshTransport({ ssh_alias: node.ssh_alias });
+    });
   }
+  #deployment() {
+    return this.#deployments ??= new DeploymentController(this.config, this.deployment_options);
+  }
+  async #deploymentCall(method, request) {
+    check(!this.#closed, 'Runner service is closed'); this.pending++;
+    try { return await this.#deployment()[method](request); } finally { this.pending--; }
+  }
+  planDeployment(request) { return this.#deploymentCall('plan', request); }
+  applyDeployment(request) { return this.#deploymentCall('apply', request); }
+  confirmDeployment(request) { return this.#deploymentCall('confirm', request); }
+  reconcileDeployment(request) { return this.#deploymentCall('reconcile', request); }
+  planDeploymentRecovery(request) { return this.#deploymentCall('planRecovery', request); }
+  applyDeploymentRecovery(request) { return this.#deploymentCall('applyRecovery', request); }
+  reconcileDeploymentRecovery(request) { return this.#deploymentCall('reconcileRecovery', request); }
   discoverSsh() { return this.ssh.discover(); }
   async testSsh(ssh_alias) {
     check(!this.#closed, 'Runner service is closed');
     this.pending++;
     try { return await this.ssh.test(ssh_alias); } finally { this.pending--; }
+  }
+  readDeployments() {
+    // Inert receipt history: no directory creation, artifact preparation, SSH, reconciliation or replay.
+    const store = new DeploymentStore(this.config), operations = new DeploymentOperations(store), value = store.list();
+    const unresolved = r => ['running', 'unknown'].includes(r.status) || Boolean(r.private_data?.recovery?.gate)
+      || r.private_data?.recovery?.items?.some(item => ['running', 'unknown'].includes(item.status));
+    value.items.sort((a, b) => Number(Boolean(unresolved(b))) - Number(Boolean(unresolved(a)))
+      || b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id));
+    return publicDeployments({ ...value, items: value.items.slice(0, 64).map(record => operations.view(record)), truncated: value.items.length > 64 });
   }
   readNodes() { return this.settings.read(); }
   readCredentials() { return this.credentials.read(); }
@@ -49,6 +80,7 @@ export class RunnerService {
     const node = this.node(node_id);
     check(this.readPolicy().allowed_node_ids.includes(node.id), 'Runner node is not authorized for this project');
     this.credentials.snapshot(node.id, this.readPolicy().project_id); // fail before creating a Worker/ref
+    this.#deployment().managedNode(node); // durable recovery gate applies across processes, before Worker/ref creation
     return node;
   }
   assertBinding(identity, { observation = false } = {}) {
@@ -69,19 +101,23 @@ export class RunnerService {
     }
     return { node, binding, policy };
   }
-  async #open(node, identity, { unpinned = false } = {}) {
+  async #open(node, identity, { unpinned = false, observation = false } = {}) {
     check(!this.#closed, 'Runner service is closed');
     const auth = this.credentials.snapshot(node.id, identity.project_id);
     const version = connectionVersion(node, auth);
+    let generation;
     const assertCurrent = () => {
       const current = this.node(node.id, { observation: true, unpinned });
       check(connectionVersion(current, this.credentials.snapshot(node.id, identity.project_id)) === version,
         'Runner connection configuration changed; new authorization is required');
+      check((this.#deployment().managedNode(current, { observation })?.managed.runtime_generation?.sha256 ?? null) === generation,
+        'Runner runtime generation changed; new authorization is required');
     };
     let client; this.pending++;
     try {
+      generation = this.#deployment().managedNode(node, { observation })?.managed.runtime_generation?.sha256 ?? null;
       assertCurrent();
-      const transport = this.transport_factory(node);
+      const transport = this.transport_factory(node, { observation });
       client = new RunnerClient({ transport, identity, auth, budgets: node.budgets,
         ...(unpinned ? {} : { expected_runner_id: node.expected_runner_id }) });
       const hello = await client.handshake();
@@ -101,7 +137,7 @@ export class RunnerService {
   }
   async connect(identity, { observation = false } = {}) {
     const { node } = this.assertBinding(identity, { observation });
-    const connection = await this.#open(node, identity);
+    const connection = await this.#open(node, identity, { observation });
     try { this.assertBinding(identity, { observation }); return connection; }
     catch (error) { await connection.close(); throw error; }
   }
@@ -111,7 +147,7 @@ export class RunnerService {
     check(typeof project_id === 'string' && project_id, 'Initialize project Runner policy before checking its node');
     const connection = await this.#open(node, { project_id, node_id, worker_id: 1,
       workspace_id: 'diagnostic', generation: 1, operation_id: randomUUID(),
-      ...(node.expected_runner_id ? { runner_id: node.expected_runner_id } : {}) }, { unpinned: !node.expected_runner_id });
+      ...(node.expected_runner_id ? { runner_id: node.expected_runner_id } : {}) }, { unpinned: !node.expected_runner_id, observation: true });
     try {
       const latest = this.node(node_id, { observation: true, unpinned: true });
       check(latest.ssh_alias === node.ssh_alias && latest.expected_runner_id === node.expected_runner_id, 'Runner node changed during diagnostic');
@@ -149,8 +185,9 @@ export class RunnerService {
   }
   #securityVersion(identity) {
     const { node } = this.assertBinding(identity);
+    const generation = this.#deployment().managedNode(node)?.managed.runtime_generation?.sha256;
     return digest({ node_id: node.id, ssh_alias: node.ssh_alias, runner_id: node.expected_runner_id,
-      budgets: node.budgets, auth: this.credentials.snapshot(node.id, identity.project_id) });
+      ...(generation ? { runtime_generation: generation } : {}), budgets: node.budgets, auth: this.credentials.snapshot(node.id, identity.project_id) });
   }
   /** Independent current-policy monitor for an already granted Run. Stop callback uses retained
    * fixed authority, NOT a new general development permission check. It must return real stop proof.
@@ -253,11 +290,14 @@ export class RunnerService {
       unknown: results.some(result => result.unknown) || barriers.bindings.length > 0 || barriers.receipts.length > 0 };
   }
   async close() {
+    this.#closed = true;
+    const deploymentsClosing = this.#deployments?.close();
     await Promise.allSettled([...this.#stops.values()]);
     this.#closed = true; clearInterval(this.#timer); this.#timer = null;
     await Promise.allSettled([...this.#watches.values()].map(entry => this.#invalidate(entry)));
     this.#watches.clear();
     await Promise.allSettled([...this.#connections].map(client => client.close()));
     this.#connections.clear();
+    await deploymentsClosing;
   }
 }

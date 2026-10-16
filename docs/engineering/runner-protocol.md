@@ -1,6 +1,6 @@
 # Runner 内部协议
 
-本章描述远端执行基础设施与 Project 接缝；用户入口见[Runner 管理接口](../reference/rpc/runners.md)，产品边界见[远端工作区设计](../design/remote-workspaces.md)。SSH 信任、预装 Runner 和专属 cgroup v2 子树由用户提供；不安装软件或修改系统设置。
+本章描述远端执行基础设施与 Project 接缝；用户入口见[Runner 管理接口](../reference/rpc/runners.md)，产品边界见[远端工作区设计](../design/remote-workspaces.md)。手工节点的 SSH 信任、预装 Runner 和专属 cgroup v2 子树由用户提供；Runner 协议本身不安装或修改系统。另行显式批准的中央部署／恢复控制入口及验收限制见管理契约，不由 Runner 请求取得安装权限。
 
 ## 共享骨架
 
@@ -66,7 +66,17 @@ hello 同样要求机器凭据加项目 control 凭据，或当前连接有效�
 
 用户专属 SSH 别名发现／独立试连不是 Runner 协议操作；安全读取和有界子进程由 `src/core/runner-ssh.js` 管理，注册／权限仍复用 `runner-methods.js`。试连使用无 Match／代理执行能力的私有配置子集与固定 `true`，不使用 `SshTransport`，不发送 Runner 认证、不分配节点或安装身份；能力限制见 [SSH 入口边界](../reference/rpc/runners.md#ssh-别名发现与独立试连)。它的通过不能证明下述 Runner 连接可用。
 
-`SshTransport({ssh_alias})` 只接受单一安全别名；argv 禁止交互认证、首次主机信任、转发与 LocalCommand，远端启动字符串恒为 `lush-runner serve`。`StdioTransport({command,args,cwd,env})` 是显式独立进程接缝，env 不自动继承。两者使用有界 NDJSON、并发上限和请求截止；断线或已发送请求取消均为 unknown，关闭管道仅请求远端停止，不冒充停止确认。无自动重试；调用方保存 request_id，以新连接和固定 expected_runner_id 显式查询已登记收据。
+部署收据读面是另一条中央管理路径，不是 Runner 协议能力。私有 `DeploymentStore` 保存设备附属 journal，`DeploymentOperations.view()` 通过独立、崩溃释放的操作 flock 判断持久 running 是否已失去执行者；仅读取并投影 unknown，不写回、重放或据此证明远端停止。存储 FD／inode／权限与有界白名单投影独立于节点设置；没有收据时读取不创建目录。用户只读入口、字段和权限以 [部署收据契约](../reference/rpc/runners.md#部署收据只读入口) 为准；秘密、原始 SSH 输出和私有执行证据不进入该结果。
+
+显式原部署对账复用同一操作 flock，先持久独立观察 intent 才 inspect 原目标；活跃安装／确认不能被接管。已失去执行者的 running 只转 unknown，不推断物理停止。对账不重放 prepare／上传／sudo／命令、不采用新描述、不补确认；计划尚未发出安装 intent 时不连接 SSH。新观察完成也不修改原计划、请求 ID、阶段证据、proof／seal 或项目权限，且 ACK／关闭失联只留下观察 unknown。GET 不发起这些操作；公共写入口以注册表为准。
+
+内部部署验证器的 `expected_runner_id` 用于复验原安装：连接 intent 记录该 ID，认证 hello 携带并核对原 ID 后，才允许 workspace.register／受控 Bun/FFI 命令及完整停止验证。不能先执行命令再比较最终 proof；不匹配保持 unknown，无重新发现或连接回退。初装默认仍获取新 ID；此参数不开放给用户选择另一套安装，恢复编排必须传原独立确认的 ID；受控输出预算也不得超过冻结的当前中央节点预算。
+
+中央恢复控制器只处理原 confirmed 安装，追加最多 16 份独立计划／阶段／观察，不改原计划、配置、seal、凭据、工作区或项目授权。检查不占用用户考虑授权的时间；批准时绑定原 SSH／中央策略、完整动作与远端 activity epoch，远端以跨进程共享执行／独占恢复 lease 拒绝竞争。启动原固定 unit 需要单独、完整的 path／SHA／摘要／影响审批，不继承初装 sudo 许可。验证使用一次性 provisional 启动且先 pin 原 ID，确认 Bun／FFI、活命令输出、原取消与完整树屏障；关闭验证连接后封存，中央 CAS 记录精确新代次 envelope 时仍关普通入口，再激活原 publication ID，最后解除恢复 gate。新 boot／cgroup 仅记在追加代次，不能改写原配置或据此释放旧 slot、Worker／Run、输出、传输、副作用、交付和清理未知。
+
+运行中或丢 ACK／发布失败的恢复 gate 是持久事实，重启后仍在节点选择／建 Worker 前、连接与 Run 监控处拒绝普通执行，不走手工回退；旧内存连接不能透明换代。显式诊断只选择最后已确认的旧代次，远端自身 gate 仍可拒绝连接，不能借诊断恢复普通权限。对账先记新观察 intent，仅查原 recovery ID／plan hash，即使观察到 activated 也不补发布／激活或清 gate。无执行者的 running 只读派生 unknown；其它原部署观察取得 lease 时也先记录原恢复已失去执行者，不能让旧 running 借新 lease 复活。非空 WAL／journal、旧格式、任何 stop 未确认与缺少原 control／unit 证据仍阻止恢复；不通过实例化 RunnerStore、checkpoint、重建产物或重放弥补。显式部署／恢复写入由同一 RUNNER_METHODS 注册，CLI 只读 owner-private 参数文件，RPC／Host／HTTP 均拒绝 Agent、Valet 和管理代理；入口调用私有控制器而非任意 service 方法。未知错误不透传 SSH 诊断或建议重放。真实 CLI／HTTP 到受控 SSH 的阻塞／丢 ACK 专项不等于真实上传生产 Runner／cgroup／重启正向验收；接口参数与当前验收限制以管理契约为准。
+
+手工节点的 `SshTransport({ssh_alias})` 只接受单一安全别名；argv 禁止交互认证、首次主机信任、转发与 LocalCommand，远端启动字符串恒为 `lush-runner serve`。关联部署收据的节点不走此手工回退：RunnerService 要求原安装 verified/sealed、独立确认 journal 完成及当前节点／凭据／SSH 快照一致，才以内部固定 managed 描述启动。私有确认控制器重新检查原 seal／配置及实际认证的 runner_id，再登记 pin／启用；它不新启命令或授项目权限。确认运行中、崩溃或 ACK 丢失的 unknown，即使中央 pin 已部分写入也阻塞受管连接；读取不补做确认。受管启动校验原目标、产物、配置清单与运行证据，不透明重绑变化的 boot／cgroup。用户部署写接口和显式恢复均不自动调用管理确认，也不向 Agent 开放内部验证或 provisional 启动能力。`StdioTransport({command,args,cwd,env})` 是显式独立进程接缝，env 不自动继承。两者使用有界 NDJSON、并发上限和请求截止；断线或已发送请求取消均为 unknown，关闭管道仅请求远端停止，不冒充停止确认。无自动重试；调用方保存 request_id，以新连接和固定 expected_runner_id 显式查询已登记收据。
 
 `LocalTransport(node)` 复用同一权限／执行协议，仅用于明确创建的节点，不改变原有本地 Worker，也不是 SSH 失败后的回退。`serveConnection(node,{input?,output?})` 管理单条连接，EOF 先撤销授权，再等待已接纳请求及停止服务收尾。
 

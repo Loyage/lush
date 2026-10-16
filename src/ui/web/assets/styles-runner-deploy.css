@@ -1,0 +1,23 @@
+.runner-deploy-wizard { min-width:0; width:100%; box-sizing:border-box; overflow-wrap:anywhere; }
+.runner-deploy-wizard [hidden] { display:none!important; }
+.runner-deploy-wizard .runner-deploy-step { min-width:0; margin:18px 0; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); }
+.runner-deploy-wizard .runner-deploy-step h3 { margin:0 0 12px; }
+.runner-deploy-wizard .runner-deploy-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.runner-deploy-wizard .runner-deploy-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.runner-deploy-wizard :is(input,select) { width:100%; min-width:0; max-width:100%; min-height:44px; box-sizing:border-box; padding:8px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; font:inherit; }
+.runner-deploy-wizard .runner-deploy-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
+.runner-deploy-wizard button,.runner-deploy-wizard summary,.runner-deploy-wizard .nav-link { min-height:44px; white-space:normal; overflow-wrap:anywhere; }
+.runner-deploy-wizard .runner-deploy-action { min-width:0; padding:12px 0; border-top:1px solid var(--line); }
+.runner-deploy-wizard .runner-deploy-approval { display:flex; align-items:center; gap:10px; min-height:44px; margin:8px 0; }
+.runner-deploy-wizard input[type=checkbox] { flex:none; width:24px; height:24px; min-height:24px; }
+.runner-deploy-wizard fieldset { min-width:0; border:1px solid var(--line); margin:12px 0; }
+.runner-deploy-wizard summary { cursor:pointer; padding:10px 0; box-sizing:border-box; }
+.runner-deploy-wizard .runner-deploy-feedback,.runner-deploy-wizard .error { padding:10px; border-left:3px solid currentColor; }
+.runner-deploy-wizard .runner-deploy-history ul { padding-left:20px; }
+.runner-deploy-wizard .runner-deploy-history li { margin:12px 0; }
+@media(max-width:600px) {
+  .runner-deploy-wizard .runner-deploy-fields { grid-template-columns:minmax(0,1fr); }
+  .runner-deploy-wizard .runner-deploy-step { padding:12px; }
+  .runner-deploy-wizard .runner-deploy-actions { flex-direction:column; align-items:stretch; }
+  .runner-deploy-wizard .runner-deploy-actions button { width:100%; }
+}

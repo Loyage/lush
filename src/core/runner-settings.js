@@ -87,18 +87,55 @@ export class RunnerSettings {
   read() { return view(load(this.config)); }
 
   /** Complete replacement. Omit id only for new nodes; deleted identities can never be resurrected. */
-  save(value, expected_revision) {
+  save(value, expected_revision) { return this.#save(value, expected_revision); }
+
+  /** Trusted deployment journal only: pre-recorded fresh ID, disabled and unpinned.
+   * Public replacement still cannot choose new IDs. Never adopt an existing/retired ID or alias.
+   */
+  registerDeployment(value, expected_revision, guard) {
+    fields(value, ['id', 'name', 'ssh_alias', 'budgets'], 'deployment node');
+    check(typeof value.id === 'string' && UUID.test(value.id) && typeof guard === 'function', 'Deployment node identity and guard are required');
+    const assert = () => check(!guard()?.then, 'Deployment node guard must be synchronous');
+    assert();
+    const before = this.read();
+    check(before.revision === expected_revision, 'Runner settings revision changed; reload before saving');
+    check(!before.nodes.some(node => node.id === value.id || node.ssh_alias === value.ssh_alias), 'Deployment cannot adopt an existing Runner node or SSH alias');
+    const node = normalizeRunnerNode({ ...value, enabled: false, expected_runner_id: null });
+    return this.#save({ nodes: [...before.nodes, node] }, expected_revision, { new_id: node.id, guard: assert });
+  }
+
+  /** Trusted confirmation journal only. Never adopts/re-enables an already changed node. */
+  pinDeployment({ node_id, runner_id, expected_node }, expected_revision, guard) {
+    check(typeof guard === 'function' && typeof runner_id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(runner_id), 'Deployment pin guard and installation identity are required');
+    const expected = normalizeRunnerNode(expected_node);
+    check(expected.id === node_id && expected.enabled === false && expected.expected_runner_id === null, 'Deployment pin must reference its original disabled node');
+    const assert = () => check(!guard()?.then, 'Deployment pin guard must be synchronous');
+    assert(); const before = this.read();
+    check(before.revision === expected_revision, 'Runner settings revision changed; reload before saving');
+    const current = before.nodes.find(node => node.id === node_id);
+    check(current && current.ssh_alias === expected.ssh_alias && current.enabled === false && current.expected_runner_id === null
+      && JSON.stringify(current.budgets) === JSON.stringify(expected.budgets), 'Deployment node changed before pinning');
+    return this.#save({ nodes: before.nodes.map(node => node.id === node_id ? { ...node, enabled: true, expected_runner_id: runner_id } : node) }, expected_revision, { guard: assert });
+  }
+
+  #save(value, expected_revision, { new_id = null, guard = null } = {}) {
     fields(value, ['nodes'], 'Runner settings update');
     check(Array.isArray(value.nodes) && value.nodes.length <= 64, 'Runner settings require at most 64 nodes');
     const nodes = value.nodes.map(normalizeRunnerNode);
     check(typeof expected_revision === 'string' && /^[0-9a-f]{64}$/.test(expected_revision), 'Runner revision is required');
     return withConfigurationWriteLock(this.config, 'project', lock => {
+      guard?.();
       const before = load(this.config);
       check(revision(before) === expected_revision, 'Runner settings revision changed; reload before saving');
       const currentIds = new Set(before.nodes.map(node => node.id));
       const used = new Set([...currentIds, ...before.retired_ids]);
       const next = nodes.map(node => {
         if (node.id !== undefined) {
+          if (node.id === new_id) {
+            check(!used.has(node.id) && !before.nodes.some(current => current.ssh_alias === node.ssh_alias)
+              && node.enabled === false && node.expected_runner_id === null, 'Deployment node identity is not fresh');
+            used.add(node.id); return node;
+          }
           check(currentIds.has(node.id), 'unknown or retired Runner id; omit id for a new node');
           const original = before.nodes.find(current => current.id === node.id);
           check(original.ssh_alias === node.ssh_alias,
@@ -120,7 +157,7 @@ export class RunnerSettings {
       try {
         fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
         fs.writeFileSync(fd, source); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
-        lock.assert(); check(revision(load(this.config)) === expected_revision, 'Runner settings changed before publication');
+        guard?.(); lock.assert(); check(revision(load(this.config)) === expected_revision, 'Runner settings changed before publication');
         fs.renameSync(temporary, file);
         const directory = fs.openSync(this.home, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
         try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
