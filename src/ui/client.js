@@ -5,7 +5,8 @@ export class UIClient {
   constructor(config, token = null) { this.config = config; this.token = token; this.rpc = new RPCClient(config.socket, 30); }
   async request(method, params = {}, options = {}) {
     try {
-      return await this.rpc.request(method, { ...params, ...(this.token ? { _token: this.token } : {}) }, options);
+      return await this.rpc.request(method, { ...params, ...(this.token ? { _token: this.token }
+        : this.config.env?.LUSH_CLI_TRIAL ? { _cli_trial: this.config.env.LUSH_CLI_TRIAL } : {}) }, options);
     } catch (error) {
       // -32601 几乎总是客户端比 daemon 新（改了 src/ 但没重启），而不是命令拼错；
       // 只回一句 "unknown method" 会让人以为是接口不存在，所以直接把下一步写进错误里。

@@ -1,5 +1,19 @@
 # Worker、Run 与 Artifact
 
+## Worker CLI 试用
+
+Worker 详情底部提供默认收起的「CLI 试用」面板，展开后输入命令，预览后按分类确认真实执行；示例只填入，不自动运行。面板展示真实目录、stdout／stderr、退出码与耗时，同 Worker 刷新保留草稿和结果，离页作废迟到响应；执行 ACK 与页面刷新分离，不因读取失败重发命令。长输出独立横向滚动，窄屏控件上下排列。
+
+用户专属 `worker.cli_preview {id,command}` 与 `worker.cli_execute {id,command,revision,confirm?}` 只经项目 `POST /api/action` 开放；普通 Agent 和 Valet 均不可调用，无新增 CLI 命令。命令为单行 `lush ...` 或 `lushw ...`，引号仅分组字面参数，不执行 Shell 展开、管道或重定向。入口、路径与 kind 来自代码 CLI catalog；不允许自选程序、环境或 `--project`。
+
+preview 返回 `{id,workspace,command,argv,executable,path,kind,requires_confirmation,revision,limits}`。revision 为五分钟有效、至多保留最近 128 项的进程内单次凭据，固定解析结果、工作区 inode／真实 Git 仓库与分支、HEAD、Worker 生命周期和冻结状态；过期、重启、执行过或状态变化须重新预检。它不冻结外部文件编辑，也不是文件内容快照。execute 重新核验，修改／Agent／破坏性分类必须显式 `confirm:true`，原 CLI／RPC 的预检、revision、权限与生命周期安全门仍适用。
+
+cwd 必须是指定 order/child 仍存在、非软链接的真实专属 worktree，不能回落 canonical/main 或其它目录。活动或冻结的源工作区拒绝修改；修改试用还要求整个项目没有活动调用／Git／后台写入，领取短时项目写准入位，暂缓新调度并拒绝外来操作，避免与交付、同步和回收并发。只读命令仍可用于活动 Worker；试用期间不得回收／同步正在使用的目录或其祖先。非交互单次 CLI 以 daemon 所属登录系统用户权限运行，不是 OS 沙箱，也不限制标准 CLI 对其它合法目标的访问。
+
+只使用随代码的固定 bin，关闭 stdin，清除 Agent invocation 身份和运行时 preload 环境，不注入 Agent token；内部短时关联只将该用户 CLI 的 catalog RPC 绑定到准入位，不能变为 Agent 身份或额外权限。禁用工作区 `.env`／Bun 配置自动加载。help 也实际运行 CLI。watch/wait、服务启停／重启、交互认证明确拒绝；已有命令自身仍可因标准安全门拒绝操作。
+
+命令最多 8192 字节、128 个词，真实执行最多 15 秒，stdout 与 stderr 合计最多 64 KiB，作为纯文本返回。execute 返回 `{command,workspace,stdout,stderr,exit_code,signal,timed_out,truncated,duration_ms,status}`，status 为 `succeeded`／`failed`／`unknown`。超时、输出超限、信号或已派发 RPC 断线属于 unknown，不自动重试；同一 revision 在 spawn 前消费，未知结果也不能重放。杀掉 CLI 不会取消已派发的 daemon 修改，准入位保留到该修改真正收尾。HTTP 断线后的结果同样未确认，应先检查现场，不能据此重试。
+
 ## 输入与结果完整历史读面
 
 用户专属 `worker.reading_page {id,before_event?,before_message?,limit?,query?}`，分别按 ID 倒序扫描该 Worker 全部 Event 与所有入站 Message，包括已消费／暂存／没有 Event 的旧消息。游标省略或 null 从最新开始，0 表示该类已耗尽；limit 每类默认 50、最大 100。每类响应预算 400,000 字节，达到预算提前结束本批，**游标只推进实际扫描的行**，不会丢弃大行后跳过它。单次不后台继续扫描。

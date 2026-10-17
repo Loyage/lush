@@ -1,4 +1,5 @@
 import { check, LushError } from '../types.js';
+import path from 'node:path';
 
 // These commands can write the checkout's branch. Object creation (commit-tree),
 // snapshots, and writes to other refs must not excuse movement of a watched branch.
@@ -38,8 +39,9 @@ export function dirtDetail(status, limit = 20) {
 /** Git 原语与串行队列（无 shell 插值）。 */
 export const methods = {
   exclusive(fn) {
+    try { this.assertAdmission?.(); } catch (error) { return Promise.reject(error); }
     this.pending = (this.pending ?? 0) + 1;
-    const next = this.queue.then(fn);
+    const next = this.queue.then(() => { this.assertAdmission?.(); return fn(); });
     // Observe settlement without replacing next or changing queue/awaiter timing.
     const settled = () => { this.pending -= 1; };
     next.then(settled, settled);
@@ -52,6 +54,9 @@ export const methods = {
   /** 需要保留行内空白时用它：porcelain 的首行状态位就是一个前导空格（" M path"）。 */
   async gitOutput(cwd, ...args) {
     const execute = async () => {
+      const command = gitSubcommand(args);
+      if (command?.name === 'worktree' && args[command.index + 1] === 'remove')
+        check(!this.cliWorkspaceBusy?.(path.resolve(cwd, args.at(-1))), 'Worker CLI still uses this worktree; reclamation must wait');
       const proc = Bun.spawn(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe', env: { ...this.config.env, GIT_TERMINAL_PROMPT: '0' } });
       const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
       if (code !== 0) throw new LushError(`git ${args[0]}: ${err.trim() || out.trim()}`);

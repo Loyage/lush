@@ -526,7 +526,7 @@ export default {
 
   /** Runtime state edges, bounded by the number of mounted Workers, not UI polling. */
   observeTaskHooks(taskId = null, parentBoundary = false) {
-    if (this.stopping || this.clearing || this.workerDeleteIds?.size) return;
+    if (this.stopping || this.cliMutation || this.clearing || this.workerDeleteIds?.size) return;
     const tasks = (taskId === null ? this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL ORDER BY id')
       : this.store.all('SELECT * FROM tasks WHERE id=? AND hooks IS NOT NULL', taskId))
       .filter(task => !this.store.executionRetired(task.id));

@@ -1,4 +1,4 @@
 #!/usr/bin/env bun
 import { main } from '../src/cli/main.js';
 try { await main(process.argv.slice(2), { executable: 'lushw' }); }
-catch (error) { console.error(`lushw: ${error.message}`); process.exitCode = 1; }
+catch (error) { console.error(`lushw: ${error.message}`); process.exitCode = process.env.LUSH_CLI_TRIAL && error.code === -32021 ? 75 : 1; }

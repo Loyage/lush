@@ -9,6 +9,7 @@ import { AgentPackages } from '../../agent/packages.js';
 import { check } from '../types.js';
 import { DeviceAutomationSettings } from '../device-automation.js';
 import { RuntimeCoordinator } from '../runtime-coordinator.js';
+import { cliLeaseBlocks } from '../worker-cli.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / ancestry）。
 /** One project, a persistent Worker tree, and disposable invocations behind safety gates. */
@@ -19,7 +20,10 @@ export class ProjectBase {
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
     // Internal runtime safety seam for direct user cleanup; Workspaces alone owns no invocation/command facts.
-    this.workspaces.commandBusy = taskId => this.commandHookRunning?.has(taskId) === true;
+    this.workspaces.commandBusy = taskId => this.commandHookRunning?.has(taskId) === true
+      || [...(this.cliRunning?.values() ?? [])].some(lease => lease.taskId === taskId);
+    this.workspaces.assertAdmission = () => check(!cliLeaseBlocks(this), 'Worker CLI execution owns project write admission');
+    this.workspaces.cliWorkspaceBusy = directory => [...(this.cliRunning?.values() ?? [])].some(lease => lease.workspace === directory);
     // 运行设置写盘后由 Config 回调这里重新检查后续调用准入。
     this.config.onKick = () => this.kick();
     this.running = new Map(); this.stopping = false; this.ancestry = new Map();
@@ -30,7 +34,7 @@ export class ProjectBase {
       hooks: () => this.observeTaskHooks(),
       inputs: () => this.drainInputEmissions(),
     }, {
-      canRun: () => !this.stopping,
+      canRun: () => !this.stopping && !this.cliMutation,
       onError: (name, error) => console.error(`runtime check ${name}:`, error.message),
     });
     // Integration acceptance/branch proofs must distinguish a stored return from actual invocation exit.
@@ -63,6 +67,7 @@ export class ProjectBase {
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */
   assertWritable(action = 'write') {
+    check(!cliLeaseBlocks(this), 'Worker CLI execution owns project write admission');
     check(!this.settingsMigrationApplying, 'settings migration is in progress; retry after it finishes');
     check(!this.clearing, `clear is in progress; retry to ${action} in a moment`);
     check(!this.workerDeleteIds?.size, `Worker deletion is in progress; retry to ${action} in a moment`);

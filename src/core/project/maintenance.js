@@ -3,6 +3,7 @@ import { check, TERMINAL } from '../types.js';
 import { HOOK_LIMITS } from '../hooks.js';
 import { workerLabel } from '../worker-number.js';
 import { systemRegistration } from './automation-registry.js';
+import { cliLeaseBlocks } from '../worker-cli.js';
 
 const KEY = 'project_maintenance';
 const empty = () => ({ version: 1, paused: false, affected: [] });
@@ -32,7 +33,8 @@ function save(project, data) {
 
 /** A durable project admission gate, not a replacement for individual Worker states. */
 export default {
-  maintenancePaused() { return state(this).paused; },
+  // The CLI's temporary admission hold is not persisted as user maintenance intent.
+  maintenancePaused() { return cliLeaseBlocks(this) || state(this).paused; },
 
   maintenanceView() {
     const data = state(this);
@@ -40,7 +42,7 @@ export default {
     // Counts describe overlapping safety barriers, not distinct jobs. A queued Git or
     // asynchronous writer still owns resources even when no Agent status says running.
     const groups = [
-      [this.writing + Number(this.clearing) + Number(Boolean(this.settingsMigrationApplying)), '等待项目后台写操作收尾'],
+      [this.writing + Number(this.clearing) + Number(Boolean(this.settingsMigrationApplying)) + (this.cliRunning?.size ?? 0), '等待项目后台写操作收尾'],
       [this.workspaces.pending + this.workspaces.busy.size, '等待 Git 操作收尾'],
       [(this.taskMergeBusy?.size ?? 0) + (this.convergenceJobs?.size ?? 0) + (this.convergenceDrivers?.size ?? 0) + this.mergeRunsDriving.size + this.integratingIntents.size, '等待交付或合并收尾'],
       [(this.taskSyncBusy?.size ?? 0) + (this.acceptanceBusy?.size ?? 0) + (this.workerDeleteIds?.size ?? 0), '等待同步或资源回收收尾'],

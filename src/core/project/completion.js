@@ -181,7 +181,7 @@ export default {
   },
 
   scheduleTaskCompletion(taskId = null) {
-    if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.recoveringHooks) return;
+    if (this.stopping || this.cliMutation || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.recoveringHooks) return;
     const rows = taskId === null ? this.store.all("SELECT * FROM tasks WHERE auto_merge IS NOT NULL AND task_kind IN ('order','child') AND status IN ('waiting','awaiting_acceptance','completed') ORDER BY id") : [this.store.task(taskId)];
     this.completionQueued ??= new Set();
     for (const task of rows) {

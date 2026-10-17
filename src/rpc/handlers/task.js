@@ -1,9 +1,12 @@
 import { check, id, bounded } from '../../core/types.js';
 import { validateWorkerQuery } from '../../core/worker-query.js';
 import { MANAGEMENT_READ_ITEMS } from '../../core/project/management-data.js';
+import { previewWorkerCLI, executeWorkerCLI } from '../../core/worker-cli.js';
 
 /** worker.* (persistent Task data and internal methods keep their names). */
 export const handlers = {
+  'worker.cli_preview'(p, params) { return previewWorkerCLI(p, params); },
+  'worker.cli_execute'(p, params) { return executeWorkerCLI(p, params); },
   'worker.auto_title'(p, params, actor) { return p.setTaskAutoTitle(actor, params.title); },
   'worker.rename'(p, params) { return p.renameTask(id(params.id), params.title); },
   'worker.lookup'(p, params) { return p.store.lookupWorker(params.number); },

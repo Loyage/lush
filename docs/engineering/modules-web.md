@@ -26,6 +26,7 @@
 | 工作列表／管家列表／工作树／通用详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
 | 时间线与执行详情 | `render-conversation.js`、`transcript-view.js` | [阅读器](transcript-reader.md) |
 | 代码与差异 | `code-view.js`、`render-diff.js` | [代码阅读器](code-reader.md) |
+| Worker CLI 试用 | `worker-cli.js`、`worker-cli-detail.js` | 详情内默认收起；独立面板仅依赖注入的 preview/execute，适配器固定项目／Worker 身份、刷新复用与离页释放；实际执行权限和界限见 [Worker CLI 契约](../reference/rpc/tasks.md#worker-cli-试用) |
 | CLI 学习与项目管家权限 | `render-valet-settings.js`（保留历史文件名）、`cli-catalog.js` | `#cli-interfaces` 静态目录版本缓存、读／写分类与本地搜索、目录／单条详情；项目权限按需读取，跨详情保留草稿，完整映射与 revision、迟到／离页保护；保存对当前项目新旧管家统一生效，权限与未开始操作重检边界来自[Valet 契约](hook-signals-management.md) |
 | 自动化目录／功能与 Worker 实例挂载 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
 | 交付／验收／删除与管家停止 | `render-delivery.js`、`render-iteration.js`、`worker-delete.js`、`valet-actions.js` | [合并](merge.md)、[验收](worker-acceptance.md)、[删除](../reference/rpc/maintenance.md) |

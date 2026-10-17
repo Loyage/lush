@@ -16,6 +16,11 @@ const statusOf = request => request.status === 'integrated' ? 'succeeded' : requ
  * it grants no RPC/Agent authority and cannot install builtin-only actions. */
 export default {
   dispatchAutomationOperation(tool, workerId, context = {}) {
+    if (this.cliMutation && (context.automatic || tool === 'integrate_deliveries')) {
+      if (tool === 'integrate_deliveries')
+        (context.engine === 'converge' ? this.convergenceWakePending ??= new Set() : this.taskMergeWakePending ??= new Set()).add(workerId);
+      return false;
+    }
     const entry = HOOK_ACTIONS.find(action => action.type === tool);
     check(entry?.execution === 'operation', 'unsupported automation operation');
     const task = this.store.task(id(workerId));

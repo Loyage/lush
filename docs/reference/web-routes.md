@@ -151,6 +151,8 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 ## 用户动作
 
+Worker CLI 试用额外开放用户专属 `worker.cli_preview`／`worker.cli_execute`，均使用项目 `POST /api/action`；严格 `{method,params}` envelope，无 query、Agent token、私有执行关联或自定义 cwd/env。参数、确认、单次 revision、真实执行与 unknown 边界见 [Worker CLI 试用](rpc/tasks.md#worker-cli-试用)，不提供 GET 执行或通用 Shell／RPC 代理。
+
 `POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`system.interrupt_all`、`system.resume_all`、`order.submit`、`input.emit`、`input.emission_cancel`、`input.exclusive_release`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.rename`、`worker.auto_merge`、`worker.completion`、`worker.acceptance_notice`、`hooks.automation_settings`、`hooks.completion_defaults`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。Agent-only `worker.auto_title` 不在 Web 写白名单，页面只读消费生成的 auto_title，用户调整仍经 worker.rename。`agent.usage.configure` 仅保留旧协议接缝，当前明确返回退役错误，不再写入旧配置；正式来源采样仍使用 `agent.connections.sampling`。
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。

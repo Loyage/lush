@@ -89,7 +89,7 @@ export default {
   },
 
   pump() {
-    if (this.stopping || this.maintenancePaused() || this.workerDeleteIds?.size || this.acceptanceBusy?.size || this.settingsMigrationApplying) return;
+    if (this.stopping || this.cliMutation || this.maintenancePaused() || this.workerDeleteIds?.size || this.acceptanceBusy?.size || this.settingsMigrationApplying) return;
     if (!this.refreshRuntimeConfiguration()) return;
     this.releaseQueuedInputs();
     this.observeTaskHooks();

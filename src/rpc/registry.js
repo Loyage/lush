@@ -11,6 +11,7 @@ const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_no
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
   'cli.catalog': [],
+  'worker.cli_preview': ['id','command'], 'worker.cli_execute': ['id','command','revision','confirm'],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
   'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': ['notify_completion'], 'system.resume_all': [],
   'settings.clear_override': ['kind','target'], 'settings.migration.preview': [], 'settings.migration.apply': ['revision','confirm'],
@@ -99,7 +100,7 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
-  'cli.catalog','worker.delivery_graph',
+  'cli.catalog','worker.cli_preview','worker.cli_execute','worker.delivery_graph',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','branch.version_graph','worker.version_graph','worker.version_deliveries','worker.version_commit','worker.version_lineage','worker.version_lineage_commit','worker.code_state','worker.code_tree','worker.code_file',

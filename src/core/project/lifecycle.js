@@ -503,6 +503,8 @@ export default {
     // Close check admission immediately, but let admitted checks settle after invocation
     // cancellation below. They may still own Git/read work and must not outlive Store.
     const runtimeStopped = this.runtimeCoordinator.stop();
+    for (const lease of this.cliRunning?.values() ?? []) lease.controller.abort();
+    await Promise.allSettled([...(this.cliRunning?.values() ?? [])].map(lease => lease.promise));
     for (const job of this.convergenceJobs?.values() ?? []) job.controller.abort(new Error('daemon stopped'));
     this.stopScheduledHookTimer();
     this.stopMaintenanceMonitor();

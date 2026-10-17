@@ -1,4 +1,5 @@
-import { check } from '../core/types.js';
+import { check, isPlainObject } from '../core/types.js';
+import { dispatchWorkerCLI } from '../core/worker-cli.js';
 import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { publicResult } from './public-result.js';
 import { LUSHW_METHODS } from './management-policy.js';
@@ -45,6 +46,10 @@ export class Dispatcher {
     };
   }
   async dispatch(method, params = {}) {
+    check(isPlainObject(params), 'params must be an object');
+    const { _cli_trial, ...publicParams } = params;
+    // The private CLI correlation is stripped before public registry validation; it never grants an Agent identity.
+    params = publicParams;
     // 身份解析交给 registry：只有白名单与未知参数都过了才去查 token（actor() 会写 agent_last_seen_at）。
     const actor = assertAllowed(method, params, () => this.project.actor(params._token));
     const p = this.project;
@@ -61,6 +66,7 @@ export class Dispatcher {
       'integration agents can only inspect work and post notices or report progress for themselves');
     check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
       '项目后台正在停止，请稍后再试');
-    return publicResult(await HANDLERS[method].call(this, p, params, actor), method);
+    return dispatchWorkerCLI(p, method, { ...params, _cli_trial }, actor,
+      async () => publicResult(await HANDLERS[method].call(this, p, params, actor), method));
   }
 }

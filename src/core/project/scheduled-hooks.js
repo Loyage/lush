@@ -112,7 +112,7 @@ export default {
   },
 
   observeScheduledTaskHooks(taskId = null) {
-    if (this.stopping || this.recoveringHooks) return;
+    if (this.stopping || this.recoveringHooks || this.cliMutation) return;
     if (this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) { this.armScheduledHookTimer(); return; }
     const clock = this.hookClock();
     this.observeHookSignals(clock);
