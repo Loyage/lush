@@ -18,7 +18,7 @@ test('dashboard selection is read-only when absent, device-authoritative, dedupl
   const f = fixture();
   try {
     const before = readDashboardSettings(f.config), selected = card();
-    expect(before).toMatchObject({ version: 5, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true }); expect(before.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(before).toMatchObject({ version: 6, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true, quick_actions: true }); expect(before.revision).toMatch(/^[a-f0-9]{64}$/);
     expect(fs.existsSync(f.config.deviceHome)).toBe(false);
     const next = saveDashboardSettings(f.config, [selected, { ...selected, connection_id: selected.connection_id.toUpperCase() }], before.revision);
     expect(next.cards).toEqual([selected]); expect(next.revision).not.toBe(before.revision);
@@ -28,7 +28,7 @@ test('dashboard selection is read-only when absent, device-authoritative, dedupl
     expect(fs.existsSync(f.config.home)).toBe(false);
     expect(fs.statSync(f.config.deviceHome).mode & 0o777).toBe(0o700);
     expect(fs.statSync(f.file).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 5, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true });
+    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 6, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true, quick_actions: true });
     expect(fs.readdirSync(f.config.deviceHome)).toEqual(['dashboard.json']);
     // No source exists: its identity is still retained for a frontend placeholder, without credential reads.
     const cleared = saveDashboardSettings(f.config, [], readDashboardSettings(f.config).revision);
@@ -141,5 +141,51 @@ test('cross-process dashboard writers cannot both publish the same revision and 
     expect(await reader.exited).toBe(0); expect(await new Response(reader.stderr).text()).toBe('');
     expect(JSON.parse(await new Response(reader.stdout).text())).toEqual(published);
     expect(fs.readdirSync(f.config.deviceHome)).toEqual(['dashboard.json']);
+  } finally { f.close(); }
+});
+
+test('quick actions projects v1-v5 read-only and v6 saves retain unrelated selection and layout', () => {
+  for (const version of [1, 2, 3, 4, 5]) {
+    const f = fixture();
+    try {
+      fs.mkdirSync(f.config.deviceHome, { recursive: true, mode: 0o700 });
+      const data = { version, cards: [card()] };
+      if (version >= 2) Object.assign(data, { hidden_projects: ['a'.repeat(16)], layout: [{ id: 'widget:quick-actions', x: 6, y: 30, w: 6, h: 10 }], content: [] });
+      if (version < 4 && data.layout) data.layout = [];
+      if (version >= 3) data.account_view = 'tiles';
+      if (version >= 4) data.widgets = [];
+      if (version >= 5) data.diagnostics = false;
+      const source = JSON.stringify(data); fs.writeFileSync(f.file, source, { mode: 0o600 });
+      const before = readDashboardSettings(f.config);
+      expect(before.version).toBe(6); expect(before.quick_actions).toBe(true);
+      expect(fs.readFileSync(f.file, 'utf8')).toBe(source);
+      const next = saveDashboardSettings(f.config, { quick_actions: false }, before.revision);
+      expect(next).toEqual({ ...before, quick_actions: false, revision: next.revision });
+      expect(next.revision).not.toBe(before.revision);
+      expect(() => saveDashboardSettings(f.config, { quick_actions: true }, before.revision)).toThrow('revision changed');
+      expect(readDashboardSettings(f.config)).toEqual(next);
+      expect(JSON.parse(fs.readFileSync(f.file, 'utf8')).version).toBe(6);
+    } finally { f.close(); }
+  }
+});
+
+test('quick actions rejects non-booleans, missing v6 fields and concurrent stale layout patches', async () => {
+  const f = fixture();
+  try {
+    const before = readDashboardSettings(f.config);
+    for (const value of [null, 0, 1, 'false', {}, []]) expect(() => saveDashboardSettings(f.config, { quick_actions: value }, before.revision)).toThrow();
+    expect(fs.existsSync(f.config.deviceHome)).toBe(false);
+    const saved = saveDashboardSettings(f.config, { quick_actions: false }, before.revision);
+    const module = path.resolve('src/core/dashboard-settings.js');
+    const children = [true, false].map((quick_actions, i) => Bun.spawn([process.execPath, '--eval', `
+      import {saveDashboardSettings} from ${JSON.stringify(module)};
+      try { saveDashboardSettings(${JSON.stringify(f.config)}, {quick_actions:${quick_actions},layout:[{id:'widget:quick-actions',x:0,y:${i},w:6,h:10}]}, '${saved.revision}'); console.log('saved'); }
+      catch { console.log('rejected'); }
+    `], { stdout: 'pipe', stderr: 'pipe' }));
+    const results = await Promise.all(children.map(async child => { expect(await child.exited).toBe(0); return (await new Response(child.stdout).text()).trim(); }));
+    expect(results.sort()).toEqual(['rejected', 'saved']);
+    const data = JSON.parse(fs.readFileSync(f.file, 'utf8')); delete data.quick_actions;
+    fs.writeFileSync(f.file, JSON.stringify(data));
+    expect(() => readDashboardSettings(f.config)).toThrow('cannot be safely read');
   } finally { f.close(); }
 });

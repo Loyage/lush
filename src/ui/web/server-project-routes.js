@@ -300,8 +300,11 @@ export async function projectRoutes(context, projectHost, staticAssets) {
       check(!url.search, 'project maintenance accepts no query parameters');
       check(isPlainObject(body) && Object.keys(body).every(key => ['method','params'].includes(key)),
         'project maintenance action accepts only method and params');
-      check(params === undefined || isPlainObject(params) && Object.keys(params).length === 0,
-        'project maintenance params must be an empty object; paths and agent tokens are not accepted');
+      check(params === undefined || isPlainObject(params) && !Object.hasOwn(params, '_token'),
+        'project maintenance params must be an object without agent tokens');
+      assertAllowed(method, params ?? {}, null);
+      check(params?.notify_completion === undefined || typeof params.notify_completion === 'boolean',
+        'notify_completion must be boolean');
     }
     if (['branch.integrate_start','branch.integrate_cancel','branch.integrate_retry'].includes(method)) {
       check(!url.search, 'branch integration action accepts no query parameters');

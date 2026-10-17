@@ -254,7 +254,7 @@ try {
   assert(readDashboardSettings({ deviceHome: deviceSettings.config.home }).cards.length === 0, 'card settings published before page save');
   await click('.dashboard-layout-save');
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
-  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelector('[data-board-color="rose"]')&&document.querySelector('.dashboard-diagnostics-card')`);
+  await until(`document.querySelectorAll('.project-board-card').length===4&&document.querySelector('[data-board-color="rose"]')&&document.querySelector('.dashboard-diagnostics-card')&&document.querySelector('.dashboard-quick-actions-card')`);
   assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), 'dashboard mixed cards or non-editing boundary failed');
   await click('.dashboard-layout-edit');
   const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-accounts-group .project-board-resize[data-corner="east"]' });
@@ -288,7 +288,7 @@ try {
   try {
     // This independent session has no primary-session BiDi socket; native desktop sizing suffices.
     await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 }); await login('/#projects');
-    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===3&&document.querySelector('.dashboard-diagnostics-card')`);
+    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===4&&document.querySelector('.dashboard-diagnostics-card')&&document.querySelector('.dashboard-quick-actions-card')`);
     assert(await evaluate(`document.querySelector('[data-widget-type="accounts"]').style.gridColumn===${JSON.stringify(sharedAccountColumn)}&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share device card selection and layout');
     await click('.dashboard-layout-edit'); await click('.dashboard-settings-open');
     await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
@@ -373,7 +373,7 @@ try {
   }
   richProjects = true;
   await resize(1440); await click('#projects-open');
-  await until(`document.querySelectorAll('.project-board-card').length===4&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')&&document.querySelector('.dashboard-diagnostics-card')`);
+  await until(`document.querySelectorAll('.project-board-card').length===5&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')&&document.querySelector('.dashboard-diagnostics-card')&&document.querySelector('.dashboard-quick-actions-card')`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
     await resize(width); await evaluate(`document.documentElement.dataset.theme='${theme}'`);
     assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.project-board-card,.dashboard-account-header,.dashboard-account-metric')].every(n=>n.scrollWidth<=n.clientWidth+1)&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), `assembled mixed dashboard overflow or management action at ${theme}/${width}`);

@@ -276,7 +276,7 @@ export async function openProjectManager({ push = true } = {}) {
   const controlsReady = Promise.all([import('./service-restart.js'), import('./project-development.js')]).then(([{ serviceRestartControls }, { projectDevelopment }]) => {
     if (!ownsPage()) return;
     list.renderDevelopment = projectDevelopment;
-    list.restartControls = serviceRestartControls({ ownsPage, changed: async () => {
+    list.restartControls = serviceRestartControls({ mode: 'management', ownsPage, changed: async () => {
       if (await refreshProjectList() === false) throw new Error('请显式刷新项目状态');
     } });
     ui.disposeServiceRestart = list.restartControls.dispose;

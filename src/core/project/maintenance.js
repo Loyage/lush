@@ -15,8 +15,10 @@ function state(project) {
   if (data.batch_id !== undefined && data.batch_id !== null) check(
     typeof data.batch_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.batch_id)
     && ['pending','completed','cancelled','unknown'].includes(data.completion_state)
+    && (data.notify_completion === undefined || typeof data.notify_completion === 'boolean')
     && (data.completion_state === 'completed'
-      ? Number.isSafeInteger(data.completion_notice_id) && data.completion_notice_id > 0
+      ? data.notify_completion === false ? data.completion_notice_id === null
+        : Number.isSafeInteger(data.completion_notice_id) && data.completion_notice_id > 0
       : data.completion_notice_id === null)
     && Array.isArray(data.participants) && data.participants.every(row => Number.isSafeInteger(row.id) && row.id > 0
       && typeof row.invocation_id === 'string' && (row.run_id === null || (Number.isSafeInteger(row.run_id) && row.run_id > 0))
@@ -56,11 +58,13 @@ export default {
       affected_count: data.affected.length,
       batch_id: data.batch_id ?? null, completion_state: data.completion_state ?? null,
       completion_notice_id: data.completion_notice_id ?? null,
+      notify_completion: data.batch_id ? data.notify_completion ?? true : null,
       blockers: [...(this.stopping ? ['项目后台正在停止'] : []), ...(activeCalls ? ['等待当前 Agent 或模型调用安全退出'] : []),
         ...groups.filter(([count]) => count > 0).map(([, reason]) => reason)] };
   },
 
-  interruptAll() {
+  interruptAll({ notify_completion = true } = {}) {
+    check(typeof notify_completion === 'boolean', 'notify_completion must be boolean');
     this.assertWritable('pause project Agents');
     check(!this.stopping, 'daemon is stopping');
     const previous = state(this);
@@ -79,7 +83,7 @@ export default {
           affected.push({ id, run_id: run.recordId ?? null });
       }
       save(this, { version: 1, paused: true, affected, participants, batch_id: batchId,
-        completion_state: 'pending', completion_notice_id: null });
+        completion_state: 'pending', completion_notice_id: null, notify_completion });
       this.store.event(null, 'maintenance.interrupted', { batch_id: batchId, affected_count: affected.length });
     });
     this.startMaintenanceMonitor();
@@ -197,12 +201,13 @@ export default {
       ?? this.store.get("SELECT id FROM tasks WHERE task_kind='owner' ORDER BY id LIMIT 1");
     if (!owner) return; // Do not create a root or mutate Git merely to publish an observation.
     this.store.transaction(() => {
-      const notice = this.notify(owner.id, '项目中断完成',
+      const notice = data.notify_completion === false ? null : this.notify(owner.id, '项目中断完成',
         `维护批次 ${data.batch_id} 已全部安全收尾，并在此时通过重启屏障。重启前仍须动态确认 ready_to_restart；本告知不是永久可重启许可。`);
-      data.completion_state = 'completed'; data.completion_notice_id = notice.id;
+      data.completion_state = 'completed'; data.completion_notice_id = notice?.id ?? null;
       save(this, data);
-      const source = this.store.event(owner.id, 'project.interrupted', { batch_id: data.batch_id, notice_id: notice.id });
-      this.store.run('UPDATE notices SET source_event_id=? WHERE id=?', source, notice.id);
+      const source = this.store.event(owner.id, 'project.interrupted', { batch_id: data.batch_id,
+        notice_id: notice?.id ?? null, notify_completion: data.notify_completion ?? true });
+      if (notice) this.store.run('UPDATE notices SET source_event_id=? WHERE id=?', source, notice.id);
       for (const root of this.store.all("SELECT id FROM tasks WHERE task_kind IN ('main','owner') AND hooks IS NOT NULL"))
         this.emitTaskHook(root.id, 'project.interrupted', source);
     });
@@ -273,7 +278,8 @@ export default {
     }
     this.store.transaction(() => {
       save(this, { ...empty(), batch_id: data.batch_id ?? null, participants: [],
-        completion_state: data.batch_id ? 'cancelled' : null, completion_notice_id: null });
+        completion_state: data.batch_id ? 'cancelled' : null, completion_notice_id: null,
+        ...(data.batch_id ? { notify_completion: data.notify_completion ?? true } : {}) });
       this.store.event(null, 'maintenance.resumed', { affected_count: data.affected.length });
     });
     // Existing persistent queues remain authoritative. Do not wake every idle

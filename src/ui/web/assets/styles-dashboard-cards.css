@@ -148,6 +148,18 @@
 .project-board .dashboard-project-navigation-slots a{min-width:0;min-height:44px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @container dashboard-project-footer (min-width:480px){.project-board:not(.project-board-editing) .dashboard-project-direct-links{display:flex}}
 
+/* Quick actions retain one controller while the grid redraws. Full progress is in the modal. */
+.dashboard-quick-actions-card .dashboard-widget-header{padding-right:0}
+.project-board-editing .dashboard-quick-actions-card .dashboard-widget-header{padding-right:92px}
+.project-board .dashboard-quick-actions-card .dashboard-widget-body{display:flex;flex-direction:column;min-height:0}
+.dashboard-quick-actions-controls{display:flex;flex-direction:column;gap:6px;min-width:0;min-height:0;flex:1}
+.dashboard-quick-actions-controls .settings-runtime-actions{display:flex;flex:none;gap:6px;margin:0;min-width:0}
+.dashboard-quick-actions-controls button{box-sizing:border-box;min-height:44px;max-width:100%;white-space:normal;font-size:12px}
+.dashboard-quick-actions-controls>[role="status"]{margin:0;min-width:0;min-height:0;max-height:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:18px;font-size:12px;overflow-wrap:anywhere}
+.dashboard-quick-actions-controls>.settings-error{color:var(--failed)}
+.dashboard-quick-actions-details-content{display:grid;gap:12px;min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap;font-size:12px}
+.dashboard-quick-actions-details-content p{margin:0;min-width:0}
+
 /* Diagnostics is a fixed grid occupant; graphs never resize neighboring cards. */
 .diagnostics-windows{display:grid;gap:4px;min-width:0}
 .diagnostics-window{display:grid;grid-template-columns:36px repeat(3,minmax(0,1fr));gap:5px;align-items:center;height:28px;min-width:0;font-variant-numeric:tabular-nums}

@@ -38,9 +38,14 @@ function maintenanceView(value) {
     || ![null,'pending','completed','cancelled','unknown'].includes(value.completion_state)
     || !(value.completion_notice_id === null || Number.isSafeInteger(value.completion_notice_id) && value.completion_notice_id > 0)
     || (value.completion_state === null) !== (value.batch_id === null)
-    || value.completion_state === 'completed' && value.completion_notice_id === null) return null;
+    || !(value.notify_completion === undefined || value.notify_completion === null && value.batch_id === null
+      || typeof value.notify_completion === 'boolean')
+    || value.completion_state !== 'completed' && value.completion_notice_id !== null
+    || value.completion_state === 'completed' && (value.notify_completion === false
+      ? value.completion_notice_id !== null : value.completion_notice_id === null)) return null;
   return { paused: value.paused, phase: value.phase, ready_to_restart: value.ready_to_restart,
-    batch_id: value.batch_id, completion_state: value.completion_state, completion_notice_id: value.completion_notice_id };
+    batch_id: value.batch_id, completion_state: value.completion_state, completion_notice_id: value.completion_notice_id,
+    ...(value.notify_completion !== undefined ? { notify_completion: value.notify_completion } : {}) };
 }
 
 async function readProjectSummary(client) {

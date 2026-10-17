@@ -56,27 +56,28 @@ try {
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   const context = await rpc(`/session/${session}/window`, undefined, 'GET');
-  for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
+  for (const notify of [true, false]) for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await bidi('browsingContext.setViewport', { context, viewport: { width, height: 900 }, devicePixelRatio: 1 });
     const result = await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0]; (async()=>{
       const {serviceRestartControls}=await import('/assets/service-restart.js');
       const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       const until=async fn=>{for(let n=0;n<100;n++){if(fn())return;await wait(10)}throw new Error('reminder did not settle')};
       document.documentElement.dataset.theme=${JSON.stringify(theme)};
-      const A='aaaaaaaaaaaaaaaa',B='bbbbbbbbbbbbbbbb';
+      const A='aaaaaaaaaaaaaaaa',B='bbbbbbbbbbbbbbbb',notify=${notify};
       const maintenance=(id,ready=false)=>({paused:true,phase:ready?'paused':'pausing',ready_to_restart:ready,
-        batch_id:'00000000-0000-4000-8000-'+(id===A?'000000000001':'000000000002'),completion_state:ready?'completed':'pending',completion_notice_id:ready?7:null});
+        batch_id:'00000000-0000-4000-8000-'+(id===A?'000000000001':'000000000002'),completion_state:ready?'completed':'pending',completion_notice_id:ready&&notify?7:null,notify_completion:notify});
       const rows=()=>[A,B].map(id=>({id,name:'测试项目',project:'/tmp/'+id,running:true,summary:{maintenance:maintenance(id)}}));
       let state=rows(),calls=[],permissionCalls=0;
       Notification.requestPermission=()=>{permissionCalls++;throw new Error('must not request notification permission')};
       const section=serviceRestartControls({confirm:async()=>true,schedule:(fn,ms)=>setTimeout(fn,ms===0?0:10),request:async(url,opts)=>{
-        calls.push({url,method:opts?.method});
+        calls.push({url,method:opts?.method,body:opts?.body});
         if(url==='/api/host')return {restart_supported:true,pid:1};
         if(url==='/api/host/projects')return {projects:state};
         if(opts?.method==='POST' && url.endsWith('/api/action'))return maintenance(url.includes(A)?A:B);
         throw new Error('unexpected write '+url);
       }});
       const main=document.querySelector('main');main.replaceChildren(section.root);await section.ready;section.updateProjects(state);
+      section.root.querySelector('.settings-runtime-manual').open=true;
       await section.root.querySelector('[data-service-restart="pause"]').onclick();
       await until(()=>section.root.textContent.includes('当前 0/2'));
       if(section.root.querySelector('.maintenance-ready'))throw new Error('ACK was treated as completion');
@@ -90,11 +91,11 @@ try {
       resume.focus();if(document.activeElement!==resume)throw new Error('keyboard focus unavailable');
       state[1].summary.maintenance.ready_to_restart=false;await until(()=>!section.root.querySelector('.maintenance-ready'));
       section.dispose();const count=calls.length;await wait(40);
-      if(calls.length!==count||calls.filter(c=>c.method==='POST').length!==2||permissionCalls)throw new Error('cleanup or write/permission boundary failed');
+      if(calls.length!==count||calls.filter(c=>c.method==='POST').length!==2||calls.filter(c=>c.method==='POST').some(c=>JSON.stringify(JSON.parse(c.body).params)!=='{}')||permissionCalls)throw new Error('cleanup or write/permission boundary failed');
       return true;
     })().then(done,error=>done({error:error.message}));` });
-    assert(result === true, `Firefox batch ${theme}/${width}: ${JSON.stringify(result)}`);
-    console.log(`PASS batch pending → ready → busy, exact scope/no extra writes, cleanup, keyboard, ${theme}/${width}`);
+    assert(result === true, `Firefox batch ${theme}/${width}/notify=${notify}: ${JSON.stringify(result)}`);
+    console.log(`PASS batch pending → ready → busy, exact scope/no extra writes, cleanup, keyboard, ${theme}/${width}/notify=${notify}`);
   }
   passed = true;
 } finally {

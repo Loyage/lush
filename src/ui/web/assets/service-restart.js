@@ -8,7 +8,8 @@ import { safeRestartFlow, safeRestartHelp } from './safe-restart-flow.js';
 
 // One foreground operation, including confirmation, across overview generations.
 let restarting = false;
-let paintCurrent = () => {};
+const painters = new Set();
+const paintAll = () => { for (const paint of painters) paint(); };
 const POST = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' };
 const login = () => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
 const projectName = row => `${row.name || '未命名项目'}（${row.project || row.id}）`;
@@ -18,7 +19,10 @@ const uuid = value => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-
 const validBatch = value => value && typeof value.paused === 'boolean' && typeof value.ready_to_restart === 'boolean'
   && ['running', 'pausing', 'paused'].includes(value.phase) && uuid(value.batch_id)
   && ['pending', 'completed', 'cancelled', 'unknown'].includes(value.completion_state)
-  && (value.completion_notice_id === null || positiveId(value.completion_notice_id));
+  && (value.notify_completion === undefined || typeof value.notify_completion === 'boolean')
+  && (value.completion_state === 'completed'
+    ? value.notify_completion === false ? value.completion_notice_id === null : positiveId(value.completion_notice_id)
+    : value.completion_notice_id === null);
 
 // ACKs identify accepted batches only. Readiness always comes from a fresh source observation.
 function sourceRows(planned, rows) {
@@ -44,7 +48,7 @@ function observeBatch(batch, rows) {
     if (!validBatch(maintenance)) throw new Error(`${projectName(row)} 缺少有效批次字段（旧后台或状态未知）`);
     if (!maintenance.paused || maintenance.batch_id !== ack.batch_id
       || ['cancelled', 'unknown'].includes(maintenance.completion_state)) throw new Error(`${projectName(row)} 批次已变化、撤销或结果未知`);
-    if (maintenance.completion_state === 'completed' && positiveId(maintenance.completion_notice_id) && maintenance.ready_to_restart) ready++;
+    if (maintenance.completion_state === 'completed' && maintenance.ready_to_restart) ready++;
   }
   return ready;
 }
@@ -70,12 +74,17 @@ export async function waitForHostRestart(pid, { fetchHost = () => fetch('/api/ho
 }
 
 /** Global overview controls. Project identities are explicit, never the current page's project. */
-export function serviceRestartControls({ request = api, confirm = confirmDialog, recover = waitForHostRestart,
+export function serviceRestartControls({ mode = 'management', canAct = () => true, request = api, confirm = confirmDialog, recover = waitForHostRestart,
   reload = () => location.reload(), ownsPage = () => true, changed = async () => {},
   schedule = (fn, ms) => setTimeout(fn, ms), unschedule = id => clearTimeout(id), now = Date.now,
   observationTimeout = 15 * 60 * 1000 } = {}) {
-  const root = block('服务重启'); root.classList.add('workbench-service-restart');
-  root.append(el('p', '一键安全重启：中断 → 等待真实安全退出 → 重启全部后台 → 继续本次新暂停的项目 → 重启界面。保留原维护暂停，不启动离线项目。等待最多 15 分钟；失败或未知立即停止，离页停止后续操作，界面重启可能需要重新登录。', 'settings-note'));
+  if (!['management', 'quick_actions'].includes(mode)) throw new TypeError('invalid restart controls mode');
+  const quick = mode === 'quick_actions';
+  const root = quick ? el('div', undefined, 'dashboard-quick-actions-controls') : block('服务重启');
+  if (!quick) {
+    root.classList.add('workbench-service-restart');
+    root.append(el('p', '独立重启界面或展开手动维护；一键安全重启已移至全局总览的快捷操作卡片。', 'settings-note'));
+  }
   const status = el('p', '正在读取界面服务状态…', 'settings-note');
   status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const actions = el('div', undefined, 'settings-runtime-actions');
@@ -89,7 +98,7 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     if (timer !== null) unschedule(timer);
     timer = null; probe?.abort(); probe = null;
   };
-  const dispose = () => { disposed = true; lifetime.abort(); stopObservation(); globalThis.removeEventListener?.('pagehide', dispose); };
+  const dispose = () => { disposed = true; lifetime.abort(); stopObservation(); painters.delete(paint); globalThis.removeEventListener?.('pagehide', dispose); };
   globalThis.addEventListener?.('pagehide', dispose);
   const stopped = reason => {
     stopObservation();
@@ -149,28 +158,34 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     button.setAttribute('data-help', help); wrapper.append(button);
     return { wrapper, button };
   };
-  const safeControl = wrap('一键安全重启', 'safe', safeRestartHelp);
-  safeControl.button.className = 'agent-call';
-  const hostControl = wrap('重启界面服务', 'host', hostHelp);
-  const allControl = wrap('全部重启', 'all', allHelp);
-  const pauseControl = wrap('全部中断', 'pause', pauseHelp);
-  const resumeControl = wrap('全部继续', 'resume', resumeHelp);
-  resumeControl.button.className = 'agent-call';
-  actions.append(safeControl.wrapper, hostControl.wrapper);
-  const manual = el('details', undefined, 'settings-runtime-manual');
-  manual.append(el('summary', '手动维护'));
-  const manualActions = el('div', undefined, 'settings-runtime-actions');
-  manualActions.append(pauseControl.wrapper, allControl.wrapper, resumeControl.wrapper); manual.append(manualActions);
-  root.append(actions, manual, status);
+  const safeControl = quick ? wrap('一键安全重启', 'safe', safeRestartHelp) : null;
+  const hostControl = quick ? null : wrap('重启界面服务', 'host', hostHelp);
+  const allControl = quick ? null : wrap('全部重启', 'all', allHelp);
+  const pauseControl = quick ? null : wrap('全部中断', 'pause', pauseHelp);
+  const resumeControl = quick ? null : wrap('全部继续', 'resume', resumeHelp);
+  if (quick) {
+    safeControl.button.className = 'agent-call';
+    actions.append(safeControl.wrapper); root.append(actions, status);
+  } else {
+    resumeControl.button.className = 'agent-call'; actions.append(hostControl.wrapper);
+    const manual = el('details', undefined, 'settings-runtime-manual');
+    manual.append(el('summary', '手动维护'));
+    const manualActions = el('div', undefined, 'settings-runtime-actions');
+    manualActions.append(pauseControl.wrapper, allControl.wrapper, resumeControl.wrapper); manual.append(manualActions);
+    root.append(actions, manual, status);
+  }
   const paint = () => {
     const unsupported = host?.restart_supported !== true;
-    hostControl.button.disabled = allControl.button.disabled = safeControl.button.disabled = restarting || unsupported;
-    safeControl.wrapper.setAttribute('data-help', restarting || unsupported ? agentHelp(restarting ? '正在处理后台控制请求，请稍候。' : unsupportedHelp) : safeRestartHelp);
-    safeControl.wrapper.tabIndex = restarting || unsupported ? 0 : -1;
-    hostControl.wrapper.setAttribute('data-help', unsupported ? unsupportedHelp : hostHelp);
-    allControl.wrapper.setAttribute('data-help', unsupported ? unsupportedHelp : allHelp);
-    for (const [control, help] of [[pauseControl, pauseHelp], [resumeControl, resumeHelp]]) {
-      const reason = restarting ? '正在处理后台控制请求，请稍候。' : !projects ? '尚未读取项目列表，请刷新项目状态后再操作。'
+    const blocked = !canAct();
+    for (const control of [hostControl, allControl, safeControl].filter(Boolean)) {
+      control.button.disabled = restarting || unsupported || blocked;
+      const reason = blocked ? '请先保存或取消编辑，再开始维护操作。' : restarting ? '正在处理后台控制请求，请稍候。' : unsupported ? unsupportedHelp : null;
+      const help = control === safeControl ? safeRestartHelp : control === hostControl ? hostHelp : allHelp;
+      control.wrapper.setAttribute('data-help', reason ? control === safeControl ? agentHelp(reason) : reason : help);
+      control.wrapper.tabIndex = reason ? 0 : -1;
+    }
+    for (const [control, help] of [[pauseControl, pauseHelp], [resumeControl, resumeHelp]].filter(([control]) => control)) {
+      const reason = blocked ? '请先保存或取消编辑，再开始维护操作。' : restarting ? '正在处理后台控制请求，请稍候。' : !projects ? '尚未读取项目列表，请刷新项目状态后再操作。'
         : !projects.some(online) ? '没有已确认在线的项目；请显式启动或刷新状态，不会自动启动离线项目。' : null;
       control.button.disabled = Boolean(reason);
       control.wrapper.setAttribute('data-help', reason ? control === resumeControl ? agentHelp(reason) : reason : help);
@@ -178,22 +193,22 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     }
     for (const entry of entries.values()) {
       const unavailable = !entry.present || !online(entry.row);
-      entry.button.disabled = restarting || unavailable;
+      entry.button.disabled = restarting || unavailable || blocked;
       entry.wrapper.setAttribute('data-help', unavailable ? '此项目后台未运行、不可达或已移除；请显式启动或刷新确认状态后再重启。' : daemonHelp);
     }
   };
-  paintCurrent = paint;
+  painters.add(paint);
   const checkPage = () => {
-    if (!active()) throw new Error('已离开项目管理；未继续执行后续操作。请回到项目管理核对状态。');
+    if (!active()) throw new Error('已离开维护入口；未继续执行后续操作。已发送的请求仍可能生效，请核对来源状态。');
     if (operationScope) sourceRows(operationScope, projects);
   };
   const post = async (route, body = POST.body) => { checkPage(); return request(route, { ...POST, body, signal: AbortSignal.timeout(30000) }); };
   const run = async (target, entry = null) => {
     const maintenance = target === 'pause' || target === 'resume';
     const verb = target === 'pause' ? '中断' : '继续';
-    if (!active() || restarting || (maintenance ? !projects?.some(online) : target !== 'daemon' && host?.restart_supported !== true)
+    if (!active() || !canAct() || restarting || (maintenance ? !projects?.some(online) : target !== 'daemon' && host?.restart_supported !== true)
       || (entry && (!entry.present || !online(entry.row)))) return;
-    restarting = true; paint();
+    restarting = true; paintAll();
     const completed = [];
     let planned = [], current = null, hostAttempted = false;
     try {
@@ -276,11 +291,11 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
             : `后续 ${planned.length - completed.length} 个项目未执行。`} ${error.message} 未重启任何服务。${target === 'pause' ? '不能确认全部安全中断且可重启，' : ''}请刷新核对状态，不自动重试或撤销已接受的请求。`
           : `${done} ${failed} ${error.message} 请核对状态后再操作，不要盲目重复重启已完成的后台。`;
       }
-    } finally { operationScope = null; restarting = false; paint(); paintCurrent(); }
+    } finally { operationScope = null; restarting = false; paintAll(); }
   };
-  safeControl.button.onclick = async () => {
-    if (!active() || restarting || host?.restart_supported !== true) return;
-    restarting = true; paint(); stopObservation(); statusTouched = true;
+  if (safeControl) safeControl.button.onclick = async () => {
+    if (!active() || !canAct() || restarting || host?.restart_supported !== true) return;
+    restarting = true; paintAll(); stopObservation(); statusTouched = true;
     try {
       const result = await safeRestartFlow({
         request: async (route, options) => {
@@ -298,10 +313,14 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
         status.className = result.error ? 'settings-error' : 'settings-note';
         status.textContent = result.cancelled ? '一键安全重启已取消，未执行本次写入；此前已接受的维护请求保留，旧观测已停止，请刷新核对来源状态。' : result.message;
       }
-    } finally { operationScope = null; restarting = false; paint(); paintCurrent(); }
+    } catch (error) {
+      if (active()) { status.className = 'settings-error'; status.textContent = `一键安全重启失败／结果未确认：${error.message}。已发送请求仍可能生效，请核对来源状态，不自动重试或撤销。`; }
+    } finally { operationScope = null; restarting = false; paintAll(); }
   };
-  hostControl.button.onclick = () => run('host'); allControl.button.onclick = () => run('all');
-  pauseControl.button.onclick = () => run('pause'); resumeControl.button.onclick = () => run('resume');
+  if (!quick) {
+    hostControl.button.onclick = () => run('host'); allControl.button.onclick = () => run('all');
+    pauseControl.button.onclick = () => run('pause'); resumeControl.button.onclick = () => run('resume');
+  }
   const projectControl = row => {
     projectHref(row.id);
     let entry = entries.get(row.id);
@@ -343,5 +362,6 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     if (!restarting && !statusTouched) { status.className = 'settings-error'; status.textContent = `无法读取界面服务状态：${error.message}`; }
     paint();
   });
-  return { root, projectControl, updateProjects, ready, dispose };
+  return { root, status, updateProjects, ready, dispose, sync: paint,
+    ...(quick ? {} : { projectControl }) };
 }

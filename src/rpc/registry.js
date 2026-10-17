@@ -10,7 +10,7 @@ export const PARAMS = {
   ...Object.fromEntries(Object.entries(RUNNER_METHODS).map(([method, spec]) => [method, spec.params])),
   'cli.catalog': [],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
-  'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': [], 'system.resume_all': [],
+  'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': ['notify_completion'], 'system.resume_all': [],
   'settings.clear_override': ['kind','target'], 'settings.migration.preview': [], 'settings.migration.apply': ['revision','confirm'],
   'agent.config': ['scope'], 'agent.models': ['agent','scope'], 'agent.resources': ['scope'], 'agent.status': ['scope'], 'agent.configure': ['config','scope'],
   'agent.network': ['scope'], 'agent.network.configure': ['config','scope'],

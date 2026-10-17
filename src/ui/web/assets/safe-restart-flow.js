@@ -3,6 +3,8 @@ import { agentHelp } from './help.js';
 
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
 const uuid = value => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
+const completed = value => value.completion_state === 'completed'
+  && (value.notify_completion === false ? value.completion_notice_id === null : positiveId(value.completion_notice_id));
 const name = row => `${row.name || '未命名项目'}（${row.project || row.id}）`;
 export const safeRestartHelp = agentHelp('一次确认后，中断此 Host 已登记且确认时在线的固定项目，最多等待 15 分钟真实安全退出，逐个安全重启全部后台；全部成功才继续本次新暂停的项目，保留原维护暂停，最后重启界面。原个人暂停、待开始、失败、待验收及父子等待关系不变。不启动离线项目；失败或结果未知立即停止，不重试、撤销或强杀。离页停止后续操作；界面重启可能要求重新登录，请先保存输入。');
 
@@ -18,7 +20,8 @@ function maintenance(row) {
     && (value.completion_notice_id === null || positiveId(value.completion_notice_id));
   if ((!empty && !batch) || (value.paused && (!batch || value.phase === 'running' || value.completion_state === 'cancelled'))
     || (!value.paused && (value.phase !== 'running' || (!empty && value.completion_state !== 'cancelled')))
-    || (value.completion_state === 'completed' && !positiveId(value.completion_notice_id))
+    || !(value.notify_completion === undefined || value.notify_completion === null && empty || typeof value.notify_completion === 'boolean')
+    || (value.completion_state === 'completed' && !completed(value))
     || (value.completion_state === 'pending' && value.completion_notice_id !== null)) {
     throw new Error(`${name(row)} 批次字段缺失、撤销或结果未知`);
   }
@@ -71,7 +74,7 @@ export async function safeRestartFlow({ request, confirm, checkPage, signal, rec
       if (!source || source.project !== record.row.project || source.running !== true || source.error) throw new Error(`${name(record.row)} 来源不可达、已移除或路径变化`);
       const value = maintenance(source), expected = record.batch;
       if (expected) {
-        if (value.batch_id !== expected.batch_id || value.paused !== !record.resumed
+        if (value.batch_id !== expected.batch_id || value.notify_completion !== expected.notify_completion || value.paused !== !record.resumed
           || (!record.resumed && value.completion_state === 'cancelled')) throw new Error(`${name(source)} 固定批次或暂停状态已变化`);
         if (record.resumed) {
           if (value.completion_state !== 'cancelled' || value.completion_notice_id !== null) throw new Error(`${name(source)} 继续结果未确认`);
@@ -81,6 +84,7 @@ export async function safeRestartFlow({ request, confirm, checkPage, signal, rec
         // Pin every fresh completion Notice, even while a dynamic blocker is still busy.
         if (!record.resumed && value.completion_state === 'completed') record.batch = { ...value };
       } else if (value.paused !== record.original.paused || value.batch_id !== record.original.batch_id
+        || value.notify_completion !== record.original.notify_completion
         || value.completion_state !== record.original.completion_state || value.completion_notice_id !== record.original.completion_notice_id) {
         throw new Error(`${name(source)} 确认时的原暂停状态或批次已变化`);
       }
@@ -90,7 +94,7 @@ export async function safeRestartFlow({ request, confirm, checkPage, signal, rec
   const ready = (record, map) => {
     if (record.resumed) return true;
     const value = maintenance(map.get(record.row.id));
-    return value.paused && value.completion_state === 'completed' && positiveId(value.completion_notice_id) && value.ready_to_restart;
+    return value.paused && completed(value) && value.ready_to_restart;
   };
   const requireReady = map => {
     if (!records.every(record => ready(record, map))) throw new Error('固定范围当前不再全部安全中断且可重启');
@@ -124,11 +128,12 @@ export async function safeRestartFlow({ request, confirm, checkPage, signal, rec
       if (record.original.paused) continue;
       current = record; progress(`正在中断 ${name(record.row)}…`);
       await hostCheck(); await snapshot(); check();
-      const ack = await write(projectHref(record.row.id, '/api/action'), { method: 'system.interrupt_all', params: {} });
+      const ack = await write(projectHref(record.row.id, '/api/action'), { method: 'system.interrupt_all', params: { notify_completion: false } });
       record.interrupted = true;
       const value = maintenance({ ...record.row, summary: { maintenance: ack } });
-      if (!value.paused || value.batch_id === record.original.batch_id) throw new Error('中断请求没有确认新的维护暂停批次');
-      // ACK pins the batch, not readiness or the final Notice. Pin completion on a fresh read.
+      if (!value.paused || value.batch_id === record.original.batch_id || value.notify_completion !== false)
+        throw new Error('中断请求没有确认新的静默维护暂停批次');
+      // ACK pins the batch and its persisted policy, never readiness. Confirm completion on a fresh read.
       record.batch = { ...value, completion_notice_id: null }; current = null;
     }
     stage = '等待安全退出'; const deadline = now() + observationTimeout;

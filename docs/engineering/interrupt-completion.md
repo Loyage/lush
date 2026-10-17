@@ -18,16 +18,19 @@
 |---|---|
 | `batch_id` | 当前批次 UUID 或 null，不能以 Worker／Notice 整数代替 |
 | `completion_state` | `pending`、`completed`、`cancelled`、`unknown` 或 null |
-| `completion_notice_id` | 已确认完成的来源 info Notice 整数 ID，或 null |
+| `completion_notice_id` | 默认批次已确认完成的来源 info Notice 整数 ID；显式静默批次完成时仍为 null |
+| `notify_completion` | 本批次持久化的内置项目完成告知选择；无批次为 null，历史批次缺值按 true |
 
-项目完成 Notice 关联 main，完成证据持久保存。原 `paused`、`phase`、`ready_to_restart` 等字段保留；批次完成与动态就绪分离，新操作可能使旧通知不再代表当前可重启，重启入口必须原子重核安全门。旧状态无批次时返回 null，不回填假成功证据。
+`system.interrupt_all {notify_completion?: boolean}` 默认 true，手动全部中断保持生成内置「项目中断完成」info Notice；一键安全重启显式传 false。该选择随固定批次持久保存；维护门已关闭时重复请求仅返回原批次，不改写原选择。completed/null 仅有显式 `notify_completion=false` 证据时合法，缺字段或未知结果不可推断为静默成功。只抑制该内置项目 Notice，不删除历史、不移除 Worker 中断告知或用户自装 Hook；`project.interrupted` 事件及用户纯告知 Hook 仍正常发射，事件保留选择与可空 Notice ID。
+
+默认项目完成 Notice 关联 main，完成证据持久保存。原 `paused`、`phase`、`ready_to_restart` 等字段保留；批次完成与动态就绪分离，新操作可能使旧通知不再代表当前可重启，重启入口必须原子重核安全门。旧状态无批次时返回 null，不回填假成功证据。
 
 继续／撤销使批次 cancelled，不能让旧结果匹配新批次；失败、取消或崩溃未知现场不发成功告知。未确认的 pending 批次重启后为 unknown，不自动重放未知副作用。读取投影无执行或写入副作用。
 
 ## 全局提醒
 
-Host `/api/host/projects` 的 `summary.maintenance` 只白名单投影 `paused`、`phase`、`ready_to_restart` 及三个新字段，保留兼容 `maintenance_paused`；缺失／畸形字段不提供完成证据，旧 daemon 仍可显示在线。Host 不保存 Worker 权威事实，不启动离线后台。
+Host `/api/host/projects` 的 `summary.maintenance` 只白名单投影 `paused`、`phase`、`ready_to_restart` 及批次、完成状态、Notice ID、`notify_completion` 字段，保留兼容 `maintenance_paused`；缺失／畸形字段不提供完成证据，旧 daemon 仍可显示在线。Host 不保存 Worker 权威事实，不启动离线后台。
 
-浏览器确认固定登记在线范围、逐项提交并保存批次 ACK，随后单飞有界只读观察（请求 10 秒、间隔 2 秒、总计最多 15 分钟）。全部就绪要求每个固定项目在线、路径身份匹配、`paused=true`、批次与 ACK 一致、`completion_state=completed`、告知 ID 合法且动态 `ready_to_restart=true`；不纳入后来上线项目，也不以 ACK 代替新鲜观测。
+浏览器确认固定登记在线范围、逐项提交并保存批次 ACK，随后单飞有界只读观察（请求 10 秒、间隔 2 秒、总计最多 15 分钟）。全部就绪要求每个固定项目在线、路径身份匹配、`paused=true`、批次与 ACK 一致、`completion_state=completed`、完成证据合法（默认批次告知 ID 合法，显式静默批次 `notify_completion=false` 且告知 ID 为 null）且动态 `ready_to_restart=true`；不纳入后来上线项目，也不以 ACK 代替新鲜观测。
 
 部分失败／超时、移除、不可达、旧后台、批次变化／撤销或 unknown 不报全部完成，不自动重发写操作。离页停止观察，代次保护忽略旧响应；就绪后继续观察以撤下再次忙碌的提醒。提醒遵守页面告知偏好，不自动重启／继续；关闭页面不承诺推送，来源 Notice 留存。

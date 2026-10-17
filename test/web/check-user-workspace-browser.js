@@ -109,7 +109,7 @@ try {
   assert(ready, 'geckodriver startup timed out');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
-  assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled`), 'root boot failed');
+  assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled&&document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'root boot failed');
   const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null });
@@ -120,8 +120,20 @@ try {
     for (const [id, view] of pages) {
       await execute(`document.getElementById('${id}-open').click()`);
       assert(await wait(`document.getElementById('detail').dataset.view==='${view}'&&!document.getElementById('detail').textContent.includes('正在加载页面')`), `global ${id} chunk failed`);
+      if (view === 'projects') assert(await wait(`document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'dashboard initial read not settled');
       assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&!document.querySelector('button a')&&document.getElementById('composer-shell').hidden&&document.documentElement.dataset.lushSpace==='global'`), `global ${id} layout or partition failed at ${width}/${theme}`);
     }
+    await execute(`document.getElementById('projects-open').click()`);
+    assert(await wait(`document.querySelector('[data-service-restart="safe"]')&&!document.querySelector('[data-service-restart="safe"]').disabled`), 'overview quick action missing');
+    const safeBefore = restartWrites.length, safeActionsBefore = world.state.actions.length;
+    assert(await execute(`const safe=document.querySelector('[data-service-restart="safe"]');return safe.classList.contains('agent-call')&&safe.dataset.help.includes('token')&&safe.closest('.dashboard-quick-actions-card')&&!document.querySelector('[data-service-restart="host"]')`), 'one-click Agent entry is not independent');
+    const safeButton = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-service-restart="safe"]' });
+    await rpc(`/session/${session}/element/${safeButton['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE007' });
+    assert(await wait(`document.getElementById('modal').textContent.includes('一键安全重启？')`), 'one-click keyboard confirmation did not open');
+    assert(await execute(`const modal=document.getElementById('modal'),confirm=modal.querySelector('.agent-call');return modal.textContent.includes('/tmp/demo')&&modal.textContent.includes('1 个在线项目')&&modal.textContent.includes('本次暂停')&&confirm.dataset.help.includes('token')`), 'one-click confirmation lost scope or Agent cost');
+    await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click()`);
+    assert(await wait(`!document.querySelector('[data-service-restart="safe"]').disabled`), 'one-click cancellation did not unlock');
+    assert(restartWrites.length === safeBefore && world.state.actions.length === safeActionsBefore, 'cancelled one-click flow wrote a mutation');
     await execute(`document.getElementById('project-management-open').click()`);
     assert(await wait(`document.querySelector('.project-order > button')`), 'backend overview has no source instruction entry');
     await execute(`document.querySelector('.project-order > button').click()`);
@@ -133,15 +145,8 @@ try {
     assert(await wait(`document.querySelector('[data-service-restart="host"]')&&!document.querySelector('[data-service-restart="host"]').disabled&&!document.querySelector('[data-service-restart="daemon"]').disabled`), 'overview restart controls did not mount');
     assert(await execute(`return document.querySelector('[data-service-restart="daemon"]').closest('.project-item')&&document.querySelector('[data-service-restart="host"]').closest('.workbench-service-restart')&&!document.querySelector('[data-service-restart="all"]').classList.contains('agent-call')&&document.querySelector('[data-service-restart="resume"]').classList.contains('agent-call')&&!document.querySelector('#project-maintenance')&&!Array.from(document.querySelectorAll('#detail a,#detail button')).some(node=>node.textContent==='处理消息')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `restart layout or scope failed at ${width}/${theme}`);
     assert(await execute(`const restart=document.querySelector('.workbench-service-restart'),list=document.querySelector('.project-manager-list'),tools=document.querySelector('.workbench-backend-tools');return restart.parentElement.lastElementChild===restart&&!tools.contains(restart)&&restart.getBoundingClientRect().top>=list.getBoundingClientRect().bottom&&restart.getBoundingClientRect().top>tools.getBoundingClientRect().bottom`), `restart controls are not separated at the bottom at ${width}/${theme}`);
-    const restartBefore = restartWrites.length, actionsBefore = world.state.actions.length;
-    assert(await execute(`const safe=document.querySelector('[data-service-restart="safe"]'),manual=document.querySelector('.settings-runtime-manual');return safe.classList.contains('agent-call')&&safe.dataset.help.includes('token')&&!safe.disabled&&!manual.open&&manual.contains(document.querySelector('[data-service-restart="all"]'))`), 'one-click Agent entry or default manual disclosure is wrong');
-    const safeButton = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-service-restart="safe"]' });
-    await rpc(`/session/${session}/element/${safeButton['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE007' });
-    assert(await wait(`document.getElementById('modal').textContent.includes('一键安全重启？')`), 'one-click keyboard confirmation did not open');
-    assert(await execute(`const modal=document.getElementById('modal'),confirm=modal.querySelector('.agent-call');return modal.textContent.includes('/tmp/demo')&&modal.textContent.includes('1 个在线项目')&&modal.textContent.includes('本次暂停')&&confirm.dataset.help.includes('token')`), 'one-click confirmation lost scope or Agent cost');
-    await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click()`);
-    assert(await wait(`!document.querySelector('[data-service-restart="safe"]').disabled`), 'one-click cancellation did not unlock');
-    assert(restartWrites.length === restartBefore && world.state.actions.length === actionsBefore, 'cancelled one-click flow wrote a mutation');
+    const restartBefore = restartWrites.length;
+    assert(await execute(`const manual=document.querySelector('.settings-runtime-manual');return !document.querySelector('[data-service-restart="safe"]')&&!manual.open&&manual.contains(document.querySelector('[data-service-restart="all"]'))`), 'project management duplicates one-click entry or manual disclosure is wrong');
     await click('.settings-runtime-manual > summary');
     assert(await execute(`return document.querySelector('.settings-runtime-manual').open&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), 'manual disclosure did not open or overflowed');
     // A real keyboard activation, not a direct call into the controller.

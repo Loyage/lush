@@ -53,7 +53,7 @@
 
 ## 中断完成节点
 
-目录新增 `worker.interrupted` 与 main／owner 的 `project.interrupted`，分别为本次用户安全中断真实退出、项目维护批次全部安全收尾；首版仅允许一次性／持续 `notify`，维护期间可执行纯告知，其它动作不可安装。节点不是 RPC，未新增任意事件发射权限；自动挂载及精确来源去重见[中断完成契约](../../engineering/interrupt-completion.md)。
+目录新增 `worker.interrupted` 与 main／owner 的 `project.interrupted`，分别为本次用户安全中断真实退出、项目维护批次全部安全收尾；首版仅允许一次性／持续 `notify`，维护期间可执行纯告知，其它动作不可安装。`system.interrupt_all` 的 `notify_completion=false` 仅抑制内置项目完成 Notice，不停用这些节点、Worker 中断告知或用户自装纯告知 Hook。节点不是 RPC，未新增任意事件发射权限；自动挂载及精确来源去重见[中断完成契约](../../engineering/interrupt-completion.md)。
 
 ## 快捷指令目录
 

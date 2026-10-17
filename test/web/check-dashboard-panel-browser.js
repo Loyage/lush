@@ -1,4 +1,4 @@
-// Compiled real panel + grid + private v5 writer, isolated controlled source APIs.
+// Compiled real panel + grid + private v6 writer, isolated controlled source APIs.
 // No user daemon/Host, real credentials, provider queries or model calls.
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -32,6 +32,17 @@ const question = { id: 19, task_id: 27, task_worker_number: 'W234-1', kind: 'que
 const infos = [20, 18, 16, 14, 12].map(id => ({ id, task_id: 27, task_worker_number: 'W234-1', kind: 'info', status: 'sent', source_event_id: id,
   read_at: null, title: `告知${id} ` + '变化信息'.repeat(60), body: '', created_at: '2026-10-01T00:00:00Z', sync_identity: id.toString(16).padStart(32, '0'), sync_epoch: 'e'.repeat(32), sync_revision: 1 }));
 let sourceState = 'normal', rejectRead = false, diagnosticsState = 'partial', diagnosticReads = 0;
+let restartPaused = false, restartReady = false, restartNotify = true, restartWrites = [];
+const restartError = '受控安全门拒绝：' + '完整异常来源诊断。'.repeat(120) + '异常末尾可见';
+const restartAccepted = new Set();
+const restartMaintenance = id => {
+  const paused = restartPaused && restartAccepted.has(id);
+  return { paused, phase: paused ? restartReady ? 'paused' : 'pausing' : 'running', ready_to_restart: paused && restartReady,
+    batch_id: paused ? '00000000-0000-4000-8000-000000000001' : null,
+    completion_state: paused ? restartReady ? 'completed' : 'pending' : null,
+    completion_notice_id: paused && restartReady && restartNotify ? 7 : null, notify_completion: paused ? restartNotify : null };
+};
+const restartRows = () => projects.map(row => ({ ...row, summary: { ...row.summary, maintenance: restartMaintenance(row.id) } }));
 function diagnosticSnapshot() {
   const generated_at = new Date().toISOString(), unavailable = diagnosticsState === 'none';
   return { version: 1, generated_at, currency: 'USD', estimated: true,
@@ -61,8 +72,19 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (path === '/') return new Response(entry.replace('<head>', '<head><script src="/fixture-errors.js"></script>'), { headers: { 'Content-Type': 'text/html', 'Content-Security-Policy': csp } });
   if (path.startsWith('/api/') || path.startsWith('/p/')) {
     calls.push({ path: path + url.search, method: req.method });
-    if (path === '/api/host') return Response.json({ mode: 'bound', projects, restart_supported: false });
-    if (path === '/api/host/projects') return Response.json({ projects });
+    if (path === '/api/host') return Response.json({ mode: 'bound', projects, restart_supported: true, pid: 123 });
+    if (path === '/api/host/projects') return Response.json({ projects: restartRows() });
+    if (req.method === 'POST' && (path.endsWith('/api/action') || path.endsWith('/api/service/restart') || path === '/api/host/restart')) {
+      const body = await req.json();
+      if (body.method === 'system.interrupt_all') {
+        if (!restartPaused) restartAccepted.clear();
+        const id = path.split('/')[2]; restartAccepted.add(id);
+        restartWrites.push({ path, body }); restartPaused = true; restartNotify = body.params.notify_completion !== false;
+        return Response.json(restartMaintenance(id));
+      }
+      if (path.endsWith('/api/service/restart')) { restartWrites.push({ path, body }); return Response.json({ error: restartError }, { status: 409 }); }
+      return Response.json({ error: 'unexpected mutation' }, { status: 500 });
+    }
     if (path === '/api/host/diagnostics') { diagnosticReads++; return diagnosticsState === 'error'
       ? Response.json({ error: '受控诊断错误' }, { status: 503 }) : Response.json(diagnosticSnapshot()); }
     if (path === '/api/host/dashboard') {
@@ -115,7 +137,7 @@ const assert = (value, message) => { if (!value) throw Error(message); };
 const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
 async function frame() { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); }
 async function screenshot(name) { await writeFile(join(output, name + '.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); }
-async function ready(count = 5) { assert(await wait(`document.querySelectorAll('.dashboard-widget').length===${count}&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('[data-card-id="aaaaaaaaaaaaaaaa"]').textContent.includes('读取中')`), 'panel ready timeout'); await settle(); }
+async function ready(count = 5) { assert(await wait(`document.querySelectorAll('.dashboard-widget').length===${count + 1}&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('[data-card-id="aaaaaaaaaaaaaaaa"]').textContent.includes('读取中')`), 'panel ready timeout'); await settle(); }
 async function containment(context) {
   const problems = await execute(`const problems=[],cards=[...document.querySelectorAll('.dashboard-widget')],rects=cards.map(c=>c.getBoundingClientRect());
     for(const [i,c] of cards.entries()){const r=rects[i],content=c.querySelector('.project-board-content');
@@ -136,11 +158,15 @@ try {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`${theme}/${width}`);
     assert(await execute(`return document.querySelectorAll('.dashboard-project-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/')&&getComputedStyle(a).flexWrap==='nowrap')&&document.querySelector('[data-card-id="${P}"] .dashboard-widget-body').getBoundingClientRect().height===436&&document.querySelector('[data-card-id="${P}"]').dataset.workerSlots==='3'&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'aggregate body/source links/two rows');
-    assert(await execute(`const nav=document.querySelector('[data-card-id="${P}"] .dashboard-project-direct-links');return nav.querySelectorAll('a').length===4&&(innerWidth!==1440||getComputedStyle(nav).display!=='none')&&document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').querySelectorAll('a').length===2&&(innerWidth!==1440||getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display!=='none')`), 'flat project/global navigation or bounded pure navigation missing');
+    assert(await execute(`const nav=document.querySelector('[data-card-id="${P}"] .dashboard-project-direct-links');return nav.querySelectorAll('a').length===3&&(innerWidth!==1440||getComputedStyle(nav).display!=='none')&&document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').querySelectorAll('a').length===2&&(innerWidth!==1440||getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display!=='none')`), 'flat project/global navigation or bounded pure navigation missing');
     await screenshot(`${theme}-${width}`);
     await execute("document.querySelector('.dashboard-diagnostics-card').scrollIntoView({block:'center'})"); await settle();
     assert(await execute("const bar=document.querySelector('.diagnostics-trend-output .diagnostics-trend-slot:last-child .diagnostics-trend-bar');return bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundColor!=='rgba(0, 0, 0, 0)'"), 'output trend is invisible');
     await screenshot(`diagnostics-${theme}-${width}`);
+    if ([1440, 320].includes(width)) {
+      await execute("document.querySelector('.dashboard-quick-actions-card').scrollIntoView({block:'center'})"); await settle();
+      await screenshot(`quick-card-${theme}-${width}`);
+    }
     await execute("document.querySelector('.dashboard-toolbar').scrollIntoView({block:'start'})"); await settle();
     await clickText('编辑模式'); await settle();
     assert(await execute("return [...document.querySelectorAll('.dashboard-card-settings')].every(b=>b.getClientRects().length&&!b.disabled)"), 'edit mode must reveal every card setting');
@@ -193,6 +219,70 @@ try {
   await clickText('保存更改'); await ready(4); assert(readDashboardSettings(config).diagnostics === false && JSON.stringify(readDashboardSettings(config).widgets) === JSON.stringify(beforeDiagnostics.widgets), 'diagnostic toggle changed members');
   await clickText('编辑模式');
   await execute("document.querySelector('.dashboard-settings-open').click();const input=document.querySelector('[data-diagnostics=enabled]');input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}))"); await clickText('应用到草稿'); await ready(); await clickText('保存更改'); await ready();
+  // Quick actions: real panel entry, confirmation, stable in-flight controller and full error details.
+  await execute("document.querySelector('[data-service-restart=safe]').click()");
+  assert(await wait("!document.getElementById('modal').hidden&&document.getElementById('modal').textContent.includes('一键安全重启？')"), 'quick scope confirmation');
+  assert(await execute(`const modal=document.getElementById('modal');return modal.textContent.includes('/fixture/project-a')&&modal.textContent.includes('/fixture/project-c')&&!modal.textContent.includes('/fixture/project-b')&&modal.querySelector('.agent-call').dataset.help.includes('token')`), 'quick scope or Agent cost');
+  await clickText('取消'); assert(!restartWrites.length, 'cancelled quick action wrote');
+  await execute("window.quickButton=document.querySelector('[data-service-restart=safe]');quickButton.click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('一键安全重启？')&&!document.getElementById('modal').hidden"), 'second quick confirmation');
+  await execute("document.querySelector('#modal .modal-confirm').click()");
+  assert(await wait("document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')"), 'quick wait progress');
+  await clickText('编辑模式');
+  assert(await execute("return quickButton.disabled&&quickButton.parentElement.dataset.help.includes('编辑')"), 'editing quick action is writable');
+  const quickResize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="widget:quick-actions"] .project-board-resize[data-corner="east"]' });
+  await rpc(`/session/${session}/element/${quickResize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
+  await clickText('刷新全部'); await ready();
+  assert(await execute("return quickButton===document.querySelector('[data-service-restart=safe]')&&document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')&&document.querySelectorAll('.dashboard-quick-actions-card .dashboard-card-settings').length===1"), 'refresh/resize replaced controller or lost progress');
+  await clickText('保存更改'); await ready();
+  assert(readDashboardSettings(config).layout.find(c => c.id === 'widget:quick-actions').h === 11, 'quick geometry not persisted');
+  await execute("document.querySelector('.dashboard-quick-actions-details').click()"); restartReady = true;
+  assert(await wait("document.querySelector('.dashboard-quick-actions-controls').textContent.includes('异常末尾可见')"), 'quick failure not reported');
+  assert(await wait("document.querySelector('#modal .dashboard-quick-actions-result')?.textContent.includes('异常末尾可见')"), 'open details lost full live result');
+  for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}'`); await settle();
+    assert(await execute("const m=document.querySelector('.dashboard-quick-actions-modal'),p=m.querySelector('.dashboard-quick-actions-result');return m.getBoundingClientRect().right<=innerWidth+1&&m.scrollWidth<=m.clientWidth+1&&getComputedStyle(p).overflow==='visible'&&p.scrollHeight>100"), 'quick full result clipped/overflow');
+    await screenshot(`quick-error-details-${theme}-${width}`);
+  }
+  await clickText('关闭'); await containment('quick failure fixed geometry');
+  assert(restartWrites.length === 3 && restartWrites.filter(c => c.path.endsWith('/api/service/restart')).length === 1, 'safe failure retried or continued');
+  restartPaused = false; restartReady = false;
+  // Remove during an observation: abort remaining steps, preserve accepted requests, restore via undo/library.
+  await execute("document.querySelector('[data-service-restart=safe]').click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('一键安全重启？')&&!document.getElementById('modal').hidden"), 'remove test confirmation');
+  await execute("document.querySelector('#modal .modal-confirm').click()");
+  assert(await wait("document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')"), 'remove test wait');
+  const beforeQuickRemove = readDashboardSettings(config), acceptedBeforeRemove = restartWrites.length;
+  await clickText('编辑模式');
+  await execute("document.querySelector('[data-card-id=\"widget:quick-actions\"] .dashboard-card-settings').click();document.querySelector('[data-remove-card=\"widget:quick-actions\"]').click()");
+  await clickText('应用到草稿');
+  assert(await wait("!document.querySelector('.dashboard-quick-actions-card')&&!document.querySelector('.dashboard-layout-save').disabled"), 'remove quick card draft');
+  assert(readDashboardSettings(config).quick_actions, 'quick draft wrote before save');
+  restartReady = true;
+  await clickText('撤销'); await ready();
+  assert(await execute("return !document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')"), 'undo resumed revoked flow');
+  await clickText('重做'); assert(await wait("!document.querySelector('.dashboard-quick-actions-card')&&!document.querySelector('.dashboard-layout-save').disabled"), 'quick redo');
+  await clickText('取消编辑'); await ready();
+  assert(readDashboardSettings(config).revision === beforeQuickRemove.revision && restartWrites.length === acceptedBeforeRemove, 'cancel remove changed config or continued writes');
+  await clickText('编辑模式'); await execute("document.querySelector('.dashboard-settings-open').click();document.querySelector('[data-quick-actions=enabled]').click()");
+  await clickText('应用到草稿'); await clickText('保存更改');
+  assert(await wait("!document.querySelector('.dashboard-quick-actions-card')&&!document.querySelector('.dashboard-layout-edit').disabled"), 'quick shared removal');
+  assert(readDashboardSettings(config).quick_actions === false, 'quick removal was UI-only');
+  await clickText('编辑模式'); await clickText('添加卡片');
+  await execute("document.querySelector('input[data-library-id=\"widget:quick-actions\"]').click()");
+  await clickText('应用到草稿'); await ready(); await clickText('保存更改'); await ready();
+  assert(readDashboardSettings(config).quick_actions === true && readDashboardSettings(config).layout.find(c => c.id === 'widget:quick-actions').h === 11, 'library add lost shared selection/layout');
+  // Leave while confirming: dispose the exact dialog, never write or resume on return.
+  restartPaused = false; restartReady = false;
+  await execute("document.querySelector('[data-service-restart=safe]').click()");
+  assert(await wait("!document.getElementById('modal').hidden&&document.getElementById('modal').textContent.includes('一键安全重启？')"), 'leave confirmation');
+  const beforeQuickLeave = restartWrites.length;
+  await execute("location.hash='#settings'");
+  assert(await wait("!document.querySelector('.dashboard-quick-actions-card')&&document.getElementById('modal').hidden"), 'leave did not dispose quick confirmation');
+  assert(restartWrites.length === beforeQuickLeave, 'leave confirmation wrote');
+  await execute("location.hash='#projects'"); await ready();
+  assert(await execute("return !document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')"), 'return resumed old authorization');
   // Unified editor: visible settings, searchable library, history, layout reset and whole-page cancellation.
   const beforeEditor = readDashboardSettings(config), editorSaves = saves.length;
   await clickText('编辑模式');
@@ -222,7 +312,7 @@ try {
   await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
   assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('第 2 页')`), 'Worker next page');
   await execute(`document.querySelector('[data-card-id="${R}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
-  assert(await execute(`return document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').textContent.includes('版本迭代')`), 'pure navigation page'); await containment('paged');
+  assert(await execute(`return document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').textContent.includes('待我处理')`), 'pure navigation page'); await containment('paged');
   await execute("document.querySelector('.dashboard-account-details').click()"); assert(await wait("!document.getElementById('modal').hidden"), 'resource details'); await clickText('关闭');
   rejectRead = true; await execute("document.querySelector('.dashboard-widget-notice-read').click()");
   assert(await wait("document.querySelector('.dashboard-project-messages').textContent.includes('已知失败')"), 'failed read not reported');
@@ -273,7 +363,7 @@ try {
   assert(await execute("return !document.querySelector('.dashboard-diagnostics-card .diagnostics-trends')&&document.querySelectorAll('.dashboard-diagnostics-card .diagnostics-rate').length===6"), 'minimum diagnostic summary overflow');
   await execute("document.querySelector('.dashboard-diagnostics-details').click()"); assert(await wait("document.querySelector('#modal .diagnostics-trends')"), 'minimum diagnostics details lost trends'); await clickText('关闭');
   await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-details').click()`);
-  assert(await wait(`document.querySelector('#modal .project-development-metrics')&&document.querySelectorAll('#modal .project-development-worker').length===3&&document.querySelector('#modal a[href="/p/${P}/#workers"]')&&!document.querySelector('#modal').textContent.includes('读取中')`), 'minimum project details omitted selected content/recent snapshot/full-history entry'); await clickText('关闭');
+  assert(await wait(`document.querySelector('#modal .project-development-metrics')&&document.querySelectorAll('#modal .project-development-worker').length===3&&document.querySelector('#modal a[href="/p/${P}/#workers"]')&&!document.querySelector('#modal a[href="/p/${P}/#versions"]')&&!document.querySelector('#modal').textContent.includes('读取中')`), 'minimum project details omitted selected content/recent snapshot/full-history entry'); await clickText('关闭');
   const connections = world.state.agentConnections.connections;
   for (const state of ['error', 'unknown', 'partial', 'disabled']) {
     connections[0].enabled = state !== 'disabled'; connections[0].observation.status = state === 'disabled' ? 'available' : state;
@@ -289,6 +379,7 @@ try {
     await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`minimum project/accounts ${theme}/${width}`); await screenshot(`minimum-${theme}-${width}`);
   }
   assert(await execute("return !window.fixtureErrors.length"), 'JS/CSP error: ' + JSON.stringify(await execute('return window.fixtureErrors')));
+  console.log('PASS quick actions: scope/cancel/Agent costs, in-flight resize+refresh retention, full live failure details light/dark 1440/390/320, remove/undo/redo/cancel/library/shared save/layout and leave-confirmation cleanup; no continuation after removal.');
   console.log(`PASS restored controller: diagnostics independent read/focus/draft/unknown/no-project/error/toggle/keyboard resize, flat/paged navigation, account/Worker paging, h17 boundary, minimum project+diagnostic summary/details, read failure+ACK identity+continuation, business-state geometry, raw-member-preserving device save/reload and 100-source stress. Logs/screenshots: ${output}`);
   console.log('LIMIT Firefox headless/controlled source APIs; physical touch, Chromium/Safari and real providers unverified.');
 } catch (error) { if (session) { try { await screenshot('failure'); console.error(await execute("return [...document.querySelectorAll('.dashboard-widget')].map(c=>({id:c.dataset.cardId,text:c.textContent.slice(0,300),html:c.innerHTML.slice(0,500)}))")); } catch {} } throw error; }

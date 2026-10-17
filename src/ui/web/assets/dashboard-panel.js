@@ -15,6 +15,7 @@ import { aggregateRows, aggregateProjectIds, aggregateAccountIds, aggregateLinks
   materializeAggregate, selectAggregateProject, selectAggregateAccounts, toggleAggregateSection, toggleAggregateLink } from './dashboard-widget-aggregate-model.js';
 import { createAggregateRenderer, dashboardNavigation } from './dashboard-widget-aggregate-render.js';
 import { DIAGNOSTICS_ID, createDiagnosticsController, renderDiagnosticsCard } from './dashboard-diagnostics.js';
+import { QUICK_ACTIONS_ID, createQuickActionsCard } from './dashboard-quick-actions.js';
 
 const cardName = row => row.name || '未命名项目';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -61,7 +62,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   editor.setAttribute('aria-label', '总览设置'); editor.setAttribute('tabindex', '-1');
   const empty = el('div', undefined, 'workbench-empty'); empty.hidden = true;
   const emptyAdd = el('button', '添加第一张卡片', 'primary'); emptyAdd.type = 'button';
-  empty.append(el('strong', '还没有卡片'), el('p', '从已登记项目、额度窗口或运行诊断中选择。'), emptyAdd);
+  empty.append(el('strong', '还没有卡片'), el('p', '从已登记项目、额度窗口、运行诊断或快捷操作中选择。'), emptyAdd);
   let config = null, confirmed = null, projects = [], connections = [], rows = [], messages = new Map();
   let busy = false, editing = false, layoutDirty = false, layoutDraft = [], failedWrite = false, history = null, formDirty = false;
   const snapshot = () => ({ config, layoutDraft, layoutDirty });
@@ -69,7 +70,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   const remember = () => { history?.push(snapshot()); syncControls(); };
   let generation = 0, formSave = null, formSaveHost = null, formControls = [], currentEditor = null, editorStatus = null, editorObserver = null;
   let navigationRevision = null;
-  let disposed = false;
+  let disposed = false, quickActions = null;
   const active = () => !disposed && owner === globalThis.document && ownsPage() && root.parentNode != null;
   const diagnostics = createDiagnosticsController({ ownsPage: active, onChange: () => {
     if (active()) for (const card of board.root.querySelectorAll('.dashboard-diagnostics-card')) card.dashboardDiagnosticsChange?.();
@@ -78,9 +79,10 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     messages: () => messages, refresh: id => updateInformation([id]), refreshAccounts: ids => updateInformation(ids) });
   const board = createBoard({ ownsPage: active, request: api,
     renderCard(row, options = {}) {
-      const item = row.type === 'diagnostics'
+      const item = row.type === 'quick_actions' ? quickActions.root : row.type === 'diagnostics'
         ? renderDiagnosticsCard(row, { ...options, state: diagnostics.state, refresh: diagnostics.refresh, ownsPage: active })
         : renderer.render(row, { ...options, mode: config.account_view });
+      item.querySelector('.dashboard-card-settings-host')?.remove();
       const control = el('button', undefined, 'ghost dashboard-card-settings'); control.type = 'button'; control.append(dashboardIcon('settings'));
       control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
       control.dataset.help = '设置卡片内容、适用来源与导航，或仅从总览移除；应用只更新草稿，页面保存后发布。';
@@ -162,12 +164,17 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       } else { delete host.dataset.help; host.removeAttribute('tabindex'); }
     }
     board.setEditing(editing && !busy);
-    renderer.syncActions();
+    renderer.syncActions(); quickActions?.sync();
   }
   async function paint() {
     if (!active()) return;
     rows = config ? aggregateRows(config, projects, connections) : [];
     if (config?.diagnostics) rows.push({ id: DIAGNOSTICS_ID, type: 'diagnostics', name: '运行诊断' });
+    if (config?.quick_actions) {
+      quickActions ||= createQuickActionsCard({ ownsPage: active, canAct: () => active() && !busy && !editing });
+      quickActions.updateProjects(projects);
+      rows.push({ id: QUICK_ACTIONS_ID, type: 'quick_actions', name: '快捷操作' });
+    } else { quickActions?.dispose(); quickActions = null; }
     diagnostics.setEnabled(!!config?.diagnostics);
     if (rows.length > 300) throw new Error('项目来源超过网格 300 张上限；配置与选择原样保留，请在设置减少展示来源');
     empty.hidden = !config || rows.length > 0;
@@ -273,14 +280,17 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       if (checked) selected.add(id); else selected.delete(id);
     }, { projectId: id });
     editor.insertBefore(choices, actions);
-    let diagnosticsEnabled = config.diagnostics;
+    let diagnosticsEnabled = config.diagnostics, quickActionsEnabled = config.quick_actions;
     const diagnosticChoices = el('fieldset'); diagnosticChoices.append(el('legend', '运行诊断'));
     checkbox(diagnosticChoices, '显示运行诊断卡（只读，分钟级估算）', diagnosticsEnabled, checked => { diagnosticsEnabled = checked; }, { diagnostics: 'enabled' });
     editor.insertBefore(diagnosticChoices, actions);
+    const quickChoices = el('fieldset'); quickChoices.append(el('legend', '快捷操作'));
+    checkbox(quickChoices, '显示快捷操作卡（一键安全重启）', quickActionsEnabled, checked => { quickActionsEnabled = checked; }, { quickActions: 'enabled' });
+    editor.insertBefore(quickChoices, actions);
     const applyAccounts = accountSettings(actions), navigationChanges = new Map(), navigationChoices = el('div');
     linkChoices(navigationChoices, null, navigationChanges); editor.insertBefore(navigationChoices, actions);
     save.onclick = () => {
-      const next = structuredClone(config); next.diagnostics = diagnosticsEnabled;
+      const next = structuredClone(config); next.diagnostics = diagnosticsEnabled; next.quick_actions = quickActionsEnabled;
       for (const id of byId.keys()) selectAggregateProject(next, projects, id, selected.has(id));
       applyAccounts(next);
       for (const change of navigationChanges.values()) toggleAggregateLink(next, projects, change.item, change.selected);
@@ -293,10 +303,15 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     if (!editing) startEditing();
     if (!editing) return;
     const { actions, save, show } = editorFrame(cardName(row)); currentEditor = { kind: 'card', id: row.id };
-    const initial = new Set(row.type === 'diagnostics' ? [] : aggregateSections(config, row.id)), selected = new Set(initial);
+    const initial = new Set(['diagnostics', 'quick_actions'].includes(row.type) ? [] : aggregateSections(config, row.id)), selected = new Set(initial);
     let removed = false;
     const remove = checkbox(editor, '从总览移除此卡片（不删除来源，可重新添加）', false, checked => { removed = checked; }, { removeCard: row.id });
     remove.parentNode.dataset.help = '仅在保存后移出总览，不删除项目、账号或诊断数据；本次应用也可撤销。';
+    if (row.type === 'quick_actions') {
+      editor.insertBefore(el('p', '仅提供一键安全重启；项目行重启、独立界面重启与手动维护仍在项目管理。移除后停止后续步骤，已发送请求仍可能生效，不能撤销。', 'hint'), actions);
+      save.onclick = () => { const next = structuredClone(config); next.quick_actions = !removed; return applyDraft(next); };
+      show(); syncControls(); editor.focus?.(); return;
+    }
     if (row.type === 'diagnostics') {
       editor.insertBefore(el('p', '汇总所有已登记项目的运行诊断；保留 60 / 300 秒窗口、趋势和来源覆盖，不查询服务商或修改运行配置。', 'hint'), actions);
       save.onclick = () => { const next = structuredClone(config); next.diagnostics = !removed; return applyDraft(next); };
@@ -322,6 +337,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   function removeCard(next, row) {
     if (row.type === 'project') selectAggregateProject(next, projects, row.id, false);
     else if (row.type === 'diagnostics') next.diagnostics = false;
+    else if (row.type === 'quick_actions') next.quick_actions = false;
     else if (Array.isArray(next.widgets)) next.widgets = next.widgets.filter(widget => widget.type !== 'accounts');
     else next.cards = [];
   }
@@ -339,7 +355,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     editor.insertBefore(searchBar, actions); editor.insertBefore(result, actions); editor.insertBefore(list, actions);
     const candidates = [...projects.map(row => ({ id: row.id, name: cardName(row), detail: row.project || row.id, type: 'project' })),
       { id: 'accounts', name: '额度窗口', detail: '统一窗口，添加后在卡片设置选择已有额度来源', type: 'accounts' },
-      { id: DIAGNOSTICS_ID, name: '运行诊断', detail: '只读汇总已登记项目，不启动后台', type: 'diagnostics' }];
+      { id: DIAGNOSTICS_ID, name: '运行诊断', detail: '只读汇总已登记项目，不启动后台', type: 'diagnostics' },
+      { id: QUICK_ACTIONS_ID, name: '快捷操作', detail: '一键安全重启，沿用确认范围与安全门', type: 'quick_actions' }];
     const entries = candidates.map(row => {
       const item = el('div', undefined, 'dashboard-library-item'); item.dataset.libraryId = row.id;
       const input = checkbox(item, `${row.name}${existing.has(row.id) ? ' · 已添加' : ''}`, existing.has(row.id), checked => {
@@ -360,7 +377,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     save.onclick = () => {
       const next = structuredClone(config);
       for (const id of chosen) {
-        if (id === DIAGNOSTICS_ID) next.diagnostics = true;
+        if (id === QUICK_ACTIONS_ID) next.quick_actions = true;
+        else if (id === DIAGNOSTICS_ID) next.diagnostics = true;
         else if (id === 'accounts') {
           // An intentionally empty window needs an explicit member; legacy fields are retained.
           materializeAggregate(next, projects, { check: false });
@@ -393,7 +411,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   async function savePatch(patch) {
     if (!active() || busy || !config || failedWrite) return false;
     busy = true; syncControls();
-    try { await readDashboardConfig({ value: { ...config, ...patch, version: 5, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
+    try { await readDashboardConfig({ value: { ...config, ...patch, version: 6, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
     catch (error) {
       busy = false;
       if (active()) { setStatus(`配置未发送：${error.message}；选择原样保留，请减少来源或入口后保存。`, true); syncControls(); }
@@ -408,7 +426,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       if (!active()) return false;
       // Reuse the same strict read validator without a second HTTP request.
       const acknowledgedConfig = await readDashboardConfig({ value: next });
-      if (acknowledgedConfig.version !== 5) throw new Error('保存响应不是完整 v5 确认');
+      if (acknowledgedConfig.version !== 6) throw new Error('保存响应不是完整 v6 确认');
       if (!active()) return false;
       config = acknowledgedConfig; confirmed = structuredClone(config);
       acknowledged = true;
@@ -521,7 +539,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const accepted = await confirmDialog({ title: '恢复当前卡片的默认布局？', message: '只重置当前可见卡片的位置与尺寸，按默认网格排列；来源、内容、导航和旧成员布局保留。修改只进入草稿，可撤销。', confirmLabel: '恢复布局' });
     if (!accepted || !active() || busy || !editing) return;
     const next = structuredClone(config), ids = new Set(rows.map(row => row.id));
-    const sizes = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 } };
+    const sizes = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 }, quick_actions: { w: 6, h: 10 } };
     const bottom = [0, 0];
     layoutDraft = rows.map(row => {
       const column = bottom[0] <= bottom[1] ? 0 : 1;
@@ -570,7 +588,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   if (owner?.documentElement) removalObserver?.observe(owner.documentElement, { subtree: true, childList: true });
   function dispose() {
     if (disposed) return;
-    disposed = true; ++generation; diagnostics.dispose(); removalObserver?.disconnect(); cardGesture.dispose();
+    disposed = true; ++generation; quickActions?.dispose(); diagnostics.dispose(); removalObserver?.disconnect(); cardGesture.dispose();
     unregisterLeave(); globalThis.removeEventListener?.('beforeunload', beforeUnload); closeEditor();
   }
   syncControls();

@@ -16,10 +16,12 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
+    'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
   ]),
   rpc: Object.freeze([
     'test/core-api.test.js', // shared RPC registry and handlers
     'test/web/core-api.test.js', // real HTTP routes
+    'test/web/silent-maintenance.test.js', // authenticated HTTP/RPC -> maintenance -> Host silent-batch evidence
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git state/tree/content/diff
     'test/web/input-history.test.js', // persisted input history API
     'test/web/agent-connections-api.test.js', // connection configuration API
@@ -42,6 +44,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-runners-page.test.js', // independent Runner page
     'test/web/dom-project-automation.test.js', // automation page
     'test/web/settings.test.js', // settings entry
+    'test/web/service-restart-controls.test.js', // quick/manual modes, shared single-flight and disposal
+    'test/web/safe-restart-flow.test.js', // fixed scope, silent evidence and restart failure boundaries
   ]),
   cli: Object.freeze([
     'test/cli-surfaces.test.js', // executable catalogue

@@ -32,7 +32,7 @@ export const handlers = {
     }
     return summary;
   },
-  'system.interrupt_all'(p) { return p.interruptAll(); },
+  'system.interrupt_all'(p, params) { return p.interruptAll(params); },
   'system.resume_all'(p) { return p.resumeAll(); },
   'system.stop'(p, params, actor) { this.stopping.request(); return { stopping: true }; },
   'system.stop_if_idle'(p) {

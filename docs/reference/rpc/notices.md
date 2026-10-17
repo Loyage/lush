@@ -44,6 +44,8 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 `notice.read` 用户专属、幂等，只允许 info/sent；首次记录 `notice.read` Event，不产生收件箱消息，不答复问题、批准合并、验收或唤醒 Agent。已读后 Notice 仍是 sent，正文及来源永久保留在历史里。Web 在点击告知并成功加载所属 Worker 后调用它，打开失败不标已读；告知条的「已知」及手机横滑直接调用它，无需打开 Worker，写入失败保留告知并允许重试。
 
+项目维护的内置「项目中断完成」告知默认生成；安全重启经 `system.interrupt_all {notify_completion:false}` 显式静默，仅抑制该批次的新项目完成 Notice，不删除历史、不影响 Worker 告知、用户自装 Hook、失败或未知现场。无 Notice 的批次完成必须携带持久化静默证据，不能按缺失 Notice 推断；详见[中断完成契约](../../engineering/interrupt-completion.md)。
+
 ## 结构化问卷
 
 `questions` 含 1–4 题，每题 2–4 项，结构借鉴 rpiv-ask-user-question，但调用与暂停完全由 Lush 管理，不加载交互式 pi 插件：
