@@ -192,6 +192,14 @@ try {
       assert(size.footerHeight <= 1, 'preview note should be screen-reader-only, not a visible footer');
       assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
+    assert(await execute(`const root=document.querySelector('.conversation-panel');
+      return root.querySelector('.conversation-filters').querySelectorAll('button').length===4&&
+        !['只看 Agent 回复','只看我的输入','恢复默认内容'].some(text=>[...root.querySelectorAll('button')].some(n=>n.textContent===text));`), 'duplicate filter shortcuts retained');
+    const previewReading = await execute(`const root=document.querySelector('.conversation-panel'),body=root.querySelector('.detail-preview-body').getBoundingClientRect(),
+      prose=root.querySelector('.conversation-prose').getBoundingClientRect();
+      return {body:body.toJSON(),prose:prose.toJSON(),readable:body.bottom-96-prose.top};`);
+    if(width<=760)assert(previewReading.body.bottom-32-previewReading.prose.top>=48,
+      `${width}/${theme}: fewer than two readable lines before preview bottom: ${JSON.stringify(previewReading)}`);
     assert(await execute(`return document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'horizontal page overflow');
     assert(await execute(`const root=document.querySelector('.conversation-panel'),list=root.querySelector('.conversation-list').getBoundingClientRect();
       const input=root.querySelector('.conversation-input'),output=root.querySelector('.conversation-output');
@@ -202,6 +210,33 @@ try {
         [...root.querySelectorAll('.conversation-long')].every(n=>n.querySelector('.conversation-body').getBoundingClientRect().height<=Math.min(260,innerHeight*.35)+1);`), 'bubble alignment, avatars or message previews');
     assert(await execute(`return !document.querySelector('.task-actions .detail-preview-body') &&
       !document.querySelector('.conversation-panel').classList.contains('detail-preview-expanded');`), 'actions clipped or expanded by default');
+    assert(await execute(`const root=document.querySelector('.conversation-panel'),search=root.querySelector('.conversation-search'),toggle=root.querySelector('.conversation-search-toggle');
+      return getComputedStyle(search).display===(${width}<=760?'none':'flex')&&
+        (getComputedStyle(toggle).display!=='none')===(${width}<=760)&&toggle.getAttribute('aria-expanded')==='false'&&
+        toggle.getAttribute('aria-controls')===search.id&&(${width}>760||
+          [...root.querySelectorAll('.conversation-filter,.conversation-order button,.conversation-search-toggle')].every(n=>n.getBoundingClientRect().height>=44));`), 'responsive search disclosure default or touch targets');
+    if(width<=760){
+      await execute(`const root=document.querySelector('.conversation-panel');root.querySelector('.conversation-search-toggle').click();
+        window.savedSearch=root.querySelector('.conversation-search');window.savedSearch.querySelector('input').focus();`);
+      assert(await execute(`const root=document.querySelector('.conversation-panel');return root.classList.contains('conversation-search-open')&&
+        root.classList.contains('detail-preview-expanded')&&getComputedStyle(window.savedSearch).display==='flex';`), 'mobile search not revealed for keyboard input');
+      await execute(`const input=window.savedSearch.querySelector('input');input.value='此前结果';input.dispatchEvent(new Event('input',{bubbles:true}));window.paint();`);
+      assert(await execute(`const root=document.querySelector('.conversation-panel');return root.querySelector('.conversation-search')===window.savedSearch&&
+        root.querySelector('.conversation-search-toggle').getAttribute('aria-expanded')==='true'&&window.savedSearch.querySelector('input').value==='此前结果'&&
+        [...root.querySelectorAll('.conversation-input')].some(n=>n.textContent.includes('短追加输入'));`), 'search draft or open state lost on refresh, or draft applied implicitly');
+      await execute(`window.savedSearch.querySelector('.search-field-submit').click();document.querySelector('.conversation-search-toggle').click();window.paint();`);
+      assert(await execute(`const root=document.querySelector('.conversation-panel');return root.querySelector('.conversation-search-toggle').textContent==='搜索 · 已筛选'&&
+        !root.classList.contains('conversation-search-open')&&root.querySelectorAll('.conversation-message').length>0&&
+        [...root.querySelectorAll('.conversation-message')].every(n=>n.textContent.includes('此前结果'));`), 'collapsed search lost active condition or its visible indicator');
+      await execute(`document.querySelector('.conversation-search-toggle').click();`);
+      await execute(`window.savedSearch.querySelector('.search-field-clear').click();
+        document.querySelector('.conversation-search-toggle').click();const root=document.querySelector('.conversation-panel');
+        window.visibleCancel=root.querySelector('.conversation-cancel');window.visibleCancel.hidden=false;`);
+      assert(await execute(`return !window.visibleCancel.closest('.conversation-search')&&getComputedStyle(window.visibleCancel).display!=='none'&&
+        document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'cancellation hidden inside collapsed search or search overflow');
+      await execute(`window.visibleCancel.hidden=true;const root=document.querySelector('.conversation-panel');
+        if(root.classList.contains('detail-preview-expanded'))root.querySelector('.detail-preview-toggle').click();`);
+    }
     // Test actual clipping, not only the presence of an expand control, at each responsive limit.
     await execute(`window.boundaryProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='状态');
       window.boundaryFixed=document.createElement('div');

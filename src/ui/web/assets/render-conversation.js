@@ -71,11 +71,13 @@ export function renderConversation(task, history = {}, previous = null) {
   }
   const asc = button('正序', () => { direction = 'asc'; paint(); }, 'ghost', { help: '按时间从早到晚阅读已加载输入输出，只改变显示顺序，不调用 Agent。' });
   const desc = button('倒序', () => { direction = 'desc'; paint(); }, 'ghost', { help: '按时间从晚到早阅读已加载输入输出，只改变显示顺序，不调用 Agent。' });
-  const only = (category) => { for (const key of Object.keys(visible)) visible[key] = category == null ? key !== 'unknown' : key === category; paint(); };
-  filters.append(button('只看 Agent 回复', () => only('output'), 'ghost'), button('只看我的输入', () => only('input'), 'ghost'),
-    button('恢复默认内容', () => only(null), 'ghost'));
-  ordering.append(asc, desc); head.append(count, ordering);
-  const search = el('div', undefined, 'conversation-search');
+  const searchToggle = button('搜索', () => {
+    const open = searchToggle.getAttribute('aria-expanded') !== 'true';
+    searchToggle.setAttribute('aria-expanded', String(open)); root.classList.toggle('conversation-search-open', open);
+  }, 'ghost conversation-search-toggle', { help: '展开或收起关键词筛选与全历史查找，保留搜索草稿和已应用条件，不调用 Agent。' });
+  searchToggle.setAttribute('aria-expanded', 'false'); searchToggle.setAttribute('aria-controls', `conversation-search-${task.id}`);
+  ordering.append(asc, desc); head.append(count, ordering, searchToggle);
+  const search = el('div', undefined, 'conversation-search'); search.id = `conversation-search-${task.id}`;
   const searchControl = searchField({ label: '筛选输入输出', placeholder: '搜索输入、回复与决策正文', scope: '范围：已加载完整内容；全历史查找分批读取旧内容，不含生命周期、Worker 通信、系统元数据或执行过程', onSubmit: value => {
     cancelRead(); query = value.toLowerCase(); remoteQuery = null; remoteHits.clear();
     status.textContent = '仅筛选已加载完整正文；未加载或未读完的记录不计为无命中。'; paint();
@@ -87,12 +89,12 @@ export function renderConversation(task, history = {}, previous = null) {
     const copying = cancel.textContent === '取消复制';
     cancelRead(); status.textContent = copying ? '原文读取已取消，未复制不完整内容。'
       : `查找已取消，范围未完成：已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息；已读取的内容保留。`; paint();
-  }, 'ghost'); cancel.hidden = true;
+  }, 'ghost conversation-cancel'); cancel.hidden = true;
   const findHost = el('span', undefined, 'help-host'); findHost.setAttribute('data-help', '正在读取时可取消查找；取消只停止本页读取，不删除已加载记录。'); findHost.append(findAll);
-  search.append(searchControl.root, findHost, cancel);
+  search.append(searchControl.root, findHost);
   const more = button('加载更早输入输出', () => loadMore(), 'ghost conversation-more');
   const moreHost = el('span', undefined, 'help-host'); moreHost.setAttribute('data-help', '逐批遍历更早历史，只呈现输入输出内容；生命周期与通信保留在独立时间线，其他读取进行中时请先取消或等待。'); moreHost.append(more);
-  root.append(filters, search, list, status, moreHost);
+  root.append(filters, search, cancel, list, status, moreHost);
 
   function alive() {
     return globalThis.document === ownerDocument && ui.workerNumbers === boot && ui.view === view
@@ -294,6 +296,7 @@ export function renderConversation(task, history = {}, previous = null) {
     const unreadable = all.filter(entry => entry.unreadable).length;
     count.textContent = `显示 ${shown.length} / 已加载 ${all.length} 条 · ${complete ? '历史已遍历' : '历史范围未完成'}${incomplete ? ` · ${incomplete} 条正文未读完` : ''}${limited ? ` · ${limited} 条附属字段受限` : ''}${unreadable ? ` · ${unreadable} 条正文不可读` : ''}${historyState}`;
     asc.setAttribute('aria-pressed', String(direction === 'asc')); desc.setAttribute('aria-pressed', String(direction === 'desc'));
+    searchToggle.textContent = query ? '搜索 · 已筛选' : '搜索';
     root.dataset.order = direction; more.hidden = complete;
   }
   function storeEntry(map, entry) {

@@ -94,7 +94,10 @@ test('cancellation and navigation discard delayed raw copy responses, and clipbo
     const root = renderConversation(task, { events: [partial] });
     const copy = root.querySelector('[data-conversation-key="run:2"]').querySelector('.conversation-copy');
     let pending = copy.click(); expect(copy.disabled).toBe(true);
-    await findByText(root, '取消复制').click();
+    const cancel = findByText(root, '取消复制');
+    expect(root.querySelector('.conversation-search').querySelector('.conversation-cancel')).toBeNull();
+    expect(cancel.hidden).toBe(false); expect(root.classList.contains('conversation-search-open')).toBe(false);
+    await cancel.click();
     resolve(response({ offset: 2, next_offset: 4, text: '尾部', has_more: false })); await pending;
     expect(copied).toHaveLength(0); expect(copy.disabled).toBe(false);
     pending = copy.click(); ui.view = { id: 'other' };

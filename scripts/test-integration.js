@@ -41,6 +41,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation.test.js', // navigation main flow
     'test/web/dom-detail-layout-preferences.test.js', // confirmed detail hierarchy
     'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
+    'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation
