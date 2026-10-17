@@ -6,6 +6,7 @@ import os from 'node:os';
 import { request } from 'node:http';
 import { setup, fetch } from './harness.js';
 import { repo } from '../helpers.js';
+import { attachRegisteredHook } from '../hook-registry.js';
 
 const evidence = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-command-management-browser-'));
 const f = await setup(); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
@@ -37,7 +38,7 @@ async function frame() { const node = await rpc(`/session/${session}/element`, {
 try {
   await repo(f.root); const main = await f.project.bootstrapMain();
   const command = f.project.saveShortcutCommand({ name: 'Hook 专用测试', command: 'printf PRIVATE_OUTPUT', default_worker_id: main.id }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  await f.project.attachTaskHook(main.id, { name: '安全历史测试', trigger: 'worker.merge_received', mode: 'persistent', enabled: true, actions: [{ type: 'command', command_id: command.id }] }, f.project.taskHooks(main.id).revision);
+  attachRegisteredHook(f.project, main.id, { name: '安全历史测试', trigger: 'worker.merge_received', mode: 'persistent', enabled: true, actions: [{ type: 'command', command_id: command.id }] });
   for (let n = 0; n < 2; n++) { f.project.emitTaskHook(main.id, 'worker.merge_received', f.store.event(main.id, 'test.browser_merge', {})); await f.project.hookQueue; }
   const historical = f.project.shortcutCommandHistory().items;
   assert(historical.length === 2 && historical.every(row => row.status === 'succeeded' && row.source === 'hook'), 'Hook history setup failed');

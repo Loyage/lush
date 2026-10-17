@@ -1,10 +1,11 @@
 import { RUNNER_METHODS } from './runner-methods.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
-import { HOOK_INSTALL_CAPABILITY, validateHookInstallation } from '../core/hook-install.js';
+import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
 import { CLI_COMMANDS, LUSHC_PATHS, LUSHC_METHODS } from '../cli/catalog.js';
 
 export { LUSHC_METHODS };
+export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install']);
 // Classify the actual development catalogue, rather than copying its RPC names.
 const codeEntries = CLI_COMMANDS.filter(entry => LUSHC_PATHS.has(entry.path));
 const codeReads = new Set(codeEntries.filter(entry => entry.kind === 'read').flatMap(entry => entry.rpc));
@@ -45,6 +46,7 @@ const unavailable = new Set([
   'worker.runs_page','worker.artifacts_page','worker.artifact', // raw provider/tool material is not a credential-safe read surface
 ]);
 function legacyManagementPolicy(method) {
+  if (RETIRED_MANAGEMENT_METHODS.has(method)) return { access: 'unavailable', reason: 'hooks.install 已退役；先 hooks.register 注册完成，再独立请求 worker.hook_attach 的目标和版本。' };
   if (!Object.hasOwn(PARAMS, method)) return { access: 'unavailable', reason: '当前版本没有此公开功能。' };
   if (method === 'system.stop_if_idle') return { access: 'unavailable',
     reason: '管理执行自身占用后台操作位，无法用空闲停机入口；请用户直接安全停机，或明确确认 system.stop 停止当前项目。' };
@@ -59,7 +61,8 @@ function legacyManagementPolicy(method) {
 export function managementPolicy(method) {
   if (method === 'management.permission_get') return { access: 'read', reason: '读取设备全局单项权限及全局修订；设备作用域须明确。' };
   if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
-  if (method === 'hooks.install') return { access: 'automatic', reason: '原子安装受控 Shell 自动化，不立即执行；Shell 非沙箱，仍核验固定参数、目标及修订。' };
+  if (method === 'hooks.install') return legacyManagementPolicy(method);
+  if (method === 'hooks.register') return { access: 'automatic', reason: '只注册不挂载；完成后独立请求具体目标及固定版本，用户可逐项收紧权限。' };
   if (LUSHC_METHODS.has(method)) {
     if (codeReads.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
       ? '管家只读安全元数据与续读游标，不返回原始提示词、工具参数、输出或事件正文。' : null };
@@ -83,7 +86,7 @@ const groupFor = method => method.startsWith('hooks.') ? 'automation'
   : /^(input|draft)\./.test(method) ? 'inputs' : /^(branch|graph)\./.test(method) ? 'branches'
   : method.startsWith('notice.') ? 'notices' : method.startsWith('agent.') ? 'agents'
   : /^(worker|order|manager|management|progress)\./.test(method) ? 'workers' : 'system';
-const names = { 'hooks.install': '安装合并后命令自动化', 'manager.query': '安全工作查询', 'manager.history': '安全调用历史', 'worker.lookup': '解析工作编号',
+const names = { 'hooks.install': '已退役的原子安装', 'hooks.register': '注册 Shell 自动化功能', 'hooks.upgrade': '显式升级旧自动化登记', 'manager.query': '安全工作查询', 'manager.history': '安全调用历史', 'worker.lookup': '解析工作编号',
   'worker.resume': '开始／继续工作', 'worker.retry': '重试失败工作', 'draft.add': '新增草稿',
   'draft.update': '修改草稿', 'draft.remove': '移除草稿', 'order.submit': '提交开发指令',
   'worker.inspect': '查看工作详情', 'system.diagnostics': '项目运行诊断', 'worker.message': '追加工作消息' };
@@ -150,7 +153,7 @@ export function managementCatalog(snapshot = null, legacy = false) {
   return { scope: 'current_project', groups: MANAGEMENT_GROUPS.map(group => ({ ...group })),
     methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
       parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])],
-      ...(item.method === 'hooks.install' ? HOOK_INSTALL_CAPABILITY : {}) })),
+      ...(AUTOMATION_CAPABILITIES[item.method] ?? {}) })),
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
 }
@@ -180,8 +183,8 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   } else if (!projectMountScope && (PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
     check(false, 'device settings require explicit scope in both user instruction and parameters');
   }
-  // Validate the complete install before asking for authorization, not after confirmation.
-  if (method === 'hooks.install') validateHookInstallation(params);
+  // Validate registration before asking for authorization; mounting is a separate exact request.
+  if (method === 'hooks.register') validateHookRegistration(params);
   // Strict registry validation still runs at the trusted dispatch boundary; never accept a replacement actor.
   return policy;
 }

@@ -2,6 +2,7 @@ import { check, id, isPlainObject } from '../types.js';
 import { hookRevision, HOOK_LIMITS } from '../hooks.js';
 import { validateRunnerNodeSelection } from '../runner-selection.js';
 import { selectCreationRunner } from './runner-creation.js';
+import { systemRegistration } from './automation-registry.js';
 
 import { INPUT_OPTION_KEYS } from '../input-option-keys.js';
 export { INPUT_OPTION_KEYS };
@@ -72,7 +73,7 @@ export function attachInputSignal(project, draftId, index, condition, snapshot, 
   check(data.mounts.length < HOOK_LIMITS.mounts, 'too many mounted Hooks on condition Worker');
   check(task.hooks || project.store.get('SELECT count(*) AS n FROM tasks WHERE hooks IS NOT NULL').n < 500, 'too many Workers with mounted Hooks');
   const hookId = `input-${draftId}-${index}`;
-  data.mounts.push({ id: hookId, name: `条件发射 · 草稿 #${draftId}`, mode: 'once', enabled: true,
+  data.mounts.push({ ...systemRegistration(project, 'system:input-signal'), id: hookId, name: `条件发射 · 草稿 #${draftId}`, mode: 'once', enabled: true,
     trigger: condition.kind === 'parent_quiet' ? 'worker.parent_ready' : condition.kind === 'worker_merged' ? 'delivery.integrated' : 'worker.delivery_ready',
     conditions: {}, actions: [{ type: 'input_signal', draft_id: draftId, condition_index: index }],
     input_signal: { draft_id: draftId, index, snapshot }, state: 'waiting', last_execution: null,

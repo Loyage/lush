@@ -31,6 +31,8 @@ export function commandSummary(item, catalogue) {
   if (Object.hasOwn(item, 'command')) return `旧内联命令（已停止直接执行，需显式导入）：\n${item.command}`;
   const command = referencedCommand(item, catalogue);
   const mismatch = command && commandKind(command) !== (item.type === 'prompt_command' ? 'prompt' : 'shell');
-  return `快捷指令：${command?.name || item.command_id || '未知指令'}${command
-    ? ` · 当前 v${command.version} · ${commandKind(command) === 'prompt' ? '提示词' : 'Shell'} · ${mismatch ? '类型不匹配；不能执行' : '未来执行跟随最新定义'}\n${commandBody(command)}` : validCommands(catalogue?.commands) ? ' · 指令已删除或不存在；不能执行' : ' · 指令目录不可用；无法校验引用'}`;
+  const fixed = Number.isSafeInteger(item.command_version);
+  const exact = fixed && item.command_version === command?.version;
+  return `快捷指令：${command?.name || item.command_id || '未知指令'}${fixed ? ` · 固定授权 v${item.command_version}` : ' · 未升级旧引用（须显式补登记）'}${command
+    ? ` · 当前目录 v${command.version} · ${commandKind(command) === 'prompt' ? '提示词' : 'Shell'}${mismatch ? ' · 类型不匹配；不能执行' : ''}\n${exact ? commandBody(command) : '当前目录正文不代表此授权版本；完整历史定义请经 CLI/API 核对。'}` : validCommands(catalogue?.commands) ? ' · 指令已删除或不存在；不能执行' : ' · 指令目录不可用；无法校验引用'}`;
 }

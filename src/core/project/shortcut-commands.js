@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, id, TERMINAL } from '../types.js';
-import { hookObject, hookRevision, normalizeHook, HOOK_LIMITS } from '../hooks.js';
+import { hookObject, hookRevision, normalizeHook, HOOK_LIMITS, hookCommandReference } from '../hooks.js';
 import { commandHistory, commandHistoryRemoved, removeCommandHistory, executionSnapshot, recoverCommandHistory, safeCommandResult, safeCreationResult } from './shortcut-command-history.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { normalizeShortcut, shortcutKind, shortcutMetadata, exportShortcut } from '../shortcut-command-definition.js';
@@ -30,7 +30,16 @@ function currentRecord(data, commandId) {
 function record(data, commandId, version) {
   check(Number.isSafeInteger(version) && version > 0, 'invalid shortcut command reference');
   const item = currentRecord(data, commandId);
-  check(item.version === version, 'shortcut command definition changed'); return item;
+  const definition = item.version === version ? item : item.versions?.find(entry => entry.version === version);
+  check(definition, 'shortcut command definition changed');
+  check(shortcutKind(definition) === shortcutKind(item), 'shortcut kind does not match action');
+  return definition;
+}
+function definitionSnapshot(item) {
+  const kind = shortcutKind(item);
+  return { id: item.id, name: item.name, kind, version: item.version,
+    [kind === 'prompt' ? 'prompt' : 'command']: item[kind === 'prompt' ? 'prompt' : 'command'],
+    ...shortcutMetadata(item), default_worker_id: item.default_worker_id ?? null };
 }
 function normalized(value, previous = null) {
   check(value.id === undefined || uuid(value.id), 'invalid shortcut command id');
@@ -149,9 +158,9 @@ export default {
   claimShortcutExecution(commandId, version, workerId, executionId, source) {
     let execution, eventId;
     this.store.transaction(() => {
-      const data = read(this), item = record(data, commandId, version);
-      execution = executionSnapshot(this, item, workerId, executionId, source, 'pending');
-      item.last_execution = execution; save(this, data);
+      const data = read(this), definition = record(data, commandId, version);
+      execution = executionSnapshot(this, definition, workerId, executionId, source, 'pending');
+      currentRecord(data, commandId).last_execution = execution; save(this, data);
       eventId = this.store.event(workerId, 'shortcut.command_pending', { ...execution, execution_id: executionId });
     });
     return { execution, event_id: eventId };
@@ -172,6 +181,7 @@ export default {
       }
       if (item) {
         check(item.version < Number.MAX_SAFE_INTEGER, 'shortcut command version limit reached');
+        (item.versions ??= []).push(definitionSnapshot(item));
         delete item.command; delete item.prompt; delete item.authorized;
         Object.assign(item, definition, { version: item.version + 1 });
       } else { item = { id: randomUUID(), default_worker_id: null, ...definition, version: 1, last_execution: null }; data.items.push(item); }
@@ -192,19 +202,20 @@ export default {
 
   resolveShortcutCommand(action) {
     check(action.command === undefined, LEGACY);
-    // Legacy command_version is configuration only. Future claims follow the current definition.
-    const item = currentRecord(read(this), action.command_id);
+    const data = read(this), item = currentRecord(data, action.command_id);
     check(shortcutKind(item) === (action.type === 'prompt_command' ? 'prompt' : 'shell'), 'shortcut kind does not match action');
-    return item;
+    // Only legacy references without a version follow latest. Deletion or a current kind
+    // mismatch still revokes admission even when the requested historical definition exists.
+    return action.command_version === undefined ? item : record(data, action.command_id, action.command_version);
   },
 
   validateShortcutHook(hook) {
-    for (const action of hook.actions) if (referencesCommand(action)) this.resolveShortcutCommand(action);
+    for (const action of hook.actions) if (referencesCommand(action)) this.resolveShortcutCommand(hookCommandReference(hook, action));
   },
 
   shortcutHookIssue(hook) {
     for (const action of hook.actions) if (referencesCommand(action)) {
-      try { this.resolveShortcutCommand(action); } catch { return action.command !== undefined ? LEGACY : UNAVAILABLE; }
+      try { this.resolveShortcutCommand(hookCommandReference(hook, action)); } catch { return action.command !== undefined ? LEGACY : UNAVAILABLE; }
     }
     return null;
   },
@@ -232,10 +243,10 @@ export default {
   // Internal Hook audit receipt only; this does not execute a command.
   startShortcutExecution(commandId, version, workerId, executionId, source = 'hook') {
     this.store.transaction(() => {
-      const data = read(this), item = record(data, commandId, version);
+      const data = read(this), definition = record(data, commandId, version), item = currentRecord(data, commandId);
       const pending = this.store.get("SELECT data FROM events WHERE type='shortcut.command_pending' AND json_extract(data,'$.execution_id')=? ORDER BY id LIMIT 1", executionId);
       const acceptedAt = pending ? JSON.parse(pending.data).created_at : item.last_execution?.id === executionId ? item.last_execution.created_at : undefined;
-      const execution = executionSnapshot(this, item, workerId, executionId, source, 'running', acceptedAt);
+      const execution = executionSnapshot(this, definition, workerId, executionId, source, 'running', acceptedAt);
       // Prompt creations need no per-parent Shell mutex: an older queued claim must not
       // replace a newer accepted execution's last slot, even though both histories advance.
       if (!pending || item.last_execution?.id === executionId) item.last_execution = execution;

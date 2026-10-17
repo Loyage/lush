@@ -3,6 +3,7 @@ import { normalizeConfigurationScope } from '../core/device-config.js';
 import { RUNNER_METHODS } from './runner-methods.js';
 import { INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
+import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
 
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
@@ -26,6 +27,7 @@ export const PARAMS = {
   'hooks.list': [], 'hooks.save': ['template','expected_revision'], 'hooks.remove': ['id','expected_revision'],
   'hooks.command_save': ['command','expected_revision'],
   'hooks.install': HOOK_INSTALL_PARAMETERS,
+  'hooks.register': HOOK_REGISTER_PARAMETERS, 'hooks.upgrade': ['expected_revision'],
   'hooks.command_export': ['id','version'],
   'hooks.command_remove': ['id','expected_revision'],
   'hooks.command_history': ['before','limit','execution_id'],
@@ -106,7 +108,7 @@ export const USER_ONLY = new Set([
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',
   'agent.connections.models','agent.connections.models.refresh',
   'agent.packages.list','agent.packages.install','agent.packages.remove','agent.packages.update',
-  'hooks.install','hooks.command_save','hooks.command_export','hooks.command_remove','hooks.command_history','hooks.command_history_remove','hooks.command_import',
+  'hooks.install','hooks.register','hooks.upgrade','hooks.command_save','hooks.command_export','hooks.command_remove','hooks.command_history','hooks.command_history_remove','hooks.command_import',
   'management.permissions','management.permissions_update','management.permission_get','management.permission_set',
   'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','management.submit',
   'hooks.list','hooks.save','hooks.remove','hooks.auto_select','hooks.completion_defaults','hooks.automation_settings','worker.acceptance_notice','worker.hooks','worker.completion_page','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove',

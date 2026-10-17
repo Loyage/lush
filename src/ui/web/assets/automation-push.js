@@ -4,7 +4,6 @@ import { detail } from './navigate.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { renderAutomationSettings } from './automation-settings.js';
-import { commandDetail } from './shortcut-command-directory.js';
 import { commandReferencesIssue, commandSummary, validCommands, COMMAND_WARNING, PROMPT_WARNING } from './shortcut-command-model.js';
 
 /** main alone owns the actual push attachment; no run evidence in project settings. */
@@ -41,7 +40,7 @@ export function renderPushAutomation(options) {
       if (enabled) {
         const commands = mount.actions.filter(item => ['command', 'prompt_command'].includes(item.type));
         if (!await confirmDialog({ title: agent ? '启用指令 Hook？' : '启用 main 自动推送？', danger: true,
-          message: `${commands.some(item => item.type === 'command') ? COMMAND_WARNING : commands.length ? PROMPT_WARNING : ''} 仅授权 main 实际挂载的未来节点；未来节点满足后按实际引用的最新定义执行，不立即执行。Git remote、上游与认证由用户配置。`,
+          message: `${commands.some(item => item.type === 'command') ? COMMAND_WARNING : commands.length ? PROMPT_WARNING : ''} 仅授权 main 实际挂载的未来节点；未来节点满足后按已授权固定版本执行，不立即执行。Git remote、上游与认证由用户配置。`,
           detail: commands.map(item => commandSummary(item, catalogue)).join('\n\n'),
           confirmLabel: agent ? '启用指令 Hook' : '确认启用推送', agent, confirmHelp: agent ? agentHelp('授权 main 挂载所引用指令及未来 Agent 动作；触发后按实际条件和安全门执行。') : '启用 main 实际挂载；保存不立即执行，未来副作用可能不可逆。' }) || !owns()) return;
         if (agent && !await confirmDialog({ title: '授权会安排 Agent 调用的 Hook？',
@@ -91,12 +90,12 @@ export function renderPushAutomation(options) {
     if (available && reason && !saving) summary.append(el('span', ` ${reason}`, 'error'));
     const mainLink = button('查看 main Worker 自动化', () => owns() && source?.worker_id ? detail(source.worker_id) : undefined, 'ghost', { worker: source?.worker_id });
     mainLink.disabled = !Number.isSafeInteger(source?.worker_id) || source.worker_id < 1;
-    advanced.replaceChildren(el('h2', '引用指令（只读）'), el('p', '挂载参数编辑及旧内联导入请到 main 自动化。Web 指令定义／模板编辑入口已移除；指令定义可经既有 CLI／API 修改。这里不展示执行收据或运行记录。', 'hint'));
+    advanced.replaceChildren(el('h2', '引用指令（只读）'), el('p', '挂载参数编辑及旧内联导入请到 main 自动化。定义修订请回项目登记目录；修订不改变旧挂载，须另行选择版本升级。这里不展示执行收据或运行记录。', 'hint'));
     if (!validCommands(catalogue?.commands)) advanced.append(el('p', '快捷指令目录不可用；不能校验指令引用。', 'error'));
     for (const item of Array.isArray(mount?.actions) ? mount.actions.filter(item => item && typeof item.type === 'string') : []) {
       const command = validCommands(catalogue?.commands) ? catalogue.commands.items.find(command => command.id === item.command_id) : null;
       if (!command) { if (item.command_id) advanced.append(el('p', '引用指令已删除或目录不可用；请到 main 核查。', 'error')); continue; }
-      advanced.append(commandDetail(command));
+      advanced.append(el('p', commandSummary(item, catalogue), 'hook-action-preview'));
     }
     const diagnostic = mount && (['failed', 'unknown'].includes(mount.state) || mount.reason);
     if (diagnostic) summary.append(el('span', ` · 需要核查：${mount.state === 'unknown' ? '结果未知，不自动重放。' : mount.state === 'failed' ? '执行失败。' : ''}${mount.reason || ''} 请到 main Worker 自动化查看诊断。`, 'error'));

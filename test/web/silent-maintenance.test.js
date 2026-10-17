@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fetch, setup } from './harness.js';
 import { gate, repo, until } from '../helpers.js';
+import { attachRegisteredHook } from '../hook-registry.js';
 import { UIClient } from '../../src/ui/client.js';
 import { Project } from '../../src/core/project.js';
 import { Store } from '../../src/persistence/store.js';
@@ -28,8 +29,8 @@ test('authenticated HTTP -> RPC user gate -> real maintenance -> Host: manual de
   try {
     const task = await root(f), client = new UIClient(f.config);
     const owner = f.store.task(task.parent_id);
-    f.project.attachTaskHook(owner.id, { name: 'user-owned', trigger: 'project.interrupted', mode: 'persistent', enabled: true,
-      conditions: {}, actions: [{ type: 'notify', title: 'user-owned completion', body: '' }] }, f.project.taskHooks(owner.id).revision);
+    attachRegisteredHook(f.project, owner.id, { name: 'user-owned', trigger: 'project.interrupted', mode: 'persistent', enabled: true,
+      conditions: {}, actions: [{ type: 'notify', title: 'user-owned completion', body: '' }] });
     f.project.resumeTask(task.id);
     await until(() => providerCalls === 1);
     const run = f.project.running.get(task.id);

@@ -55,7 +55,9 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
   node.append(scheduleNode);
   const statuses = conditions('Worker 状态条件（不选表示不限）', STATUS, initial.conditions?.statuses);
   const integrations = conditions('合并状态条件（不选表示不限）', { none: '无集成', ...INTEGRATION }, initial.conditions?.integrations);
-  const modeHelp = el('p', undefined, 'hint'); node.append(modeHelp, statuses.node, integrations.node);
+  const modeHelp = el('p', undefined, 'hint'), advanced = el('details', undefined, 'hook-advanced-conditions');
+  advanced.append(el('summary', '高级条件（按需）'), statuses.node, integrations.node);
+  node.append(modeHelp, advanced);
   const rows = [], actionsNode = el('div', undefined, 'hook-action-list'); node.append(el('h3', '按顺序执行的动作'), actionsNode);
   const combinationNote = el('p', undefined, 'hint hook-combination-note'); combinationNote.setAttribute('role', 'status'); node.append(combinationNote);
   const error = el('p', undefined, 'error'); error.setAttribute('role', 'alert'); node.append(error);
@@ -110,6 +112,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       const option = el('option', '原引用指令已删除或不存在；请明确重选');
       option.value = initialAction.command_id; row.command.input.append(option); row.command.input.value = option.value;
     }
+    row.commandVersion = select('指令授权版本', [], '');
     row.command.input.onchange = () => paintRow(row);
     row.body = field('消息或告知正文', 'textarea', initialAction.body); row.body.input.rows = 4;
     row.title = field('告知标题', 'input', initialAction.title);
@@ -140,7 +143,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.remove = button('移除动作', () => {
       const at = rows.indexOf(row); if (at < 0) return; rows.splice(at, 1); row.node.remove(); repaint();
     }, 'ghost hook-button', { help: '只移除此表单中尚未保存的动作；不撤销已经发出的消息或交付。' });
-    row.node.append(row.type.wrap, row.note, row.title.wrap, row.target.wrap, row.body.wrap, row.command.wrap, row.content.wrap, row.start.wrap, row.configureHost, row.profileHost, row.remove);
+    row.node.append(row.type.wrap, row.note, row.title.wrap, row.target.wrap, row.body.wrap, row.command.wrap, row.commandVersion.wrap, row.content.wrap, row.start.wrap, row.configureHost, row.profileHost, row.remove);
     row.type.input.onchange = () => { paintRow(row); repaint(); };
     row.target.input.oninput = () => paintRow(row);
     row.start.input.onchange = repaint;
@@ -164,6 +167,15 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       row.command.input.value = value && (commands.some(item => item.id === value) || value === row.initial.command_id) ? value : '';
       row.commandType = type;
     }
+    row.commandVersion.wrap.hidden = !commandAction(type);
+    if (commandAction(type) && row.versionCommand !== `${type}:${row.command.input.value}`) {
+      const current = catalogue.commands?.items?.find(item => item.id === row.command.input.value);
+      const previous = row.initial.type === type && row.initial.command_id === row.command.input.value ? row.initial.command_version : null;
+      row.commandVersion.input.replaceChildren(...[...new Set([previous, current?.version].filter(Boolean))].map(version => {
+        const entry = el('option', `v${version}${version === current?.version ? '（当前指令）' : '（原固定版本）'}`); entry.value = String(version); return entry;
+      }));
+      row.commandVersion.input.value = String(previous || current?.version || ''); row.versionCommand = `${type}:${row.command.input.value}`;
+    }
     row.title.wrap.hidden = type !== 'notify'; row.target.wrap.hidden = !targetAction(type); row.body.wrap.hidden = !['notify', 'message'].includes(type);
     row.target.input.disabled = pending || failedSelf;
     row.content.wrap.hidden = type !== 'create_worker'; row.start.wrap.hidden = type !== 'create_worker'; row.configureHost.hidden = !profileAction(type); row.profileHost.hidden = !profileAction(type);
@@ -173,7 +185,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.configureHost.setAttribute('data-help', row.profilePending ? '运行设置正在读取，请稍后。' : row.profileForm ? '完整运行覆盖已展开，请在下方编辑。' : row.configure.getAttribute('data-help'));
     const description = catalogue.actions?.find(a => a.type === type)?.description || '';
     const preserved = !copying && initial.id && row.initial.type === type;
-    row.note.textContent = type === 'prompt_command' ? `${description} ${PROMPT_WARNING} 仅父 Worker 可创建节点、一次性；按指令身份引用，未来执行跟随最新定义。` : type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用指令身份，不接受 Shell 正文；未来执行跟随最新定义，保存指令不执行。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
+    row.note.textContent = type === 'prompt_command' ? `${description} ${PROMPT_WARNING} 仅父 Worker 可创建节点、一次性；登记时固定指令版本，已有挂载不变。` : type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用指令身份，不接受 Shell 正文；登记时固定指令版本，保存指令不执行。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
       ? '未重新设置且动作位置不变时保留模板已保存的私有运行覆盖；不会回读 Prompt/env。'
       : '未单独设置时，挂载时冻结有效项目默认；不回读已有私有运行覆盖。'}`
       : targetAction(type) ? `${description} 目标：${workerLabel(Number(row.target.input.value), Number(row.target.input.value) === row.initial.target_id ? row.initial.target_worker_number : undefined)}。此处填写内部整数 ID，不把 W 编号当作 ID。${type === 'message'
@@ -182,7 +194,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     if (copying && profileAction(type)) row.note.textContent += ' 复制不复制私有运行覆盖或执行记录；请显式设置新的完整运行参数。';
     if (row.profileForm) row.note.textContent += ' 已展开的完整运行覆盖将写入此动作；可以显式选择模型来源，不复制凭证。';
   }
-  const add = button('添加动作', () => addRow(), 'ghost hook-button', { help: '最多组合四个目录允许的动作，按此处顺序执行；指令未来执行跟随最新定义。' });
+  const add = button('添加动作', () => addRow(), 'ghost hook-button', { help: '最多组合四个目录允许的动作，按此处顺序执行；登记时固定指令版本，已有挂载不变。' });
   const addHost = el('span', undefined, 'help-host'); addHost.append(add); node.append(addHost);
   const addClick = add.onclick; add.onclick = async () => { await addClick(); repaint(); };
   function repaint() {
@@ -261,7 +273,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         conditions: { statuses: statuses.collect(), integrations: integrations.collect() }, actions: rows.map(row => {
           const type = row.type.input.value;
           if (commandAction(type)) {
-            return { type, command_id: row.command.input.value };
+            return { type, command_id: row.command.input.value, ...(row.commandVersion.input.value ? { command_version: Number(row.commandVersion.input.value) } : {}) };
           }
           if (type === 'notify') return { type, title: row.title.input.value, body: row.body.input.value };
           if (type === 'message') return { type, target_id: Number(row.target.input.value), body: row.body.input.value };

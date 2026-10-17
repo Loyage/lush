@@ -1,6 +1,19 @@
 .hooks-page, .worker-hooks, .automation-emission { min-width: 0; }
 .automation-feature-list { list-style: none; padding: 0; margin: 0; }
 .automation-feature-link { display: grid; gap: .65rem; overflow-wrap: anywhere; }
+.registry-automation, .registry-registration, .registry-mount, .registry-facts, .registry-targets, .registry-advanced, .registered-mount-picker { min-width: 0; display: grid; gap: .7rem; }
+.registry-automation [hidden], .registry-registration [hidden] { display: none; }
+.registry-facts h1 { margin: 0; }
+.registry-facts p, .registry-automation p, .registry-automation button, .registry-targets button { overflow-wrap: anywhere; white-space: normal; }
+.registry-facts .badge { justify-self: start; }
+.registry-definition { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; font-size: .85rem; }
+.registry-registration input, .registry-registration textarea, .registry-registration select, .registered-mount-picker select, .registry-mount select { max-width: 100%; min-width: 0; padding: .6rem; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.registry-advanced, .registry-targets { display: block; }
+.registry-advanced > *, .registry-targets > * { margin-top: .7rem; }
+.registry-advanced:not([open]) > :not(summary), .registry-targets:not([open]) > :not(summary) { display: none; }
+.registry-mount, .registry-registration { grid-template-columns: minmax(0, 1fr); }
+.registry-mount button, .registry-registration button, .registered-mount-picker button { justify-self: start; max-width: 100%; }
+@media (max-width: 600px) { .registry-automation button, .registered-mount-picker button, .registry-targets button { min-height: 44px; max-width: 100%; } .registry-facts .badge { white-space: normal; } }
 .automation-feature-head { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
 .automation-feature-description { color: var(--muted); font-size: .9rem; }
 .automation-feature-open { color: var(--accent); font-size: .85rem; }

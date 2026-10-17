@@ -89,7 +89,7 @@ test('all RPC-backed CLI examples reach real parser dispatch and emit only their
     'hook.json': makeFile('hook.json', {}), 'template.json': makeFile('template.json', {}),
     'automation.json': makeFile('automation.json', { command: { name: 'fixture', command: 'true' },
       hook: { name: 'merge command', trigger: 'worker.merge_received', mode: 'persistent', enabled: true },
-      expected_revisions: { commands: 'REV', worker_hooks: 'REV' }, client_request_id: 'catalog-install-example' }),
+      expected_revisions: { commands: 'REV', registry: 'REV' }, client_request_id: 'catalog-register-example' }),
     'command.json': makeFile('command.json', { name: 'fixture', kind: 'shell', command: 'true' }),
     'source.json': makeFile('source.json', { template_id: uuid }), 'signal.json': makeFile('signal.json', {}),
     'valet.json': makeFile('valet.json', { name: 'fixture', instruction: '只读查询', signal_id: uuid }),

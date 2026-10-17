@@ -1,6 +1,6 @@
 import { check, isPlainObject } from '../types.js';
-import { hookRevision, HOOK_LIMITS } from '../hooks.js';
-import { validateHookInstallation } from '../hook-install.js';
+import { hookRevision } from '../hooks.js';
+import { validateHookRegistration } from '../hook-registration.js';
 
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : isPlainObject(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -24,34 +24,41 @@ export function hookInstallationOutcome(project, call) {
   } catch { return { status: 'unknown', reason: '无法核验命令自动化安装收据；不自动重放。' }; }
 }
 
+export function hookRegistrationReceipt(project, options) {
+  const previous = project.store.get(`SELECT data FROM events WHERE type='hook.registered'
+    AND json_extract(data,'$.request_key')=? ORDER BY id LIMIT 1`, hookRevision(options.client_request_id));
+  if (!previous) return null;
+  const receipt = JSON.parse(previous.data);
+  check(receipt.definition_hash === hookRevision(canonical(options)), 'client_request_id was used for a different automation registration');
+  return receipt.result;
+}
+export function hookRegistrationOutcome(project, call) {
+  try {
+    const result = hookRegistrationReceipt(project, call.params);
+    return result ? { status: 'succeeded', result: { submitted: true, ...result }, reason: null }
+      : { status: 'failed', reason: '注册事务未提交；不自动重放。' };
+  } catch { return { status: 'unknown', reason: '无法核验自动化注册收据；不自动重放。' }; }
+}
+
 export default {
-  installCommandHook(options) {
-    this.assertWritable('install a command Hook');
-    validateHookInstallation(options);
-    const requestKey = hookRevision(options.client_request_id);
-    const definitionHash = hookRevision(canonical(options));
+  registerCommandHook(options) {
+    this.assertWritable('register command automation');
+    validateHookRegistration(options);
     return this.store.transaction(() => {
-      // Project-scoped durable receipt survives command/Hook removal and daemon restart.
-      // It holds only hashes/identities, never Shell text or an authorization payload.
-      const previous = hookInstallationReceipt(this, options);
+      const previous = hookRegistrationReceipt(this, options);
       if (previous) return previous;
-      // Existing methods retain their original lifecycle, size, definition and revision gates.
-      // Nested Store transactions use SQLite savepoints: either both definitions and receipt commit, or none do.
-      const sourceFloor = this.store.get('SELECT max(id) AS id FROM events')?.id ?? 0;
+      check(this.hooksList().registry.revision === options.expected_revisions.registry, 'Hook revision changed; reload before editing');
       const command = this.saveShortcutCommand(options.command, options.expected_revisions.commands).commands.items.at(-1);
-      const hooks = this.attachTaskHook(options.id, { ...options.hook,
-        actions: [{ type: 'command', command_id: command.id }] }, options.expected_revisions.worker_hooks);
-      const mount = hooks.mounts.find(item => item.actions.some(action => action.command_id === command.id));
-      // Installation subscribes to future merge identities, never old events submitted again after installation.
-      const state = JSON.parse(this.store.task(options.id).hooks);
-      state.mounts.find(item => item.id === mount.id).command_last_source = sourceFloor;
-      const stored = JSON.stringify(state);
-      check(Buffer.byteLength(stored) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
-      this.store.update(options.id, { hooks: stored });
-      const result = { installed: true, worker_id: options.id, worker_number: this.store.task(options.id).worker_number ?? null,
-        command_id: command.id, hook_id: mount.id };
-      this.store.event(null, 'hook.installed', { request_key: requestKey, definition_hash: definitionHash, result });
+      const list = this.saveHookTemplate({ ...options.hook, purpose: options.command.description ?? options.hook.name, actions: [{ type: 'command', command_id: command.id, command_version: command.version }] }, options.expected_revisions.registry);
+      const item = list.templates.at(-1);
+      const result = { registered: true, command_id: command.id, template_id: item.id, template_version: item.version };
+      this.store.event(null, 'hook.registered', { request_key: hookRevision(options.client_request_id), definition_hash: hookRevision(canonical(options)), result });
       return result;
     });
   },
+
+  installCommandHook() {
+    check(false, 'hooks.install is retired; first hooks.register, then separately request worker.hook_attach with registered id and explicit version');
+  },
+
 };

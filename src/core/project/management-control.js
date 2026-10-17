@@ -6,7 +6,8 @@ import { assertManager } from './management-auth.js';
 import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime } from './management-data.js';
 import { managementCatalog, effectiveManagementPolicy, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
 import { hasManagementConfirmation } from './management-code.js';
-import { hookInstallationOutcome } from './hook-install.js';
+import { hookInstallationOutcome, hookRegistrationOutcome } from './hook-install.js';
+import { resolveRegisteredMount } from './automation-registry.js';
 
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
@@ -88,7 +89,13 @@ async function resourcePreflight(project, method, params) {
     check(typeof params.branch === 'string', 'branch must be explicit');
     branch = (await project.branchArchivability([params.branch])).get(params.branch) ?? null;
   }
-  return { fingerprint: hookRevision({ rows, branch }), summary: {
+  const automation = method === 'worker.hook_attach' || (method === 'worker.hook_update' && params.hook !== undefined)
+    ? resolveRegisteredMount(project, params.hook) : null;
+  const automationSummary = automation ? { id: automation.registration.registry_id, version: automation.registration.registry_version,
+    name: automation.definition.name, trigger: automation.definition.trigger, mode: automation.definition.mode, enabled: automation.definition.enabled,
+    actions: automation.definition.actions.map(action => ({ type: action.type, ...(action.command_id ? { command_id: action.command_id, command_version: action.command_version } : {}) })) } : null;
+  return { fingerprint: hookRevision({ rows, branch, automation: automationSummary }), summary: {
+    ...(automationSummary ? { automation: automationSummary } : {}),
     workers: rows.map(({ id, worker_number, status, integration, dirty, live, unread, open }) => ({ id, worker_number,
       status, integration, dirty: dirty === null ? 'not_inspected' : dirty === 'unavailable' ? 'unknown' : dirty.length > 0,
       active_invocation: live, unread_inputs: unread, open_decisions: open })),
@@ -164,6 +171,8 @@ export default {
     const { task } = assertManager(this, actorId);
     requestKey(requestId);
     let policy = validateManagementCall(method, params, task.goal, this.managementPermissionsSnapshot());
+    if (method === 'worker.hook_attach' || (method === 'worker.hook_update' && params.hook !== undefined))
+      resolveRegisteredMount(this, params.hook); // Registration must already be complete before asking to authorize a mount.
     if (method === 'worker.spawn') {
       check(params.parent !== undefined, 'Valet delegation requires an explicit development parent');
       check(['order','child'].includes(this.store.task(id(params.parent)).task_kind), 'Valet can only delegate under a development Worker');
@@ -382,8 +391,10 @@ export default {
       // Mutations return only a narrow receipt, not user-only config or destructive result payloads.
       call.result = { submitted: true,
         ...(call.method === 'management.permission_set' ? { method: result.method, access: result.access, revision: result.revision } : {}),
-        ...(call.method === 'hooks.install' ? { installed: result.installed, command_id: result.command_id,
-          hook_id: result.hook_id, worker_id: result.worker_id, worker_number: result.worker_number } : {}),
+        ...(call.method === 'hooks.register' ? { registered: result.registered, command_id: result.command_id,
+          template_id: result.template_id, template_version: result.template_version } : {}),
+        ...(call.method === 'worker.hook_attach' ? { worker_id: result.worker_id,
+          hook_id: result.mounts.filter(mount => mount.registry_id === call.params.hook.template_id && mount.registry_version === call.params.hook.template_version).at(-1)?.id } : {}),
         ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),
         ...(Number.isSafeInteger(result?.task_id) ? { task_id: result.task_id } : {}),
         ...(typeof result?.auto_title === 'string' ? { auto_title: result.auto_title, changed: result.changed } : {}),
@@ -394,8 +405,8 @@ export default {
     } catch (error) {
       state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
       if (call && call.status !== 'rejected') {
-        if (call.status === 'running' && call.method === 'hooks.install')
-          Object.assign(call, hookInstallationOutcome(this, call), { finished_at: managementTime(this) });
+        if (call.status === 'running' && ['hooks.install','hooks.register'].includes(call.method))
+          Object.assign(call, (call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(this, call), { finished_at: managementTime(this) });
         else {
           call.status = call.status === 'running' ? 'unknown' : 'failed';
           call.reason = call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
@@ -432,7 +443,8 @@ export default {
     const state = managementState(this.store.task(taskId));
     for (const call of state?.control_calls ?? []) if (call.status === 'running') {
       const proof = this.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed' AND json_extract(data,'$.receipt_id')=? LIMIT 1", taskId, call.receipt_id);
-      if (call.method === 'hooks.install') Object.assign(call, hookInstallationOutcome(this, call), { finished_at: call.finished_at ?? managementTime(this) });
+      if (['hooks.install','hooks.register'].includes(call.method)) Object.assign(call,
+        (call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(this, call), { finished_at: call.finished_at ?? managementTime(this) });
       else {
         call.status = proof ? 'succeeded' : 'unknown';
         if (!proof) call.reason = safeFailure;

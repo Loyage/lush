@@ -4,10 +4,11 @@ import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
 import { retiredHook, interruptHookFinish } from '../hook-assertions.js';
 import { normalizeHook, publicHookDefinition } from '../../src/core/hooks.js';
+import { attachRegisteredHook } from '../hook-registry.js';
 setDefaultTimeout(20000);
 const notifyRule = (trigger = 'agent.returned', mode = 'once') => ({ name: '告知', trigger, mode, enabled: true, conditions: {},
   actions: [{ type: 'notify', title: 'hook-test', body: 'done' }] });
-const attach = (f, task, hook) => f.project.attachTaskHook(task.id, hook, f.project.taskHooks(task.id).revision);
+const attach = (f, task, hook) => attachRegisteredHook(f.project, task.id, hook);
 async function frozenFixture(extra = {}) {
   const f = fixture(undefined, extra); f.project.kick = () => {}; await repo(f.root);
   const order = await f.project.order('freeze source', 'main', [], null, false);
@@ -31,11 +32,11 @@ test('templates are revision checked and copied at mount, not mutable global rul
     const initial = f.project.hooksList();
     const saved = f.project.saveHookTemplate(notifyRule(), initial.revision), template = saved.templates[0];
     expect(() => f.project.saveHookTemplate(notifyRule(), initial.revision)).toThrow('revision changed');
-    const view = attach(f, order.task, { template_id: template.id });
+    const view = attach(f, order.task, { template_id: template.id, template_version: template.version });
     expect(view.mounts.at(-1).name).toBe('告知');
     f.project.saveHookTemplate({ ...notifyRule(), id: template.id, name: 'changed' }, saved.revision);
     expect(f.project.taskHooks(order.task.id).mounts.at(-1).name).toBe('告知');
-    expect(() => f.project.attachTaskHook(order.task.id, notifyRule(), 'stale')).toThrow('revision changed');
+    expect(() => f.project.attachTaskHook(order.task.id, { template_id: template.id, template_version: template.version }, 'stale')).toThrow('revision changed');
     expect(() => f.project.removeTaskHook(order.task.id, 'auto-merge', f.project.taskHooks(order.task.id).revision)).toThrow('cannot be removed');
   } finally { await f.close(); }
 });

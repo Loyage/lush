@@ -10,7 +10,9 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
-管理 Agent 可发现全部当前 RPC 能力；`lushc` 集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生。W316／D677：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作及 [`hooks.install`](../reference/rpc/hooks.md#原子安装合并后命令)。不扩大固有不可用的私有材料、交互认证、原始会话、自复制或任意文件／Shell 工具边界。执行权限统一来自 `src/rpc/management-policy.js`；用户可逐项收紧为 confirmation／unavailable，权限修改能力本身始终须真实用户精确批准。自动执行不绕过预检、revision、目标、Git、冻结或生命周期安全门，不复活终态、已归档或祖先关闭的工作。原子安装收据仍可证明配置事务中断后的完成状态，快捷指令不恢复独立预授权或已删除的 command_authorize。普通开发 Agent 不因此扩权。
+管理 Agent 可发现全部当前 RPC 能力；`lushc` 集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生。W316／D677、D678：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作，以及自动化注册、挂载。自动化仍必须[先注册再单独挂载](../reference/rpc/hooks.md#先注册再单独挂载)：hooks.register 只注册指令及项目功能，成功后才可用明确登记版本独立请求 worker.hook_attach；注册不挂载、不执行。旧 hooks.install／Project／CLI 原子捷径全部拒绝，管家目录标 unavailable，不能借旧权限快照恢复。注册 schema／示例由同一纯协议源提供，事务收据可证明注册完成；挂载仅接受登记引用，无内联动作或运行参数旁路。
+
+执行权限统一来自 `src/rpc/management-policy.js`；用户可分别收紧为 confirmation／unavailable，需要确认时由真实用户批准各个精确请求，权限修改能力本身始终须真实用户精确批准。不扩大固有不可用的私有材料、交互认证、原始会话、自复制或任意文件／Shell 工具边界。自动执行不绕过预检、revision、目标、Git、冻结或生命周期安全门，不复活终态、已归档或祖先关闭的工作。快捷指令不恢复独立预授权或已删除的 command_authorize，普通开发 Agent 不因此扩权。
 
 ### 设备全局管家权限
 
@@ -18,7 +20,7 @@ W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设�
 
 用户专属根接口 `GET /api/host/management/permissions` 无 query；同路径 `POST` 严格接受 `{permissions,expected_revision}`，复用登录、Origin、JSON 和 no-store。该 Host 接口不向 Agent 开放，不依赖项目登记或 daemon 在线，不启动后台。旧 `management.permissions`／项目 GET 仅兼容读取有效权限；`management.permissions_update` 保留注册但拒绝所有写入，不能建立项目覆盖。新增逐项 CLI／RPC 查询与审核修改见下文。
 
-全局读模型为 `{version:1,scope:'device',configured,revision,groups,methods,permissions}`。`configured:false` 表示**内建默认已生效**，不是待启用草稿，无需首次保存。W316／D677 明确使旧版 `management-permissions.json` 和项目 meta 限制退出授权，原数据及历史快照保留、不自动导入或改写；用户之后的自定义权限仅保存至设备私有 `management-permissions-v2.json`。页面首次保存自定义更改说明全部项目影响。离线项目恢复时读取共享权威；旧版本进程不会自动更新，须由用户在安全点分别更新 Host 与各 daemon，混用版本时不能声称权限已统一。无配置读取不创建根；新文件不安全／损坏时拒绝授权，不回退默认或旧项目值。
+全局读模型为 `{version:1,scope:'device',configured,revision,groups,methods,permissions}`。`configured:false` 表示**内建默认已生效**，不是待启用草稿，无需首次保存。W316／D677 明确使旧版 `management-permissions.json` 和项目 meta 限制退出授权，原数据及历史快照保留、不自动导入或改写；用户之后的自定义权限仅保存至设备私有 `management-permissions-v2.json`。页面首次保存自定义更改说明全部项目影响。离线项目恢复时读取共享权威；旧版本进程不会自动更新，须由用户在安全点分别更新 Host 与各 daemon，混用版本时不能声称权限已统一。无配置读取不创建根；新文件不安全／损坏时拒绝授权，不回退默认或旧项目值。已有 v2 文件内退役 hooks.install 的旧允许值仅留历史，读取投影钳制为 unavailable、不改文件、不阻断其他合法权限；下次显式保存使用当前目录。
 
 页面按需读取全局权限，核对动态审核上限／可选值与静态目录（包括保存 ACK）一致；版本不匹配时禁止编辑。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；不接受 sparse patch、未知字段、缺项或提权，使用 revision 防并发覆盖。私有文件原子发布与最终授权／持久开始使用同一跨进程 `settings-write` 锁排序，开始后释放锁再执行副作用；各 daemon 的一秒只读观察在修订变化后协调未开始请求，不重放失败。锁忙保守拒绝，不偷锁。`read` 仅可 read／unavailable，`automatic` 可 automatic／confirmation／unavailable，`confirmation` 可 confirmation／unavailable，`unavailable` 不可提升；必要发现 `manager.catalog` 固定 read。权限修改 `management.permission_set` 的上限固定 confirmation，仅可 confirmation／unavailable，不能设为 automatic。manager.call/start/retry 是传输／兼容入口，不是独立提权项。
 
@@ -105,4 +107,4 @@ confirmation 操作（包括始终需审核的权限修改）先保存精确方�
 
 作用域仅当前项目，无跨项目、任意 Shell、read/write/edit 或凭证工具。设备共享设置须指令明确提出设备／全局操作且工具带 `scope:'device'`；device-only 旧别名也要求该授权元数据，不传给普通 handler。私有 env、Prompt、凭证、原始会话正文及需交互认证／设置迁移的能力保留目录但不可用，指向用户界面。管理模型不得创建其它管理身份或自行改变授权；仅可发起需真实用户批准的逐项权限修改请求。只读结果再次做秘密字段和字节裁剪，公开 inspect 不暴露 control_calls 原参数、预检指纹或私有 JSON。
 
-验证使用临时项目与受控 Provider；`test/project/management-tool-chain.test.js` 保留代表性工具／bridge 调用主流程。固定确认、权限变更竞态、自身待决恢复和完整工具隔离组合不再保留独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。不调用真实模型、不重启用户服务；真实自然语言理解、额度恢复和物理浏览器行为仍需另行验收。
+验证使用临时项目与受控 Provider；`test/project/automation-registry-bridge.test.js` 实际覆盖目录／默认自动注册／独立挂载／权限收紧后的精确确认与禁用／真实命令执行及收据，并核对 Provider 工具集、目录、RPC 注册一致；`management-tool-chain.test.js` 保留其他代表性工具／bridge 调用主流程。固定确认、权限变更竞态、自身待决恢复和完整工具隔离组合不再保留独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。不调用真实模型、不重启用户服务；真实自然语言理解、额度恢复和物理浏览器行为仍需另行验收。

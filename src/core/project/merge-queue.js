@@ -1,5 +1,6 @@
 import { check, id, TERMINAL } from '../types.js';
 import { builtinAutomationMounted } from '../automation-scopes.js';
+import { systemRegistration } from './automation-registry.js';
 import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
 import { runnerParentSyncId, prepareRunnerParentSync, recordRunnerParentLanding,
   synchronizeRunnerParent, assertRunnerDeliveryAcknowledged, provideRunnerRepair,
@@ -55,6 +56,7 @@ export default {
     check(before.editable, before.reason);
     assertTaskAncestorsOpen(this, task);
     this.store.transaction(() => {
+      systemRegistration(this, 'builtin:completion');
       const config = task.auto_merge ? JSON.parse(task.auto_merge) : {};
       this.store.update(task.id, { auto_merge: JSON.stringify({ ...config, version: 1, enabled, locked: false,
         ...(enabled ? { mounted_features: { ...config.mounted_features, completion: true } } : {}),

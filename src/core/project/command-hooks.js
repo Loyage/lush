@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { check, isPlainObject, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
-import { hookConditionsMatch } from '../hooks.js';
+import { hookConditionsMatch, hookCommandReference } from '../hooks.js';
+import { ensureSystemRegistry, registerDefinition } from './automation-registry.js';
 
 const read = task => JSON.parse(task.hooks ?? '{"version":1,"mounts":[],"observed":{}}');
 const save = (project, taskId, data) => project.store.update(taskId, { hooks: JSON.stringify(data) });
@@ -28,59 +29,24 @@ export function commandAdmission(project, task) {
 export default {
   /** Called only from startup bootstrap, never from read APIs. Tombstone prevents reinstall after deletion. */
   initializeCommandHookExample() {
+    ensureSystemRegistry(this);
     const main = this.store.get("SELECT * FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id LIMIT 1");
     if (!main) return;
     const installed = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='command_hook_example'")?.value ?? 'null');
-    if (installed) {
-      if (installed.version === 1) this.upgradeDefaultPushCommand(main, installed);
-      return;
-    }
+    if (installed) return; // Existing definitions/mounts require explicit user upgrade; reads/startup do not migrate them.
     this.store.transaction(() => {
-      const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
       const commands = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands;
       const command = commands.items.at(-1);
-      const data = read(main), templateId = randomUUID(), hookId = randomUUID();
+      const data = read(main), hookId = randomUUID();
       const definition = { name: 'main 合并后 git push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
         conditions: {}, actions: [{ type: 'command', command_id: command.id }] };
-      templates.templates.push({ id: templateId, definition });
-      data.mounts.push({ ...structuredClone(definition), id: hookId, state: 'idle', created_at: timestamp(), last_execution: null });
+      const registered = registerDefinition(this, definition, { origin: 'builtin', purpose: 'main 成功接收合并后执行 git push；默认关闭。' });
+      const templateId = registered.id;
+      data.mounts.push({ ...structuredClone(registered.definition), registry_id: templateId, registry_version: registered.version,
+        id: hookId, state: 'idle', created_at: timestamp(), last_execution: null });
       save(this, main.id, data);
-      this.store.run("INSERT INTO meta(key,value) VALUES ('hook_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(templates));
       this.store.run("INSERT INTO meta(key,value) VALUES ('command_hook_example',?)", JSON.stringify({ version: 2, template_id: templateId, worker_id: main.id, hook_id: hookId }));
       this.store.event(main.id, 'hook.command_example_installed', { template_id: templateId, hook_id: hookId });
-    });
-  },
-
-  /** One-time upgrade of installed built-ins only, never user commands, reads or deleted identities. */
-  upgradeDefaultPushCommand(main, installed) {
-    if (installed.worker_id !== main.id) return;
-    const data = read(main), mount = data.mounts.find(m => m.id === installed.hook_id);
-    if (mount?.state === 'running') return; // Recovery must settle unknown legacy effects first.
-    this.store.transaction(() => {
-      const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
-      const template = templates.templates.find(t => t.id === installed.template_id)?.definition;
-      const definitions = [mount, template].filter(Boolean);
-      const defaults = definitions.filter(h => h.actions.length === 1 && h.actions[0].type === 'command');
-      const referenced = defaults.map(h => h.actions[0]).find(a => a.command === undefined && a.command_version === 1
-        && this.shortcutCommands().items.some(c => c.id === a.command_id && c.version === 1 && c.name === 'git push' && c.command === 'git push'));
-      const inline = defaults.filter(h => h.actions[0].command === 'git push');
-      let command = referenced && this.shortcutCommands().items.find(c => c.id === referenced.command_id);
-      if (!command && inline.length) command = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands.items.at(-1);
-      if (command) {
-        for (const definition of inline) {
-          definition.actions = [{ type: 'command', command_id: command.id }];
-          definition.enabled = false;
-        }
-        if (inline.includes(mount)) {
-          mount.command_cursor = this.store.get("SELECT max(id) AS id FROM events WHERE task_id=? AND type='hook.command_submitted' AND json_extract(data,'$.hook_id')=?", main.id, mount.id)?.id ?? 0;
-          mount.command_pending = 0; mount.command_last_source = this.store.get('SELECT max(id) AS id FROM events')?.id ?? 0;
-          if (mount.state === 'waiting') mount.state = 'idle';
-          if (mount.state === 'idle') mount.reason = null;
-          save(this, main.id, data);
-        }
-        if (inline.includes(template)) this.store.run("UPDATE meta SET value=? WHERE key='hook_templates'", JSON.stringify(templates));
-      }
-      this.store.run("UPDATE meta SET value=? WHERE key='command_hook_example'", JSON.stringify({ ...installed, version: 2 }));
     });
   },
 
@@ -190,12 +156,12 @@ export default {
               let result, command, started = false;
               const shortcutExecutionId = randomUUID();
               try {
-                command = this.resolveShortcutCommand(action);
+                command = this.resolveShortcutCommand(hookCommandReference(active, action));
                 // The body passed into the async Git queue and the audit version must match.
                 // An edit/delete/type change before spawn fails safely rather than mixing definitions.
                 const definitionGuard = () => {
                   if (!guard()) return false;
-                  check(this.resolveShortcutCommand(action).version === command.version, 'shortcut command definition changed');
+                  check(this.resolveShortcutCommand(hookCommandReference(active, action)).version === command.version, 'shortcut command definition changed');
                   return true;
                 };
                 result = await this.workspaces.runHookCommand(current, command.command, definitionGuard, { ...this.commandHookOptions, started: () => {

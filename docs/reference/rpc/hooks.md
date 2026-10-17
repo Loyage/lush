@@ -7,7 +7,9 @@
 | RPC | 参数 | CLI（加 `bun run lush` 前缀） |
 |---|---|---|
 | `hooks.list` | `{}` | `hooks list` / `hooks command list` |
-| `hooks.install` | `{id,command,hook,expected_revisions,client_request_id}` | `hooks install ID --file PATH` |
+| `hooks.register` | `{command,hook,expected_revisions,client_request_id}` | `hooks register --file PATH`（只注册） |
+| `hooks.upgrade` | `{expected_revision}` | `hooks upgrade --revision REV`（显式升级旧规则） |
+| `hooks.install` | 已退役，所有调用拒绝并指向先注册、再单独挂载 | 旧 `hooks install` 拒绝 |
 | `hooks.command_save` | `{command,expected_revision}` | `hooks command save --file PATH --revision REV` |
 | `hooks.command_export` | `{id,version}` | `hooks command export ID --version N` |
 | `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
@@ -37,11 +39,15 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。一般写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理；单项权限接口仅 RPC／CLI，页面的完整映射读取／保存走 Host 根权限接口。
 
-目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,automation_settings,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,mounted_features,completion,convergence,push,acceptance_notice,automation_settings,can_attach,mounts}`；`mounted_features:{completion,push,convergence,acceptance_notice}` 四个布尔值是实际挂载的权威投影，不由显示原则推算。Worker 的 automation_settings 仅提供 version 与兼容 display_principles，不泄漏项目默认授权身份。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,registry,registration,triggers,actions,templates,commands,daemon_hooks,completion_defaults,automation_settings,signals,management_workers,command_example}`；`daemon_hooks` 是设备全局自动选择的兼容读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,mounted_features,completion,convergence,push,acceptance_notice,automation_settings,can_attach,mounts}`；`mounted_features:{completion,push,convergence,acceptance_notice}` 四个布尔值是实际挂载的权威投影，不由显示原则推算。Worker 的 automation_settings 仅提供 version 与兼容 display_principles，不泄漏项目默认授权身份。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
-`hook` 可为新规则定义，或仅 `{template_id:'UUID'}`；后者让后台复制模板的完整私有覆盖。不得用脱敏列表重建原模板挂载。创建动作读取只有安全 `model_selection` 摘要；模板同位置创建动作省略 `profile` 表示编辑时保留原私有覆盖。
+`hooks.list.registry={version:1,revision,upgrade_revision,complete:true,total,legacy_mount_count,target_limit:100,items}` 是项目统一注册目录。items 含 `{id,name,origin:'builtin'|'custom'|'system',version,versions,purpose,mount_count,targets,targets_complete,mountable,readonly,reason}`；targets 最多 100 项 `{worker_id,worker_number,hook_id,version}`，mount_count 是完整真实挂载数，targets_complete=false 不代表零挂载。目录不含私有 profile/env/Prompt；完整注册配置仍按原用户配置权限从 templates 取得安全定义。设备全局自动选择不加入项目注册目录。
+
+`hooks.save` 注册或修订自定义功能（可选 purpose≤2000 字符），使用 registry.revision（与顶层 revision 同源），返回 templates 的明确 version；修订保留旧版本。仍有挂载的功能不得删除，先移除挂载，避免活动授权从目录消失。`hook` **只能**为 `{template_id:'UUID',template_version:1,enabled?:true}`。后台复制该登记版本的完整私有覆盖及固定命令版本，不接受内联动作、隐式 latest、目标覆盖或运行参数。完整 hook_update 也使用这一引用；enabled 仅调整实例开关。创建动作读取只有安全 model_selection 摘要；注册定义同位置创建动作省略 profile 表示编辑时保留原私有覆盖。挂载不调用执行器；定时仅安排未来到期，生命周期须实际触发并通过安全门。
+
+`hooks.upgrade {expected_revision:registry.upgrade_revision}` 原子补登记旧模板及未登记挂载，固定升级时当前有效命令定义，关联原挂载；保留 id、启停、状态、历史、收据和去重游标，不启动或重放动作。执行中或有已提交待执行动作时拒绝，先结算；旧内联 Shell 须先显式 hooks.command_import。只读 API 和启动不做此升级。未升级旧挂载保留原执行兼容，显式重新启用前必须升级；新挂载无 raw 兼容旁路。
 
 挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。实际挂载完工流程时，`auto-merge`、`auto-accept` 是不可移除的内置挂载（验收包含归档回收，旧 auto-archive 仅历史兼容），通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
 
@@ -59,7 +65,7 @@
 
 ## 快捷指令目录
 
-`commands:{version:1,revision,items}` 为当前项目 Shell／提示词目录。每项含 `{id,name,kind,default_worker_id,version,last_execution}`，以及 description、when_to_use、tags、examples、warnings；正文按 kind 仅返回 command 或 prompt。保存 `command:{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`，旧缺省 kind=shell。元数据为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 仅兼容已有配置，为真实 Worker 内部整数或 null，编辑省略保留、null 清空；不参与 Hook 路由，页面不再管理手动默认目标。commands.items 不公开 authorized；旧授权字段不参与执行准入。所有编辑递增版本但不撤权或停用挂载，已有自动化未来执行跟随最新定义。不接受路径、authorized、version 或额外参数；两类正文不可混合。保存和删除使用 **commands.revision**，保存返回完整 Hooks 目录。`hooks.command_authorize`、Project `authorizeShortcutCommand` 和 CLI `hooks command authorize/revoke` 已删除，UI 不提供授权／撤权或授权筛选。
+`commands:{version:1,revision,items}` 为当前项目 Shell／提示词目录。每项含 `{id,name,kind,default_worker_id,version,last_execution}`，以及 description、when_to_use、tags、examples、warnings；正文按 kind 仅返回 command 或 prompt。保存 `command:{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`，旧缺省 kind=shell。元数据为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 仅兼容已有配置，为真实 Worker 内部整数或 null，编辑省略保留、null 清空；不参与 Hook 路由，页面不再管理手动默认目标。commands.items 不公开 authorized；旧授权字段不参与执行准入。所有编辑递增版本但不撤权或停用挂载，已登记挂载固定授权版本，不静默跟随；显式选择新版功能才升级。不接受路径、authorized、version 或额外参数；两类正文不可混合。保存和删除使用 **commands.revision**，保存返回完整 Hooks 目录。`hooks.command_authorize`、Project `authorizeShortcutCommand` 和 CLI `hooks command authorize/revoke` 已删除，UI 不提供授权／撤权或授权筛选。
 
 W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks command run/start`，Web 不再提供手动运行；不保留兼容执行别名。指令只由启用且通过安全门的 Hook 引用执行，原有权限、真实目录、Git 串行与生命周期门禁不变。
 
@@ -71,32 +77,32 @@ W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks co
 
 `hooks.command_history_remove` 是用户专属写入口，经同源 POST action，参数必须二选一：`{execution_id:UUID}` 逐条移除，或 `{clear:true}` 清空全部已确认成功／失败记录，返回 `{removed_count}`。重复移除同 UUID 返回 0；待执行、执行中、unknown 不可移除。删除持久隐藏历史列表、精确查询与快捷指令 last_execution，不删除原审计、不改变挂载启停或副作用，恢复／去重仍使用原事实。
 
-Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `type:'prompt_command'`，仅 `worker.parent_ready`＋once，以挂载 Worker 为父，标明 Agent 代价；同 Hook 不混合两类指令，最多一个 create_worker／prompt_command。旧可选 command_version 为正安全整数，仅兼容，不固定未来版本；执行前核验指令存在与类型匹配，执行开始固定实际定义，编辑竞态不得混用正文与收据。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
+Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `type:'prompt_command'`，仅 `worker.parent_ready`＋once，以挂载 Worker 为父，标明 Agent 代价；同 Hook 不混合两类指令，最多一个 create_worker／prompt_command。注册时固定 command_version 正安全整数，执行真实使用对应历史定义；未升级历史挂载暂保留原 latest 兼容。执行前仍核验当前指令存在与类型匹配，执行开始固定实际定义，编辑竞态不得混用正文与收据。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
 
 旧已停用规则不自动启用，不改写历史或重放；删除／类型不匹配仍阻止执行，不承诺撤回已经开始的副作用。完整安全契约见[快捷指令与 Hook](../../engineering/shortcut-commands.md)。
 
-## 原子安装合并后命令
+## 先注册，再单独挂载
 
-`hooks.install` 将**一条新 Shell 快捷指令与一个引用挂载**在同一 SQLite 事务内保存，返回 `{installed:true,worker_id,worker_number,command_id,hook_id}`。不创建模板，不改写已有命令，不执行命令，也不调用 Agent。首版仅支持 `worker.merge_received`，模式可为 once／persistent；目标仍须通过原 Worker 生命周期和容量门禁。
+D676：`hooks.install`／Project installCommandHook／旧 CLI install 已退役并拒绝，不能一次确认注册并挂载。历史原子安装收据仅供恢复核验，不作为新授权。
 
-用户 CLI 先读 `hooks list` 和 `worker hooks ID`，再运行 `bun run lush hooks install ID --file automation.json`。ID 使用查询到的 main／目标 Worker 身份，可为内部整数或 W 编号，不能假定 main 的 ID。文件须是 owner-only、非链接、有界 JSON，**不含 id**，例如：
+第一步 `hooks.register` 原子注册一条新 Shell 指令和项目功能，**不含目标、不挂载、不执行**。`hooks.list.registration` 提供与 CLI／管家同源的 schema；快捷登记仅支持其中明确列出的节点和模式，不能直接套用通用 command 动作的更宽目录。用户 CLI `bun run lush hooks register --file automation.json` 使用 owner-only、非链接、有界文件：
 
 ```json
 {
   "command": { "name": "重启应用", "kind": "shell", "command": "bun run restart" },
-  "hook": { "name": "main 合并后重启", "trigger": "worker.merge_received", "mode": "persistent", "enabled": true },
-  "expected_revisions": { "commands": "填入 hooks.list.commands.revision", "worker_hooks": "填入 worker.hooks.revision" },
-  "client_request_id": "本次安装固定的唯一标识"
+  "hook": { "name": "合并后重启", "trigger": "worker.merge_received", "mode": "persistent", "enabled": true },
+  "expected_revisions": { "commands": "hooks.list.commands.revision", "registry": "hooks.list.registry.revision" },
+  "client_request_id": "本次注册固定的唯一标识"
 }
 ```
 
-RPC／HTTP 另传正整数 `id`。command 仅接受 name、kind（省略为 shell）、command、可选 description／warnings，不接受现有命令 id、提示词、默认目标、目录或凭证；hook 必填 name／trigger／mode／enabled，可带既有 statuses／integrations 条件，不接受 actions。后台生成 `{type:'command',command_id}` 引用，执行仍在挂载 Worker 的真实目录，并跟随该指令最新定义。
+command 仅接受 name、kind（省略为 shell）、command、可选 description／warnings；hook 必填 name／trigger／mode／enabled，可带 statuses／integrations 条件，不接受 actions。返回 `{registered:true,command_id,template_id,template_version}`，初始版本为 1。任一 revision 过期或容量不足整体回滚。client_request_id 最多 128 字符，无首尾空白／控制字符；同 key 同完整参数（含 revision）返回原收据，不重建已删除定义；不同参数拒绝。注册成功不授予任何 Worker 执行权限。
 
-两个 revision 必须来自各自读面。任一过期、目标不适用、容量不足或写入失败，命令、挂载和安装收据一起回滚。client_request_id 必填，最多 128 字符，无首尾空白／控制字符；同 key **同完整参数（含 revision）**返回原安装收据，不新建、不重新启用已删除／停用配置，不证明配置目前仍存在；不同参数拒绝。响应丢失可按原参数查询式重试；新安装须新 key 和最新 revision。去重和精确收据持久保留，重启不重放副作用。
+第二步先查询真实目标及 worker.hooks.revision，再单独调用 `worker.hook_attach {id,hook:{template_id,template_version,enabled?},expected_revision}`；CLI `worker hook attach ID --file mount.json --revision REV` 的文件仅为登记引用。目标、冻结、child 锁定及容量门禁不变。
 
-Valet 通过 `manager.catalog` 取得同源 schema／示例，使用 `manager.call {method:'hooks.install',params:完整请求}`，不能直接运行用户 CLI。按最新设备权限执行，默认 automatic，可收紧为 confirmation／unavailable；若需确认，用户一次确认完整命令、目标、触发条件和版本后，由 runtime 完成两个写入，不恢复模型继续下一步。结果的 command_id／hook_id／worker_id 为安全安装收据，不返回 Shell 正文。纯事务配置中断后由同事务的安装收据证明成功；没有收据且事务已回滚则明确失败，不借重启自动补装。
+Valet 通过真实 manager.call 先请求 hooks.register；必须取得登记成功收据，再独立请求 worker.hook_attach，指定真实目标、明确功能版本与启停。D678：两个方法默认 automatic，可分别收紧为 confirmation／unavailable；需要确认时各精确请求由真实用户批准，pending_confirmation 后结束本轮、不轮询，确认由 runtime 执行原固定请求。禁止旧 hooks.install 原子捷径，注册必须已完成才能申请挂载。收据仅含身份和状态，注册事务有精确持久完成证明；未知副作用不重放。
 
-只订阅安装之后的新合并事件，旧事件不补跑。此节点只覆盖 Lush 落地的合并，不监控外部 Git 操作。实际执行仍须等待冻结／同步等安全门，Shell 的 60 秒／64 KiB、非交互和非沙箱限制不变；失败／unknown 停止未来执行，不撤销已成功合并。
+只订阅新触发，不补跑旧事件；节点只覆盖 Lush 落地的合并，不监控外部 Git。Shell 的 60 秒／64 KiB、非交互、非沙箱和失败／unknown 门禁不变。
 
 ## 通用命令与 main 示例
 
@@ -104,7 +110,7 @@ Valet 通过 `manager.catalog` 取得同源 schema／示例，使用 `manager.ca
 
 定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID'}]`；动作支持节点以目录为准。新项目默认注册内置 `git push` 快捷指令，再由停用示例引用；旧项目导入与停用保留见[兼容契约](../../engineering/shortcut-commands.md#旧配置与-git-push)。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启停与原执行安全门不变，不自动重放失败或未知副作用。
 
-完整编辑使用 `worker.hook_update {id,hook_id,hook:{name,trigger,mode,enabled,conditions?,actions,schedule?},expected_revision}`；不得同时提供 enabled。保留挂载 id，同位置省略 profile 保留已存私有覆盖。创建副本用新模板/挂载定义且 enabled=false，不携带原挂载状态或执行记录。示例用户流程见[自动化示例](../../hooks.md#示例main-合并后自动推送)。
+完整编辑使用 `worker.hook_update {id,hook_id,hook:{template_id,template_version,enabled?},expected_revision}`；不得同时提供顶层 enabled。保留挂载 id，明确选择登记版本，不从脱敏读面重建定义。创建副本先登记新定义，再以 enabled=false 挂载，不携带原挂载状态或执行记录。示例用户流程见[自动化示例](../../hooks.md#示例main-合并后自动推送)。
 
 ## 时间信号与管理指令
 

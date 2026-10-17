@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { check, id, TERMINAL } from '../types.js';
-import { HOOK_LIMITS, HOOK_TRIGGERS, HOOK_ACTIONS, normalizeHook, publicHookDefinition, hookConditionsMatch, hookRevision, hookObject, interruptNotifyHook } from '../hooks.js';
+import { HOOK_LIMITS, HOOK_TRIGGERS, HOOK_ACTIONS, normalizeHook, publicHookDefinition, hookConditionsMatch, hookRevision, hookObject, interruptNotifyHook, hookCommandReference } from '../hooks.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inheritedRunProfile } from './internal.js';
 import { nextHookRun } from '../hook-schedule.js';
 import { hasCommand } from './command-hooks.js';
 import { builtinAutomationMounted } from '../automation-scopes.js';
+import { HOOK_REGISTER_CAPABILITY } from '../hook-registration.js';
+import { registryData, writeRegistry, registerDefinition, resolveRegisteredMount, automationRegistry, systemRegistration, pinCommands, registryVersion } from './automation-registry.js';
 
 const empty = () => ({ version: 1, mounts: [], observed: {} });
 const parse = task => task.hooks ? JSON.parse(task.hooks) : empty();
@@ -14,11 +16,10 @@ const safeError = action => ({ create_worker: 'Worker 创建未完成；检查�
   request_merge: '合并请求未通过安全检查；请查看交付诊断。', message: '消息未通过目标身份或生命周期检查。', notify: '告知未保存。' })[action] || 'Hook 执行未完成，请检查现场。';
 function save(project, taskId, state) { project.store.update(taskId, { hooks: JSON.stringify(state) }); }
 function definitions(project) {
-  return JSON.parse(project.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
+  return registryData(project);
 }
 function writeDefinitions(project, state) {
-  check(Buffer.byteLength(JSON.stringify(state)) <= 4 * HOOK_LIMITS.bytes, 'Hook template library exceeds 512 KiB');
-  project.store.run("INSERT INTO meta(key,value) VALUES ('hook_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(state));
+  writeRegistry(project, state);
 }
 function mountedFeatures(project, task, data = parse(task), convergence = project.taskConvergenceView(task)) {
   const push = project.commandHookExampleIdentity();
@@ -29,10 +30,10 @@ function mountedFeatures(project, task, data = parse(task), convergence = projec
 }
 function revision(project, task) { return hookRevision({ mounted_features: mountedFeatures(project, task), hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null,
   handler: project.taskConvergenceView(task)?.revision ?? null }); }
-function readDefinition(project, value) {
-  const view = publicHookDefinition(value);
-  if (project.shortcutHookIssue(value)) view.enabled = false;
-  view.actions = view.actions.map(action => ['message','retry_worker','resume_worker'].includes(action.type) ? { ...action,
+function readDefinition(project, value, legacy = false) {
+  const view = publicHookDefinition(value), referenceOwner = legacy ? { ...value, id: 'legacy-template' } : value;
+  if (project.shortcutHookIssue(referenceOwner)) view.enabled = false;
+  view.actions = view.actions.map(action => hookCommandReference(referenceOwner, action)).map(action => ['message','retry_worker','resume_worker'].includes(action.type) ? { ...action,
     target_worker_number: project.store.get('SELECT worker_number FROM tasks WHERE id=?', action.target_id)?.worker_number ?? null,
   } : action);
   return view;
@@ -59,11 +60,6 @@ function editable(project, task, hook = null, disabling = false) {
 }
 function checkRevision(actual, expected) { check(typeof expected === 'string' && actual === expected, 'Hook revision changed; reload before editing'); }
 function definition(project, raw, task = null) {
-  if (raw?.template_id !== undefined) {
-    hookObject(raw, ['template_id'], 'template mount');
-    const stored = definitions(project).templates.find(t => t.id === raw.template_id);
-    check(stored, 'Hook template not found'); raw = stored.definition;
-  }
   const value = normalizeHook(raw);
   project.validateShortcutHook(value);
   if (task && value.trigger === 'project.interrupted') check(['main','owner'].includes(task.task_kind), 'project interruption Hooks require main/owner');
@@ -108,21 +104,23 @@ function eligible(mount) { return mount.enabled && !mount.maintenance_pending &&
 export default {
   hooksList() {
     const data = definitions(this);
-    return { version: 1, revision: hookRevision(data), completion_defaults: this.completionDefaults(), automation_settings: this.automationSettings(),
+    return { version: 1, revision: hookRevision(data), registry: automationRegistry(this), registration: HOOK_REGISTER_CAPABILITY, completion_defaults: this.completionDefaults(), automation_settings: this.automationSettings(),
       daemon_hooks: this.daemonHooks(), signals: this.hookSignals(),
       management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS.filter(action => action.type !== 'archive_worker'),
-      commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
+      commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: data.templates.filter(item => item.definition).map(item => ({ id: item.id, version: registryVersion(item), purpose: item.purpose ?? item.definition.name, ...readDefinition(this, item.definition, !item.version) })) };
   },
 
   saveHookTemplate(template, expectedRevision) {
     this.assertWritable('save a Hook template');
-    hookObject(template, ['id','name','trigger','mode','enabled','conditions','actions','schedule'], 'Hook template');
-    const { id: templateId, ...raw } = template;
+    hookObject(template, ['id','purpose','name','trigger','mode','enabled','conditions','actions','schedule'], 'Hook template');
+    const { id: templateId, purpose, ...raw } = template;
+    check(purpose === undefined || typeof purpose === 'string' && purpose.length <= 2000 && !purpose.includes('\0'), 'invalid automation purpose');
     // Public templates deliberately omit private profiles. Editing a name or condition must not
     // silently replace an existing model/Prompt/env selection with the current project default.
     if (templateId !== undefined) {
       const stored = definitions(this).templates.find(item => item.id === templateId);
       check(stored, 'Hook template not found');
+      check(!stored.protected, 'system automation is read-only');
       if (Array.isArray(raw.actions)) raw.actions = raw.actions.map((action, index) => {
         const old = stored.definition.actions[index];
         return ['create_worker','retry_worker','resume_worker'].includes(action?.type) && action.profile === undefined && old?.type === action.type && old.profile
@@ -134,10 +132,8 @@ export default {
       const data = definitions(this); checkRevision(hookRevision(data), expectedRevision);
       const index = data.templates.findIndex(t => t.id === templateId);
       if (templateId !== undefined) check(index >= 0, 'Hook template not found');
-      else check(data.templates.length < HOOK_LIMITS.templates, 'too many Hook templates');
-      const item = { id: templateId ?? randomUUID(), definition: normalized };
-      if (index >= 0) data.templates[index] = item; else data.templates.push(item);
-      writeDefinitions(this, data);
+      else check(data.templates.filter(item => !item.protected).length < HOOK_LIMITS.templates, 'too many Hook templates');
+      registerDefinition(this, normalized, { id: templateId, purpose });
     });
     return this.hooksList();
   },
@@ -147,7 +143,50 @@ export default {
     this.store.transaction(() => {
       const data = definitions(this); checkRevision(hookRevision(data), expectedRevision);
       const index = data.templates.findIndex(t => t.id === templateId); check(index >= 0, 'Hook template not found');
+      check(!data.templates[index].protected, 'system automation is read-only');
+      check(!this.store.all('SELECT hooks FROM tasks WHERE hooks IS NOT NULL').some(task => JSON.parse(task.hooks).mounts
+        .some(mount => mount.registry_id === templateId)), 'registered automation is still mounted; remove its mounts before deleting');
       data.templates.splice(index, 1); writeDefinitions(this, data);
+    });
+    return this.hooksList();
+  },
+
+  upgradeHookRegistry(expectedRevision) {
+    this.assertWritable('upgrade legacy automation registrations');
+    check(automationRegistry(this).upgrade_revision === expectedRevision, 'Hook upgrade revision changed; reload before editing');
+    this.store.transaction(() => {
+      for (const item of definitions(this).templates.filter(item => item.definition && !item.protected)) {
+        if (!item.version || item.definition.actions.some(action => ['command','prompt_command'].includes(action.type) && !action.command_version))
+          registerDefinition(this, definition(this, { ...item.definition, actions: item.definition.actions.map(action => {
+            if (item.version) return action;
+            const { command_version: _ignored, ...reference } = action; return reference;
+          }) }), { id: item.id });
+      }
+      for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
+        const data = parse(task); let changed = false;
+        for (const mount of data.mounts) {
+          if (mount.registry_id) continue;
+          check(mount.state !== 'running' && !mount.maintenance_pending && !mount.pending_due_at && !mount.command_pending,
+            'legacy Hook has an in-flight execution; settle it before upgrading');
+          let registration;
+          if (mount.input_signal) registration = systemRegistration(this, 'system:input-signal');
+          else if (mount.signal_binding) registration = systemRegistration(this, 'system:interruption-notice');
+          else {
+            const { name, trigger, mode, enabled, conditions, actions, schedule } = mount;
+            // Old references followed latest. Freeze that currently effective definition only on explicit upgrade.
+            const normalized = definition(this, { name, trigger, mode, enabled, conditions,
+              actions: actions.map(({ command_version, ...action }) => action), ...(schedule ? { schedule } : {}) });
+            const pinned = pinCommands(this, normalized);
+            const signature = value => hookRevision({ ...value, enabled: false });
+            const item = definitions(this).templates.find(item => item.definition && item.version
+              && signature(item.definition) === signature(pinned)) ?? registerDefinition(this, normalized);
+            mount.actions = structuredClone(item.definition.actions);
+            registration = { registry_id: item.id, registry_version: item.version };
+          }
+          Object.assign(mount, registration); changed = true;
+        }
+        if (changed) { save(this, task.id, data); this.store.event(task.id, 'hook.registry_upgraded', {}); }
+      }
     });
     return this.hooksList();
   },
@@ -155,20 +194,20 @@ export default {
   taskHooks(taskId) {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
     const available = ownerAvailable(this, task);
-    const mounts = data.mounts.filter(m => !m.input_signal).map(m => ({ id: m.id, kind: 'rule', ...readDefinition(this, m),
+    const mounts = data.mounts.filter(m => !m.input_signal).map(m => ({ id: m.id, kind: 'rule', registry_id: m.registry_id ?? null, registry_version: m.registry_version ?? null, legacy: !m.registry_id, ...readDefinition(this, m),
       operation: m.receipts?.find(r => r.operation_id)?.operation_id ? this.mergeRequestOperationView(task, m.receipts.find(r => r.operation_id).operation_id) : null, builtin: Boolean(m.signal_binding), locked: Boolean(m.signal_binding),
       editable: !m.signal_binding && (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: (!m.signal_binding || (!m.enabled && ['unknown','skipped'].includes(m.state))) && ['main','owner','order','say','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
       ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
       ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
       ...(m.actions.find(a => a.type === 'create_worker')?.profile ? { model_selection: publicHookDefinition(m).actions.find(a => a.type === 'create_worker').model_selection } : {}) }));
-    for (const mount of data.mounts.filter(m => m.input_signal)) mounts.push({ id: mount.id, kind: 'input_signal', name: mount.name,
+    for (const mount of data.mounts.filter(m => m.input_signal)) mounts.push({ id: mount.id, kind: 'input_signal', registry_id: mount.registry_id ?? null, registry_version: mount.registry_version ?? null, legacy: !mount.registry_id, name: mount.name,
       trigger: mount.trigger, mode: 'once', enabled: mount.enabled, builtin: true, locked: true, editable: false, removable: false,
       conditions: {}, actions: mount.actions, state: mount.state, last_execution: mount.last_execution,
       reason: '条件发射信号由输入意图管理；在草稿页撤销待发射输入。' });
     if (automatic && builtinAutomationMounted(task, 'completion')) {
       const booking = task.reservation ? JSON.parse(task.reservation) : null;
-      mounts.unshift({ id: 'auto-merge', kind: 'rule', operation: this.mergeRequestOperationView(task), name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
+      mounts.unshift({ id: 'auto-merge', registry_id: 'builtin:completion', registry_version: 1, kind: 'rule', operation: this.mergeRequestOperationView(task), name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
         enabled: automatic.enabled, builtin: true, locked: automatic.locked, editable: automatic.editable, removable: false, reason: automatic.reason,
         conditions: {}, actions: [{ type: 'request_merge' }], state: booking?.status === 'integrated' ? 'succeeded'
           : ['executing','resolving','blocked'].includes(booking?.status) ? 'running' : automatic.enabled ? 'waiting' : 'idle',
@@ -185,7 +224,7 @@ export default {
       ['accept', '自动验收', 'delivery.integrated', 'accept_worker', 2],
     ]) {
       const status = this.completionMountState(task, phase);
-      mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, kind: 'rule', operation: this.acceptanceOperationView(task), name, trigger, mode: 'persistent',
+      mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, registry_id: 'builtin:completion', registry_version: 1, kind: 'rule', operation: this.acceptanceOperationView(task), name, trigger, mode: 'persistent',
         enabled: ['off','merge','accept'].indexOf(completion.level) >= threshold,
         builtin: true, locked: completion.locked, editable: false, removable: false,
         conditions: {}, actions: [{ type }], ...status,
@@ -194,7 +233,7 @@ export default {
     const convergence = this.taskConvergenceView(task);
     if (convergence) {
       const operation = this.deliveryHandlerOperationView(task);
-      mounts.splice(automatic ? 2 : 0, 0, { id: 'delivery-handler', kind: 'delivery_handler', name: '交付处理器', trigger: 'delivery.requested', mode: 'persistent',
+      mounts.splice(automatic ? 2 : 0, 0, { id: 'delivery-handler', registry_id: 'system:delivery-handler', registry_version: 1, kind: 'delivery_handler', name: '交付处理器', trigger: 'delivery.requested', mode: 'persistent',
         enabled: true, builtin: true, locked: true, editable: false, removable: false,
         conditions: {}, actions: [{ type: 'integrate_deliveries', strategy: 'serial' }],
         operation, state: operation?.status ?? 'idle', last_execution: null,
@@ -208,7 +247,8 @@ export default {
 
   attachTaskHook(taskId, raw, expectedRevision) {
     const task = this.store.task(id(taskId));
-    const value = definition(this, raw, task); editable(this, task, value);
+    const { definition: registered, registration } = resolveRegisteredMount(this, raw);
+    const value = definition(this, registered, task); editable(this, task, value);
     const next = value.schedule ? nextHookRun(value.schedule, this.hookClock()) : null;
     check(!value.schedule || value.schedule.kind !== 'once' || next, 'one-shot schedule must be in the future when mounted');
     this.store.transaction(() => {
@@ -216,13 +256,14 @@ export default {
       const data = parse(current); check(data.mounts.length < HOOK_LIMITS.mounts, 'too many mounted Hooks');
       check(this.store.get("SELECT count(*) AS n FROM tasks WHERE hooks IS NOT NULL").n < 500 || current.hooks,
         'too many Workers with mounted Hooks (limit 500)');
-      data.mounts.push({ ...value, id: randomUUID(), state: value.trigger === 'worker.parent_ready' || value.schedule ? 'waiting' : 'idle', created_at: now(), last_execution: null,
+      data.mounts.push({ ...value, ...registration, id: randomUUID(), state: value.trigger === 'worker.parent_ready' || value.schedule ? 'waiting' : 'idle', created_at: now(), last_execution: null,
+        ...(hasCommand(value) ? { command_last_source: this.store.get('SELECT max(id) AS id FROM events')?.id ?? 0 } : {}),
         ...(value.schedule ? { next_run_at: next, pending_due_at: null } : {}) });
       check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
       save(this, task.id, data);
       this.store.event(task.id, 'hook.attached', { hook_id: data.mounts.at(-1).id, trigger: value.trigger, name: value.name });
     });
-    this.scheduleTaskHooks();
+    this.armScheduledHookTimer();
     return this.taskHooks(task.id);
   },
 
@@ -242,13 +283,8 @@ export default {
     let replacement = null;
     if (editing) {
       check(existing, 'Hook mount not found');
-      const raw = structuredClone(hook);
-      if (Array.isArray(raw.actions)) raw.actions = raw.actions.map((action, index) => {
-        const previous = existing.actions[index];
-        return ['create_worker','retry_worker','resume_worker'].includes(action?.type) && action.profile === undefined && previous?.type === action.type && previous.profile
-          ? { ...action, profile: previous.profile } : action;
-      });
-      replacement = definition(this, raw, task); editable(this, task, replacement, !replacement.enabled);
+      const { definition: registered, registration } = resolveRegisteredMount(this, hook);
+      replacement = { ...definition(this, registered, task), ...registration }; editable(this, task, replacement, !replacement.enabled);
       enabled = replacement.enabled;
       check(!existing.draft_id || creationIdentity(replacement) === creationIdentity(existing), 'buffered draft Hook parameters cannot be edited; remove and remount the draft');
     }
@@ -256,6 +292,7 @@ export default {
       const data = parse(this.store.task(task.id)), mount = data.mounts.find(m => m.id === hookId); check(mount, 'Hook mount not found');
       check(mount.state !== 'running', 'Hook is executing; wait for its result');
       const command = hasCommand(replacement ?? mount);
+      check(!enabled || replacement?.registry_id || mount.registry_id, 'legacy Hook requires explicit hooks.upgrade before enabling');
       if (enabled) this.validateShortcutHook({ ...(replacement ?? mount), enabled: true });
       const recovering = ['failed','unknown'].includes(mount.state);
       check(!enabled || !recovering || (command && (replacement ?? mount).mode === 'persistent'), 'Hook effects require inspection; mount a new explicitly authorized rule instead of replaying');
@@ -354,7 +391,7 @@ export default {
         mount.last_execution = { id: executionId, trigger, status: 'running', created_at: now(), finished_at: null };
         mount.receipts = []; mount.maintenance_pending = true;
         mount.prompt_executions = mount.actions.map((action, index) => action.type === 'prompt_command'
-          ? { index, ...this.acceptPromptShortcutExecution(action, task.id) } : null).filter(Boolean);
+          ? { index, ...this.acceptPromptShortcutExecution(hookCommandReference(mount, action), task.id) } : null).filter(Boolean);
         // A command submission may have updated the same Worker's JSON earlier in this loop.
         const current = parse(this.store.task(task.id)); Object.assign(current.mounts.find(m => m.id === mount.id), mount); save(this, task.id, current);
         return executionId;
@@ -527,8 +564,8 @@ export default {
     this.recoverShortcutCommands();
     this.recoverScheduledTaskHooks();
     this.recoverCommandTaskHooks();
-    // A built-in legacy push may have been running at bootstrap. Upgrade only
-    // after recovery has preserved its known/unknown result, never replay it.
+    // Bootstrap only a missing example. Existing push definitions/mounts are never upgraded here;
+    // recovery preserves their known/unknown effects before any explicit user migration.
     this.initializeCommandHookExample();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
       for (const mount of parse(task).mounts) {
@@ -576,15 +613,23 @@ export default {
     if (draft) check(!this.draftHookMount(draft.id), 'draft is already mounted on a Hook; remove that mount before editing or sending');
     const value = definition(this, { name: '预约发射 Worker', trigger: 'worker.parent_ready', mode: 'once', enabled: true,
       conditions: {}, actions: [{ type: 'create_worker', content, references, start, ...(profile ? { profile } : {}) }] }, parent);
+    editable(this, parent, value);
     if (!draft) {
       const existing = parse(this.store.task(parent.id)).mounts.find(m => eligible(m)
         && m.trigger === 'worker.parent_ready' && creationIdentity(m) === creationIdentity(value));
       if (existing) return { deferred: true, parent_id: parent.id, hook_id: existing.id, hooks: this.taskHooks(parent.id) };
     }
-    const before = this.taskHooks(parent.id);
-    this.attachTaskHook(parent.id, value, before.revision);
-    const data = parse(this.store.task(parent.id)), mount = data.mounts.at(-1);
+    // Trusted input primitive: registered system functionality with private exact per-input parameters.
+    const data = parse(this.store.task(parent.id));
+    check(data.mounts.length < HOOK_LIMITS.mounts, 'too many mounted Hooks');
+    const mount = { ...value, ...systemRegistration(this, 'system:deferred-order'), id: randomUUID(), state: 'waiting', created_at: now(), last_execution: null };
+    data.mounts.push(mount);
+    check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
+    check(parent.hooks || this.store.get('SELECT count(*) AS n FROM tasks WHERE hooks IS NOT NULL').n < 500, 'too many Workers with mounted Hooks');
+    save(this, parent.id, data);
+    this.store.event(parent.id, 'hook.attached', { hook_id: mount.id, trigger: mount.trigger, registry_id: mount.registry_id });
     if (draft) { mount.draft_id = draft.id; mount.draft_revision = draft.revision; save(this, parent.id, data); }
+    this.scheduleTaskHooks();
     return { deferred: true, parent_id: parent.id, hook_id: mount.id, hooks: this.taskHooks(parent.id) };
   },
 };

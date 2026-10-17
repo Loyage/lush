@@ -16,16 +16,20 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
+    'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
     'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
   ]),
   rpc: Object.freeze([
     'test/core-api.test.js', // shared RPC registry and handlers
     'test/web/core-api.test.js', // real HTTP routes
+    'test/web/automation-registry-api.test.js', // authenticated HTTP -> register-only, explicit mount/upgrade and auth rejection
     'test/web/silent-maintenance.test.js', // authenticated HTTP/RPC -> maintenance -> Host silent-batch evidence
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git state/tree/content/diff
     'test/web/input-history.test.js', // persisted input history API
     'test/web/agent-connections-api.test.js', // connection configuration API
     'test/web/runner-management-api.test.js', // Runner management HTTP entry
+    'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
+    'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
     'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
@@ -52,6 +56,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/cli-surfaces.test.js', // executable catalogue
     'test/cli-catalog.test.js', // parser/catalogue agreement
     'test/cli-entrypoints.test.js', // fixed CLI -> real RPC
+    'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount
     'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
     'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer

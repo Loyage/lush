@@ -8,10 +8,11 @@ export const AUTOMATION_FEATURES = Object.freeze(AUTOMATION_METADATA.map(item =>
 })));
 export const automationFeature = id => AUTOMATION_FEATURES.find(feature => feature.id === id);
 export function automationHash(feature = null) {
-  return feature === 'emission' ? '#inputs' : feature ? `#hooks-${feature}` : '#hooks';
+  return feature === 'emission' ? '#inputs' : !feature ? '#hooks' : ['completion', 'push', 'acceptance_notice', 'convergence'].includes(feature) ? `#hooks-${feature}` : `#hooks-feature-${encodeURIComponent(feature)}`;
 }
 export function automationTarget(hash) {
   if (hash === '#hooks' || hash === '#hooks-history') return { feature: null, subpage: 'settings' };
+  if (hash.startsWith('#hooks-feature-')) { try { return { feature: decodeURIComponent(hash.slice(15)), subpage: 'settings' }; } catch { return null; } }
   const match = /^#hooks-(completion|push|convergence|acceptance_notice|emission)(-history)?$/.exec(hash);
   return match ? { feature: match[1], subpage: 'settings' } : null;
 }

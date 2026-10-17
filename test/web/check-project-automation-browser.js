@@ -83,12 +83,12 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', timeouts: { script: 60000 }, 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1100 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${wrapper.port}/fixture` }); await frame();
-  assert(await wait(`document.querySelectorAll('.automation-feature').length===3`), 'current setting entries missing');
-  await execute(`const s=document.querySelector('[aria-label="查找自动化功能"]');s.value='告知';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
+  assert(await wait(`document.querySelectorAll('.automation-feature').length===${f.project.hooksList().registry.total}`), 'dynamic registry entries missing');
+  await execute(`const s=document.querySelector('[aria-label="查找自动化功能"]');s.value='待验收告知';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
   assert(await execute(`return [...document.querySelectorAll('.automation-feature')].filter(n=>!n.hidden).length===1`), 'explicit search failed');
   await click('.automation-feature:not([hidden]) a'); assert(await wait(`document.querySelector('.automation-acceptance-notice [data-level="off"]')`), 'notice settings missing');
   await state('off'); await press('← 返回自动化功能列表');
-  assert(await execute(`return document.querySelector('[aria-label="查找自动化功能"]').value==='告知'`), 'back lost search');
+  assert(await execute(`return document.querySelector('[aria-label="查找自动化功能"]').value==='待验收告知'`), 'back lost search');
   await route('#hooks-completion', 'completion'); await state('accept'); await scope('user');
   await press('保存项目设置'); assert(await wait(`!document.querySelector('#modal').hidden`), 'acceptance confirmation missing');
   assert(await execute(`return document.querySelector('#modal').textContent.includes('分支子树')&&document.querySelector('#modal').textContent.includes('不是质量评审')`), 'acceptance scope incomplete');
@@ -104,7 +104,7 @@ try {
   const fresh = (await f.project.order('Browser future Worker', 'main', [], null, false)).task;
   assert(f.project.taskHooks(fresh.id).completion.level === 'accept' && !f.project.taskHooks(fresh.id).acceptance_notice.enabled, 'future order did not freeze defaults');
   await execute(`location.hash='#hooks-convergence'`);
-  assert(await wait(`location.hash==='#hooks'&&document.querySelectorAll('.automation-feature').length===3`), 'retired convergence hash did not redirect');
+  assert(await wait(`location.hash==='#hooks'&&document.querySelectorAll('.automation-feature').length===${f.project.hooksList().registry.total}`), 'retired convergence hash did not redirect');
   assert(await execute(`return !document.querySelector('.convergence-defaults')&&!document.querySelector('[data-feature="convergence"]')`), 'retired settings remain');
   const unmounted = (await f.project.order('Browser future Worker 2', 'main', [], null, false)).task;
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
@@ -146,8 +146,43 @@ try {
   assert(f.project.taskHooks(child.id).acceptance_notice.enabled && f.project.taskHooks(child.id).completion.locked, 'child notice save unlocked completion');
   await press('高级与记录'); assert(await execute(`return !document.querySelector('.hook-management').hidden&&!document.querySelector('.delivery-handler')&&!document.querySelector('.worker-convergence-control')`), 'retired handler/settings visible');
   await press('刷新详情'); assert(await wait(`!document.querySelector('.hook-management').hidden`), 'refresh lost advanced expansion');
+  // A second real chain uses the unified registry, not a test-only RPC shortcut.
+  await execute(`location.hash='#hooks-feature-register'`);
+  assert(await wait(`document.querySelector('.registry-registration')`), 'registration route missing');
+  const fill = (label, value) => execute(`const n=document.querySelector('[aria-label="'+${JSON.stringify(label)}+'"]');n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('change',{bubbles:true}));`);
+  await fill('Hook 名称', 'Browser registered notice'); await fill('触发节点', 'agent.returned'); await fill('动作类型', 'notify'); await fill('告知标题', 'Browser'); await fill('消息或告知正文', 'Not executed during registration');
+  await press('确认登记功能'); await press('只登记功能');
+  assert(await wait(`document.querySelector('.registry-registration > [role="status"]').textContent.includes('登记成功')`), 'register ACK missing');
+  const registered = f.project.hooksList().registry.items.find(item => item.name === 'Browser registered notice');
+  assert(registered?.mount_count === 0 && !f.project.taskHooks(main.id).mounts.some(m => m.registry_id === registered.id), 'registration mounted main');
+  await execute(`location.hash='#hooks'`); assert(await wait(`document.querySelector('.automation-feature-list')?.textContent.includes('Browser registered notice')`), 'registered feature not in directory');
+  await execute(`location.hash='#hooks-feature-${registered.id}'`); assert(await wait(`document.querySelector('.registry-mount')`), 'registered detail missing');
+  await press('读取 Worker 列表'); assert(await wait(`document.querySelector('[aria-label="选择目标 Worker"]').options.length>1`), 'Worker list missing');
+  assert(await execute(`return document.querySelector('[aria-label="选择目标 Worker"]').value===''`), 'main selected implicitly');
+  await fill('选择目标 Worker', String(old.id)); assert(await wait(`document.querySelector('.registered-mount-picker')`), 'version picker missing');
+  assert(await execute(`return document.querySelector('[aria-label="授权版本"]').value===''`), 'implicit latest selected');
+  await fill('授权版本', '1'); await press('确认挂载'); await press('授权挂载');
+  assert(await wait(`document.querySelector('.registered-mount-picker [role="status"]').textContent.includes('已保存')`), 'mount ACK missing');
+  let model = f.project.taskHooks(old.id), mount = model.mounts.find(m => m.registry_id === registered.id); assert(mount?.registry_version === 1 && !mount.enabled, 'fixed disabled mount missing');
+  await execute(`document.querySelector('.registry-advanced').open=true`); await fill('Hook 名称', 'Browser notice revision 2'); await press('登记新版本'); await press('只登记功能');
+  assert(await wait(`document.querySelector('.registry-registration > [role="status"]').textContent.includes('登记成功')`), 'revision ACK missing');
+  assert(f.project.taskHooks(old.id).mounts.find(m => m.id === mount.id).registry_version === 1, 'definition revision changed old grant');
+  await workerRoute(old); await press('高级与记录');
+  assert(await execute(`return document.querySelector('.worker-hooks').textContent.includes('自定义 · ${registered.id} · 固定 v1')&&!document.querySelector('.worker-hooks .hook-form')&&!document.querySelector('[aria-label="挂载模板"]')`), 'source/version missing or raw action editor remains');
+  await execute(`document.querySelector('[data-hook-id="${mount.id}"]').querySelectorAll('button')[2].click()`);
+  assert(await wait(`document.querySelector('.registered-mount-picker')`), 'upgrade picker missing'); await fill('授权版本', '2'); await press('确认升级挂载版本'); await press('授权升级版本');
+  assert(await wait(`document.querySelector('.worker-hooks')?.textContent.includes('固定 v2')`), 'Worker explicit upgrade not visible');
+  for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}';location.hash='#hooks-feature-${registered.id}'`);
+    assert(await wait(`document.querySelector('.registry-automation')`), 'registry layout route missing');
+    assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.registry-advanced').open&&!document.querySelector('.registry-targets').open`), `registry hierarchy/overflow ${theme}/${width}`);
+    await screenshot(`registry-${theme}-${width}`);
+    await execute(`document.querySelector('.registry-advanced').open=true;document.querySelector('.registry-targets').open=true`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth`), `expanded registry overflow ${theme}/${width}`); await screenshot(`registry-expanded-${theme}-${width}`);
+    await execute(`document.querySelector('.registry-advanced').open=false;document.querySelector('.registry-targets').open=false`);
+  }
   assert(!reads.some(url => url.includes('/api/automation/completion/workers') || url.includes('/branch-convergence/runs')), 'project settings loaded execution records');
-  assert(mutations.every(item => ['hooks.automation_settings', 'worker.acceptance_notice'].includes(item.method)), 'unexpected mutation');
+  assert(mutations.every(item => ['hooks.automation_settings', 'worker.acceptance_notice', 'hooks.save', 'worker.hook_attach', 'worker.hook_update'].includes(item.method)), 'unexpected mutation');
   assert(errors.length === 1 && errors[0].includes('/api/action'), `unexpected failures: ${errors}`);
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify({ mutations, errors, reads, layouts, helpChecks, help: ['hover 1200ms', 'keyboard Tab 1200ms', 'mouse long-press 650ms'] }, null, 2));
   success = true; console.log('PASS real defaults/scope saves, frozen future creation, hidden non-mounts, retained draft/stale revision, compact dual-theme layout and title hover/keyboard/long-press help');

@@ -29,7 +29,7 @@ export default {
       this.assertPromptShortcutParent(parent.id, branch);
       check(!this.store.get("SELECT id FROM events WHERE type IN ('shortcut.command_succeeded','shortcut.command_failed','shortcut.command_unknown') AND json_extract(data,'$.execution_id')=?", executionId), 'prompt shortcut execution already settled');
       // Bind the claimed body/version throughout asynchronous anchor and DB admission.
-      check(this.resolveShortcutCommand({ type: 'prompt_command', command_id: commandId }).version === version, 'shortcut command definition changed');
+      this.resolveShortcutCommand({ type: 'prompt_command', command_id: commandId, command_version: version });
       const mount = JSON.parse(this.store.task(parent.id).hooks ?? '{"mounts":[]}').mounts.find(m => m.id === hookReceipt.hook_id);
       const claim = mount?.prompt_executions?.find(claim => claim.index === hookReceipt.action_index);
       check(mount?.enabled && mount.state === 'running' && mount.last_execution?.id === hookReceipt.execution_id

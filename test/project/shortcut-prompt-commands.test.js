@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { fixture, repo, gate, git, until } from '../helpers.js';
 import { Project } from '../../src/core/project.js';
 import { HOOK_ACTIONS, normalizeHook } from '../../src/core/hooks.js';
+import { attachRegisteredHook } from '../hook-registry.js';
 
 const revision = f => f.project.shortcutCommands().revision;
 const view = (f, command) => f.project.shortcutCommands().items.find(item => item.id === command.id);
@@ -17,7 +18,7 @@ const rule = item => ({ name: 'prompt once', trigger: 'worker.parent_ready', mod
 const history = (f, executionId) => f.project.shortcutCommandHistory({ execution_id: executionId }).items[0];
 const start = (f, item, parent) => {
   f.project.assertPromptShortcutParent(parent.id);
-  f.project.attachTaskHook(parent.id, rule(item), f.project.taskHooks(parent.id).revision);
+  attachRegisteredHook(f.project, parent.id, rule(item));
   f.project.emitTaskHook(parent.id, 'worker.parent_ready');
   const execution = f.project.shortcutCommandHistory().items[0];
   return { execution_id: execution.id, execution };

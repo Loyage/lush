@@ -4,7 +4,7 @@
 
 ## 快捷指令引用
 
-当前命令动作使用 `{type:'command',command_id}`，引用项目快捷指令的最新定义，无快捷指令预授权。旧可选 command_version、固定执行证据及内联显式导入以[快捷指令与 Hook 契约](shortcut-commands.md)为准；其他受控动作与安全门不变。旧内联只保留展示和历史，不能执行或启用。项目自动化按功能列表进入设置页，具体授权与记录从对应 Worker 查看，通用指令与模板的 Web 编辑入口已退休，定义管理仍经既有 CLI／API，页面入口见[使用指南](../hooks.md#页面入口)。
+D676：所有项目自动化先进入统一注册目录，复用 hook_templates 附属配置，不新增实体。新挂载只接受 `{template_id,template_version,enabled?}`，完整更新同样拒绝内联动作；注册定义和命令正文均有不可变版本，挂载复制明确授权版本及 `{type:'command',command_id,command_version}`。定义修改不改变旧挂载，显式选择新版才升级。固定历史版的真实执行、删除／类型失配门禁及旧内联显式导入见[快捷指令契约](shortcut-commands.md)。旧内联只保留展示和历史，不能执行或启用。项目自动化按功能列表进入设置页，具体授权与记录从对应 Worker 查看，通用指令与模板的 Web 编辑入口已退休，定义管理仍经既有 CLI／API，页面入口见[使用指南](../hooks.md#页面入口)。
 
 ## 通用命令与 main 推送示例（W133 / 用户决定 #319）
 
@@ -12,7 +12,7 @@
 
 初始化一次性保存默认关闭的持续示例模板及 main 挂载，读取不安装，用户删除后不重装。`hooks.list` 新增 `command_example:{template_id,worker_id,hook_id,hooks}`；无 main 返回 null。hooks 为 main 同源安全读面，项目页面与 main 管理区修改同一挂载、使用它的 revision。模板和实例编辑继续分离。
 
-`worker.hook_update` 支持完整 `hook` 编辑，与 `enabled` 互斥，Project 签名 `updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)` 保持旧启停兼容；编辑保留挂载身份，同位置省略私有 profile 保留已存覆盖，不把安全摘要当秘密参数。复制为新的停用定义，不复制执行记录。
+`worker.hook_update` 的完整 hook 只接受登记 ID、明确版本及可选 enabled，与顶层 enabled 互斥；Project 签名不变。选择版本保留挂载身份，不把安全摘要当私有定义回传。修改定义先 hooks.save，再明确更新挂载；复制为新的停用挂载，不复制执行记录。
 
 通用命令以系统用户权限执行，不是沙箱。以所挂载 Worker 的真实目录运行，经过项目写门、Workspaces 串行区及冻结/同步/归档/实际 invocation 的执行前核验；输入非交互，运行时间与输出有界，去除 Agent invocation 凭证。命令执行使用[按 ref 的精确收据](target-branch-guard.md)，仅成功命令记录挂载分支的 before → after；失败或未开始不提供成功归因，无关 ref 不豁免。执行器使用 POSIX `/bin/sh -c`，最长 60 秒，累计输出最多 64 KiB，超时/超限回收进程组；不支持交互认证。公开读面仅返回退出码、超时/超限等安全状态和诊断，不公开命令原始输出或秘密。成功合并使用持久事件身份去重，连续触发在开始前持久等待；失败和 unknown 停止挂载未来执行，显式重新启用只恢复未来触发，不自动重放旧动作。失败不会撤销成功合并。
 
@@ -85,13 +85,13 @@
 ```
 
 `mode` 是 `once|persistent`；条件只允许现有 Worker 状态和 integration 枚举，无脚本。动作：
-- `command`：`{type,command_id}`，Hook 引用指令最新定义，不允许内联 Shell；旧版本字段兼容与执行固定见[快捷指令契约](shortcut-commands.md)。一次性/持续，真实目录和安全边界见上节；不调用 Agent。
+- `command`：注册定义为 `{type,command_id,command_version?}`，省略版本时注册固定当前版；挂载复制明确版本，不允许内联 Shell。旧未升级挂载兼容与真实历史版执行见[快捷指令契约](shortcut-commands.md)。一次性/持续，真实目录和安全边界见上节；不调用 Agent。
 - `request_merge`：只在 `worker.delivery_ready`，通过现有请求及父自有队列。
 - `create_worker`：只在 `worker.parent_ready`，只允许 `once`；所挂载的 Worker 就是父，不允许动作改投任意分支。保存完整有效 profile，不保存凭证快照。
 - `notify`：`{type,title,body}`，纯 `info` 告知，不创建待决、不唤醒 Agent。
 - `message`：`{type,target_id,body}`，首期仅允许 `mode:'once'`，防止返回→消息→调用的无限付费循环；目标仅当前或直接父子；发信通过既有消息准入，触发链有硬边界，不能自动重试调用。会安排 Agent 调用，UI 必须提示代价。
 
-模板定义同形，但未填 profile 的 create_worker 在实际挂载时冻结默认。`worker.hook_attach` 的 `hook` 也可为 `{template_id:UUID}`，由服务器复制完整私有定义，不能把裁去 profile 的安全读面当作完整参数回传。挂载时复制模板；以后编辑模板不修改实例。同一位置的 `create_worker` 编辑时省略 `profile` 会保留模板已有私有覆盖，显式提供则替换；前端新增或移动创建动作要求显式设置参数，避免从安全读面重建秘密。普通读面必须剔除完整 profile/Prompt/env，仅给 `model_selection` 的无秘密摘要；事件不得包含秘密或任意运行错误输出。
+模板定义同形，但未填 profile 的 create_worker 在实际挂载时冻结默认。`worker.hook_attach` 的 hook 只能为 `{template_id:UUID,template_version:N,enabled?}`，服务器复制该版本完整私有定义，不能把裁去 profile 的安全读面当作完整参数回传；以后编辑注册定义不修改实例。同一位置的 `create_worker` 编辑时省略 `profile` 会保留模板已有私有覆盖，显式提供则替换；前端新增或移动创建动作要求显式设置参数，避免从安全读面重建秘密。普通读面必须剔除完整 profile/Prompt/env，仅给 `model_selection` 的无秘密摘要；事件不得包含秘密或任意运行错误输出。
 
 持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。派生 child 的合并—验收—归档流程 Hook 整体对用户只读，旧开关及挂载入口也不能修改；其他受控自定义规则保留原权限。此阶段不批量迁移历史行。
 
@@ -136,7 +136,7 @@ Worker 详情展示为「自动化」。来源结束规则与目标内部处理�
 | `worker.hook_update` | `id`, `hook_id`, `enabled` 或完整 `hook`（互斥）, `expected_revision` | `updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)` | POST action |
 | `worker.hook_remove` | `id`, `hook_id`, `expected_revision` | `removeTaskHook(id,hookId,expectedRevision)` | POST action |
 
-`hooks.list` 返回 `{version:1,revision,triggers,actions,templates}`；actions 目录包含 `{type,label,description,triggers,modes,agent_call,builtin_only?,execution?,scope?,strategies?}`，`modes` 是支持的 `once|persistent` 数组，组合规则只能使用全部动作都支持的模式；templates 为 `{id,...安全定义}`。
+`hooks.list` 返回 `{version:1,revision,registry,triggers,actions,templates,...}`；registry 的完整目录、真实计数、有界目标和显式升级协议见[注册目录接口](../reference/rpc/hooks.md#rpchttp-与-cli)。内置完工／告知及受保护交付、输入信号、维护告知和预约发射在可信 bootstrap 注册；系统挂载关联登记 ID/版本，仅专用入口可配置，不开放通用 raw Project attach。读取不登记、不迁移旧行；actions 目录包含 `{type,label,description,triggers,modes,agent_call,builtin_only?,execution?,scope?,strategies?}`，`modes` 是支持的 `once|persistent` 数组，组合规则只能使用全部动作都支持的模式；templates 为 `{id,...安全定义}`。
 
 `worker.hooks` 和所有挂载修改返回包含 `{version:1,worker_id,revision,mounted_features,mounts}` 的同源安全读面；实际挂载与未来 scope 的精确字段见[项目自动化接口](../reference/rpc/hooks.md#新指令默认流程)。每项为 `{id,name,trigger,mode,enabled,builtin,locked,editable,removable,reason,conditions,actions,state,last_execution,model_selection?}`；state 为 `idle|waiting|running|succeeded|failed|unknown`；last_execution 可空，否则为 `{id,trigger,status,created_at,finished_at,error?,worker_id?,worker_number?,input_id?}`，其中 error 仅为安全诊断。revision 为不透明字符串；所有修改要求读面给定的 expected_revision，过期拒绝并保留客户端编辑。
 
@@ -148,7 +148,7 @@ Worker 详情展示为「自动化」。来源结束规则与目标内部处理�
 
 ## CLI
 
-用户专属 CLI：`hooks list`、`hooks save --file PATH --revision REV`、`hooks remove TEMPLATE_ID --revision REV`；`worker hooks ID`、`worker hook attach ID --file PATH --revision REV`、`worker hook enable|disable|remove ID HOOK_ID --revision REV`；`order --defer` 保留旧参数兼容，新发射缺省即可靠挂载，条件用 --after-settled/--after-merged/--quiet，独占用 --exclusive。定义文件必须是有界、owner-only、非链接 JSON，revision 从对应读面取得，不提供跳过乐观锁的快捷入口。
+用户专属 CLI：`hooks list`、`hooks save --file PATH --revision REV`、`hooks register --file PATH`（只注册 Shell 指令和功能）、`hooks upgrade --revision REV`（显式补登记旧规则）、`hooks remove TEMPLATE_ID --revision REV`；`worker hooks ID`、`worker hook attach ID --file PATH --revision REV`、`worker hook enable|disable|remove ID HOOK_ID --revision REV`；`order --defer` 保留旧参数兼容，新发射缺省即可靠挂载，条件用 --after-settled/--after-merged/--quiet，独占用 --exclusive。定义文件必须是有界、owner-only、非链接 JSON，revision 从对应读面取得，不提供跳过乐观锁的快捷入口。
 
 CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`，经 `worker.lookup` 转成真实整数后调用原 RPC；Hook UUID、模板 UUID、`message.target_id` 仍保持原身份。Web Hook 标签用持久编号，创建收据补安全 `worker_number`、消息动作读面补 `target_worker_number`；仅做投影，不回写定义、收据或历史行，不从整数猜编号。消息目标表单明确要求内部整数 ID；读面附属标签不能当作定义字段回传。
 
@@ -170,6 +170,6 @@ CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`�
 
 ## 验证与交付限制
 
-`test/project/hooks.test.js`、`hooks-command.test.js` 和 `hooks-scheduled.test.js` 保留定义、真实命令和定时提交的少量正常主流程。独立 RPC／HTTP 权限、私有字段出口、时区／DST、冻结、失败重试及重启组合不再逐项回归；精确保留范围以测试断言为准，不将少量冒烟当作旧矩阵的等价替代。
+`test/project/automation-registry.test.js`、`automation-registry-bridge.test.js` 覆盖注册硬边界、明确版本、显式升级、只读、并发 revision 及可控 Provider → 真实 bridge 的默认自动注册／独立挂载、权限收紧后分别确认或禁用，以及真实 Shell 收据。`hooks.test.js`、`hooks-command.test.js` 和 `hooks-scheduled.test.js` 保留定义、真实命令和定时提交主流程。独立 RPC／HTTP 权限、私有字段出口、时区／DST、冻结、失败重试及重启组合不再逐项回归；精确保留范围以测试断言为准，不将少量冒烟当作旧矩阵的等价替代。
 
 测试使用临时项目、可控 provider 与 DOM，不重启用户 daemon/Host、不调用真实模型。当前保留主要执行与界面路径，不再保证每种异常、暂停、冻结及重启 unknown 组合都有独立回归；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。真实浏览器和实际模型端点另行验收。

@@ -3,6 +3,7 @@ import { check, TERMINAL } from '../types.js';
 import { HOOK_LIMITS } from '../hooks.js';
 import { workerLabel } from '../worker-number.js';
 import { runnerPendingCount, requestRunnerStop } from './runner-lifecycle.js';
+import { systemRegistration } from './automation-registry.js';
 
 const KEY = 'project_maintenance';
 const empty = () => ({ version: 1, paused: false, affected: [] });
@@ -110,7 +111,7 @@ export default {
     check(data.mounts.length < HOOK_LIMITS.mounts, 'too many mounted Hooks; free capacity before interrupting the project');
     check(task.hooks || this.store.get('SELECT count(*) AS n FROM tasks WHERE hooks IS NOT NULL').n < 500,
       'too many Workers with mounted Hooks (limit 500)');
-    const mount = { id: randomUUID(), name: '批量中断完成告知', trigger: 'worker.interrupted', mode: 'once', enabled: true,
+    const mount = { ...systemRegistration(this, 'system:interruption-notice'), id: randomUUID(), name: '批量中断完成告知', trigger: 'worker.interrupted', mode: 'once', enabled: true,
       conditions: {}, actions: [{ type: 'notify', title: `${workerLabel(task)} 中断完成`,
         body: `本次调用已安全退出且暂停生效。项目维护批次：${batchId}。项目是否可重启仍需等待项目中断完成信号并动态复核。` }],
       state: 'idle', created_at: new Date().toISOString(), last_execution: null,

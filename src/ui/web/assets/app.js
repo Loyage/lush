@@ -82,7 +82,7 @@ const openSettings = () => openPage(() => import('./render-settings.js'), module
 const openRunners = (projectId = '') => openPage(() => import('./render-runners.js'), module => module.openRunners({ projectId }), RUNNERS_PAGE, { hash: runnersHash(projectId) });
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersionsRedirect = () => openPage(() => import('./retired-pages.js'), module => module.openLegacyVersions(), 'version-redirect', { push: false, hash: '#versions' });
-const openHooks = (feature = null, subpage = 'settings') => openPage(() => import('./render-project-automation.js'), module => module.openProjectAutomation({ feature, subpage }), 'hooks', { hash: feature ? `#hooks-${feature}${subpage === 'history' ? '-history' : ''}` : '#hooks' });
+const openHooks = (feature = null, subpage = 'settings') => openPage(() => import('./render-project-automation.js'), module => module.openProjectAutomation({ feature, subpage }), 'hooks', { hash: !feature ? '#hooks' : ['completion', 'push', 'convergence', 'acceptance_notice'].includes(feature) ? `#hooks-${feature}` : `#hooks-feature-${encodeURIComponent(feature)}` });
 
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
@@ -153,6 +153,9 @@ function openHashTarget(hash, project, doc, generation) {
   if (/^#hooks-emission(?:-history)?$/.test(hash)) {
     window.history.replaceState(null, '', '#drafts');
     return openInputs({ section: 'drafts' });
+  }
+  if (hash.startsWith('#hooks-feature-')) {
+    try { return openHooks(decodeURIComponent(hash.slice(15))); } catch { return openHooks(); }
   }
   const automation = /^#hooks(?:-(completion|push|convergence|acceptance_notice)(-history)?)?$/.exec(hash);
   if (automation || hash === '#hooks-history') return openHooks(automation?.[1] || null);

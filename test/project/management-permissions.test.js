@@ -50,8 +50,9 @@ test('built-in defaults are active without saving; old device/project restrictio
     const view = readDeviceManagementPermissions(f.config);
     expect(Object.keys(view).sort()).toEqual(['version','scope','configured','revision','groups','methods','permissions'].sort());
     expect(view).toMatchObject({ version: 1, scope: 'device', configured: false });
-    for (const method of ['worker.cancel','worker.reserve','worker.accept','worker.delete','hooks.install','system.stop','hooks.command_save'])
+    for (const method of ['worker.cancel','worker.reserve','worker.accept','worker.delete','hooks.register','worker.hook_attach','system.stop','hooks.command_save'])
       expect(view.permissions[method]).toBe('automatic');
+    expect(view.permissions['hooks.install']).toBe('unavailable');
     expect(other.project.managementPermissions()).toEqual(view);
     expect(f.project.managementPermissions()).toEqual(view);
     expect(fs.existsSync(filename(f))).toBe(false);
@@ -64,6 +65,28 @@ test('built-in defaults are active without saving; old device/project restrictio
     expect(() => f.project.setManagementPermissions(view.permissions, saved.revision)).toThrow('historical');
     expect(() => set(f, 'draft.add', 'unavailable', view.revision)).toThrow('revision changed');
   } finally { await other.close(); await f.close(); }
+});
+
+test('retired install grants in the previous device file remain inert history without blocking current policy reads', async () => {
+  const f = fixture();
+  try {
+    f.project.kick = () => {};
+    const current = f.project.managementPermissions();
+    const source = JSON.stringify({ version: 1, generation: 1, permissions: {
+      ...current.permissions, 'hooks.install': 'automatic', 'worker.cancel': 'confirmation',
+    } });
+    fs.mkdirSync(f.config.deviceHome, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(filename(f), source, { mode: 0o600 });
+    const read = f.project.managementPermissions();
+    expect(read).toMatchObject({ configured: true, permissions: {
+      'hooks.install': 'unavailable', 'hooks.register': 'automatic', 'worker.hook_attach': 'automatic', 'worker.cancel': 'confirmation',
+    } });
+    expect(() => validateManagementCall('hooks.install', {}, '', read)).toThrow('已退役');
+    expect(fs.readFileSync(filename(f), 'utf8')).toBe(source);
+    set(f, 'hooks.register', 'confirmation', read.revision);
+    expect(single(f, 'hooks.register').access).toBe('confirmation');
+    expect(single(f, 'hooks.install').access).toBe('unavailable');
+  } finally { await f.close(); }
 });
 
 test('fixture without deviceHome uses the same new defaults and never authorizes historical meta', async () => {
@@ -192,7 +215,7 @@ for (const outcome of ['approve','automatic-answer','stale-revision','self-restr
   } finally { await rpc?.close(); await f.close(); }
 });
 
-test('real bridge executes controlled cancellation/install by default; later tightening governs new calls', async () => {
+test('real bridge executes controlled cancellation/registration by default; later tightening governs new calls', async () => {
   const f = fixture(); let rpc;
   try {
     f.project.kick = () => {}; await repo(f.root);
@@ -201,21 +224,24 @@ test('real bridge executes controlled cancellation/install by default; later tig
     const dispatcher = new Dispatcher(f.project, createSignal(), {});
     rpc = new RPCServer(f.config.socket, dispatcher); await rpc.start();
     const main = f.store.all("SELECT * FROM tasks WHERE task_kind='main'")[0];
-    const hooks = f.project.taskHooks(main.id);
-    const installed = { method: 'hooks.install', params: { id: main.id,
+    const directory = f.project.hooksList();
+    const registered = { method: 'hooks.register', params: {
       command: { name: 'fixture never executed', kind: 'shell', command: 'echo fixture-only' },
       hook: { name: 'disabled fixture hook', trigger: 'worker.merge_received', mode: 'persistent', enabled: false },
-      expected_revisions: { commands: f.project.hooksList().commands.revision, worker_hooks: hooks.revision },
-      client_request_id: 'automatic-install' } };
+      expected_revisions: { commands: directory.commands.revision, registry: directory.registry.revision },
+      client_request_id: 'automatic-register' } };
     const first = await manager(f, [
       { name: 'manager_call', params: { method: 'worker.cancel', params: { id: target.id } } },
-      { name: 'manager_call', params: installed, callId: 'install-automation' },
-    ], '取消指定工作并安装停用的测试自动化');
+      { name: 'manager_call', params: registered, callId: 'register-automation' },
+    ], '取消指定工作并注册停用的测试自动化，不挂载');
     for (const [index, reply] of first.replies.entries()) expect(reply.error,
       `call ${index}: ${JSON.stringify(managementState(f.store.task(first.task.id)).control_calls)}`).toBeUndefined();
     expect(first.replies[0].response.details.status).toBe('succeeded');
     expect(f.store.task(target.id).status).toBe('cancelled');
-    expect(first.replies[1].response.details).toMatchObject({ status: 'succeeded', result: { installed: true, worker_id: main.id } });
+    expect(first.replies[1].response.details).toMatchObject({ status: 'succeeded', result: { registered: true, template_version: 1 } });
+    const identity = first.replies[1].response.details.result.template_id;
+    expect(f.project.hooksList().registry.items.find(item => item.id === identity).mount_count).toBe(0);
+    expect(f.project.taskHooks(main.id).mounts.some(mount => mount.registry_id === identity)).toBe(false);
     expect(f.store.get('SELECT count(*) AS n FROM notices WHERE task_id=?', first.task.id).n).toBe(0);
     set(f, 'worker.cancel', 'confirmation');
     const second = await manager(f, [{ name: 'manager_call', params: { method: 'worker.cancel', params: { id: reviewed.id } } }], '取消指定工作');

@@ -5,6 +5,7 @@ import { workerLabel } from '../worker-number.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused, assertNoPartialParentAcceptance } from './iteration.js';
 import { completionRound } from './completion.js';
 import { automationScope, builtinAutomationMounted } from '../automation-scopes.js';
+import { systemRegistration } from './automation-registry.js';
 
 const KEY = 'project_automation_settings';
 const initial = () => ({ version: 1, generation: null, completion_defaults: { enabled: false, level: 'merge' },
@@ -84,6 +85,7 @@ export default {
     const view = this.acceptanceNoticeView(task); check(view.editable, view.reason);
     assertTaskNotSyncing(this, task.id);
     this.store.transaction(() => {
+      systemRegistration(this, 'builtin:acceptance-notice');
       this.store.update(task.id, { auto_merge: JSON.stringify({ ...config(task), acceptance_notice: { enabled },
         ...(enabled ? { mounted_features: { ...config(task).mounted_features, acceptance_notice: true } } : {}) }) });
       this.store.event(task.id, 'task.acceptance_notice_changed', { enabled });

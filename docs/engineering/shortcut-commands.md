@@ -6,11 +6,11 @@
 
 指令是项目 SQLite meta 的 versioned JSON 附属配置，不新增实体、Host 调度或 Agent 权限。定义含 `{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`。kind 为 shell／prompt，旧缺省 shell，正文互斥。省略元数据保留原值；旧 default_worker_id 仅兼容，省略保留但不再核验旧目标，显式非 null 仍校验、null 清空。页面不编辑默认目标，Hook Shell 用挂载目录，提示词用挂载父，不接受任意路径或改投 main。
 
-快捷指令没有预授权状态。所有编辑（含元数据）递增 version，版本用于导出、历史与精确执行证据，不是执行许可。编辑不撤权、不停用挂载，已有自动化未来执行跟随最新定义；保存本身不执行。删除不复用身份、不删除历史。
+快捷指令没有独立预授权状态。所有编辑（含元数据）递增 version，并在当前 item 的私有 `versions` 数组保留旧定义快照（身份、kind、名称、正文、元数据与默认目标，不含执行槽或递归历史）。历史定义只随保存修订写入，读取不补写、不伪造保存前已丢失的版本；目录仍只投影当前定义。总配置大小限制同时涵盖历史版本，超限拒绝本次保存，不静默淘汰已固定版本。保存本身不执行，删除不复用身份、不删除执行历史。
 
-Shell Hook 为 `{type:'command',command_id:UUID}`，不接受内联 command、目录、额外参数或拼接。旧可选 `command_version` 接受正安全整数，仅兼容旧配置，不固定未来执行版本。保存及执行前核验指令存在和类型匹配；删除或切换为不匹配类型仍阻止执行。启停、项目权限、合并／验收级别授权和管理 Agent 的接口权限与精确确认机制均不因移除快捷指令授权而放宽。
+Shell Hook 为 `{type:'command',command_id:UUID,command_version:N}`，N 为正安全整数；规范化保留明确版本，执行与导出均使用该版本的定义。新挂载由注册／挂载层固定版本，定义修改不让旧引用静默跟随；显式重选版本才升级。缺少 `command_version` 的旧引用暂按最新定义解析，不作为新挂载的旁路。不接受内联 command、目录、额外参数或拼接。保存及执行前核验当前指令存在、当前类型与动作匹配，且所选版本存在并同类型；删除或切换为不匹配类型仍阻止历史版执行。启停、项目权限、合并／验收级别授权和管理 Agent 的接口权限与精确确认机制均不因版本 pin 而放宽。
 
-执行开始固定实际定义的身份、kind、名称、版本和正文；异步编辑不得造成收据记录旧版本而执行新正文，或用当前目录替换已开始运行的证据。已固定运行与未来跟随最新定义的触发必须区分；不承诺撤回已开始副作用，unknown 不重放。
+执行固定所选定义的身份、kind、名称、版本和正文；claim／start 的安全证据来自被执行定义，last_execution 写在当前 item，不修改历史定义。异步同类型编辑不得取消已固定 Prompt 或混用新正文与旧收据；删除、类型失配及原创建安全门仍拒绝未准入创建。不承诺撤回已开始副作用，unknown 不重放。
 
 执行仍为可信 POSIX Shell，最多 60 秒／64 KiB、非交互认证，核验真实 Worker 目录、Git 串行门、冻结／同步／清理和实际 invocation 互斥，去掉调用凭证；不公开原始输出／异常。它不是 OS 沙箱，只由 Hook 执行，旧手动事实／unknown 保留。
 
@@ -18,7 +18,7 @@ Shell Hook 为 `{type:'command',command_id:UUID}`，不接受内联 command、�
 
 `hooks.list.commands={version:1,revision,items}`，item 含身份、版本、默认 Worker、kind、元数据、last_execution，**不公开 authorized**，正文仅相应 command／prompt。name≤120，正文≤16000，description≤2000，when_to_use／warnings≤4000，examples≤8000，tags≤32项且每项≤80，字符串拒绝 NUL。正文仅用户配置读面可见，不进入错误／事件／执行输出；安全执行摘要不含正文或秘密。变更／领取／收口更新 revision，模板及 Worker revision 独立。
 
-- `shortcutCommands()` 只读目录；`exportShortcutCommand(id,version)` 返回 `{filename,markdown}`，不安装／注入或赋予 Agent 调用能力。
+- `shortcutCommands()` 只读当前目录；`exportShortcutCommand(id,version)` 可导出仍有效的历史同类型定义，返回 `{filename,markdown}`，不安装／注入或赋予 Agent 调用能力。
 - `saveShortcutCommand(command,expectedRevision)`、`removeShortcutCommand(id,expectedRevision)` 返回 hooksList。`authorizeShortcutCommand` 已删除。
 - `importLegacyHookCommands(source,expectedRevision)`：source 为 `{worker_id,hook_id}` 或 `{template_id}`，revision 属该源。将旧内联注册为指令并替换引用，源挂载停用、身份／历史保留；返回 `{...hooksList(),imported_command_ids,worker_hooks?}`，不重放。
 
@@ -39,13 +39,13 @@ CLI `hooks command list/save/export/remove/import/history`；save／import 用�
 
 提示词仅由 Hook 精确 claim／receipt 执行，缺收据不得回落 manual。父仅 main／owner／order（历史 say 读兼容），按默认运行参数与 order 真实 Git 基线、冻结／同步／生命周期准入；Git 创建与落库前复核固定定义及执行收据。历史 kind、新 Worker／Input 关联保存，succeeded 只表示创建提交成功，不代表 Agent 完成。
 
-引用 `{type:'prompt_command',command_id}` 仅 worker.parent_ready＋once，挂载 Worker 即父；同 Hook 不混 Shell，create_worker／prompt_command 总计至多一项。类型变化不能解除一次性创建熔断，调用带 Agent 费用标识。
+引用 `{type:'prompt_command',command_id,command_version}` 仅 worker.parent_ready＋once，挂载 Worker 即父；同 Hook 不混 Shell，create_worker／prompt_command 总计至多一项。claim 后到 Git anchor 与 SQLite 准入始终复核固定版本，不要求它仍为最新版本；类型变化不能解除一次性创建熔断，调用带 Agent 费用标识。
 
 导出经 RPC／CLI 或 GET `/api/hooks/commands/export?id=UUID&version=N`。SQLite 是定义权威，Markdown 不携 env、凭证或历史，不成为第二份执行配置；不自动注入 Skill，不给开发 Agent 注册或执行能力。
 
 ## 旧配置与 git push
 
-旧指令未授权／已撤权字段不再阻塞未来执行，但已停用规则不自动启用；不改写历史、固定执行证据或重放旧触发。旧内联仅展示／显式导入／诊断，不执行或启用。启动停止旧内联未来执行，不将读取当迁移，不重写收据。新项目默认注册 git push，再保存关闭的 main 模板／挂载。旧未修改内置身份可在启动一次性导入；用户副本不处理，已修改／删除配置不恢复，tombstone 不重装。旧触发丢弃、历史与 unknown 保留，原 running 先恢复为 unknown 才能导入。其他内联命令仍需显式导入。
+旧指令未授权／已撤权字段不再阻塞未来执行，但已停用规则不自动启用；不改写历史、固定执行证据或重放旧触发。旧内联仅展示／显式导入／诊断，不执行或启用。启动停止旧内联未来执行，不将读取当迁移，不重写收据。新项目默认注册 git push 及对应项目功能，再保存关闭的 main 挂载。已有示例不在启动或读取时自动迁移；旧内联须显式导入，未登记规则须经 hooks.upgrade 补登记并固定升级时有效版本，详见[注册与升级接口](../reference/rpc/hooks.md#rpchttp-与-cli)。已修改／删除配置不恢复，tombstone 不重装。旧触发不补跑、历史与 unknown 保留，原 running 先恢复为 unknown 才能导入。
 
 ## 界面与分区
 
@@ -53,6 +53,6 @@ CLI `hooks command list/save/export/remove/import/history`；save／import 用�
 
 ## 验证入口
 
-当前只保留少量快捷提示与命令 Hook 主流程冒烟，不再保留独立的定义版本、手动运行、历史投影及互斥／异常／兼容矩阵；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。测试使用临时项目与受控命令，不接用户账号或服务。
+`test/project/shortcut-pinned-versions.test.js` 覆盖版本字段规范化、修订保存与旧版导出、历史版 claim／start 证据、真实 Shell 正文和 Prompt 创建收据、归并验证隔离 checkout 的固定定义与执行门、异步编辑／删除／类型失配及 unknown 不重放。既有快捷提示与命令 Hook 保留主流程冒烟，不代表完整互斥／异常／兼容矩阵；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。测试使用临时项目与受控命令，不接用户账号或服务。
 
 快捷指令定义与 Hook 收据保持项目归属，不因设备连接／余额共享而全局化；历史修复记录不替代当前树的回归证据。

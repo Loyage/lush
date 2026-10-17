@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forkCheckpoint } from '../../agent/fork.js';
 import { workerLabel } from '../worker-number.js';
+import { ensureSystemRegistry } from './automation-registry.js';
 
 /** Branch ownership, bootstrap and read-only owner analysis. */
 export default {
@@ -17,6 +18,7 @@ export default {
 
   /** A stable logical root; no provider invocation is started merely by creating it. */
   async ensureMainTask() {
+    ensureSystemRegistry(this);
     const existing = this.store.all("SELECT * FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id");
     check(existing.length <= 1, 'main branch has more than one owning worker');
     if (existing.length) {
@@ -55,6 +57,7 @@ export default {
           AND (t.branch=? OR t.target_branch=? OR i.anchor_branch=?) LIMIT 1`, branch, branch, branch);
       check(!unfinished, `branch ${branch} still has an active old worker ${workerLabel(unfinished)}; finish it before binding`);
       return this.store.transaction(() => {
+        ensureSystemRegistry(this);
         const owners = this.store.all("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say')", branch);
         check(owners.length === 0, `branch ${branch} already has a new Worker owner`);
         const owner = this.store.create({ role: 'agent', name: 'branch-owner', goal: `管理显式绑定的分支 ${branch}`,

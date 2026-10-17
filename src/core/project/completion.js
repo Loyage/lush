@@ -3,6 +3,7 @@ import { workerLabel } from '../worker-number.js';
 import { check, id, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused } from './iteration.js';
 import { builtinAutomationMounted, scopeMatches } from '../automation-scopes.js';
+import { systemRegistration } from './automation-registry.js';
 
 const LEVELS = ['off', 'merge', 'accept'];
 const normalizeLevel = level => level === 'archive' ? 'accept' : level;
@@ -130,6 +131,7 @@ export default {
       check(rank(level) >= rank(view.level), 'delivered Workers may only raise the completion level');
     if (level === view.level) return this.taskHooks(task.id);
     this.store.transaction(() => {
+      systemRegistration(this, 'builtin:completion');
       const config = settings(task), data = state(this, task);
       // A higher level is fresh explicit authorization. Unknown effects cannot get here.
       const next = { ...data, authorization: randomUUID() };

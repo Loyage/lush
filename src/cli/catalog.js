@@ -82,18 +82,20 @@ const workers = [
 for (const [verb,args,description,example,rpc,kind] of workers) add(`worker ${verb}`,args,description,example,rpc.split(','),kind,
   '编号通过 worker.lookup 解析，RPC 仍用整数 ID。目标类型、冻结、生命周期与 Git 安全门保持；合并交给父 runtime 队列处理。');
 for (const verb of ['attach','enable','disable','remove']) add(`worker hook ${verb}`, verb === 'attach' ? 'ID|Wn --file PATH --revision REV' : 'ID|Wn HOOK_ID --revision REV',
-  { attach: '从私有 JSON 挂载规则。', enable: '启用未来自动动作。', disable: '停用未来动作，不撤回已执行动作。', remove: '移除未来自动化挂载。' }[verb],
+  { attach: '从私有 JSON 引用已登记功能的明确版本挂载。', enable: '启用未来自动动作。', disable: '停用未来动作，不撤回已执行动作。', remove: '移除未来自动化挂载。' }[verb],
   verb === 'attach' ? 'W5 --file hook.json --revision REV' : 'W5 HOOK_ID --revision REV', [`worker.hook_${verb === 'attach' ? 'attach' : verb === 'remove' ? 'remove' : 'update'}`], 'write', '先读 worker hooks 的 revision；child 流程 Hook 整体锁定。');
-add('hooks install', 'ID|Wn --file PATH', '原子注册 Shell 快捷指令并挂载 Hook，不立即执行。', 'W5 --file automation.json',
-  ['hooks.install'], 'write', '仅用户 CLI；管家通过 manager.call 受控安装，默认自动执行，可由用户收紧权限。文件含 command、hook、expected_revisions（commands 与 worker_hooks）、client_request_id。同 key 同参数返回原收据，不重装已移除的配置；Shell 非沙箱。');
+add('hooks install', 'ID|Wn --file PATH', '已退役：拒绝原子注册并挂载，改用先注册再单独挂载。', 'W5 --file automation.json', [], 'local-read', '仅保留拒绝诊断，不读取文件或调用 RPC；先 hooks register，再独立请求 worker hook attach。');
+add('hooks register', '--file PATH', '只注册 Shell 指令及自动化功能，不挂载或执行。', '--file automation.json',
+  ['hooks.register'], 'write', 'command、hook、expected_revisions（commands 与 registry）、client_request_id；管家默认自动执行，注册完成后独立请求挂载；用户可逐项收紧权限。Shell 非沙箱。');
+add('hooks upgrade', '--revision REV', '显式为旧定义和旧挂载补登记并固定当前有效命令版本。', '--revision REV', ['hooks.upgrade'], 'write', '使用 hooks.list.registry.upgrade_revision。保留身份、启停、历史和去重；执行在途拒绝，不重放。旧内联 Shell 须先显式导入。');
 for (const [verb,args,description,example] of [
   ['list','','读取项目自动化目录。',''], ['save','--file PATH --revision REV','保存模板，不挂载或调用 Agent。','--file template.json --revision REV'],
-  ['remove','TEMPLATE_ID --revision REV','删除模板，不影响已有实例。','TEMPLATE_ID --revision REV'],
+  ['remove','TEMPLATE_ID --revision REV','删除无挂载的登记功能；仍有挂载时拒绝。','TEMPLATE_ID --revision REV'],
   ['auto-select','on|off --revision REV','启停设备全局自动选择。','off --revision REV'],
 ]) add(`hooks ${verb}`,args,description,example,[`hooks.${verb.replaceAll('-','_')}`], verb === 'list' ? 'read' : 'write', '仅用户；JSON 文件须 owner-only。auto-select 使用 daemon_hooks.revision，开启也答复在线项目已有问题，可能继续消耗 token；设备作用域须明确。');
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取快捷指令目录。','','hooks.list','read'],
-  ['save','--file PATH --revision REV','保存 Shell 或提示词定义，未来自动化跟随最新定义。','--file command.json --revision REV','hooks.command_save','write'],
+  ['save','--file PATH --revision REV','保存 Shell 或提示词新版本，已有固定挂载不静默升级。','--file command.json --revision REV','hooks.command_save','write'],
   ['export','ID --version N','只读导出单条 Skill 风格 Markdown，不安装或执行。','COMMAND_ID --version 1','hooks.command_export','read'],
   ['remove','ID --revision REV','删除快捷指令，阻止未来执行。','COMMAND_ID --revision REV','hooks.command_remove','destructive'],
   ['history','[--before CURSOR] [--limit N] [--execution UUID]','读取每次运行的安全摘要。','','hooks.command_history','read'],
@@ -189,7 +191,7 @@ export const CLI_OPERATIONS = Object.freeze(['read', 'write']);
 const operationFor = entry => ['read', 'local-read'].includes(entry.kind) ? 'read' : 'write';
 export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
   const numbered = entry.path.startsWith('worker ') && !['worker list','worker auto-title','worker merge-all'].includes(entry.path)
-    || ['notice post','hooks install','hooks management enable','hooks management disable'].includes(entry.path);
+    || ['notice post','hooks management enable','hooks management disable'].includes(entry.path);
   return Object.freeze({ ...entry, operation: entry.directory ? null : operationFor(entry),
     advanced: [entry.advanced, lifecycleNotes[entry.path]].filter(Boolean).join(' '),
     risk: lifecycleNotes[entry.path],
