@@ -36,6 +36,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation
+    'test/web/dom-transcript-view.test.js', // bulk folding across paging and live steps
     'test/web/dom-model-sources.test.js', // model settings main flow
     'test/web/dom-questionnaire.test.js', // questionnaire interaction
     'test/web/dom-runners-page.test.js', // independent Runner page

@@ -13,7 +13,14 @@ import { workerLabel } from './worker-label.js';
 /** Reading defaults: meaningful content is visible; only runtime metadata starts collapsed. */
 const STEP_OPEN = new Set(['input', 'text', 'thinking', 'tool', 'result']);
 const stepKey = (taskId, step) => `${taskId}:${step.seq}`;
-const stepExpanded = (taskId, step) => ui.stepToggle.get(stepKey(taskId, step)) ?? STEP_OPEN.has(step.kind);
+const stepExpanded = (taskId, step) => ui.stepToggle.get(stepKey(taskId, step))
+  ?? ui.stepToggle.get(`${taskId}:all`) ?? STEP_OPEN.has(step.kind);
+const foldableNodes = list => [...list.children].filter(node => node.querySelector('.step-body'));
+function syncFoldControl(control, list) {
+  const nodes = foldableNodes(list);
+  control.hidden = nodes.length < 2;
+  control.textContent = nodes.every(node => node.classList.contains('open')) ? '收起全部步骤' : '展开全部步骤';
+}
 
 /** 当前快速查看的阅读方向：默认倒序（最新在前），设置里可切回正序。 */
 export const transcriptOrder = () => readPref('transcriptOrder');
@@ -97,7 +104,7 @@ function attachResult(taskId, item, step) {
 }
 
 /** 一步：折叠状态只改这一个节点，不重建整个执行过程（否则滚动位置会跳）。 */
-function stepNode(taskId, step) {
+function stepNode(taskId, step, { expanded, remember = true } = {}) {
   const item = el('li', undefined, `step s-${step.kind}${step.is_error ? ' step-failed' : ''}`);
   item.dataset.seq = String(step.seq);
   item.transcriptStep = step;
@@ -144,8 +151,13 @@ function stepNode(taskId, step) {
     head.setAttribute('aria-expanded', String(open));
   };
   head.setAttribute('data-help', '点击展开／收起这一步的正文');
-  head.onclick = () => { const open = !item.classList.contains('open'); ui.stepToggle.set(stepKey(taskId, step), open); paint(open); };
-  paint(stepExpanded(taskId, step));
+  head.onclick = () => {
+    const open = !item.classList.contains('open');
+    if (remember) ui.stepToggle.set(stepKey(taskId, step), open);
+    paint(open);
+    if (remember) syncTranscriptChrome(taskId, transcriptCache.get(taskId));
+  };
+  paint(expanded ?? stepExpanded(taskId, step));
   item.append(body);
   for (const result of step.results || []) attachResult(taskId, item, result);
   referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 ${workerLabel(taskId)}:${step.seq}`,
@@ -159,10 +171,7 @@ export function transcriptMatch(taskId, step, related = []) {
   card.append(el('h3', `命中 #${step.seq} · ${STEP[step.kind] || step.kind}`));
   const steps = [...related, step].sort((a, b) => a.seq - b.seq);
   const list = el('ol', undefined, 'steps');
-  for (const value of groupSteps(steps)) {
-    ui.stepToggle.set(stepKey(taskId, value), true);
-    list.append(stepNode(taskId, value));
-  }
+  for (const value of groupSteps(steps)) list.append(stepNode(taskId, value, { expanded: true, remember: false }));
   if (related.length) card.append(el('p', '下方保留同一调用的配对输入输出；配对内容不代表额外搜索命中。', 'hint'));
   card.append(list);
   return card;
@@ -247,7 +256,10 @@ export function paintTranscript(taskId) {
 function syncTranscriptChrome(taskId, state) {
   if (!transcriptVisible(taskId)) return;
   const holder = transcriptHolder(taskId);
-  if (!holder) return;
+  if (!holder || !state) return;
+  const control = holder.querySelector('[data-live="transcript-fold"]');
+  const list = holder.querySelector('[data-live="transcript-steps"]');
+  if (control && list) syncFoldControl(control, list);
   const meta = holder.querySelector('[data-live="transcript-meta"]');
   if (meta) meta.textContent = transcriptMetaText(state);
   const older = holder.querySelector('[data-live="transcript-older"]');
@@ -271,19 +283,24 @@ export function transcriptContent(taskId) {
   list.dataset.live = 'transcript-steps';
   // state.steps 始终按 seq 升序保存为规范态；倒序只在渲染层反转。
   for (const step of desc ? [...grouped].reverse() : grouped) list.append(stepNode(taskId, step));
-  const foldable = grouped.filter(step => step.body || step.results.length);
   const actions = el('div', undefined, 'actions transcript-pagination');
   const controls = el('div', undefined, 'transcript-record-controls');
   const readingActions = el('div', undefined, 'actions');
   controls.append(meta, readingActions);
   // 一步一行，但轮到要看全文时不该点几十次：一个按钮把整段过程一次摊开或收起。
-  if (foldable.length > 1) {
-    const allOpen = foldable.every(step => stepExpanded(taskId, step));
-    readingActions.append(button(allOpen ? '收起全部步骤' : '展开全部步骤', () => {
-      for (const step of foldable) ui.stepToggle.set(stepKey(taskId, step), !allOpen);
-      paintTranscript(taskId);
-    }, 'ghost'));
-  }
+  const fold = button('', () => {
+    const open = !foldableNodes(list).every(node => node.classList.contains('open'));
+    // A Worker-wide default also covers unseen pages and future live steps.
+    // Reset only step overrides: long-content previews keep their own state.
+    ui.stepToggle.set(`${taskId}:all`, open);
+    for (const key of ui.stepToggle.keys()) {
+      if (key.startsWith(`${taskId}:`) && /^\d+$/.test(key.slice(String(taskId).length + 1))) ui.stepToggle.delete(key);
+    }
+    paintTranscript(taskId);
+  }, 'ghost');
+  fold.dataset.live = 'transcript-fold';
+  syncFoldControl(fold, list);
+  readingActions.append(fold);
   // 两个方向都给出明确的翻页入口：搜索定位后窗口两侧都可能有未加载记录。
   const older = olderButton(taskId, state);
   const newer = newerButton(taskId, state);

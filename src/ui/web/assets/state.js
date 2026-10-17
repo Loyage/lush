@@ -73,7 +73,7 @@ export const ui = {
   lastMergeResult: null,
   overviewKey: null,
   liveBusy: false,
-  // `<taskId>:<seq>` -> 用户显式选择的展开状态，重画详情不会丢
+  // `<taskId>:<seq>` 为单步覆盖，`<taskId>:all` 为全部步骤默认值；正文预览另用后缀，重画不丢。
   stepToggle: new Map(),
 };
 
