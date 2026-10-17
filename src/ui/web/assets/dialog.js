@@ -85,8 +85,8 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
 }
 
 /** Existing confirmation semantics: only an explicit confirmation returns true. */
-export function confirmDialog({ title, message = null, detail = null, confirmLabel = '确定', cancelLabel = '取消', danger = false, agent = false, confirmHelp = null }) {
-  return open({ title, message, detail, confirmLabel, cancelLabel, danger, field: null, agent, confirmHelp }).then(value => value === true);
+export function confirmDialog({ title, message = null, detail = null, confirmLabel = '确定', cancelLabel = '取消', danger = false, agent = false, confirmHelp = null, cardClass = '' }) {
+  return open({ title, message, detail, confirmLabel, cancelLabel, danger, field: null, agent, confirmHelp, cardClass }).then(value => value === true);
 }
 export function promptDialog({ title, message = null, value = '', label = '内容', placeholder = '', confirmLabel = '确定', cancelLabel = '取消', agent = false, confirmHelp = null }) {
   return open({ title, message, detail: null, confirmLabel, cancelLabel, danger: false, field: { label, value, placeholder }, agent, confirmHelp })

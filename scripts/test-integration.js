@@ -16,6 +16,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
+    'test/web/force-acceptance-page.test.js', // shared control -> authenticated HTTP -> exact terminal-receipt confirmation/reclamation
     'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
     'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
     'test/dashboard-quick-action-buttons.test.js', // v7 button catalogue -> Host revisioned device configuration
@@ -34,6 +35,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
     'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
+    'test/project/force-acceptance.test.js', // real CLI/RPC, user-only exact scope and unchanged acceptance safety/recovery
     'test/project/merge-queue.test.js', // local child -> parent -> main Squash and acceptance
     'test/project/runner-delivery-chain.test.js', // cross-node delivery and acceptance
   ]),
@@ -59,6 +61,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/cli-surfaces.test.js', // executable catalogue
     'test/cli-catalog.test.js', // parser/catalogue agreement
     'test/cli-entrypoints.test.js', // fixed CLI -> real RPC
+    'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
     'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount
     'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation

@@ -58,6 +58,8 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
 | `worker sync-parent ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
 | `worker resolve-sync ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
+| `worker accept-preview ID` | `worker.accept_preview` | `{id}`；用户专属只读预检，返回 `{id,revision,can_force,workers,notifications,resources,warnings}`；安全门不满足时拒绝，范围与续办语义见[强制验收](../../engineering/worker-acceptance.md#用户显式强制验收w318d682) |
+| `worker accept ID --force --confirm --revision REV` | `worker.accept_force` | `{id,revision,confirm:true}`；用户显式确认本次预检，仅跳过所列终态系统通知；返回 Worker；不调用 Agent，不放弃用户输入或放宽其他安全门 |
 | —（后端兼容，CLI 统一 accept） | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，含安全归档回收 |
 | —（旧协议后端兼容，CLI 已删除） | `worker.resolve_divergence` | `{id}`；用户专属 |
 | —（旧协议后端兼容，CLI 已删除） | `worker.resolve_child_divergence` | `{id}`；agent-only |

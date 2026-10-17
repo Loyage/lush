@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { forceAcceptanceScope, assertForceAcceptanceMessages } from './acceptance-force.js';
 import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
 import { runnerCleanupReceipt } from './runner-reclamation.js';
 import { assertManagementCodeExecution } from './management-code.js';
@@ -11,10 +12,11 @@ import { assertConvergenceMemberReceipt } from '../workspaces/delivery-publish.j
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 
 /** A completed runtime queue has no Agent inbox. Keep its settled sources' diagnostics as history. */
-function acceptanceUnreadMessage(project, task, acceptingIds = new Set()) {
+function acceptanceUnreadMessage(project, task, acceptingIds = new Set(), skippedIds = []) {
   const idleQueue = task.task_kind === 'merge' && task.name === 'merge'
     && task.status === 'completed' && !task.branch;
   return project.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
+    AND m.id NOT IN (SELECT value FROM json_each(?))
     AND NOT (? AND m.sender_id IS NOT NULL
       AND EXISTS (SELECT 1 FROM tasks source WHERE source.id=m.sender_id
         AND (source.status IN ('completed','failed','cancelled')
@@ -22,7 +24,7 @@ function acceptanceUnreadMessage(project, task, acceptingIds = new Set()) {
       AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.sender_id
         AND e.type='task.reparented_for_merge'
         AND json_extract(e.data,'$.to')=? AND json_extract(e.data,'$.from')=?))
-    ORDER BY m.id LIMIT 1`, task.id, idleQueue ? 1 : 0, idleQueue ? JSON.stringify([...acceptingIds]) : '[]', task.id, task.parent_id);
+    ORDER BY m.id LIMIT 1`, task.id, JSON.stringify(skippedIds), idleQueue ? 1 : 0, idleQueue ? JSON.stringify([...acceptingIds]) : '[]', task.id, task.parent_id);
 }
 
 export function assertTaskNotSyncing(project, taskId) {
@@ -215,6 +217,10 @@ export default {
 
   async acceptWorkerOperation(taskId, actor = null, options = {}) {
     this.assertWritable('accept a worker');
+    const forced = options.force === true || options.forcePreview === true;
+    check(!forced || (actor === null && !options.completion && !options.managementReceipt), '强制验收仅允许用户显式操作');
+    if (options.force === true) check(options.confirm === true && typeof options.revision === 'string'
+      && /^[0-9a-f]{64}$/.test(options.revision), '强制验收需要预检 revision 和 confirm=true');
     const waitCheck = (condition, message) => {
       if (!condition && options.completion) { const error = new Error(message); error.acceptance_wait = true; throw error; }
       check(condition, message);
@@ -253,7 +259,7 @@ export default {
       check(!this.acceptanceBusy?.has(task.id), 'Worker acceptance is already in flight');
       assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
       const historical = task.status === 'completed' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id);
-      if (historical && this.subtreeTasks(task.id).every(row => TERMINAL.has(row.status)
+      if (!forced && historical && this.subtreeTasks(task.id).every(row => TERMINAL.has(row.status)
         && !this.running.has(row.id) && !this.workspaces.busy.has(row.id))
         && [task.branch, ...descendantsOf(this.store.branches(), task.branch)]
         .every(branch => ['archived', 'deleted'].includes(this.store.branch(branch)?.status))) {
@@ -274,6 +280,13 @@ export default {
         && task.workspace && fs.existsSync(task.workspace)) { attempt = null; recovered.clear(); }
       if (attempt) check(attempt.head_commit === task.head_commit, 'acceptance recovery commit changed; inspect resource records');
       const subtree = this.subtreeTasks(task.id);
+      const forceScope = forced ? forceAcceptanceScope(this, task, subtree) : null;
+      if (forced) {
+        check(forceScope.skipped.length > 0, '没有可跳过的终态 Worker 系统通知；请使用普通验收');
+        if (options.force === true) check(forceScope.preview.revision === options.revision, '强制验收范围已变化；请重新预检并确认');
+      }
+      const skippedIds = forceScope?.skipped.map(message => message.id) ?? [];
+      const unread = row => acceptanceUnreadMessage(this, row, acceptingIds, skippedIds);
       waitCheck(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
       const children = acceptanceChildren(subtree, task.id);
       const acceptingIds = new Set([task.id, ...children.map(row => row.id)]);
@@ -299,7 +312,7 @@ export default {
         waitCheck(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
         waitCheck(!this.pendingAppendEmission(row.id), `Worker ${workerLabel(row)}: mounted append input must be dispatched or cancelled before acceptance`);
-        waitCheck(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
+        waitCheck(!unread(row), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
         waitCheck(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
@@ -323,7 +336,15 @@ export default {
           check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || remote || (row.workspace && fs.existsSync(row.workspace))),
             'Worker branch/worktree is archived or missing');
           if (row.workspace) {
-            try { await this.workspaces.finish(row); }
+            try {
+              if (forced) {
+                await this.workspaces.clean(row.workspace);
+                check(await this.workspaces.git(row.workspace, 'symbolic-ref', '--short', 'HEAD') === row.branch,
+                  'agent changed the worker branch; restore it before retrying');
+                check(await this.workspaces.git(row.workspace, 'rev-parse', 'HEAD') === row.head_commit,
+                  'Worker branch moved; inspect before acceptance');
+              } else await this.workspaces.finish(row);
+            }
             catch (error) {
               if (options.completion && await this.workspaces.git(row.workspace, 'status', '--porcelain').catch(() => '')) error.acceptance_wait = true;
               throw error;
@@ -339,7 +360,7 @@ export default {
             && recovered.get(row.target_branch)?.ref === 'deleted';
           const state = parentReclaimed ? currentRow.integration : await taskDeliveryState(this, currentRow);
           check(state !== 'pending', `Worker ${workerLabel(row)} has undelivered changes`);
-          if (row.task_kind !== 'integration') this.store.update(row.id, { integration: state });
+          if (!options.forcePreview && row.task_kind !== 'integration') this.store.update(row.id, { integration: state });
         }
       }
       task = this.store.task(task.id);
@@ -347,7 +368,7 @@ export default {
       check(['waiting', 'awaiting_acceptance'].includes(task.status) || historical, 'Worker changed during acceptance');
       for (const row of this.subtreeTasks(task.id)) {
         check(identities.has(row.id) && sameIdentity(row, identities.get(row.id)), 'descendant changed during acceptance');
-        check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row, acceptingIds),
+        check(!this.running.has(row.id) && !unread(row),
           `Worker ${workerLabel(row)}: new input arrived during acceptance`);
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
@@ -364,16 +385,35 @@ export default {
         check(head && (!attempt || tips[branch] === head), 'acceptance recovery source changed; inspect before continuing');
         tips[branch] = head;
       }
+      if (forced) {
+        assertForceAcceptanceMessages(this, forceScope.skipped);
+        check(forceAcceptanceScope(this, task, this.subtreeTasks(task.id)).preview.revision === forceScope.preview.revision,
+          '强制验收范围已变化；请重新预检并确认');
+        check(this.branchResourceUsers(active).every(resourceId => {
+          const row = this.store.task(resourceId);
+          return (acceptingIds.has(row.id) || TERMINAL.has(row.status)) && !this.running.has(row.id)
+            && !this.commandHookRunning?.has(row.id) && !this.workspaces.busy.has(row.id);
+        }), 'acceptance resource users changed');
+        await this.workspaces.archiveBranchesUnsafe(active, { expectedTips: new Map(active.map(branch => [branch, tips[branch]])), preflight_only: true });
+        assertForceAcceptanceMessages(this, forceScope.skipped);
+        check(forceAcceptanceScope(this, task, this.subtreeTasks(task.id)).preview.revision === forceScope.preview.revision,
+          '强制验收范围已变化；请重新预检并确认');
+        if (options.forcePreview) return forceScope.preview;
+      }
       const started = attempt ?? { id: this.store.event(task.id, 'task.acceptance_started', {
         head_commit: task.head_commit, tips, branches, task_ids: subtree.map(row => row.id), integration: task.integration,
         accepting_task_ids: [...acceptingIds], rows: subtree.map(row => ({ ...identities.get(row.id),
           head_commit: this.store.task(row.id).head_commit, integration: this.store.task(row.id).integration })),
       }), head_commit: task.head_commit, tips, branches, task_ids: subtree.map(row => row.id) };
+      if (forced) this.store.event(task.id, 'task.acceptance_forced', { acceptance_execution: started.id,
+        revision: options.revision, skipped_messages: forceScope.skipped.map(({ body, ...message }) => message),
+        notifications: forceScope.preview.notifications, accepted_by: 'user' });
       const fixedRows = attempt?.rows ?? subtree.map(row => ({ ...identities.get(row.id),
         head_commit: this.store.task(row.id).head_commit, integration: this.store.task(row.id).integration }));
       const guard = () => {
         const current = this.store.task(task.id);
         authorize(current);
+        if (forced) assertForceAcceptanceMessages(this, forceScope.skipped);
         check(current.head_commit === started.head_commit && current.status === task.status, 'Worker changed during resource reclamation');
         const names = [current.branch, ...descendantsOf(this.store.branches(), current.branch)];
         check(names.length === started.branches.length && names.every(name => started.branches.includes(name)), 'acceptance branch subtree changed');
@@ -383,7 +423,7 @@ export default {
           check(sameIdentity(row, fixedRows.find(fixed => fixed.id === row.id) ?? { id: null }), 'descendant changed during acceptance');
           check(!this.running.has(row.id) && !this.workspaces.busy.has(row.id), 'Agent or cleanup is still in flight');
           assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
-          check(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: new input arrived during acceptance`);
+          check(!unread(row), `Worker ${workerLabel(row)}: new input arrived during acceptance`);
           check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
           const booking = bookingOf(row);
           check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)

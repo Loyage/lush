@@ -87,10 +87,23 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','interrupt','resume','merge','merge-all','auto-merge','accept','reopen','sync-parent','resolve-sync','clear-override','merge-cancel','cleanup','delete-preview','delete'].includes(verb), 'unknown worker command');
+      check(['inspect','cancel','retry','interrupt','resume','merge','merge-all','auto-merge','accept','accept-preview','reopen','sync-parent','resolve-sync','clear-override','merge-cancel','cleanup','delete-preview','delete'].includes(verb), 'unknown worker command');
       if (verb === 'merge') {
         exact(args, 1);
         value = await client.request('worker.reserve', { id: await resolveWorkerId(client, args[0]), kind: 'merge' });
+      } else if (verb === 'accept-preview' || verb === 'accept') {
+        const force = args.includes('--force');
+        if (force) args.splice(args.indexOf('--force'), 1);
+        const confirm = args.includes('--confirm');
+        if (confirm) args.splice(args.indexOf('--confirm'), 1);
+        const revision = option(args, '--revision');
+        exact(args, 1);
+        if (verb === 'accept-preview' || force) check(!client.token, '强制验收仅允许用户显式操作');
+        check(verb === 'accept-preview' ? !force && !confirm && revision === null
+          : force ? confirm && typeof revision === 'string' && /^[0-9a-f]{64}$/.test(revision) : !confirm && revision === null,
+        '先运行 worker accept-preview ID；强制验收需要 accept ID --force --confirm --revision REV');
+        value = await client.request(verb === 'accept-preview' ? 'worker.accept_preview' : force ? 'worker.accept_force' : 'worker.accept',
+          { id: await resolveWorkerId(client, args[0]), ...(force ? { revision, confirm: true } : {}) });
       } else if (verb === 'auto-merge') {
         exact(args, 2);
         check(['on','off'].includes(args[1]), 'auto-merge expects on or off');

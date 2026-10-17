@@ -66,7 +66,8 @@ const workers = [
   ['merge','ID|Wn','请求一次合并，不改变持久开关。','W5','worker.reserve','write'],
   ['merge-all','BRANCH','将分支下静息待合并 Worker 逐条入队。','main','worker.reserve_all','write'],
   ['merge-cancel','ID|Wn','撤销未发出的单次合并请求。','W5','worker.unreserve','write'],
-  ['accept','ID|Wn','验收即归档：安全回收 worktree/ref，保留历史。','W5','worker.accept','destructive'],
+  ['accept-preview','ID|Wn','用户只读预检：仅列出可跳过的终态系统通知及验收回收范围。','W5','worker.accept_preview'],
+  ['accept','ID|Wn [--force --confirm --revision REV]','验收即归档；强制仅跳过预检确认的终态系统通知，不放宽其他安全门。','W5','worker.accept,worker.accept_force','destructive'],
   ['reopen','ID|Wn','恢复历史已合并 Worker 待验收，不调用 Agent。','W5','worker.reopen','write'],
   ['sync-parent','ID|Wn','安全同步父提交；冲突仅返回诊断。','W5','worker.sync_parent','write'],
   ['resolve-sync','ID|Wn','调用 Agent 修复已记录的同步冲突。','W5','worker.resolve_sync','agent'],
@@ -208,7 +209,7 @@ export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
 export const LUSHC_PATHS = new Set([
   'help', 'status',
   'worker list', 'worker tree', 'worker inspect', 'worker spawn', 'worker auto-title',
-  'worker message', 'worker transcript', 'worker history', 'worker accept',
+  'worker message', 'worker transcript', 'worker history', 'worker accept', 'worker accept-preview',
   'branch tree', 'branch show', 'notice list', 'notice post', 'notice example', 'notice check',
   'progress plan', 'progress complete', 'skills list', 'skills get',
 ]);

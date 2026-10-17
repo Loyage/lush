@@ -379,6 +379,9 @@ body:has(#detail[data-view="settings"]) .composer{display:none}
 .modal-message{margin:10px 0 0;color:var(--muted);font-size:13px}
 /* 逐行核对用的长清单（命令、路径、批次顺序）：等宽、可滚，不把它压成一行难读的散文。 */
 .modal-detail{margin:14px 0 0;padding:14px;background:var(--code);border:1px solid var(--line-soft);border-radius:10px;font-size:12.5px;line-height:1.7;max-height:40vh;overflow:auto;white-space:pre-wrap}
+.force-acceptance-dialog .modal-detail{overflow-wrap:anywhere}
+.force-acceptance-dialog .modal-actions{flex-wrap:wrap}
+.force-acceptance-dialog .modal-actions button{min-height:44px;max-width:100%;white-space:normal}
 .modal-field{display:flex;flex-direction:column;gap:6px;margin:16px 0 0}
 .modal-label{color:var(--dim);font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
 .modal-input{padding:9px 11px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--text);font:inherit;font-size:13px}

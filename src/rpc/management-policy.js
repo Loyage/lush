@@ -59,6 +59,8 @@ function legacyManagementPolicy(method) {
 }
 
 export function managementPolicy(method) {
+  if (['worker.accept_preview', 'worker.accept_force'].includes(method)) return { access: 'unavailable',
+    reason: '强制验收仅由用户预检并显式确认，不开放给 Agent、管家或自动 Hook。' };
   if (method === 'management.permission_get') return { access: 'read', reason: '读取设备全局单项权限及全局修订；设备作用域须明确。' };
   if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
   if (method === 'hooks.install') return legacyManagementPolicy(method);

@@ -10,6 +10,21 @@ import { refresh as refreshOverview } from './navigate.js';
 import { workerLabel } from './worker-label.js';
 import { projectBase, routeContext } from './route.js';
 
+// Keep an explicit unread-failure fallback and single-flight gate across same-view polling repaints.
+// Document/view/project identity isolates navigation and tests; no persistent authorization is stored.
+const acceptanceByDocument = new WeakMap();
+function acceptanceState(owner, view, scope, taskId) {
+  let states = acceptanceByDocument.get(owner);
+  if (!states) { states = new Map(); acceptanceByDocument.set(owner, states); }
+  const key = `${scope}:${taskId}`;
+  let state = states.get(key);
+  if (!state || state.view !== view) {
+    state = { view, accepting: false, accepted: false, forceAvailable: false }; states.set(key, state);
+    if (states.size > 200) states.delete(states.keys().next().value);
+  }
+  return state;
+}
+
 export const isIterationTask = task => ['order', 'child'].includes(workerKind(task));
 export function iterationBlocker(task, { forAcceptance = false } = {}) {
   const recovery = forAcceptance && task.acceptance_recovery === true;
@@ -93,17 +108,56 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
             ? '历史验收尚未回收开发资源 · 可再次验收补办'
             : phase, 'hint iteration-phase'));
       if (task.task_kind !== 'child') {
-        let accepting = false, accepted = false;
-        const accept = async () => {
-          if (!owns() || accepting || accepted) return;
-          accepting = true;
+        const state = acceptanceState(owner, view, scope, task.id);
+        let forceButton = null;
+        const offerForce = () => {
+          if (forceButton || !state.forceAvailable) return;
+          forceButton = button('强制验收…', () => accept(true), 'ghost', {
+            help: '先预检并二次确认，仅跳过已结束 Worker 的系统通知。用户追加、暂存输入和其他安全检查不放宽；不调用 Agent。' });
+          actions.append(guardedAction(forceButton, acceptanceReason));
+        };
+        const accept = async (force = false) => {
+          if (!owns() || state.accepting || state.accepted) return;
+          state.accepting = true;
           try {
             // One authoritative mutation; never follow acceptance with branch.archive.
             let result;
-            try { result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ method: 'worker.accept', params: { id: task.id } }) }); }
-            catch (error) { if (owns()) show(error.message, 'error'); return; }
-            accepted = true;
+            try {
+              let method = 'worker.accept', params = { id: task.id };
+              if (force) {
+                const preview = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ method: 'worker.accept_preview', params }) });
+                if (!owns()) return;
+                if (preview?.id !== task.id || preview.can_force !== true || !/^[0-9a-f]{64}$/.test(preview.revision)
+                  || !preview.notifications?.length || !Array.isArray(preview.workers)
+                  || !Array.isArray(preview.resources?.branches) || !Array.isArray(preview.resources?.worktrees)
+                  || !Array.isArray(preview.warnings)) throw new Error('强制验收预检不完整；不会提交，请检查服务版本。');
+                const detail = [
+                  ...preview.warnings,
+                  '\n将跳过的系统通知（不是用户追加要求）：',
+                  ...preview.notifications.map(row => `${workerLabel(row.worker_id, row.worker_number)} · ${row.status} · ${row.signal_type} · 消息 #${row.message_id} · 来源 ${workerLabel(row.sender_id, row.sender_worker_number)}`),
+                  '\n回收范围：',
+                  ...preview.workers.map(row => `${workerLabel(row)} · ${row.status}`),
+                  ...preview.resources.branches, ...preview.resources.worktrees,
+                ].join('\n');
+                if (!await confirmDialog({ title: `强制验收 Worker ${workerLabel(task)}？`,
+                  message: '仅跳过下面列出的终态系统通知并验收回收。失败/取消后代不会被改成成功；原消息和跳过记录保留。',
+                  detail, danger: true, cardClass: 'force-acceptance-dialog', confirmLabel: '跳过所列通知并验收回收',
+                  confirmHelp: '确认本次预检的通知与回收范围；不会放弃用户输入、绕过其他安全门或调用 Agent。' }) || !owns()) return;
+                method = 'worker.accept_force'; params = { id: task.id, revision: preview.revision, confirm: true };
+              }
+              result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ method, params }) });
+            } catch (error) {
+              if (owns()) {
+                show(error.message, 'error');
+                if (error.message.includes('unread input must be processed before acceptance')) {
+                  state.forceAvailable = true; offerForce();
+                }
+              }
+              return;
+            }
+            state.accepted = true;
             if (!owns()) return;
             const reclaimed = result?.id === task.id && result.status === 'completed' && result.workspace === null;
             show(reclaimed ? '验收完成，开发资源已归档回收；结果与运行历史保留。'
@@ -113,9 +167,10 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
               try { await reload(); }
               catch (error) { if (owns()) show(`验收请求已处理，但刷新失败：${error.message}`, 'error'); }
             }
-          } finally { accepting = false; }
+          } finally { state.accepting = false; }
         };
-        actions.append(guardedAction(button(recovery ? '续办验收' : '验收', accept, undefined, { help: acceptanceHelp }), acceptanceReason));
+        actions.append(guardedAction(button(recovery ? '续办验收' : '验收', () => accept(), undefined, { help: acceptanceHelp }), acceptanceReason));
+        offerForce();
       }
     }
     if (reclaimAccepted || recovery) { panel.append(actions); return panel; }

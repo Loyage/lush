@@ -113,6 +113,7 @@ export const EVENTS = {
   'task.accepted': '验收完成', 'task.reopened': '恢复待验收',
   'task.acceptance_started': '开始验收资源回收（受检）',
   'task.acceptance_failed': '验收资源回收未完成',
+  'task.acceptance_forced': '用户确认跳过终态系统通知并尝试验收',
   'task.acceptance_reclaimed': '已补办验收资源回收',
   'task.parent_synced': '已同步父分支', 'task.parent_sync_conflict': '父同步冲突',
   'task.sync_resolution_requested': '请求解决父同步冲突', 'task.sync_resolution_settled': '父同步冲突已解决',

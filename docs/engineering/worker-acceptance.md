@@ -31,6 +31,14 @@ inspect／graph 同源增加 `acceptance_recovery:boolean`：仅据当前轮未�
 
 历史 `completed` 不能仅凭状态推断已验收；历史真实验收但尚未归档的记录允许显式补办资源回收，不改写旧事件。无需新核心实体。内部 branches.archived 与历史事件名可保留，公开说明解释它是验收后的资源状态，而非另一个成功流程步骤。
 
+## 用户显式强制验收（W318／D682）
+
+普通验收默认保持全部未读检查。用户可在未读阻塞后选择次级「强制验收…」，先预检列出终态 Worker 的系统通知、失败／取消状态及资源回收范围，再二次确认；不调用 Agent。CLI 使用 `bun run lushc worker accept-preview ID`，随后 `bun run lushc worker accept ID --force --confirm --revision REV`。RPC 为 `worker.accept_preview {id}` 与 `worker.accept_force {id,revision,confirm:true}`；两者均用户专属，不开放给开发 Agent、Valet 或自动 Hook。
+
+仅允许跳过有精确同收件箱 `task.signal` 来源证据的已结算通知，且接收 Worker 必须是 completed／failed／cancelled。未知类型、修复／合并请求、普通消息、用户追加、暂存输入和待决问题不放行；运行退出、脏现场、未交付改动、在途预约／冻结、远端 unknown 和共享资源检查全部保留。具体可跳过类型由 `project/acceptance-force.js` 单点定义。
+
+预检只读，revision 固定子树身份、未读内容和资源元数据；执行重检 Git、范围及每条精确通知，新增输入或范围变化须重新预检确认。原消息不标为 consumed，也不伪装成 Agent 已处理；`task.acceptance_forced` 记录用户确认的 revision、通知身份及关联 `acceptance_execution`，只有完整回收后才记验收成功。失败／取消后代保留原结果与状态；部分回收沿原精确收据续办，但须用户重新预检确认，普通验收／自动链不继承强制跳过权限。预检不是业务质量证明，也不保证后续执行必然成功。
+
 ## 自动链兼容
 
 用户明确授权旧“自动到验收”直接采用新语义，包括已有 Worker 和设备默认流程。新界面只有关闭／合并／验收三个最高环节；验收包含资源回收，启用须说明删除范围与安全限制。
@@ -41,7 +49,7 @@ child 的配置仍锁定、默认自动合并，由直接父 Agent 检查成果�
 
 ## 分区与验证
 
-统一入口位于 `project/iteration.js`，Git 回收经 Workspaces；Web 共享验收控件只发 worker.accept，不串发 branch.archive。接口与职责定位见[模块地图](modules.md)。
+统一入口位于 `project/iteration.js`，Git 回收经 Workspaces；Web 共享验收控件普通验收只发 worker.accept，强制验收先预检确认再发 worker.accept_force，均不串发 branch.archive。接口与职责定位见[模块地图](modules.md)。
 
 实际验证手动／父 Agent／自动验收、无改动回答、旧 accept/archive、已验收未清理补办、dirty／消息／待决／后代／共享资源／冻结／同步阻塞、删除部分失败及重启 unknown、保留运行会话与结果、UI 单动作失败保护、迟到响应和费用标识。全部测试使用临时项目／设备根，不重启用户 daemon/Host。
 
