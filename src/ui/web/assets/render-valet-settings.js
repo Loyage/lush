@@ -56,10 +56,10 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   search.addEventListener('compositionstart', () => { state.composing = true; });
   search.addEventListener('compositionend', () => { state.composing = false; updateSearch(); });
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('h1', 'CLI 接口'), el('p', '说明随版本缓存，查阅不依赖项目后台。全局权限按需读取；浏览不执行 CLI、不调用 Agent。保存不新建管家操作，不能提升审核上限。'));
+  hero.append(el('h1', 'CLI 接口'), el('p', '管家默认开放全部可受控执行的接口；可在单条命令中收紧权限，也可请管家申请修改并由你审核。私有材料与任意 Shell 不开放。全局权限按需读取，浏览不执行 CLI、不调用 Agent。'));
   const unconfigured = el('section', undefined, 'cli-permissions-unconfigured resource-card'); unconfigured.hidden = true; unconfigured.setAttribute('role', 'status');
-  const configurationHeading = el('h2', '尚未统一生效 · 审核默认草稿');
-  unconfigured.append(configurationHeading, el('p', '上次成功读取时，尚未配置设备全局管家权限。下方仅为审核默认草稿，不代表任何项目的实际授权；首次显式保存后，才统一作用于此设备用户所有项目的新旧管家。旧项目权限仅保留历史，不自动导入。'));
+  const configurationHeading = el('h2', '内建默认已生效');
+  unconfigured.append(configurationHeading, el('p', '上次成功读取时，尚未保存自定义权限，所有项目的新旧管家已使用内建默认，无需先保存。受控写操作默认自动执行；管家修改接口权限始终须你审核。旧版设备和项目限制仅留历史，不再授权。修改下方选择后仍需保存。'));
   const catalogStatus = el('p', '正在加载静态目录…', 'cli-catalog-status'); catalogStatus.setAttribute('role', 'status');
   const catalogRetry = el('button', '重试读取目录', 'ghost'); catalogRetry.type = 'button'; catalogRetry.hidden = true; catalogRetry.onclick = () => loadCatalog(true);
   const catalogNotice = el('section', undefined, 'cli-catalog-notice'); catalogNotice.append(catalogStatus, catalogRetry);
@@ -69,15 +69,15 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const status = el('p', '全局权限尚未读取；查看命令不需要读取权限。', 'cli-settings-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const save = el('button', '保存全局管家权限', 'primary'); save.type = 'button'; save.onclick = saveDraft;
   const reload = el('button', '读取全局权限', 'ghost'); reload.type = 'button'; reload.onclick = () => loadPermissions(true);
-  footer.append(el('h2', '全局权限 · 按需读取与统一保存'), el('p', '保存后，此设备用户所有项目的新旧管家统一使用最新权限；排队或待确认但尚未开始的操作，执行前重新检查。已开始的操作不强行中断，已执行的不撤销；失败不自动重放。危险操作仍须逐次确认，权限改变不新建操作；已有未开始的请求可能继续或受阻。无需选择项目，所有项目后台离线也可配置。', 'hint'), status, save, reload);
+  footer.append(el('h2', '全局权限 · 按需读取与统一保存'), el('p', '更改适用于此设备用户所有项目的新旧管家。可将自动执行收紧为逐次确认或禁止；管家修改权限本身不可设为自动执行。排队或待确认但尚未开始的操作，执行前重新检查；已开始的不强行中断、已执行的不撤销，失败不重放。权限改变不新建操作；已有未开始的请求可能继续或受阻。无需选择项目，所有项目后台离线也可配置。', 'hint'), status, save, reload);
   root.append(hero, unconfigured, catalogNotice, searchBox, results, detail, footer); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function sync() {
-    save.disabled = !state.data || state.busy || state.uncertain || state.permissionsStale || (state.data.configured && !dirty()); reload.disabled = !state.catalog || state.busy;
+    save.disabled = !state.data || state.busy || state.uncertain || state.permissionsStale || !dirty(); reload.disabled = !state.catalog || state.busy;
     reload.textContent = state.data || state.uncertain ? '重新读取全局权限' : '读取全局权限';
     unconfigured.hidden = !state.data || state.data.configured;
-    configurationHeading.textContent = state.uncertain || state.permissionsStale ? '上次读取尚未统一生效 · 请重新核对' : '尚未统一生效 · 审核默认草稿';
+    configurationHeading.textContent = state.uncertain || state.permissionsStale ? '上次读取为内建默认 · 请重新核对' : '内建默认已生效';
     catalogRetry.disabled = state.catalogLoading;
     for (const [method, select] of selects) {
       const item = state.data?.methods.find(item => item.method === method);
@@ -95,15 +95,15 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       });
       const changed = state.data && item.rpc.some(rpc => state.draft[rpc.method] !== state.data.permissions[rpc.method]);
       const rpc = item.rpc[0], policy = state.data?.methods.find(row => row.method === rpc.method) ?? rpc;
-      node.textContent = (state.uncertain ? '保存待核对 · ' : state.permissionsStale ? '旧读取 · ' : '') + (!state.data.configured ? '审核默认草稿 · 未生效 · ' : '') + (item.rpc.length > 1 ? `多项权限（${item.rpc.length}）` : accessLabel(policy, state.draft?.[rpc.method] ?? policy.base_access))
+      node.textContent = (state.uncertain ? '保存待核对 · ' : state.permissionsStale ? '旧读取 · ' : '') + (!state.data.configured ? '内建默认 · ' : '') + (item.rpc.length > 1 ? `多项权限（${item.rpc.length}）` : accessLabel(policy, state.draft?.[rpc.method] ?? policy.base_access))
         + (changed ? ' · 草稿' : '');
-      node.setAttribute('data-help', `${policies.join('；')}。点击命令查看详情与审核上限；${!state.data.configured ? '这是审核默认草稿，不代表任何项目实际授权。' : ''}保存后对此设备用户所有项目新旧管家生效，不新建操作；已有未开始的请求按最新权限重新检查。`);
+      node.setAttribute('data-help', `${policies.join('；')}。点击命令查看详情与审核上限；${!state.data.configured ? '上次读取为已生效的内建默认；修改后仍需保存。' : ''}保存后对此设备用户所有项目新旧管家生效，不新建操作；已有未开始的请求按最新权限重新检查。`);
     }
     for (const [method, node] of diagnostics) {
       const item = state.data?.methods.find(item => item.method === method);
       const forbidden = item && state.draft[method] === 'unavailable' && item.base_access !== 'unavailable';
       node.hidden = !forbidden;
-      node.textContent = forbidden ? !state.data.configured ? '审核默认草稿禁止此能力，尚未统一生效；不代表任何项目实际授权。' : state.data.permissions[method] === 'unavailable'
+      node.textContent = forbidden ? state.data.permissions[method] === 'unavailable'
         ? '当前全局权限禁止此能力。' : '当前草稿禁止此能力；保存后对此设备用户所有项目新旧管家生效。' : '';
     }
   }
@@ -135,7 +135,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       // The CLI projection carries the reviewed ceiling reason, not authorization.
       if (rpc.reason) copy.append(el('p', rpc.reason, 'hint'));
       const diagnostic = el('p', undefined, 'cli-permission-diagnostic hint'); diagnostics.set(rpc.method, diagnostic); copy.append(diagnostic);
-      const label = el('label', !state.data ? '全局权限尚未读取' : state.permissionsStale ? '旧读取／草稿 · 待核对' : !state.data.configured ? '审核默认草稿 · 未生效' : '全局权限选择');
+      const label = el('label', !state.data ? '全局权限尚未读取' : state.permissionsStale ? '旧读取／草稿 · 待核对' : !state.data.configured ? '全局权限选择 · 内建默认' : '全局权限选择');
       const select = el('select'); select.setAttribute('aria-label', `${rpc.method} 管家权限`);
       if (!state.data) { const unknown = el('option', '未读取全局权限'); unknown.value = ''; select.append(unknown); }
       for (const access of policy.allowed_access) { const option = el('option', accessLabel(policy, access)); option.value = access; select.append(option); }
@@ -211,7 +211,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       const value = validatePermissions(await api(permissionsEndpoint), state.catalog);
       if (!owns() || generation !== state.generation) return;
       state.data = value; state.draft = { ...value.permissions }; state.uncertain = false; state.permissionsStale = false;
-      paint(); setStatus(value.configured ? '已读取设备全局管家权限；适用于此设备用户所有项目的新旧管家。' : '尚未统一生效：已读取审核默认草稿，不代表任何项目实际授权。可直接首次保存，无需修改默认映射。');
+      paint(); setStatus(value.configured ? '已读取设备全局管家权限；适用于此设备用户所有项目的新旧管家。' : '已读取设备全局管家权限：内建默认已生效，无需保存。可逐项收紧权限；管家修改权限始终须你审核。');
     } catch (error) {
       if (owns() && generation === state.generation) {
         state.permissionsStale = Boolean(state.data); paint();
@@ -220,11 +220,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     } finally { if (owns() && generation === state.generation) { state.busy = false; sync(); } }
   }
   async function saveDraft() {
-    if (!owns() || !state.data || state.busy || state.uncertain || state.permissionsStale || (state.data.configured && !dirty())) return;
+    if (!owns() || !state.data || state.busy || state.uncertain || state.permissionsStale || !dirty()) return;
     state.busy = true; sync(); const generation = ++state.generation;
     try {
       if (!state.data.configured) {
-        const accepted = await confirmDialog({ title: '首次启用设备全局管家权限？', message: '将以当前审核默认草稿（含你的修改）统一此设备用户所有项目的新旧管家权限，替代各项目旧权限；旧值仅保留历史。未开始的操作执行前重新检查，已开始的不强行中断、已执行的不撤销，失败不重放。保存不新建操作；已有未开始的请求可能继续或受阻。', confirmLabel: '确认全局生效' });
+        const accepted = await confirmDialog({ title: '保存设备全局权限更改？', message: '当前内建默认已经生效；本次更改将作用于此设备用户所有项目的新旧管家权限，而不只是当前项目。未开始的操作执行前重新检查，已开始的不强行中断、已执行的不撤销，失败不重放。保存不新建操作；已有未开始的请求可能继续或受阻。', confirmLabel: '确认保存更改' });
         if (!accepted || !owns() || generation !== state.generation) return;
       }
       setStatus('正在保存…');

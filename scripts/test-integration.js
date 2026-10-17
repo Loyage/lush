@@ -27,6 +27,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/agent-connections-api.test.js', // connection configuration API
     'test/web/runner-management-api.test.js', // Runner management HTTP entry
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
+    'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
     'test/project/merge-queue.test.js', // local child -> parent -> main Squash and acceptance
     'test/project/runner-delivery-chain.test.js', // cross-node delivery and acceptance
@@ -51,6 +52,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/cli-surfaces.test.js', // executable catalogue
     'test/cli-catalog.test.js', // parser/catalogue agreement
     'test/cli-entrypoints.test.js', // fixed CLI -> real RPC
+    'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
     'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer
     'test/project/runner-emission-chain.test.js', // real user CLI -> remote Worker creation

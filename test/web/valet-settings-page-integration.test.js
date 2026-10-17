@@ -24,11 +24,31 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     await openCliInterfaces({ registerPageLeaveGuard });
     const button = label => dom.node('detail').querySelectorAll('button').find(node => node.textContent === label);
     await button('读取全局权限').onclick();
-    const saving = button('保存全局管家权限').onclick(); await dialogButton(dom, '确认全局生效').onclick(); await saving;
+    expect(deepText(dom.node('detail'))).toContain('内建默认已生效');
+    expect(deepText(dom.node('detail'))).not.toContain('尚未统一生效');
+    expect(button('保存全局管家权限').disabled).toBe(true);
+    expect(writes).toEqual([]);
+    const search = dom.node('detail').querySelector('input');
+    search.value = 'order'; search.oninput({});
+    dom.node('detail').querySelector('[data-command="lush order"]').onclick();
+    // The minimal DOM fixture does not parse descendant selectors or dotted
+    // attribute values; inspect the rendered method rows before selecting.
+    const row = dom.node('detail').querySelectorAll('.cli-permission-method').find(node => node.dataset.method === 'draft.add');
+    const select = row.querySelector('select');
+    select.value = 'confirmation'; select.onchange();
+    expect(button('保存全局管家权限').disabled).toBe(false);
+    const cancelled = button('保存全局管家权限').onclick();
+    expect(deepText(dom.node('modal'))).toContain('当前内建默认已经生效');
+    await dialogButton(dom, '取消').onclick(); await cancelled;
+    expect(writes).toEqual([]);
+    expect(select.value).toBe('confirmation');
+    const saving = button('保存全局管家权限').onclick(); await dialogButton(dom, '确认保存更改').onclick(); await saving;
     expect(writes).toEqual(['/api/host/management/permissions']);
     expect(deepText(dom.node('detail'))).toContain('已保存设备全局管家权限');
     const saved = await (await fetch(url + '/api/host/management/permissions')).json();
     expect(saved.configured).toBe(true); expect(saved.scope).toBe('device');
-    expect(saved.permissions).toEqual(Object.fromEntries(saved.methods.map(item => [item.method, item.base_access])));
+    expect(saved.permissions).toEqual(Object.fromEntries(saved.methods.map(item => [item.method, item.method === 'draft.add' ? 'confirmation' : item.base_access])));
+    expect(saved.permissions['worker.cancel']).toBe('automatic');
+    expect(saved.methods.find(item => item.method === 'management.permission_set').allowed_access).toEqual(['confirmation', 'unavailable']);
   } finally { ui.disposeValetSettings?.(); dom?.restore(); await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); }
 });

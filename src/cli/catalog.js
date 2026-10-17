@@ -85,7 +85,7 @@ for (const verb of ['attach','enable','disable','remove']) add(`worker hook ${ve
   { attach: '从私有 JSON 挂载规则。', enable: '启用未来自动动作。', disable: '停用未来动作，不撤回已执行动作。', remove: '移除未来自动化挂载。' }[verb],
   verb === 'attach' ? 'W5 --file hook.json --revision REV' : 'W5 HOOK_ID --revision REV', [`worker.hook_${verb === 'attach' ? 'attach' : verb === 'remove' ? 'remove' : 'update'}`], 'write', '先读 worker hooks 的 revision；child 流程 Hook 整体锁定。');
 add('hooks install', 'ID|Wn --file PATH', '原子注册 Shell 快捷指令并挂载 Hook，不立即执行。', 'W5 --file automation.json',
-  ['hooks.install'], 'write', '仅用户 CLI；管家通过 manager.call 精确确认一次。文件含 command、hook、expected_revisions（commands 与 worker_hooks）、client_request_id。同 key 同参数返回原收据，不重装已移除的配置；Shell 非沙箱。');
+  ['hooks.install'], 'write', '仅用户 CLI；管家通过 manager.call 受控安装，默认自动执行，可由用户收紧权限。文件含 command、hook、expected_revisions（commands 与 worker_hooks）、client_request_id。同 key 同参数返回原收据，不重装已移除的配置；Shell 非沙箱。');
 for (const [verb,args,description,example] of [
   ['list','','读取项目自动化目录。',''], ['save','--file PATH --revision REV','保存模板，不挂载或调用 Agent。','--file template.json --revision REV'],
   ['remove','TEMPLATE_ID --revision REV','删除模板，不影响已有实例。','TEMPLATE_ID --revision REV'],
@@ -104,6 +104,11 @@ for (const verb of ['save','remove']) add(`hooks signal ${verb}`, verb === 'save
 for (const verb of ['create','enable','disable']) add(`hooks management ${verb}`, verb === 'create' ? '--file PATH' : 'ID|Vn --revision REV',
   verb === 'create' ? '创建并绑定 Valet，到信号时才调用 Agent。' : `${verb === 'enable' ? '启用' : '停用'} Valet 信号绑定。`,
   verb === 'create' ? '--file valet.json' : 'V1 --revision REV', [verb === 'create' ? 'management.create' : 'management.binding_update'], 'write', '保存不立即调用 Agent；默认一次性，持续复用原 Valet。启停使用该管家 management.revision，不是信号库 revision。未知副作用不重放，不能自复制或自提权。');
+add('hooks management permission-get', 'METHOD --scope device', '查询一个接口的设备全局管家权限及全局修订。',
+  'worker.cancel --scope device', ['management.permission_get'], 'read', '仅用户 CLI；管家只能通过 manager.call 读取，设备操作仍须用户指令明确。无配置时内建默认已生效。');
+add('hooks management permission-set', 'METHOD ACCESS --revision REV --scope device', '逐项 CAS 修改设备全局管家权限。',
+  'worker.cancel confirmation --revision REV --scope device', ['management.permission_set'], 'write',
+  '影响同设备用户所有项目。先 permission-get 获取全局 revision；并发修改会拒绝。管家必须通过 manager.call 由真实用户确认单项旧值、新值和 revision；本接口自身固定审核，不可设为 automatic，只能 confirmation 或 unavailable。');
 add('branch tree','[--verbose]','读取分支谱系，不等同 Worker 树。','',['branch.tree']);
 add('branch show','BRANCH','读取单条分支详情。','main',['branch.show']);
 add('branch bind','BRANCH COMMIT','显式绑定已有本地分支。','feature COMMIT',['branch.bind'],'write');

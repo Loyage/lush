@@ -6,7 +6,7 @@
 
 `lushc` 面向开发 Worker 的协作与查询，`lush` 面向用户／Valet 的项目管理。两者共用命令目录与处理器；共享查询可由任一入口调用，开发专属命令从旧 `lush` 直接迁出、不保留别名，旧调用在派发前给出迁移提示。用户也可使用 `lushc`，但 Agent-only 方法仍须有效 invocation。
 
-入口不授予权限：开发 Agent 的工作区、直接父子协作与后端安全门保持不变，带 Agent token 的 `lush` 管理写入口不能绕过这些限制。Valet 默认获得全部 `lushc` RPC 能力，通过可信管理工具在当前项目内跨树代理；不获得 Shell 或 Git 分支，危险动作仍须精确确认，既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
+入口不授予权限：开发 Agent 的工作区、直接父子协作与后端安全门保持不变，带 Agent token 的 `lush` 管理写入口不能绕过这些限制。Valet 默认获得全部 `lushc` RPC 能力，通过可信管理工具在当前项目内跨树代理；不获得 Shell 或 Git 分支，已支持的受控写操作默认自动执行，可逐项收紧，权限修改本身始终须用户审核；既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
 
 CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使用实际 `lush`／`lushc`。具体命令、读／写分类与关联 RPC 由 `src/cli/catalog.js` 派生，不在这里维护另一份权限名单。读入口不接受写选项，准备阶段包含读取的变更命令仍归写；分类不等于执行授权，现有逐 RPC 权限与确认门不变。
 

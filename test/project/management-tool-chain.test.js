@@ -3,7 +3,7 @@ import { test, expect } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
 import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
-import { MANAGEMENT_TOOL_NAMES } from '../../src/agent/pi-management.js';
+import { MANAGEMENT_TOOL_NAMES, registerManagementTools } from '../../src/agent/pi-management.js';
 import { MANAGEMENT_RPC_METHODS } from '../../src/agent/management-rpc.js';
 import { Dispatcher, HANDLERS } from '../../src/rpc/dispatcher.js';
 import { PARAMS, MANAGER_METHODS, AGENT_ONLY } from '../../src/rpc/registry.js';
@@ -24,6 +24,11 @@ test('management tools, trusted bridge, RPC registrations and invocation allowli
     expect(Object.hasOwn(PARAMS, method)).toBe(true);
     expect(typeof HANDLERS[method]).toBe('function');
   }
+  const tools = [];
+  registerManagementTools({ registerTool: tool => tools.push(tool), on() {} });
+  const description = tools.find(tool => tool.name === 'manager_call').description;
+  expect(description).toContain('默认自动执行');
+  expect(description).toContain('修改接口权限始终须真实用户审核');
 });
 
 // Node/Lush covers the production Pi extension import graph; Bun/Pi preserves the other config path.
@@ -95,6 +100,9 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
       await Promise.all([...f.project.running.values()].map(run => run.promise));
       const task = f.store.task(manager.id);
       expect(task.status).toBe('completed');
+      expect(invocation.context.management.authorization).toMatchObject({
+        dangerous_operations: 'latest_device_permissions', permission_changes: 'exact_user_confirmation',
+      });
       const result = JSON.parse(task.result);
       expect(result.runtime).toBe(runtime);
       expect(result.extensions).toEqual(extensions);

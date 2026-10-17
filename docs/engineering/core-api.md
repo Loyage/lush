@@ -57,7 +57,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 - `input.emit` / `order.submit` 缺省及 `start:true`：先持久挂载当前输入，返回 `{emitted:true,draft_id,dispatch}`，不保证立即有 task。条件全部满足且父 runtime 真正空闲、安全可写时，才从当时父提交创建并开始独立 Worker；main/owner 不为准入调用模型。显式 `order.submit {start:false}` 保留旧仅创建 paused 路径，不是发射。main 自动确立静息 owner，其它本地分支须先 `branch.bind`；历史 create_worker Hook 与内部 order/sendOrder 不迁移。
 - `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；新建与追加统一支持版本草稿、条件及发射，追加只关联 Message/A 编号，不造 O。`input.emission_cancel` / `input.exclusive_release` 分别撤销未执行输入或释放独占，不删除成果、不重放 unknown。字段见[历史输入接口](input-history.md)及[条件发射](conditional-emission.md)。
-- `management.submit`：即时创建隔离 role=manager/task_kind=management 的管理身份，无开发 Input/Git 工作区；manager.catalog/history/call 等专用 Agent-only 入口只允许真实管理 invocation。能力可发现不等于授权，危险操作必须用户精确确认；普通 Agent 不扩权。隔离、scope 与未知恢复见[管理型 Worker](hook-signals-management.md)。
+- `management.submit`：即时创建隔离 role=manager/task_kind=management 的管理身份，无开发 Input/Git 工作区；manager.catalog/history/call 等专用 Agent-only 入口只允许真实管理 invocation。受控接口默认开放，可逐项收紧，管家修改权限必须用户精确确认；普通 Agent 不扩权。隔离、scope 与未知恢复见[管理型 Worker](hook-signals-management.md)。
 - `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载，Worker详情展示为「自动化」；自动合并是内置Hook，收据与私有定义持久化，未知副作用不重放。受保护 delivery-handler／integrate_deliveries 保留普通 serial 与旧在途操作读面，worker.hooks.convergence 仅兼容历史配置；工具身份区分请求提交与真实完成，不新增任意调用 RPC。见[Hooks工程契约](hooks.md)。
 - branch.integrate_plan／integrate_start／integration／integrate_cancel／integrate_retry：用户专属的一次性整合，固定同一真实直接父的全部可准入来源，由一个私有 Worker 自主适配与验证，再受检一次 Squash。inspect／graph 通过同源 merge_operation 展示真实状态；精确字段、CLI／HTTP、截断与 revision 见[整合接口](../reference/rpc/convergence.md)。
 - branch.convergence*：历史配置／默认／运行只读兼容及旧在途重试；两个 setter 明确退休，新 Worker 不装持续归并，新普通手动／自动合并始终 serial。原 v1/v2/v3 不转换，不改源 parent_id／ref，不重放未知落地，见[实施接缝](merge-convergence-implementation.md)。
@@ -86,7 +86,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 项目网络另有用户专属 `agent.network {}` / `agent.network.configure {config}`，CLI `agent network show|set --file PATH|reset`；后台账号请求与后续 Agent 调用共享默认网络，代理认证只写、安全读模型不含秘密，不增加整机调度。字段与协议边界见[项目出站网络代理](outbound-network.md)。
 
-项目维护暂停提供用户专属 `system.interrupt_all {notify_completion?: boolean}`（默认 true）/ 无参数 `system.resume_all {}`，Web 复用当前项目 action；普通 Agent 不可调用，管理 Agent 仅能通过受控代理请求用户确认，不得直调。持久维护门暂停本项目新调用，保留父子原等待关系，仅恢复本次影响的工作，不批量开始原待开始／个人暂停或重试失败；不改变单 Worker 中断的非级联语义，不自动重启或跨项目。`system.summary`／`system.status` 增加安全 `maintenance` 投影，精确字段与恢复边界见[维护暂停契约](project-maintenance.md)。
+项目维护暂停提供用户专属 `system.interrupt_all {notify_completion?: boolean}`（默认 true）/ 无参数 `system.resume_all {}`，Web 复用当前项目 action；普通 Agent 不可调用，管理 Agent 仅能通过受控代理按最新接口权限执行，不得直调。持久维护门暂停本项目新调用，保留父子原等待关系，仅恢复本次影响的工作，不批量开始原待开始／个人暂停或重试失败；不改变单 Worker 中断的非级联语义，不自动重启或跨项目。`system.summary`／`system.status` 增加安全 `maintenance` 投影，精确字段与恢复边界见[维护暂停契约](project-maintenance.md)。
 
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 

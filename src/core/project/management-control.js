@@ -56,6 +56,15 @@ function callView(call) {
     ...(call.result === undefined ? {} : { result: call.result }) };
 }
 async function resourcePreflight(project, method, params) {
+  if (method === 'management.permission_set') {
+    const current = project.managementPermissionGet(params.method, params.scope);
+    check(current.allowed_access.includes(params.access), 'invalid or elevated management permission');
+    check(typeof params.expected_revision === 'string' && params.expected_revision === current.revision,
+      'management permissions revision changed; reload before requesting confirmation');
+    const change = { method: params.method, old_access: current.access, new_access: params.access,
+      revision: current.revision, scope: 'device', impact: '影响同设备用户所有项目的管家权限；权限修改自身始终需要真实用户审核。' };
+    return { fingerprint: hookRevision(change), summary: change };
+  }
   const targetId = method === 'worker.spawn' ? params.parent : params.id;
   const root = (method.startsWith('worker.') || method === 'hooks.install') && Number.isSafeInteger(targetId) ? project.store.task(targetId) : null;
   const tasks = root ? (method === 'hooks.install' ? [root] : project.subtreeTasks(root.id)) : [];
@@ -372,6 +381,7 @@ export default {
       call.status = 'succeeded'; call.finished_at = managementTime(this);
       // Mutations return only a narrow receipt, not user-only config or destructive result payloads.
       call.result = { submitted: true,
+        ...(call.method === 'management.permission_set' ? { method: result.method, access: result.access, revision: result.revision } : {}),
         ...(call.method === 'hooks.install' ? { installed: result.installed, command_id: result.command_id,
           hook_id: result.hook_id, worker_id: result.worker_id, worker_number: result.worker_number } : {}),
         ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),

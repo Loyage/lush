@@ -236,7 +236,7 @@ export function syncComposer() {
     'composer-mode-title': management ? '管理 Lush' : followup ? '追加输入' : '新建工作',
     'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}`,
     'composer-mode-behavior': target.reason || (management
-      ? '由管家处理，不直接创建开发 Worker · 危险操作先确认 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
+      ? '由管家处理 · 受控接口默认自动执行，可逐项限制 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
       : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，确认后回到新建工作${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
         : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
@@ -256,7 +256,7 @@ export function syncComposer() {
   $('draft-commit').textContent = management ? '提交管理指令' : followup ? '提交追加' : '提交指令';
   $('draft-commit').classList.toggle('hook-button', Boolean(!management && target.freeze));
   const description = target.reason || (management
-    ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；取消、回收、删除和敏感设置等危险操作须用户确认，不提供开发工具。'
+    ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；受控接口默认自动执行，可在全局 CLI 接口页面限制。管家修改接口权限始终须用户审核，不提供文件或 Shell 工具。'
     : followup ? `提交追加指令给 ${label}，可靠保存后等待安全准入；不代表 Agent 已收到，冻结不打断交付或源侧修复，暂停中仍需显式继续。`
       : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在工作树。`);
   const help = agentHelp(description);
@@ -351,7 +351,7 @@ async function submitInput(mode) {
     if (management) {
       if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
       ui.composerManagementResult = result.task || null;
-      show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，危险操作须确认。`);
+      show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，接口按最新权限执行。`);
     } else if (mode === 'buffer') {
       if (target.id != null && untouched) ui.composerAppendTarget = null;
       show(`已暂存为草稿 #${result.id}，尚未提交；可到「草稿」编辑或设定条件，未创建 Worker、未调用 Agent。`);
@@ -400,7 +400,7 @@ export function initComposer() {
   host?.querySelector?.('.composer-management')?.remove?.();
   const managementButton = button('管理 Lush', () => {
     ui.composerManagement = !ui.composerManagement; ui.composerAppendTarget = null; ui.composerEditRevision++; syncComposer(); $('input').focus();
-  }, 'ghost composer-management', { help: '切换为向当前项目管家提交管理指令；切换不调用 Agent，保留文字与引用。暂不支持暂存或引用附件，危险操作须用户确认。' });
+  }, 'ghost composer-management', { help: '切换为向当前项目管家提交管理指令；切换不调用 Agent，保留文字与引用。暂不支持暂存或引用附件，受控接口默认自动执行，可在全局 CLI 接口页面限制。' });
   managementButton.id = 'composer-management'; host?.append(managementButton);
   host?.querySelector?.('.composer-management-result')?.remove?.();
   managementResultButton = button('查看最近管理记录', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');

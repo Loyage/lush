@@ -8,8 +8,6 @@ export { LUSHC_METHODS };
 // Classify the actual development catalogue, rather than copying its RPC names.
 const codeEntries = CLI_COMMANDS.filter(entry => LUSHC_PATHS.has(entry.path));
 const codeReads = new Set(codeEntries.filter(entry => entry.kind === 'read').flatMap(entry => entry.rpc));
-const codeConfirmations = new Set(codeEntries.filter(entry => entry.kind === 'destructive').flatMap(entry => entry.rpc)
-  .filter(method => !codeReads.has(method)));
 
 const reads = new Set([
   'manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
@@ -59,14 +57,17 @@ function legacyManagementPolicy(method) {
 }
 
 export function managementPolicy(method) {
-  if (method === 'hooks.install') return { access: 'confirmation', reason: '安装持续 Shell 自动化必须由用户确认精确命令、目标及触发条件；不立即执行。' };
+  if (method === 'management.permission_get') return { access: 'read', reason: '读取设备全局单项权限及全局修订；设备作用域须明确。' };
+  if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
+  if (method === 'hooks.install') return { access: 'automatic', reason: '原子安装受控 Shell 自动化，不立即执行；Shell 非沙箱，仍核验固定参数、目标及修订。' };
   if (LUSHC_METHODS.has(method)) {
     if (codeReads.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
       ? '管家只读安全元数据与续读游标，不返回原始提示词、工具参数、输出或事件正文。' : null };
-    if (codeConfirmations.has(method)) return { access: 'confirmation', reason: '必须预检并由用户确认精确操作；模型及自动选择不能授权。' };
     return { access: 'automatic', reason: '仅当前项目的受控代理；自身元数据／决策不冒充开发身份，跨树协作仍通过原安全引擎。' };
   }
-  return legacyManagementPolicy(method);
+  const policy = legacyManagementPolicy(method);
+  return policy.access === 'confirmation'
+    ? { access: 'automatic', reason: '默认自动执行已审核受控操作；仍须通过原入口、资源、修订和生命周期安全校验。' } : policy;
 }
 
 export const MANAGEMENT_GROUPS = Object.freeze([
@@ -96,7 +97,7 @@ const actionLabels = {
   command_remove: '移除快捷指令', command_history: '快捷指令历史', command_history_remove: '移除快捷指令历史',
   command_import: '导入旧快捷指令', auto_select: '自动选择', completion_defaults: '默认自动链', automation_settings: '自动化默认设置',
   acceptance_notice: '待验收告知', signal_save: '保存时间信号', signal_remove: '移除时间信号',
-  permissions: '默认权限', permissions_update: '保存默认权限', create: '创建', binding_update: '更新绑定', submit: '提交',
+  permissions: '默认权限', permissions_update: '保存默认权限', permission_get: '查询单项设备权限', permission_set: '审核修改单项设备权限', create: '创建', binding_update: '更新绑定', submit: '提交',
   catalog: '发现能力目录', call: '受控能力代理', retry: '重试', hooks: '自动化挂载', completion_page: '自动链工作列表',
   completion: '自动链级别', hook_attach: '挂载自动化', hook_update: '更新自动化', hook_remove: '移除自动化',
   get: '读取', parents: '父工作候选', emit: '条件发射', emission_cancel: '取消发射', exclusive_release: '释放独占', add: '新增',

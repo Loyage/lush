@@ -104,7 +104,16 @@ async function runSignal(args, client) {
 
 async function runManagement(args, client) {
   const verb = args.shift();
-  check(['create','enable','disable'].includes(verb), 'hooks management requires create|enable|disable; run lush help');
+  check(['create','enable','disable','permission-get','permission-set'].includes(verb),
+    'hooks management requires create|enable|disable|permission-get|permission-set; run lush help');
+  if (verb === 'permission-get' || verb === 'permission-set') {
+    const scope = option(args, '--scope');
+    check(scope === 'device', 'management permissions require --scope device');
+    const expected_revision = verb === 'permission-set' ? readRevision(args) : undefined;
+    exact(args, verb === 'permission-get' ? 1 : 2);
+    return client.request(`management.${verb.replace('-', '_')}`, { method: args[0], scope,
+      ...(verb === 'permission-set' ? { access: args[1], expected_revision } : {}) });
+  }
   if (verb === 'create') {
     const file = option(args, '--file'); exact(args, 0);
     check(file, 'hooks management create requires --file PATH');

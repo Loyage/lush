@@ -125,6 +125,10 @@ export const handlers = {
   },
   'hooks.signal_remove'(p, params) { return p.removeHookSignal(hookId(params.id), revision(params.expected_revision)); },
   'management.permissions'(p) { return p.managementPermissions(); },
+  'management.permission_get'(p, params) { return p.managementPermissionGet(params.method, params.scope); },
+  'management.permission_set'(p, params) {
+    return p.managementPermissionSet(params.method, params.access, params.expected_revision, params.scope);
+  },
   'management.permissions_update'() {
     check(false, 'project management permissions writes are retired; explicitly save device permissions at /api/host/management/permissions');
   },

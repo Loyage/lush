@@ -293,7 +293,8 @@ export default {
     return { instruction: task.goal, decisions, signal: state.pending_signal ? { id: state.pending_signal.id,
       signal_id: state.pending_signal.signal_id, name: state.pending_signal.name, due_at: state.pending_signal.due_at } : null,
       authorization: { scope: 'current_project', operations: ['query','start','retry','catalog','history','call'],
-        dangerous_operations: 'exact_user_confirmation', device_scope: 'explicit_instruction_and_parameter', target_kinds: ['order','child'],
+        dangerous_operations: 'latest_device_permissions', permission_changes: 'exact_user_confirmation',
+        device_scope: 'explicit_instruction_and_parameter', target_kinds: ['order','child'],
         start_status: 'paused', retry_status: 'failed' }, management: managementView(task, this) };
   },
 

@@ -21,7 +21,7 @@ export const HOOK_INSTALL_SCHEMA = Object.freeze({ type: 'object', additionalPro
   } });
 export const HOOK_INSTALL_PARAMETERS = Object.freeze(Object.keys(HOOK_INSTALL_SCHEMA.properties));
 export const HOOK_INSTALL_CAPABILITY = Object.freeze({ schema: HOOK_INSTALL_SCHEMA,
-  description: '原子注册一条新 Shell 快捷指令并在指定 Worker 挂载引用；保存不执行命令，只订阅未来事件。仅当前项目，管家须一次精确用户确认。',
+  description: '原子注册一条新 Shell 快捷指令并在指定 Worker 挂载引用；保存不执行命令，只订阅未来事件。仅当前项目，管家默认受控自动安装；用户收紧为审核时须一次精确确认。',
   examples: [{ id: 7, command: { name: '重启应用', kind: 'shell', command: 'bun run restart' },
     hook: { name: 'main 合并后重启', trigger: 'worker.merge_received', mode: 'persistent', enabled: true },
     expected_revisions: { commands: '<hooks.list.commands.revision>', worker_hooks: '<worker.hooks.revision>' },

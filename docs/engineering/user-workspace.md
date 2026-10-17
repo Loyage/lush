@@ -86,7 +86,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 - `GET /api/host/inbox/notice?project_id=&id=` → get。
 - `POST /api/host/inbox/action` → action。
 - 设备设置仍用 `/api/host/settings/**`，前端始终走该根 API，与当前项目是否在线无关。
-- CLI 接口的设备共享管家权限使用根 `GET/POST /api/host/management/permissions`，不依赖登记项目或 daemon 在线；首次显式保存切换、旧项目值留存和授权锁详见[全局管家权限](hook-signals-management.md#设备全局管家权限)。
+- CLI 接口的设备共享管家权限使用根 `GET/POST /api/host/management/permissions`，不依赖登记项目或 daemon 在线；默认开放、旧限制退出授权和授权锁详见[全局管家权限](hook-signals-management.md#设备全局管家权限)。
 - 显式旧配置迁移使用原固定项目 RPC；全局设置页可选已登记来源并带稳定项目路由预检／确认，不允许请求任意磁盘路径。
 - Host stop 停止聚合服务和在途设置操作，但不停止项目 daemon 或撤销全局策略。
 

@@ -10,19 +10,21 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
-管理 Agent 可发现全部当前 RPC 能力。开发阶段的新默认开放全部 `lushc` RPC 能力，集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生；执行权限仍由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。合并后 Shell 自动化可用 [`hooks.install`](../reference/rpc/hooks.md#原子安装合并后命令) 一次精确确认并原子安装，目录提供同源嵌套 schema／示例；配置事务的安装收据可证明中断后的完成状态，不依赖模型确认后续跑。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
+管理 Agent 可发现全部当前 RPC 能力；`lushc` 集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生。W316／D677：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作及 [`hooks.install`](../reference/rpc/hooks.md#原子安装合并后命令)。不扩大固有不可用的私有材料、交互认证、原始会话、自复制或任意文件／Shell 工具边界。执行权限统一来自 `src/rpc/management-policy.js`；用户可逐项收紧为 confirmation／unavailable，权限修改能力本身始终须真实用户精确批准。自动执行不绕过预检、revision、目标、Git、冻结或生命周期安全门，不复活终态、已归档或祖先关闭的工作。原子安装收据仍可证明配置事务中断后的完成状态，快捷指令不恢复独立预授权或已删除的 command_authorize。普通开发 Agent 不因此扩权。
 
 ### 设备全局管家权限
 
 W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设备用户所有项目的统一 Valet 权限在同页；不设项目选择，项目侧栏不显示入口。旧项目 `#cli-interfaces`／`#valet-settings` 书签提供原生新标签链接，保留项目现场；根旧书签兼容新入口。目录只是说明，不代表执行授权；交互与缓存见[CLI 目录](../hooks.md#cli-目录缓存与权限)。
 
-用户专属根接口 `GET /api/host/management/permissions` 无 query；同路径 `POST` 严格接受 `{permissions,expected_revision}`，复用登录、Origin、JSON 和 no-store。普通开发 Agent、Valet 及 `manager.call` 不能读取或修改设置。接口不依赖项目登记或 daemon 在线，不启动后台。旧 `management.permissions`／项目 GET 仅兼容读取有效权限；`management.permissions_update` 保留注册但拒绝所有写入，引导全局接口，不能建立项目覆盖或隐式首次切换。
+用户专属根接口 `GET /api/host/management/permissions` 无 query；同路径 `POST` 严格接受 `{permissions,expected_revision}`，复用登录、Origin、JSON 和 no-store。该 Host 接口不向 Agent 开放，不依赖项目登记或 daemon 在线，不启动后台。旧 `management.permissions`／项目 GET 仅兼容读取有效权限；`management.permissions_update` 保留注册但拒绝所有写入，不能建立项目覆盖。新增逐项 CLI／RPC 查询与审核修改见下文。
 
-全局读模型为 `{version:1,scope:'device',configured,revision,groups,methods,permissions}`。`configured:false` 是审核默认草稿，**不代表任何项目实际授权**；首次显式保存前，各项目沿用原 meta 权限。首次保存须在页面确认全部项目影响，此后更新版 daemon 统一使用设备私有 `management-permissions.json`，旧项目值及历史快照保留但不再参与授权，不自动导入或覆盖。离线项目恢复时读取共享权威；旧版本后台不会自动更新，须由用户在安全点分别更新 Host 与各 daemon。无配置读取不创建根；文件不安全／损坏时拒绝授权，不回退旧项目值。
+全局读模型为 `{version:1,scope:'device',configured,revision,groups,methods,permissions}`。`configured:false` 表示**内建默认已生效**，不是待启用草稿，无需首次保存。W316／D677 明确使旧版 `management-permissions.json` 和项目 meta 限制退出授权，原数据及历史快照保留、不自动导入或改写；用户之后的自定义权限仅保存至设备私有 `management-permissions-v2.json`。页面首次保存自定义更改说明全部项目影响。离线项目恢复时读取共享权威；旧版本进程不会自动更新，须由用户在安全点分别更新 Host 与各 daemon，混用版本时不能声称权限已统一。无配置读取不创建根；新文件不安全／损坏时拒绝授权，不回退默认或旧项目值。
 
-页面按需读取全局权限，核对动态审核上限／可选值与静态目录（包括保存 ACK）一致；版本不匹配时禁止编辑。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；不接受 sparse patch、未知字段、缺项或提权，使用 revision 防并发覆盖。私有文件原子发布与最终授权／持久开始使用同一跨进程 `settings-write` 锁排序，开始后释放锁再执行副作用；各 daemon 的一秒只读观察在修订变化后协调未开始请求，不重放失败。锁忙保守拒绝，不偷锁。`read` 仅可 read／unavailable，`automatic` 可 automatic／confirmation／unavailable，`confirmation` 可 confirmation／unavailable，`unavailable` 不可提升；必要发现 `manager.catalog` 固定 read。manager.call/start/retry 是传输／兼容入口，不是独立提权项。
+页面按需读取全局权限，核对动态审核上限／可选值与静态目录（包括保存 ACK）一致；版本不匹配时禁止编辑。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；不接受 sparse patch、未知字段、缺项或提权，使用 revision 防并发覆盖。私有文件原子发布与最终授权／持久开始使用同一跨进程 `settings-write` 锁排序，开始后释放锁再执行副作用；各 daemon 的一秒只读观察在修订变化后协调未开始请求，不重放失败。锁忙保守拒绝，不偷锁。`read` 仅可 read／unavailable，`automatic` 可 automatic／confirmation／unavailable，`confirmation` 可 confirmation／unavailable，`unavailable` 不可提升；必要发现 `manager.catalog` 固定 read。权限修改 `management.permission_set` 的上限固定 confirmation，仅可 confirmation／unavailable，不能设为 automatic。manager.call/start/retry 是传输／兼容入口，不是独立提权项。
 
-即时输入、等待信号、持续绑定及已有无快照历史 Valet 均动态读取**最新有效权限**（首次全局保存前为项目旧值，之后为设备共享值），正在运行的模型后续调用也同样检查；持续绑定不冻结下一 occurrence 的权限。`permissions_snapshot:{version,scope,revision,permissions}` 可保留为创建时历史，不回写、不迁移、不作为后续请求授权；快照缺项或无快照不再切换到另一套执行策略。client_request_id 去重仍返回原 Worker，不能因此创建重复身份或恢复旧权限。公开 inspect 不输出私有快照。
+逐项用户 RPC `management.permission_get {method,scope:'device'}` 返回接口权限、可选值及全局 revision；`management.permission_set {method,access,expected_revision,scope:'device'}` 以单项 CAS 保存并返回 `{method,access,revision}`，复用同一私有文件、完整映射校验与设备写锁。CLI 为 `lush hooks management permission-get METHOD --scope device`／`permission-set METHOD ACCESS --revision REV --scope device`。Valet 只能经 `manager.call` 代理，普通开发 Agent 不可直调；设备操作仍须用户指令与 scope 明确。修改请求先展示接口、旧值、新值、修订及同设备用户所有项目影响，真实用户批准精确请求后执行，不接受自动选择或模型授权。批准前不写入，修订变化时拒绝旧批准覆盖新设置；修改审核能力自身也不能取消审核，结果未知不自动重放。
+
+即时输入、等待信号、持续绑定及已有无快照历史 Valet 均动态读取**最新有效权限**（无配置为内建默认，有配置为设备共享值），正在运行的模型后续调用也同样检查；持续绑定不冻结下一 occurrence 的权限。`permissions_snapshot:{version,scope,revision,permissions}` 可保留为创建时历史，不回写、不迁移、不作为后续请求授权；快照缺项或无快照不再切换到另一套执行策略。client_request_id 去重仍返回原 Worker，不能因此创建重复身份或恢复旧权限。公开 inspect 不输出私有快照。
 
 未开始的排队 capability、等待动作及 pending_confirmation 在执行前重新检查最新权限，包括异步资源预检结束后及写入准入边界。变为 unavailable 时不执行：pending_confirmation 记 rejected 并关闭未答 Notice，approved 记 failed，waiting 动作记 skipped。旧 automatic→confirmation 的 approved 请求或 waiting 动作若没有真实用户的精确批准，同样失败／跳过，须重新请求确认，不能把旧 approved 当批准。尚未回答的 pending_confirmation 若放宽为 automatic，关闭原 Notice并继续同一精确请求，仍保留参数、目标、资源和生命周期安全门；已拒绝、失败、取消或 skipped 不因放宽重放。
 
@@ -34,9 +36,9 @@ capability 仅在真正进入执行回调、完成最新权限及精确确认校
 
 `lushc` 是开发协作入口，`lush` 是管理入口，二者共用命令目录与业务实现。Valet 继续仅通过可信 `manager.call`／真实 bridge 调用开发能力，不获得 Shell、本地文件工具、开发 Skill 或任意 RPC 直通；本地 help、指南和问卷示例不是 RPC，不构成文件或命令执行授权。CLI 分区与迁移见[双入口](../reference/api.md#开发与管理双入口)。
 
-Valet 可向当前项目任意合法开发目标发消息，保存真实 Valet sender；可在指定活动 order/child 下派生 child，child 的分支基线、父子编号与交付目标仍属于该开发 parent，不挂在无 Git 分支的 Valet 下。进度、自动标题与决策 Notice 只作用于 Valet 自身。`worker.accept` 必须持久预检并由真实用户确认精确目标后经原统一验收入口执行，仍复核干净现场、交付、消息、后代、冻结及资源归属；能力开放不等于自动验收。普通开发 invocation 的直接父子约束不变。
+Valet 可向当前项目任意合法开发目标发消息，保存真实 Valet sender；可在指定活动 order/child 下派生 child，child 的分支基线、父子编号与交付目标仍属于该开发 parent，不挂在无 Git 分支的 Valet 下。进度、自动标题与决策 Notice 只作用于 Valet 自身。`worker.accept` 按最新权限经原统一验收入口执行；设为 confirmation 时须真实用户批准精确目标，默认 automatic 时无需逐次确认，但仍复核干净现场、交付、消息、后代、冻结及资源归属；接口默认开放不提高 Worker 的自动链最高级别。普通开发 invocation 的直接父子约束不变。
 
-`worker.inspect`／`worker.tree` 的管理调用返回 `coverage:'worker_metadata_only'`，剔除原始 Run 结果／错误、收件箱正文、Artifact 与 Notice 正文，避免绕过执行记录的安全读面。`worker.history`／`worker.transcript` 返回有界、可续读的 `event_metadata_only`／`step_metadata_only` 投影。条数预算与通用安全出口同源，最多 100 条；`next` 固定在末个实际返回记录，`has_more` 包含本层未返回记录，不能按请求 limit 推算游标。`steps_truncated`／`events_truncated` 标明本层条数裁剪，`truncated` 保留上游字节预算事实，不混为同一原因。inspect／tree 的 `goal_truncated`／`goal_length`（UTF-16 长度）标明目标摘要范围，不能把已有树摘要当完整目标；不返回原始事件正文、提示词、工具参数／输出或会话路径，不把安全摘要冒充完整执行记录。Valet 发布自身决策问题后结束调用，同一 occurrence 挂起并保留项目串行执行位；用户答复后受控恢复，答案来自 `context.management.decisions` 的真实 Notice 来源与截断标志，不开放任意管理收件箱。这不是向 Valet 开放连续追加管理对话，也不重放已执行动作；危险动作授权仍采用独立的精确确认收据。
+`worker.inspect`／`worker.tree` 的管理调用返回 `coverage:'worker_metadata_only'`，剔除原始 Run 结果／错误、收件箱正文、Artifact 与 Notice 正文，避免绕过执行记录的安全读面。`worker.history`／`worker.transcript` 返回有界、可续读的 `event_metadata_only`／`step_metadata_only` 投影。条数预算与通用安全出口同源，最多 100 条；`next` 固定在末个实际返回记录，`has_more` 包含本层未返回记录，不能按请求 limit 推算游标。`steps_truncated`／`events_truncated` 标明本层条数裁剪，`truncated` 保留上游字节预算事实，不混为同一原因。inspect／tree 的 `goal_truncated`／`goal_length`（UTF-16 长度）标明目标摘要范围，不能把已有树摘要当完整目标；不返回原始事件正文、提示词、工具参数／输出或会话路径，不把安全摘要冒充完整执行记录。Valet 发布自身决策问题后结束调用，同一 occurrence 挂起并保留项目串行执行位；用户答复后受控恢复，答案来自 `context.management.decisions` 的真实 Notice 来源与截断标志，不开放任意管理收件箱。这不是向 Valet 开放连续追加管理对话，也不重放已执行动作；设为 confirmation 的动作仍采用独立的精确确认收据。
 
 ### 历史订阅刷新时间辅助实现
 
@@ -97,10 +99,10 @@ W279／D635：当前项目的 Valet 共用一个串行执行位，不引入跨�
 
 ## 确认、作用域与恢复
 
-危险操作先保存精确方法／参数、目标快照与资源预检，发布管理授权 Notice；普通自动选择必须跳过。只有 `answer_source='user'` 的固定问卷答复可授权，dismiss、模型答复、参数或目标变化都不是批准。用户答复在事务后由 `resolveManagementConfirmation` 安排可信执行，不再调用管理模型。目标、脏现场、冻结及 revision 等安全门仍由原引擎复核；模型不能代理答复自身或其它管理授权。
+confirmation 操作（包括始终需审核的权限修改）先保存精确方法／参数、目标快照与资源预检，发布管理授权 Notice；普通自动选择必须跳过。只有 `answer_source='user'` 的固定问卷答复可授权，dismiss、模型答复、参数或目标变化都不是批准。用户答复在事务后由 `resolveManagementConfirmation` 安排可信执行，不再调用管理模型。目标、脏现场、冻结及 revision 等安全门仍由原引擎复核；模型不能代理答复自身或其它管理授权。
 
 `tasks.management.control_calls` 保存确认／执行收据；批准但暂受阻的操作等待安全点，已经 started/running 而结果未知的操作重启标 unknown，不自动重放。`managementControlJobs` 计入维护忙碌和停机 drain；待用户确认或 unknown 不靠定时轮询。资源回收与服务停机沿用真实入口，`system.stop_if_idle` 因管理执行自身占忙而明确不可用，不伪装成功。
 
-作用域仅当前项目，无跨项目、任意 Shell、read/write/edit 或凭证工具。设备共享设置须指令明确提出设备／全局操作且工具带 `scope:'device'`；device-only 旧别名也要求该授权元数据，不传给普通 handler。私有 env、Prompt、凭证、原始会话正文及需交互认证／设置迁移的能力保留目录但不可用，指向用户界面。管理模型不得创建其它管理身份或改变自身授权。只读结果再次做秘密字段和字节裁剪，公开 inspect 不暴露 control_calls 原参数、预检指纹或私有 JSON。
+作用域仅当前项目，无跨项目、任意 Shell、read/write/edit 或凭证工具。设备共享设置须指令明确提出设备／全局操作且工具带 `scope:'device'`；device-only 旧别名也要求该授权元数据，不传给普通 handler。私有 env、Prompt、凭证、原始会话正文及需交互认证／设置迁移的能力保留目录但不可用，指向用户界面。管理模型不得创建其它管理身份或自行改变授权；仅可发起需真实用户批准的逐项权限修改请求。只读结果再次做秘密字段和字节裁剪，公开 inspect 不暴露 control_calls 原参数、预检指纹或私有 JSON。
 
 验证使用临时项目与受控 Provider；`test/project/management-tool-chain.test.js` 保留代表性工具／bridge 调用主流程。固定确认、权限变更竞态、自身待决恢复和完整工具隔离组合不再保留独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。不调用真实模型、不重启用户服务；真实自然语言理解、额度恢复和物理浏览器行为仍需另行验收。

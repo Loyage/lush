@@ -6,7 +6,8 @@ import { hookRevision } from './hooks.js';
 import { MANAGEMENT_GROUPS, managementPermissionMethods } from '../rpc/management-policy.js';
 import { validateConfigurationDirectory, withConfigurationWriteLock } from './device-config.js';
 
-const FILE = 'management-permissions.json';
+// Previous device policy is historical only; never read, migrate or overwrite it.
+const FILE = 'management-permissions-v2.json';
 const MAX_BYTES = 256 * 1024;
 const empty = () => ({ version: 1, generation: 0, permissions: {} });
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
@@ -62,10 +63,28 @@ function load(config) {
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
-/** Missing storage is an explicit default draft, not a migration or an active policy. */
+/** Missing storage activates the built-in reviewed defaults without creating storage. */
 export function readDeviceManagementPermissions(config) {
   const value = load(root(config));
   return managementPermissionsView(value ?? empty(), 'device', value !== null);
+}
+
+export function managementPermissionView(config, method, scope) {
+  check(scope === 'device', 'management permissions require explicit device scope');
+  const view = readDeviceManagementPermissions(config);
+  const item = view.methods.find(item => item.method === method);
+  check(item, 'unknown management permission method');
+  return { version: 1, scope: 'device', configured: view.configured, revision: view.revision, ...item };
+}
+
+export function saveDeviceManagementPermission(config, method, access, expectedRevision, scope) {
+  const item = managementPermissionView(config, method, scope);
+  check(item.allowed_access.includes(access), `invalid or elevated management permission: ${method}`);
+  // The full writer re-reads under the shared publication lock. A concurrent
+  // change anywhere on this device invalidates this exact single-item CAS too.
+  const current = readDeviceManagementPermissions(config);
+  const saved = saveDeviceManagementPermissions(config, { ...current.permissions, [method]: access }, expectedRevision);
+  return { method, access, revision: saved.revision };
 }
 
 export function saveDeviceManagementPermissions(config, permissions, expectedRevision) {
