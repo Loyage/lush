@@ -128,7 +128,7 @@ export function recoverCommandHistory(project, finish) {
   for (;;) {
     const rows = rootRows(project, { before, limit: 100, includeRemoved: true }).slice(0, 100);
     if (!rows.length) return;
-    for (const execution of views(project, rows)) if (['pending','running'].includes(execution.status)) {
+    for (const execution of views(project, rows)) if (['pending','running'].includes(execution.status) && !project.store.executionRetired(execution.worker_id)) {
       const receipt = execution.kind === 'prompt' ? project.store.get(`SELECT data FROM events WHERE task_id=? AND type='hook.worker_created'
         AND json_extract(data,'$.shortcut_execution_id')=? AND json_extract(data,'$.command_id')=?
         AND json_extract(data,'$.command_version')=? ORDER BY id DESC LIMIT 1`, execution.worker_id, execution.id, execution.command_id, execution.command_version) : null;

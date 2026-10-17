@@ -9,19 +9,15 @@ import { AgentPackages } from '../../agent/packages.js';
 import { check } from '../types.js';
 import { DeviceAutomationSettings } from '../device-automation.js';
 import { RuntimeCoordinator } from '../runtime-coordinator.js';
-import { RunnerService } from '../runner-service.js';
-import { reclaimRunnerWorkspaces } from './runner-reclamation.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / ancestry）。
 /** One project, a persistent Worker tree, and disposable invocations behind safety gates. */
 export class ProjectBase {
   constructor(config, store, provider = null, options = {}) {
     this.config = config; this.store = store;
-    this.runnerOptions = options.runner ?? {}; // internal transport test seam, never public configuration
     this.agentSettings = new AgentSettings(config);
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
-    this.workspaces.remoteReclaim = (tasks, guard, options) => reclaimRunnerWorkspaces(this, tasks, guard, options);
     // Internal runtime safety seam for direct user cleanup; Workspaces alone owns no invocation/command facts.
     this.workspaces.commandBusy = taskId => this.commandHookRunning?.has(taskId) === true;
     // 运行设置写盘后由 Config 回调这里重新检查后续调用准入。
@@ -64,9 +60,6 @@ export class ProjectBase {
     this.deviceAutomation = new DeviceAutomationSettings(config);
     this.deviceAutomationOptions = options.deviceAutomation ?? {}; // internal clock seam; no public timer settings
   }
-
-  /** Lazy: existing local projects do not discover nodes, read credentials or open connections. */
-  get runners() { return this._runners ??= new RunnerService(this.config, this.store, this.runnerOptions); }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */
   assertWritable(action = 'write') {

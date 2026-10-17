@@ -1,4 +1,5 @@
 import { check, id } from '../types.js';
+import { assertLocalWorker } from './execution-retired.js';
 import { HOOK_ACTIONS, hookRevision } from '../hooks.js';
 
 const booking = task => task.reservation ? JSON.parse(task.reservation) : null;
@@ -18,6 +19,8 @@ export default {
     const entry = HOOK_ACTIONS.find(action => action.type === tool);
     check(entry?.execution === 'operation', 'unsupported automation operation');
     const task = this.store.task(id(workerId));
+    if (tool !== 'integrate_deliveries' && !context.automatic) assertLocalWorker(this, task.id);
+    if (this.store.executionRetired(task.id)) return false;
     if (tool === 'request_merge') return context.automatic
       ? this.settleQueuedMergeOperation(task.id) : this.requestMergeOperation(task.id);
     if (tool === 'accept_worker') return this.acceptWorkerOperation(task.id, context.actor ?? null, context.options ?? {});

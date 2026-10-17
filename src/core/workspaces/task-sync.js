@@ -32,6 +32,7 @@ async function withParentLock(workspaces, branch, commit, action) {
 
 export const methods = {
   async taskSyncCheckout(task, source) {
+    check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
     const workspace = await this.workspaceForBranch(task.branch);
     check(workspace && task.workspace && fs.realpathSync(workspace) === fs.realpathSync(task.workspace),
       'Worker branch must remain checked out in its own worktree');
@@ -79,8 +80,9 @@ export const methods = {
     return null;
   },
 
-  /** Pure objects only, shared by local and remote synchronization. Caller owns the Git queue. */
+  /** Pure objects only. Caller owns the Git queue. */
   async prepareTaskParentSyncUnsafe(task, source, parent, recheck = () => {}) {
+    check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
     const project = this.config.project;
     const record = this.store.branch(task.branch);
     check(record?.status === 'active' && record.task_id === task.id && record.parent_relation === 'recorded'
@@ -144,17 +146,4 @@ export const methods = {
     return outcome;
   },
 
-  /** Remote source only: persist the fixed candidate before this central CAS; network stays outside. */
-  async applyRemoteTaskParentSyncUnsafe(task, source, parent, commit, recheck) {
-    check(this.store.runnerBinding(task.id) && task.workspace === null, 'remote synchronization requires its registered source');
-    check(oid(source) && oid(parent) && oid(commit), 'remote synchronization requires fixed commits');
-    check(await this.isAncestor(this.config.project, source, commit) && await this.isAncestor(this.config.project, parent, commit),
-      'synchronization candidate must preserve source and parent history');
-    check(!await this.checkedOut(task.branch), 'remote source has a local checkout');
-    await withParentLock(this, task.target_branch, parent, async () => {
-      recheck();
-      await this.git(this.config.project, 'update-ref', '--no-deref', `refs/heads/${task.branch}`, commit, source);
-    });
-    recheck();
-  },
 };

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { check } from '../types.js';
 
 // 按 Workspaces 实例隔离；缓存只包含固定提交，不缓存会随磁盘变化的 status。
 const diagnosticsCaches = new WeakMap();
@@ -132,6 +133,7 @@ export const methods = {
   },
   /** Read-only overview for review: never mutates, so it stays outside the mutation queue. */
   async diff(task) {
+    check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
     const workspace = task.workspace;
     if (!workspace || !fs.existsSync(workspace)) return null;
     const lines = value => value.split('\n').filter(Boolean);

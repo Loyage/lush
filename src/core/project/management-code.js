@@ -73,7 +73,7 @@ export function managementCodeReadResult(method, value, project, params) {
     // The graph's cursor is packed at the management page size by the real
     // handler. Do not slice nodes here and skip unreturned rows on continuation.
     const fields = ['id','worker_number','parent_id','layout_parent_id','task_kind','status','integration',
-      'archived','has_result','node_truncated','details_unavailable','notice_count','children_total','children_active'];
+      'archived','has_result','node_truncated','details_unavailable','notice_count','children_total','children_active','execution_retired'];
     return { ...value, nodes: value.nodes.map(row => ({
       ...Object.fromEntries(fields.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]])),
       title: String(row.title ?? '').slice(0, 48), goal_preview: String(row.goal_preview ?? '').slice(0, 100),

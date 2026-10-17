@@ -3,26 +3,11 @@ import { check, id } from '../types.js';
 import { workerLabel } from '../worker-number.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inputEmission, inputOptions, saveEmission, canReleaseInputExclusive } from './input-emission-data.js';
-import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
-import { RUNNER_BINDING_KEYS } from '../runner-service.js';
+import { assertLocalWorker } from './execution-retired.js';
 
-// Only checked removal can make a remote resource absent. Keep even removed bindings in
-// scope when a durable Run/receipt/Project settlement barrier remains; reuse Store's rules.
-const retainedWork = `NOT (t.status IN ('completed','cancelled') AND (t.workspace IS NULL OR EXISTS
-  (SELECT 1 FROM branches b WHERE b.branch=t.branch AND b.status IN ('archived','deleted'))))
-  OR EXISTS (SELECT 1 FROM runner_bindings r WHERE r.worker_id=t.id AND r.state!='removed')
-  OR t.id IN (SELECT value FROM json_each(?))`;
-function blockedRunnerWorkers(project) {
-  return JSON.stringify([...new Set(Object.values(project.store.runnerBarriers()).flat().map(row => row.worker_id))]);
-}
-function runnerBusyReason(project, task) {
-  try {
-    if (assertRunnerIdle(project, task.id, { allow_removed: true }))
-      check(!project.store.runnerBarriers(task.id).bindings.length, 'Runner registration has an unresolved barrier');
-    return null;
-  }
-  catch { return `${workerLabel(task)} 远端现场或停止／同步尚未确认`; }
-}
+const retainedWork = `t.id NOT IN (SELECT value FROM json_each(?)) AND NOT
+  (t.status IN ('completed','cancelled') AND (t.workspace IS NULL OR EXISTS
+  (SELECT 1 FROM branches b WHERE b.branch=t.branch AND b.status IN ('archived','deleted'))))`;
 
 export function roundEvent(project, taskId) {
   return project.store.get(`SELECT max(id) AS id FROM events WHERE task_id=? AND
@@ -37,6 +22,7 @@ function lastDelivery(project, taskId, after = 0) {
 export default {
   assertAppendInputTarget(taskId) {
     const task = this.store.task(id(taskId));
+    assertLocalWorker(this, task.id);
     check(['order','child'].includes(task.task_kind) && !['completed','failed','cancelled'].includes(task.status), 'append target has ended or does not support development input');
     assertTaskAncestorsOpen(this, task);
     check(!this.acceptanceBusy?.has(task.id) && (!task.branch || this.store.branch(task.branch)?.status === 'active'), 'append target is being reclaimed or archived');
@@ -55,12 +41,12 @@ export default {
     return this.store.all(`WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN tree ON t.parent_id=tree.id)
       SELECT t.* FROM tasks t JOIN tree ON tree.id=t.id
       WHERE ${retainedWork}
-      ORDER BY t.id LIMIT 1002`, rootId, blockedRunnerWorkers(this));
+      ORDER BY t.id LIMIT 1002`, rootId, JSON.stringify(this.store.retiredWorkerIds()));
   },
 
   inputProjectWork() {
     return this.store.all(`SELECT t.* FROM tasks t WHERE ${retainedWork}
-      ORDER BY t.id LIMIT 1002`, blockedRunnerWorkers(this));
+      ORDER BY t.id LIMIT 1002`, JSON.stringify(this.store.retiredWorkerIds()));
   },
 
   pendingAppendEmission(taskId) {
@@ -70,8 +56,7 @@ export default {
   },
 
   inputWorkerBusyReason(task) {
-    const remote = runnerBusyReason(this, task);
-    if (remote) return remote;
+    if (this.store.executionRetired(task.id)) return `${workerLabel(task)} 执行环境已退役，只读保留`;
     if (this.running.has(task.id) || ['queued','running','awaiting','paused','failed'].includes(task.status) || task.interrupt_state)
       return `${workerLabel(task)} 尚未静息（${task.status}）`;
     if (this.commandHookRunning?.has(task.id) || this.taskSyncBusy?.has(task.id) || this.taskMergeBusy?.has(task.id)
@@ -98,28 +83,7 @@ export default {
   },
 
   async inputWorkspaceClean(task, proofs = []) {
-    const binding = this.store.runnerBinding(task.id);
-    if (binding) {
-      try {
-        check(!runnerBusyReason(this, task), 'Runner workspace has unresolved activity');
-        let guard;
-        if (binding.state === 'removed') {
-          // Store only publishes removed with exact stopped/clean/resource receipts. No
-          // network required after reclamation, but new durable barriers still invalidate it.
-          guard = () => {
-            check(!runnerBusyReason(this, task), 'Runner removal has an unresolved barrier');
-            const live = this.store.runnerBinding(task.id);
-            check(live?.state === 'removed' && live.revision === binding.revision
-              && RUNNER_BINDING_KEYS.every(key => live[key] === binding[key])
-              && this.store.task(task.id).workspace === null, 'Runner removal evidence changed');
-          };
-        } else {
-          const head_commit = ['completed','cancelled'].includes(task.status) ? binding.head_commit : task.head_commit ?? binding.head_commit;
-          ({ guard } = await inspectRunnerSafePoint(this, task.id, { head_commit, observation: true }));
-        }
-        guard(); proofs.push(guard); return true;
-      } catch { return false; }
-    }
+    if (this.store.executionRetired(task.id)) return false;
     if (!task.workspace || !fs.existsSync(task.workspace)) return !task.workspace || ['archived','deleted'].includes(this.store.branch(task.branch)?.status);
     try {
       if ((await this.workspaces.git(task.workspace, 'status', '--porcelain')).length) return false;
@@ -177,8 +141,6 @@ export default {
         continue;
       }
       if (!['order','child'].includes(task.task_kind)) continue;
-      const remote = runnerBusyReason(this, task);
-      if (remote) return remote;
       if (['cancelled','completed'].includes(task.status)) {
         if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id) || this.commandHookRunning?.has(task.id)
           || this.workspaces.busy.has(task.id) || this.acceptanceBusy?.has(task.id)) return `${workerLabel(task)} 仍在收尾`;

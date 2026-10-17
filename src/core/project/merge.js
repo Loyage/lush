@@ -238,6 +238,7 @@ export default {
       FROM tasks WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict') ORDER BY id LIMIT 50`);
     const pendingIds = new Set(rows.map(row => row.id));
     const nodes = new Map(rows.map(row => [row.id, { id: row.id, role: row.role, goal: row.goal, branch: row.branch,
+      ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}),
       target_branch: row.target_branch, integration: row.integration, deps: [], covered_by: [] }]));
     const edges = this.store.edgesOf([...pendingIds]);
     const upstreamIds = [...new Set(edges.map(edge => edge.depends_on))];
@@ -256,6 +257,7 @@ export default {
         // order 边只保证顺序，含不含提交只能问 git。
         const contains = edge.kind === 'code' ? true : await this.containsCommit(upstream.head_commit, head.get(id)?.head_commit);
         node.deps.push({ id: edge.depends_on, kind: edge.kind, branch: upstream.branch ?? null,
+          ...(this.store.executionRetired(edge.depends_on) ? { execution_retired: true } : {}),
           merged: upstream.integration === 'merged', pending: pendingIds.has(edge.depends_on), contains });
         // 只有 order 上游"可能已被带进来"：code 上游本来就必须先合，把它标成被覆盖会和 runtime 的守卫自相矛盾。
         if (edge.kind === 'order' && pendingIds.has(edge.depends_on) && contains) nodes.get(edge.depends_on).covered_by.push(id);
@@ -301,7 +303,8 @@ export default {
         } else if (active) phase = active.status === 'awaiting' && active.agent_wakes === 0 ? 'conflict_decision' : 'resolving';
         else phase = 'conflict_decision';
       }
-      const blockers = [];
+      const retired = this.store.executionRetired(row.id) || this.store.executionRetired(source.id);
+      const blockers = retired ? [{ code: 'execution_retired', message: '执行环境已退役；历史 Worker 只读保留' }] : [];
       // 新输入按 direct-parent 从叶子向根交付；任务还有未收拢 child，或它与 parent 已分歧时，
       // 交付队列不能沿用旧的“上游先落地”提示。具体收敛动作在分支图上完成。
       if (source.input_id && source.branch && !readyResolution) {
@@ -331,9 +334,12 @@ export default {
         if (!landed) blockers.push({ code: 'code_upstream', task_id: dep.id, message: `先把基线 Worker #${dep.id} 落地` });
       }
       items.push({ id: row.id, source_task_id: source.id, role: row.role, goal: row.goal,
+        ...(retired ? { execution_retired: true } : {}),
         branch: source.branch, target_branch: source.target_branch, integration: row.integration, source_integration: source.integration,
         phase, ready: blockers.length === 0 && ['awaiting_review','review_required','resolution_ready'].includes(phase), blockers,
-        resolver: active ?? readyResolution, deps: nodes.get(row.id)?.deps ?? [], covered_by: nodes.get(row.id)?.covered_by ?? [],
+        resolver: active || readyResolution ? { ...(active ?? readyResolution),
+          ...(this.store.executionRetired((active ?? readyResolution).id) ? { execution_retired: true } : {}) } : null,
+        deps: nodes.get(row.id)?.deps ?? [], covered_by: nodes.get(row.id)?.covered_by ?? [],
         level: level.get(row.id) ?? 0 });
     }
     // code_upstream 是“单项现在不能合”，但若同一批把完整上游栈一起选中，运行时可以按拓扑依次落地。

@@ -7,7 +7,7 @@ import { checkDraftRevision } from './input-history.js';
 import { profileEvent } from './internal.js';
 import { workerLabel } from '../worker-number.js';
 import { emissionLocked } from './input-emission-data.js';
-import { selectCreationRunner, guardCreationRunner, creationIdentity, captureRunnerParent } from './runner-creation.js';
+import { assertLocalWorker, RETIRED_EXECUTION } from './execution-retired.js';
 
 /** Input / draft admission and atomic creation of branch-owning orders. */
 export default {
@@ -31,7 +31,7 @@ export default {
 
   /** The body of order(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
   async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null, creationGuard = null, shortcutReceipt = null, emissionReceipt = null, runnerNodeId = undefined) {
-    check(runnerNodeId === undefined || !defer && draftId == null, 'Explicit runner_node_id is not supported by deferred or buffered inputs');
+    check(runnerNodeId === undefined, RETIRED_EXECUTION);
     // Only explicit deferred draft submission can carry a creation-time run-settings override.
     check(defer || draftId === null || draftId === undefined || profile === null || profile === undefined,
       'a buffered draft cannot carry run settings unless explicit deferred submission is authorized');
@@ -56,7 +56,6 @@ export default {
     // Resolve the optional creation-time override before creating the Git anchor: an invalid
     // profile must fail without leaving a half-created input branch behind.
     const runProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile('agent', profile);
-    const runnerNode = selectCreationRunner(this, runnerNodeId, { profile: runProfile });
     const normalized = this.normalizeReferences(references);
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const target = branch ?? await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD')
@@ -74,17 +73,17 @@ export default {
     if (defer && this.branchFreeze(target))
       return this.deferOrderHook(parent, content, normalized, runProfile, start, draft);
     this.assertBranchWritable(target, 'create a new worker on it');
-    await captureRunnerParent(this, parent);
+    assertLocalWorker(this, parent.id);
     // Recheck inside the Git writer queue, not only before waiting to acquire it.
     const { inputId, anchor } = await this.anchorInput(target, () => {
       this.assertWritable('send this order');
-      guardCreationRunner(this, runnerNode);
+      assertLocalWorker(this, parent.id);
       check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
       creationGuard?.();
       this.assertInputParent(parent.id, target);
       assertTaskNotSyncing(this, parent.id);
       this.assertBranchWritable(target, 'create a new worker on it');
-    }, { remote: Boolean(runnerNode) });
+    });
     let ruleTaskId = null;
     try {
       const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', anchor.commit);
@@ -93,7 +92,7 @@ export default {
       // Git was asynchronous: a clear may have started while the anchor was being created.
       this.assertWritable('send this order');
       const result = this.store.transaction(() => {
-        guardCreationRunner(this, runnerNode);
+        assertLocalWorker(this, parent.id);
         const current = this.store.task(parent.id);
         check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
         creationGuard?.();
@@ -126,7 +125,6 @@ export default {
           auto_merge: JSON.stringify(this.newOrderCompletionConfig()),
           base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }),
           ...(runProfile ? { retry_profile: JSON.stringify(runProfile) } : {}) });
-        if (runnerNode) this.store.bindRunnerWorkspace({ ...creationIdentity(this, runnerNode, task.id), base_commit: anchor.commit });
         this.initializeNewWorkerConvergence(this.store.task(task.id));
         if (runProfile) this.store.event(task.id, 'task.configured', { ...profileEvent(runProfile), profile_override: true, via: 'order' });
         if (rule !== null) {

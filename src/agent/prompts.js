@@ -7,19 +7,6 @@ import { resolveAgentCapabilities, capabilityPromptPart } from './capabilities.j
 
 export const AGENT_ROLES = Object.freeze(PROMPT_SUPPLEMENT_TARGETS.slice(1));
 
-/** Appended only for explicitly described remote workspaces; local Prompt behavior is unchanged. */
-export function remoteWorkspacePrompt(config, descriptor, controlCwd) {
-  return `## 远端代码与中央控制边界（本轮补充）
-本轮代码 workspace 是远端 ${JSON.stringify(descriptor.path)}，逻辑身份 ${JSON.stringify(descriptor.identity)}。
-中央 project=${JSON.stringify(config.project)}，中央 home=${JSON.stringify(config.home)}；本地 Agent 控制 cwd=${JSON.stringify(controlCwd)}，不是代码副本。上述中央路径不能交给 read/edit/write/bash。
-read/edit/write/bash 只通过 Runner 操作远端代码；绝不回退本机。所有 Git 与测试也在远端 bash。远端 .pi 扩展、MCP、项目资源不执行。
-本轮 shell 中没有远端 lushc 兼容代理。所有协作命令改用专用 lushc 工具，argv 数组不含可执行名，无 shell 插值；不得在本机执行通用 Shell。
-本地启动资料/内置 Skill 仅用 control(action=read,id=已登记逻辑标识)，或 lushc(argv=["skills","get",能力名])；不能将 Skill 本机路径交给远端 read。
-问卷改用 control(action=write,id=questionnaire,content=JSON字符串)，再 lushc(argv=["notice","post",标题,"--body",背景,"--questions-file","control:questionnaire"])。发布仍是本轮最后动作。
-启动上下文包含完整的远端嵌套 AGENTS 规则。首次突变默认确认这份启动指纹；规则变化后先读 workspace_context/CONTEXT_REQUIRED 返回内容，再显式传 context_ack，不能猜指纹。不同目录规则只适用其作用域。
-命令结果中的 stop_confirmed、timeout、gap、truncated、output_complete 分开判断；unknown 不是成功或已停止。命令不能遗留后台写入。`;
-}
-
 export const PROMPT_PARTS = Object.freeze({
   runtime: {
     title: 'Lush 运行时与边界',

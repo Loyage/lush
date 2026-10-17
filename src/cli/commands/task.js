@@ -3,7 +3,6 @@ import { resolveWorkerId } from '../worker-number.js';
 import { option, exact } from '../args.js';
 import { runWorkerHook, runWorkerCompletion } from './hooks.js';
 import { printTree, printTranscript } from '../print.js';
-import { validateRunnerNodeSelection } from '../../rpc/runner-methods.js';
 
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
@@ -54,11 +53,8 @@ export async function run(command, args, ctx) {
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
       const name = option(args, '--name');
-      const runnerNode = option(args, '--runner-node');
-      if (runnerNode !== null) validateRunnerNodeSelection(runnerNode);
       exact(args, 1);
-      value = await client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}),
-        ...(runnerNode !== null ? { runner_node_id: runnerNode } : {}) });
+      value = await client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}) });
     } else if (verb === 'watch') {
       check(client.token == null, 'native watching is user only; agents must end their invocation');
       check(!json, 'native watching requires a real terminal; --json is not supported');

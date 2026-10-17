@@ -50,7 +50,7 @@ export const methods = {
   /** guard is synchronous, runs inside the Git queue twice; started persists immediately before spawn. */
   runHookCommand(task, command, guard, options = {}) {
     return this.exclusive(async () => {
-      check(!this.store.runnerBinding(task.id), 'Shell Hooks on remote Workers are unsupported; local execution fallback is forbidden');
+      check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
       if (!guard()) return { status: 'waiting' };
       const cwd = await this.workspaceForBranch(task.branch);
       check(cwd, 'mounted branch has no checked-out workspace');

@@ -1,4 +1,4 @@
-import { newWidget, validateWidgets, GLOBAL_LINKS, PROJECT_LINKS, WIDGET_SECTIONS } from './dashboard-widget-model.js';
+import { newWidget, validateWidgets, isRetiredDashboardLink, GLOBAL_LINKS, PROJECT_LINKS, WIDGET_SECTIONS } from './dashboard-widget-model.js';
 import { PROJECT_CARD_DEFAULTS } from './project-dashboard-content.js';
 
 export const ACCOUNT_DEFAULTS = ['quota', 'balance', 'reset', 'observed'];
@@ -23,7 +23,7 @@ export function aggregateAccountIds(config) {
 export function aggregateLinks(config, id = null, { selectedOnly = true } = {}) {
   if (!explicit(config)) return id ? (selectedOnly && !legacySections(config, id, PROJECT_CARD_DEFAULTS).includes('shortcuts') ? [] : projectLinks(id)) : globalLinks();
   return config.widgets.filter(widget => widget.type === 'shortcuts' && (!selectedOnly || widget.sections.includes('shortcuts')))
-    .flatMap(widget => widget.links.filter(link => id ? link.scope === 'project' && link.project_id === id : link.scope === 'global'));
+    .flatMap(widget => widget.links.filter(link => !isRetiredDashboardLink(link) && (id ? link.scope === 'project' && link.project_id === id : link.scope === 'global')));
 }
 export function aggregateSections(config, id) {
   if (!explicit(config)) return [...legacySections(config, id, id === 'accounts' ? ACCOUNT_DEFAULTS : PROJECT_CARD_DEFAULTS)];

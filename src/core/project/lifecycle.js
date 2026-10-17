@@ -3,9 +3,7 @@ import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
-import { runnerIdentity } from '../runner-service.js';
-import { pendingRunnerTaskSync } from './runner-parent-sync.js';
-import { runnerPendingCount, requestRunnerStop, recordRunnerRecovery, reconcileRunnerWorker } from './runner-lifecycle.js';
+import { assertLocalWorker, RETIRED_EXECUTION } from './execution-retired.js';
 
 /**
  * 结算提醒的文案只由任务事实拼出来：goal 可能很长，只取第一行并截断成「一句话目标」。
@@ -58,6 +56,7 @@ function settlementReminder(store, task, status) {
 export default {
   finish(taskId, status, result = null, error = null, options = {}) {
     const task = this.store.task(taskId);
+    assertLocalWorker(this, task.id);
     if (TERMINAL.has(task.status)) return task;
     if (task.task_kind === 'management' && status !== 'completed') this.failManagementOccurrence(task.id, 'failed');
     const resolutionEvent = task.task_kind === 'child' ? this.store.get(`SELECT data FROM events WHERE task_id=?
@@ -195,17 +194,13 @@ export default {
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(!pendingRunnerTaskSync(this, task.id), 'Runner synchronization must settle its fixed receipt before cancellation');
     if (task.task_kind === 'integration') {
       check(this.cancelConvergenceIntegration, 'integration lifecycle is unavailable; preserve its private worktree');
       return this.cancelConvergenceIntegration(task.id, reason, status);
     }
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual order Workers instead');
     if (task.task_kind === 'management') return this.cancelManagementWorker(task.id, reason, status);
-    if (TERMINAL.has(task.status)) {
-      if (!this.recoveringHooks) requestRunnerStop(this, task.id);
-      return task;
-    }
+    if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
     const inbound = this.activeTaskMerge(task.id);
     check(!this.activeConvergenceLanding?.(task.id), 'convergence may have modified this branch; preserve its publication gate before cancelling');
@@ -248,7 +243,6 @@ export default {
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
     this.running.get(task.id)?.controller.abort(new Error(reason));
-    if (!this.recoveringHooks) requestRunnerStop(this, task.id);
     const result = this.finish(task.id, status, null, reason);
     if (!this.running.has(task.id) && !(this.recoveringHooks && this.hookRecoveredWorkers?.has(task.id)))
       this.emitTaskHook(task.id, status === 'failed' ? 'agent.failed' : 'worker.cancelled');
@@ -268,9 +262,7 @@ export default {
     check(!this.clearing, 'clear is already in progress');
     check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
-    check(runnerPendingCount(this) === 0, 'Runner execution, synchronization or cleanup remains active/unknown; clear must wait');
-    check(!this.store.get('SELECT worker_id FROM runner_bindings LIMIT 1'),
-      'Runner binding history remains; use checked worker.delete for each Worker before clearing the project');
+    check(this.store.retiredWorkerIds().length === 0, RETIRED_EXECUTION);
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
     check(!this.commandHookRunning?.size, 'shortcut commands are pending or running; clear must wait');
@@ -328,24 +320,8 @@ export default {
   },
 
   retry(taskId, profile = null) {
-    if (this.store.runnerBinding(taskId)) {
-      this.assertWritable('retry a worker');
-      assertTaskNotSyncing(this, taskId);
-      check(this.store.runnerBinding(taskId).state !== 'unknown', 'Runner workspace is unknown; explicitly verify remote state before retry');
-      check(['failed', 'cancelled'].includes(this.store.task(taskId).status), 'only failed/cancelled workers can be retried');
-      return reconcileRunnerWorker(this, taskId).then(() => this.retryAfterRunnerStop(taskId, profile));
-    }
-    return this.retryAfterRunnerStop(taskId, profile);
-  },
-
-  retryAfterRunnerStop(taskId, profile = null) {
     this.assertWritable('retry a worker');
-    const binding = this.store.runnerBinding(taskId);
-    if (binding) {
-      const barriers = this.store.runnerBarriers(taskId);
-      check(!barriers.bindings.length && !barriers.runs.length && !barriers.receipts.length, 'Runner still has unresolved work');
-      this.runners.assertBinding(runnerIdentity(binding, { operation_id: 'retry-admission' }));
-    }
+    assertLocalWorker(this, taskId);
     let task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled workers can be retried');
@@ -402,7 +378,6 @@ export default {
   },
 
   recover() {
-    recordRunnerRecovery(this);
     this.recoverChoiceSnapshots();
     this.scheduledHookRecoveryClock = this.hookClock();
     this.recoveringHooks = true;
@@ -417,12 +392,15 @@ export default {
     // 否则下一次调用会在第一个安全边界被一条早已失效的请求误停。
     fs.rmSync(path.join(this.config.home, 'preempt'), { recursive: true, force: true });
     // A credential dies with the invocation that issued it; nothing survives a restart.
+    const retiredIds = JSON.stringify(this.store.retiredWorkerIds());
+    const localTasks = () => this.store.tasks().filter(task => !this.store.executionRetired(task.id));
     this.store.transaction(() => {
-      this.store.run('UPDATE tasks SET agent_token_hash=NULL');
+      this.store.run('UPDATE tasks SET agent_token_hash=NULL WHERE id NOT IN (SELECT value FROM json_each(?))', retiredIds);
       // The new host observes an interruption, not the actual exit time of an external
       // process. Close every orphan Run (including parked/legacy ones), without replay
       // or fabricated success evidence; preserve completed historical Runs unchanged.
       for (const run of this.store.all("SELECT id,task_id FROM agent_runs WHERE status='running' ORDER BY id")) {
+        if (this.store.executionRetired(run.task_id)) continue;
         const closed = this.store.finishRun(run.id, 'failed', {
           error: 'daemon interrupted; ended_at records recovery observation, not actual process exit',
         });
@@ -432,27 +410,27 @@ export default {
         this.emitTaskHook(run.task_id, 'agent.failed', recoveredEvent);
       }
       // Never replay an invocation with unknown filesystem side effects.
-      for (const task of this.store.tasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')
+      for (const task of localTasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')
         && ['order','child','analysis','integration'].includes(task.task_kind))
         this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
-      for (const task of this.store.tasks()) if (task.interrupt_state === 'requested')
+      for (const task of localTasks()) if (task.interrupt_state === 'requested')
         this.store.update(task.id, { status: 'paused', interrupt_state: null });
     });
-    this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child')");
+    this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child') AND id NOT IN (SELECT value FROM json_each(?))", retiredIds);
     this.recoverTaskDeliveries();
     this.recoverConvergence?.();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.
     // Restore the audited owner before wake/settlement; no approval or invocation is recreated.
-    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind)) {
+    for (const task of localTasks()) if (['order','child'].includes(task.task_kind)) {
       try { this.restoreUnrequestedTaskParent(task.id); }
       catch (error) { this.store.update(task.id, { integration_error: error.message }); }
     }
     // A crash can land between committing an inbox message and queueing its owner.
-    for (const task of this.store.tasks()) {
+    for (const task of localTasks()) {
       if (['order','child'].includes(task.task_kind) && !TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);
     }
     // 中断的检验已经标成失败；对照基线是派生状态，顺手回收掉。
-    for (const task of this.store.tasks()) {
+    for (const task of localTasks()) {
       if (['order','child'].includes(task.task_kind) && task.baseline_workspace && TERMINAL.has(task.status)) {
         this.workspaces.removeBaseline(task.id).catch(error => console.error(`verification ${task.id}: baseline cleanup failed: ${error.message}`));
       }
@@ -462,9 +440,9 @@ export default {
     this.recoverTaskCompletion();
     this.kick();
     // Re-arm only persisted hooks; NULL historical settings never acquire new intent.
-    for (const task of this.store.tasks()) if (task.status === 'waiting') this.armTaskAutoMerge(task.id);
+    for (const task of localTasks()) if (task.status === 'waiting') this.armTaskAutoMerge(task.id);
     // 只续推已经静息的预约；running invocation 的未知文件副作用仍保留现场，不自动重播。
-    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.status === 'waiting' && task.reservation) {
+    for (const task of localTasks()) if (['order','child'].includes(task.task_kind) && task.status === 'waiting' && task.reservation) {
       let pendingMerge = false;
       try { const value = JSON.parse(task.reservation); pendingMerge = value.kind === 'merge' && value.status === 'pending'; }
       catch { /* invalid state remains visible for inspection */ }
@@ -475,7 +453,7 @@ export default {
       }
     }
     // 已发出的请求也要复查：重启期间父分支可能被推进、源分支可能被外部改动，而 pending 复查不覆盖它。
-    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
+    for (const task of localTasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
       let requested = false;
       try { requested = JSON.parse(task.reservation)?.status === 'requested'; } catch { /* leave corrupt state visible */ }
       if (requested) {
@@ -487,7 +465,7 @@ export default {
       }
     }
     // A returned source must not resume an invocation with unknown side effects after restart.
-    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
+    for (const task of localTasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
       let booking;
       try { booking = JSON.parse(task.reservation); } catch { continue; }
       if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued' && !this.maintenancePaused()) {
@@ -508,7 +486,7 @@ export default {
       }
     }
     // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 order 分支」之间：重启后补跑收尾。
-    for (const task of this.store.tasks()) {
+    for (const task of localTasks()) {
       if (task.status === 'completed' && (task.resolves_task_id !== null
         || (task.task_kind === 'child' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id))))
         this.scheduleTerminalDivergenceFinalize(task.id);
@@ -542,10 +520,7 @@ export default {
       if (run.parked) run.controller.abort();
       else this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
     }
-    // Orphan remote leases also require stop attempts; no local invocation is needed to own a barrier.
-    for (const workerId of new Set(this.store.runnerBarriers().runs.map(run => run.worker_id))) requestRunnerStop(this, workerId);
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
-    await Promise.allSettled([...(this.runnerStopJobs ?? [])]);
     await this.hookQueue;
     await runtimeStopped;
     // A confirmed management operation may outlive its model invocation.
@@ -561,8 +536,6 @@ export default {
     await usageIndexStopped;
     await connectionsStopped;
     await packagesStopped;
-    await this._runners?.close();
-    const unknown = runnerPendingCount(this) > 0;
-    return { stopped: !unknown, unknown };
+    return { stopped: true, unknown: false };
   }
 };

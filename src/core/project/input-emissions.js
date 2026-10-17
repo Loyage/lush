@@ -3,7 +3,7 @@ import { check, id, isPlainObject, text } from '../types.js';
 import { expectedRevision, checkDraftRevision } from './input-history.js';
 import { inheritedRunProfile } from './internal.js';
 import { inputOptions, inputEmission, saveEmission, emissionLocked, normalizeInputOptions, requestKey,
-  definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT, INPUT_OPTION_KEYS, assertInputRunner } from './input-emission-data.js';
+  definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT, INPUT_OPTION_KEYS } from './input-emission-data.js';
 import { roundEvent } from './input-emission-safety.js';
 
 function wait(reason) { const error = new Error(reason); error.inputEmissionWait = true; throw error; }
@@ -27,6 +27,7 @@ export default {
 
   emitBufferedInput(options) {
     return this.write('mount an input', async () => {
+      check(!isPlainObject(options) || !Object.hasOwn(options, 'runner_node_id'), 'Runner selection is retired');
       check(isPlainObject(options) && Object.keys(options).every(key => ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'].includes(key)), 'invalid input emission fields');
       const key = requestKey(options.client_request_id), hash = definitionHash(options);
       if (key) {
@@ -54,7 +55,6 @@ export default {
         const fields = Object.fromEntries(INPUT_OPTION_KEYS.filter(key => Object.hasOwn(options, key)).map(key => [key, options[key]]));
         // Validate everything before buffering: failed dispatch authorization must not consume the caller's text.
         const normalized = normalizeInputOptions(this, fields);
-        assertInputRunner(this, normalized);
         const references = this.normalizeReferences(options.references ?? []);
         check(normalized.mode !== 'append' || references.length === 0, 'append references are not supported; retain the text and attachments');
         if (normalized.mode === 'append') this.assertAppendInputTarget(normalized.target_id);
@@ -63,7 +63,6 @@ export default {
         draft = this.store.draft(draft.id);
       }
       const normalized = inputOptions(draft), references = this.store.draftReferences(draft.id);
-      assertInputRunner(this, normalized);
       check(!this.draftHookMount(draft.id), 'draft is already mounted on a legacy Hook');
       check(!emissionLocked(draft), 'draft already has an input emission');
       check(draft.parent_id !== null, 'legacy draft has no saved parent Worker; edit it before emitting');
@@ -91,7 +90,6 @@ export default {
             return this.inputEmissionResult(receipt.draft_id);
           }
         }
-        assertInputRunner(this, normalized, profile);
         checkDraftRevision(this.store.draft(draft.id), draft.revision);
         check(!emissionLocked(this.store.draft(draft.id)), 'draft already has an input emission');
         check(this.store.get("SELECT count(*) AS n FROM drafts WHERE emission IS NOT NULL AND json_extract(emission,'$.state') IN ('waiting_conditions','queued','dispatching')").n < INPUT_EMISSION_LIMIT, 'too many mounted inputs');
@@ -147,7 +145,6 @@ export default {
     const draft = this.store.draft(draftId), state = inputEmission(draft), options = inputOptions(draft);
     check(state?.state === 'dispatching' && state.dispatch_id === dispatchId && state.revision === draft.revision, 'input dispatch authorization changed');
     check(!this.stopping && !this.maintenancePaused(), 'input dispatch stopped before creation');
-    assertInputRunner(this, options, state.profile ?? null);
     if (!this.inputWorkspaceProofsCurrent(proofs)) wait('远端静息证据已变化，等待重新检查');
     const reason = this.inputCreationReason(draft.parent_id, draft.id);
     if (reason) wait(reason);
@@ -257,10 +254,9 @@ export default {
           });
         } else {
           const parent = this.assertInputParent(draft.parent_id);
-          assertInputRunner(this, options, claim.profile ?? null);
           await this.write('dispatch mounted input', () => this.sendOrder(draft.content, parent.branch, this.store.draftReferences(draft.id), null, true, undefined,
             claim.profile ?? null, false, null, () => this.assertInputDispatch(draft.id, claim.dispatch_id, proofs), null,
-            { draft_id: draft.id, dispatch_id: claim.dispatch_id }, ...(Object.hasOwn(options, 'runner_node_id') ? [options.runner_node_id] : [])));
+            { draft_id: draft.id, dispatch_id: claim.dispatch_id }));
         }
       } catch (error) {
         const current = inputEmission(this.store.draft(row.id));

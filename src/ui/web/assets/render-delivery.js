@@ -23,7 +23,7 @@ function archiveBadge(task) {
 
 /** Shared new-order delivery controls: the detail page and branch graph use exactly the same authorization path. */
 export function deliveryControls(task, { refresh = () => {}, showTracking = true, showMerged = true, showPending = true, showStage = true } = {}) {
-  if (!['order','child'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
+  if (task.execution_retired === true || !['order','child'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const panel = el('div', undefined, 'delivery-controls');
   const reservation = task.reservation;
   // v2 controls own the stage (including acceptance/reclamation facts); tracking owns diagnostics and input.

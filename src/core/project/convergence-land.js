@@ -7,19 +7,34 @@ const fixed = ['requested', 'executing', 'resolving', 'blocked'];
 export default {
   activeConvergenceLanding(parentId) {
     return this.store.deliveryRuns(parentId, ['landing', 'blocked'], 1000)
-      .find(run => run.state === 'landing' || run.landing_receipt) ?? null;
+      .find(run => this.convergenceExecutionRetired(run)
+        ? Boolean(run.landing_receipt) : run.state === 'landing' || run.landing_receipt) ?? null;
+  },
+
+  /** Missing historical publication facts cannot authorize a competing parent write. */
+  retiredConvergenceParentBlocked(parentId) {
+    const rows = this.store.all(`SELECT id,reservation FROM tasks WHERE json_valid(reservation)
+      AND json_extract(reservation,'$.version')=3 AND json_extract(reservation,'$.parent_id')=?
+      AND json_extract(reservation,'$.status') IN ('executing','blocked')`, parentId);
+    return rows.some(task => {
+      if (!this.store.executionRetired(task.id)) return false;
+      const request = convergenceJSON(task.reservation);
+      const run = Number.isSafeInteger(request.run_id) && request.run_id > 0 ? this.store.deliveryRun(request.run_id) : null;
+      return !run || run.parent_id !== parentId;
+    });
   },
 
   nextConvergenceLanding(parentId) {
-    const candidates = this.store.deliveryRuns(parentId, ['ready'], 1000);
+    if (this.retiredConvergenceParentBlocked(parentId)) return null;
+    const candidates = this.store.deliveryRuns(parentId, ['ready'], 1000).filter(run => !this.convergenceExecutionRetired(run));
     return candidates.map(run => ({ run, sequence: Math.min(...this.store.deliveryMembers(run.id, true).map(member => member.enqueue_seq)) }))
       .filter(item => Number.isFinite(item.sequence)).sort((a, b) => a.sequence - b.sequence || a.run.id - b.run.id)[0] ?? null;
   },
 
   convergenceCanPublish(run) {
     const parent = this.store.task(run.parent_id), upward = convergenceJSON(parent.reservation);
-    if (this.stopping || this.clearing || this.maintenancePaused() || TERMINAL.has(parent.status)
-      || parent.branch !== run.target_branch || fixed.includes(upward?.status)
+    if (this.stopping || this.clearing || this.maintenancePaused() || this.convergenceExecutionRetired(run) || TERMINAL.has(parent.status)
+      || parent.branch !== run.target_branch || fixed.includes(upward?.status) || this.retiredConvergenceParentBlocked(parent.id)
       || this.running.has(parent.id) || parent.status === 'running' || this.taskSyncBusy?.has(parent.id)
       || this.commandHookRunning?.has(parent.id) || this.taskMergeBusy?.has(parent.id)
       || (run.integration_worker_id && this.running.has(run.integration_worker_id))) return false;
@@ -34,7 +49,7 @@ export default {
       const oldCandidates = this.store.all(`SELECT id,reservation FROM tasks WHERE json_valid(reservation)
         AND json_extract(reservation,'$.version')=2 AND json_extract(reservation,'$.status')='requested'
         AND json_extract(reservation,'$.parent_id')=? ORDER BY json_extract(reservation,'$.enqueue_seq'),id`, parent.id);
-      const first = oldCandidates.find(task => this.store.deps(task.id).filter(edge => edge.kind === 'code')
+      const first = oldCandidates.find(task => !this.store.executionRetired(task.id) && this.store.deps(task.id).filter(edge => edge.kind === 'code')
         .every(edge => this.store.task(edge.depends_on).integration === 'merged'));
       if (first && convergenceJSON(first.reservation).enqueue_seq < next?.sequence) return false;
     }

@@ -78,6 +78,7 @@ export default {
 
   /** Durable event ledger, rather than a single last_execution slot: busy triggers cannot overwrite each other. */
   submitCommandTaskHook(taskId, hookId, sourceId) {
+    if (this.store.executionRetired(taskId)) return;
     this.store.transaction(() => {
       const data = read(this.store.task(taskId)), mount = data.mounts.find(m => m.id === hookId);
       if (!mount?.enabled || this.shortcutHookIssue(mount) || ['failed','unknown'].includes(mount.state) || sourceId <= (mount.command_last_source ?? 0)) return;
@@ -91,7 +92,7 @@ export default {
   },
 
   queueCommandTaskHook(taskId, hookId) {
-    if (this.stopping || this.recoveringHooks) return;
+    if (this.stopping || this.recoveringHooks || this.store.executionRetired(taskId)) return;
     const task = this.store.task(taskId), mount = read(task).mounts.find(m => m.id === hookId);
     if (!mount?.enabled || !mount.command_pending || this.shortcutHookIssue(mount) || ['failed','unknown'].includes(mount.state)) return;
     const gate = commandAdmission(this, task);
@@ -235,7 +236,7 @@ export default {
   },
 
   recoverCommandTaskHooks() {
-    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) for (const mount of read(task).mounts) {
+    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL').filter(task => !this.store.executionRetired(task.id))) for (const mount of read(task).mounts) {
       if (!hasCommand(mount) || mount.state !== 'running') continue;
       const complete = mount.actions.every((_, index) => mount.receipts?.some(r => r.index === index));
       const failed = mount.receipts?.some(r => r.command_result?.status === 'failed');

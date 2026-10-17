@@ -18,6 +18,7 @@ export default {
   },
 
   inputQueueWaitReason(task, freezes = null) {
+    if (this.store.executionRetired(task.id)) return '执行环境已退役；历史 Worker 只读保留';
     if (TERMINAL.has(task.status)) return 'Worker 已停止；暂存输入保留，等待显式恢复';
     if (task.branch && this.store.branch(task.branch)?.status !== 'active') return 'Worker 分支已归档；暂存输入保留';
     try { assertTaskAncestorsOpen(this, task); } catch (error) { return error.message; }

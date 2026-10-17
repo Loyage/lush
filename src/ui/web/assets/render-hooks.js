@@ -316,7 +316,7 @@ export function mountCard(task, mount, model, refresh, ownsPage, { setEditing = 
 
 /** Synchronous inspect projection; graph reuses stage controls without the full Hook editor. */
 export function workerHooks(task, { refresh = () => detail(task.id), compact = false } = {}) {
-  if (!['order', 'child', 'main', 'owner'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
+  if (task.execution_retired === true || !['order', 'child', 'main', 'owner'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const identity = ui.view, ownerDocument = globalThis.document, project = projectApi('/api/hooks');
   const ownsPage = () => ownerDocument === globalThis.document && ui.view === identity && sameProject(project);
   const model = task.hooks;

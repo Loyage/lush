@@ -18,7 +18,7 @@ afterAll(() => { dom.restore(); fs.rmSync(root, { recursive: true, force: true }
 
 test('compiled root workbench loads global lazy pages with shared navigation state', async () => {
   expect(dom.node('detail').dataset.view).toBe('projects');
-  for (const [view, hash] of [['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['runners', 'runners'], ['automation', 'automation'], ['global-inbox', 'notices']]) {
+  for (const [view, hash] of [['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'notices']]) {
     await dom.node(`${view}-open`).onclick();
     expect(dom.node('detail').dataset.view).toBe(view); expect(dom.location.hash).toBe(`#${hash}`);
     expect(dom.node(`${view}-open`).getAttribute('aria-current')).toBe('page');

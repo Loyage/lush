@@ -16,7 +16,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 宿主级路由
 
-- `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` 展示和设置项目与账户面板，`#project-management` 管理项目入口与后台，`#runners` 集中管理执行节点与来源项目授权；`/p/<id>/` 是该项目的工作台。执行节点来源书签及旧入口兼容见[用户工作台契约](../engineering/user-workspace.md)，SSH 发现／试连与 Runner 认证的区别见 [Runner 管理接口](rpc/runners.md)。
+- `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` 展示和设置项目与账户面板，`#project-management` 管理项目入口与后台；`/p/<id>/` 是该项目的工作台。执行节点入口已移除，历史兼容见[执行模型](../engineering/execution-model.md#单机执行与执行节点退役)。
 - `GET /web-<content-version>-cli-catalog.json`：HTML 提供精确静态目录 URL；命令、参数和审核策略参与版本身份。仅安全代码说明，登录与 Origin 校验后按私有、不可变缓存提供 JSON／gzip 及 ETag；不读取项目权限，不附着项目后台。旧 `cli.catalog` RPC 及 `/api/cli/catalog`、`/api/host/cli/catalog` 保留，原生兼容页面可用 Host-only 读面，新页面不再以动态目录 API 为加载前提。缓存和实时权限边界见[CLI 目录](../hooks.md#cli-目录缓存与权限)。
 - `GET /api/host/session`：仅根路径、无查询参数，已登录后只返回 `{username}`（当前 Host 登录配置的账户名）。保留 Origin 校验、认证和 no-store，不返回密码/hash、Cookie/token 或路径，不连接或启动任何 daemon；未登录 401，注销/到期后旧 Cookie 失效。不是历史输入作者或多用户账户接口。
 - `GET /api/host`：返回 `mode`、上次打开的项目（`last_project` / `last_project_id`）与已登记项目列表（`projects`，含 `connected` / `last`；`mode` 为 `host` 或 `bound`）。只报告上次落点，不因此自动启动或连接任何 daemon。另返回当前服务进程的 `pid` 与 `restart_supported`；嵌入式 Host 不支持进程重启时为 `false`。

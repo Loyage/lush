@@ -20,7 +20,7 @@ const ACCOUNT_SECTIONS = ['quota', 'balance', 'reset', 'observed', 'details', 'h
 const WIDGET_ID = /^widget:[a-z0-9][a-z0-9-]{0,79}$/;
 const WIDGET_SECTIONS = { status: ['metrics', 'distribution', 'delivery'], messages: ['messages'], workers: ['recent'],
   accounts: ACCOUNT_SECTIONS, shortcuts: ['shortcuts'] };
-const GLOBAL_TARGETS = ['notices', 'project-management', 'model-sources', 'runners', 'settings', 'agent-status', 'automation', 'docs'];
+const GLOBAL_TARGETS = ['notices', 'project-management', 'model-sources', 'settings', 'agent-status', 'automation', 'docs'];
 const PROJECT_TARGETS = ['workers', 'inputs', 'versions', 'notices'];
 const empty = () => ({ version: 7, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true, quick_actions: true, quick_action_buttons: [...DEFAULT_QUICK_ACTION_BUTTONS] });
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -50,7 +50,7 @@ export function normalizeDashboardCards(cards) {
   return result;
 }
 /** Independent cards contain only source identities and allow missing/deleted sources. */
-export function normalizeDashboardWidgets(widgets) {
+export function normalizeDashboardWidgets(widgets, allowRetired = false) {
   if (widgets === null) return null; // Read-only legacy projection, distinct from an explicitly empty board.
   check(Array.isArray(widgets) && widgets.length <= MAX_CARDS, 'dashboard widgets must be null or an array of at most 100 cards');
   const seen = new Set();
@@ -74,7 +74,8 @@ export function normalizeDashboardWidgets(widgets) {
     const links = Array.from(widget.links, link => {
       fields(link, ['scope', 'target', 'project_id']);
       check(link.scope === 'global' || link.scope === 'project', 'invalid dashboard shortcut scope');
-      check(typeof link.target === 'string' && (link.scope === 'global' ? GLOBAL_TARGETS : PROJECT_TARGETS).includes(link.target),
+      check(typeof link.target === 'string' && ((link.scope === 'global' ? GLOBAL_TARGETS : PROJECT_TARGETS).includes(link.target)
+        || allowRetired && link.scope === 'global' && link.target === 'runners'),
         'invalid dashboard shortcut target');
       check(link.scope === 'global' ? link.project_id === null : typeof link.project_id === 'string' && PROJECT_ID.test(link.project_id),
         'invalid dashboard shortcut project identity');
@@ -112,7 +113,7 @@ function uniqueRows(value, name, normalize) {
 function integer(value, min, max) { return Number.isInteger(value) && value >= min && value <= max; }
 
 /** Strict partial patch; omitted fields remain authoritative at publication time. */
-export function normalizeDashboardPatch(patch) {
+export function normalizeDashboardPatch(patch, allowRetired = false) {
   check(isPlainObject(patch) && Object.keys(patch).length > 0
     && Object.keys(patch).every(key => PATCH_FIELDS.includes(key)), 'invalid dashboard patch fields');
   const result = {};
@@ -149,7 +150,7 @@ export function normalizeDashboardPatch(patch) {
     result.quick_actions = patch.quick_actions;
   }
   if (Object.hasOwn(patch, 'quick_action_buttons')) result.quick_action_buttons = normalizeQuickActionButtons(patch.quick_action_buttons);
-  if (Object.hasOwn(patch, 'widgets')) result.widgets = normalizeDashboardWidgets(patch.widgets);
+  if (Object.hasOwn(patch, 'widgets')) result.widgets = normalizeDashboardWidgets(patch.widgets, allowRetired);
   if (Object.hasOwn(patch, 'account_view')) {
     check(patch.account_view === 'list' || patch.account_view === 'tiles', 'invalid dashboard account_view');
     result.account_view = patch.account_view;
@@ -181,7 +182,9 @@ function load(config) {
     check([2, 3, 4, 5, 6, 7].includes(data.version), 'invalid dashboard version');
     fields(data, ['version', ...(data.version === 2 ? V2_FIELDS : data.version === 3 ? V3_FIELDS : data.version === 4 ? V4_FIELDS : data.version === 5 ? V5_FIELDS : data.version === 6 ? V6_FIELDS : PATCH_FIELDS)]);
     const { version, ...patch } = data;
-    const normalized = normalizeDashboardPatch(patch);
+    // Reading old shortcuts must not break the entire board or rewrite its private file.
+    // New patches remain strict; the browser suppresses retired navigation targets.
+    const normalized = normalizeDashboardPatch(patch, true);
     // Old documents retain their own strict identity rules; reading is not a migration.
     if (version < 4) for (const row of normalized.layout) identity(row.id);
     return { ...empty(), ...normalized };

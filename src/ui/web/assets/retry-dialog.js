@@ -25,6 +25,7 @@ export async function configureTask(task) {
 }
 
 async function profileDialog(task, options) {
+  if (task.execution_retired === true) { show('远端执行已退役，仅保留只读历史。', 'error'); return false; }
   const configuring = options.method === 'worker.configure';
   const view = ui.view; let active = true;
   const ownsPage = () => active && ui.view === view;

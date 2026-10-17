@@ -4,7 +4,6 @@
 
 - [Worker、Run 与 Artifact](tasks.md)
 - [Agent 状态](agents.md)
-- [Runner 节点、凭据与项目授权](runners.md)
 - [Inspect、history、diff 与 transcript](inspect.md)
 - [Notice](notices.md)
 - [Hooks 与预约](hooks.md)

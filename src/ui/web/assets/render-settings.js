@@ -4,7 +4,6 @@ import { pageBlocks, replacePageContent } from './page-modules.js';
 import { ui } from './state.js';
 import { createInterfaceSettings } from './settings-interface.js';
 import { createSystemSettings } from './settings-system.js';
-import { runnersLink } from './runner-page-route.js';
 
 // Keep the existing Agent management entry point without a dependency back to this page.
 export { renderAgentSettings } from './settings-agent.js';
@@ -41,8 +40,7 @@ export function renderSettings() {
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '设备设置'),
     el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、模型来源与快捷解释各有独立设备页面。', 'hint'));
-  const runners = el('a', '执行节点', 'nav-link settings-runners-link'); runners.href = runnersLink(); runners.dataset.settingsTab = 'runners';
-  head.append(intro, runners); view.append(head, tabBar());
+  head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceSettings.render() : systemSettings.render());
   if (activeTab === 'interface') pageBlocks(view.querySelector('.settings-tab-panel'), 'settings-interface', 'fold');
   replacePageContent(panel, view);

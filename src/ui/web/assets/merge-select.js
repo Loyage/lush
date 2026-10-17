@@ -28,12 +28,14 @@ export function freezeBlocker(targetBranch, task, freeze = []) {
  */
 export function mergeCandidates(tasks, { nodes = [], groups = [], freeze = [] } = {}) {
   // 新交付队列由后端给出唯一候选与精确阻塞原因：原冲突任务和 resolver 不会再并列。
-  if (groups?.length) return groups.flatMap(group => group.items || []).map(item => ({
+  if (groups?.length) return groups.flatMap(group => group.items || [])
+    .filter(item => item.execution_retired !== true && !tasks?.some(task => task.id === (item.source_task_id ?? item.id) && task.execution_retired === true))
+    .map(item => ({
     ...item, merge_id: item.source_task_id ?? item.id, frozen_by: item.blockers?.find(blocker => blocker.code === 'frozen')?.task_id ?? null,
   })).sort((a, b) => a.id - b.id);
   const byId = new Map((nodes || []).map(node => [node.id, node]));
   return (tasks || [])
-    .filter(task => task.status === 'completed' && MERGEABLE_INTEGRATION.has(task.integration))
+    .filter(task => task.execution_retired !== true && task.status === 'completed' && MERGEABLE_INTEGRATION.has(task.integration))
     .map(task => {
       const node = byId.get(task.id) || {};
       const target = node.target_branch ?? null;

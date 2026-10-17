@@ -64,6 +64,10 @@ test('real Node tools -> Bun bridge -> current permissions -> query execution/re
     const target = (await f.project.order('development query target', 'main', [], null, false)).task;
     f.store.update(target.id, { result: 'PRIVATE-PROVIDER-RESULT', error: 'PRIVATE-PROVIDER-ERROR' });
     f.project.notify(target.id, 'notice', 'PRIVATE-NOTICE-BODY');
+    // The safe query projection must retain retirement metadata without restoring execution.
+    f.store.run('CREATE TABLE runner_bindings(worker_id INTEGER PRIMARY KEY)');
+    f.store.run('INSERT INTO runner_bindings VALUES (?)', target.id);
+    const retainedTarget = f.store.task(target.id);
     const cli = managementToolCLI(f.root, 'node');
     f.config.env.LUSH_PI_COMMAND = cli.command;
     f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
@@ -112,7 +116,7 @@ test('real Node tools -> Bun bridge -> current permissions -> query execution/re
     }
     for (let i = 0; i <= 2; i++) {
       const result = replies[i].response.details.result;
-      expect(result.nodes.some(node => node.id === target.id)).toBe(true);
+      expect(result.nodes.find(node => node.id === target.id)?.execution_retired).toBe(true);
       expect(result.coverage).toBe('worker_metadata_only');
       expect(JSON.stringify(result)).not.toContain('PRIVATE');
       expect(result.nodes.find(node => node.id === target.id)).not.toHaveProperty('result_preview');
@@ -133,7 +137,7 @@ test('real Node tools -> Bun bridge -> current permissions -> query execution/re
     }
     expect(dispatched).toHaveLength(10); // eight valid reads + two deliberately failing downstream reads
     expect(dispatched.filter(item => item.method === 'worker.graph')).toHaveLength(3);
-    expect(f.store.task(target.id).status).toBe('paused');
+    expect(f.store.task(target.id)).toEqual(retainedTarget);
     expect(f.store.draftCount()).toBe(0);
   } finally { await rpc?.close(); await f.close(); }
 });

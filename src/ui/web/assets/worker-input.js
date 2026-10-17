@@ -5,6 +5,7 @@ import { workerLabel } from './worker-label.js';
 
 /** Receiving input is independent of permission to mutate a frozen branch. */
 export function appendInputBlocker(task, workers = ui.lastSnapshot?.tasks || []) {
+  if (task.execution_retired === true) return '远端执行已退役，此 Worker 仅保留只读历史，不能追加输入。';
   if (isHistoricalDelivery(task) || !['order', 'child'].includes(workerKind(task))) return '此 Worker 不支持追加输入。';
   if (TERMINAL_STATUS.has(task.status)) return task.status === 'completed'
     ? 'Worker 已完成；请先显式恢复开发。' : 'Worker 已结束；请先重试。';

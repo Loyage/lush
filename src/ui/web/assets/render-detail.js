@@ -8,7 +8,6 @@ import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceSummary } from './worker-model-source.js';
 import { workerRenameControl } from './worker-rename.js';
-import { renderWorkerRunner } from './worker-runner.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -80,7 +79,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
   const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
-  const previousRunner = sameTask ? panel.querySelector('.worker-runner') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
@@ -104,18 +102,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
-  // Keep unknown/blocked location facts above the foldable reading modules.
-  if (!management) {
-    const view = ui.view;
-    let location;
-    location = renderWorkerRunner(task, previousRunner, {
-      ownsPage: () => ownerDocument === document && ui.view === view && (!location || panel.querySelector('.worker-runner') === location),
-      refresh: () => detail(task.id),
-    });
-    panel.append(location);
-  }
+  if (task.execution_retired === true) panel.append(el('p',
+    '远端执行已退役：此 Worker 仅保留只读历史与固定提交，不再续跑、迁移或回收远端资源。新工作请在本机新建 Worker。',
+    'hint execution-retired'));
 
-  const readOnly = management || isHistoricalDelivery(task);
+  const readOnly = management || isHistoricalDelivery(task) || task.execution_retired === true;
   if (management) {
     panel.append(el('p', task.role === 'manager' && task.task_kind === 'management'
       ? 'Valet 的目标、结果、调用与执行记录共用工作阅读器；可停止、停用授权并预检删除，不提供开发动作或连续追加对话。'
@@ -236,9 +227,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.divergence_resolution) {
     actions.append(button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link', { worker: task.parent_id }));
   }
-  const clearOverride = management ? null : clearOverrideControl(task, () => detail(task.id));
+  const clearOverride = readOnly ? null : clearOverrideControl(task, () => detail(task.id));
   if (clearOverride) actions.append(clearOverride);
-  const valetControls = management ? valetLifecycleControls(task, { refresh: () => detail(task.id) }) : null;
+  const valetControls = management && task.execution_retired !== true ? valetLifecycleControls(task, { refresh: () => detail(task.id) }) : null;
   if (valetControls) actions.append(valetControls);
   const deletion = workerDeleteControl(task);
   if (deletion) actions.append(deletion);
@@ -272,7 +263,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     const options = { refresh: () => detail(task.id), signal: progressive?.signal };
     const integration = integrationDetails(task, options) || integrationSummary(task);
     if (integration) panel.append(integration);
-    if (['main', 'owner'].includes(workerKind(task)) || task.children_total || task.children?.length) {
+    if (!readOnly && (['main', 'owner'].includes(workerKind(task)) || task.children_total || task.children?.length)) {
       const control = integrationControl(task, options);
       if (control) panel.append(control);
     }
@@ -281,7 +272,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (iteration) panel.append(iteration);
   const delivery = management ? null : deliveryControls(task, { refresh: () => detail(task.id) });
   if (delivery) panel.append(delivery);
-  const hooks = management ? null : previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
+  const hooks = readOnly ? null : previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
   if (hooks) {
     if (hookManagementOpen) hooks.querySelector('.hook-management').open = true;
     panel.append(hooks);

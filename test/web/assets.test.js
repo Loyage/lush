@@ -37,7 +37,7 @@ test('production startup and complete lazy module graph are served within the co
     expect(coldJs.length).toBeLessThan(native.size / 4);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"\n]+)"/g)].map(row => row[1]);
     expect(new Set([...scripts, ...styles, ...preloads])).toEqual(cold);
-    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-runners', 'render-project-automation', 'render-valet-settings', 'management-profile-form']) {
+    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-project-automation', 'render-valet-settings', 'management-profile-form']) {
       const target = [...lazy].find(file => file.includes(`-${name}-`));
       expect(target).toBeTruthy(); expect(cold.has(target)).toBe(false);
     }

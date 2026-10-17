@@ -1,15 +1,15 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 import { normalizeConfigurationScope } from '../core/device-config.js';
-import { RUNNER_METHODS } from './runner-methods.js';
-import { INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
+import { INPUT_OPTION_KEYS as ALL_INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
 import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
 import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
 
+const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_node_id');
+
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
-  ...Object.fromEntries(Object.entries(RUNNER_METHODS).map(([method, spec]) => [method, spec.params])),
   'cli.catalog': [],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
   'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': ['notify_completion'], 'system.resume_all': [],
@@ -50,7 +50,7 @@ export const PARAMS = {
   'worker.hooks': ['id'], 'worker.completion_page': ['before','limit'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],
   'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
-  'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer','runner_node_id'],
+  'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer'],
   'input.history': ['cursor','limit','q','status','integration','conditional','view','modes'], 'input.get': ['kind','id'], 'input.parents': [],
   'input.emit': ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'],
   'input.emission_cancel': ['draft_id','expected_revision'], 'input.exclusive_release': ['draft_id','expected_revision'],
@@ -75,7 +75,7 @@ export const PARAMS = {
   'worker.transcript_page': ['id','seq','offset'], 'worker.transcript_step': ['id','seq','offset'],
   'worker.transcript_search': ['id','query','kind','tool','errors','after','limit'],
   'worker.runs_page': ['id','before','limit'], 'worker.artifacts_page': ['id','before','limit'], 'worker.artifact': ['id'],
-  'worker.spawn': ['parent','goal','name','runner_node_id'], 'worker.integrate': ['id','commit'],
+  'worker.spawn': ['parent','goal','name'], 'worker.integrate': ['id','commit'],
   'worker.reserve': ['id','kind'], 'worker.reserve_all': ['branch'], 'worker.auto_merge': ['id','enabled'],
   'worker.resolve': ['id'], 'worker.resolve_divergence': ['id'],
   'worker.accept': ['id'], 'worker.accept_preview': ['id'], 'worker.accept_force': ['id','revision','confirm'], 'worker.reopen': ['id'], 'worker.sync_parent': ['id'], 'worker.resolve_sync': ['id'],
@@ -99,7 +99,6 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
-  ...Object.keys(RUNNER_METHODS),
   'cli.catalog','worker.delivery_graph',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
@@ -141,7 +140,9 @@ export const INTEGRATION_METHODS = new Set([
 
 export function assertAllowed(method, params, actor) {
   check(isPlainObject(params), 'params must be an object');
+  if (typeof method === 'string' && method.startsWith('runner.')) throw new LushError('Runner execution nodes are retired; only local execution is supported', -32601);
   if (!Object.hasOwn(PARAMS, method)) throw new LushError(`unknown method: ${method}`, -32601);
+  check(!Object.hasOwn(params, 'runner_node_id'), 'runner_node_id is retired; new Workers always execute locally');
   check(Object.keys(params).every(key => key === '_token' || PARAMS[method].includes(key)), 'unknown parameter');
   const who = typeof actor === 'function' ? actor() : actor;
   if (['system.', 'agent.'].some(prefix => method.startsWith(prefix)) && Object.hasOwn(params, 'scope')) {

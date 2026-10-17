@@ -13,7 +13,7 @@ export const nextConfigMode = task => normalizeConfigMode(task?.model_selection?
 
 /** Task-local overrides survive delivery; clearing one is an explicit, non-Agent action. */
 export function canClearOverride(task) {
-  return !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
+  return task.execution_retired !== true && !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
     && !TERMINAL_STATUS.has(task.status) && task.status !== 'running'
     && task.model_selection?.explicit === true && !task.agent?.active;
 }

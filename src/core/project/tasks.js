@@ -10,7 +10,7 @@ import { managementModel } from './management-data.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
-import { selectCreationRunner, guardCreationRunner, creationIdentity, captureRunnerParent } from './runner-creation.js';
+import { assertLocalWorker, RETIRED_EXECUTION } from './execution-retired.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, iterationViews } from './iteration.js';
 
 export const DEP_KINDS = new Set(['code', 'order']);
@@ -61,6 +61,7 @@ export default {
   renameTask(taskId, title) {
     this.assertWritable('rename a Worker');
     const task = this.store.task(id(taskId));
+    assertLocalWorker(this, task.id);
     check(title === null || typeof title === 'string', 'title must be text or null');
     const value = title === null ? null : title.trim() || null;
     check(value === null || value.length <= 200, 'title must be at most 200 characters');
@@ -99,6 +100,8 @@ export default {
   async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined) {
     this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
+    check(runnerNodeId === undefined, RETIRED_EXECUTION);
+    assertLocalWorker(this, parent.id);
     assertTaskNotSyncing(this, parent.id);
     check(!this.inputExclusiveReason(parent), this.inputExclusiveReason(parent));
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Workers accept new order Workers, not unrestricted spawned work');
@@ -147,11 +150,10 @@ export default {
     const parentRule = taskKind && fs.existsSync(snapshotPath(this.config.home, parent.id))
       ? fs.readFileSync(snapshotPath(this.config.home, parent.id), 'utf8') : null;
     const inherited = inheritedRunProfile(this, parent, this.running.get(parent.id) ?? null);
-    const runnerNode = selectCreationRunner(this, runnerNodeId, { parent, profile: inherited });
-    await captureRunnerParent(this, parent);
+    assertLocalWorker(this, parent.id);
     return this.workspaces.exclusive(async () => {
       this.assertWritable('delegate a worker');
-      guardCreationRunner(this, runnerNode);
+      assertLocalWorker(this, parent.id);
       const liveParent = this.store.task(parent.id);
       assertTaskNotSyncing(this, liveParent.id);
       check(!this.inputExclusiveReason(liveParent), this.inputExclusiveReason(liveParent));
@@ -191,10 +193,7 @@ export default {
         throw error;
       }
       try {
-        if (runnerNode) await this.workspaces.prepareRemoteBranchUnsafe(task, liveParent.branch, commit, {
-          identity: creationIdentity(this, runnerNode, task.id), guard: () => guardCreationRunner(this, runnerNode),
-        });
-        else await this.workspaces.forkTaskUnsafe(task, liveParent.branch, commit);
+        await this.workspaces.forkTaskUnsafe(task, liveParent.branch, commit);
         const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', commit);
         if (pointer) forkCheckpoint(this.config.home, { ...pointer, commit });
       } catch (error) {
@@ -279,7 +278,8 @@ export default {
     const fields = ['id','worker_number','parent_id','parent_worker_number','input_id','role','task_kind','layer',
       'goal','display_title','auto_title','status','integration','updated_at','agent_wakes','agent_last_seen_at','interrupt_state','accepted'];
     const summaries = this.decorate([...(parent ? [parent] : []), ...rows.slice(0, limit)])
-      .map(row => Object.fromEntries(fields.map(key => [key, row[key] ?? null])));
+      .map(row => ({ ...Object.fromEntries(fields.map(key => [key, row[key] ?? null])),
+        ...(row.execution_retired ? { execution_retired: true } : {}) }));
     const parentSummary = parent ? summaries.shift() : null;
     const items = bounded(summaries, 200000);
     return { parent: parentSummary, children: { items, total, cursor: items.at(-1)?.id ?? after,
@@ -319,7 +319,8 @@ export default {
       parent_worker_number: task.parent_id ? this.store.task(task.parent_id).worker_number : null,
       ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),
         branch_status: task.branch ? this.store.branch(task.branch)?.status ?? null : null } } : {}),
-      deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
+      deps: this.store.depsDetail(task.id).map(row => ({ ...row, ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}) })),
+      dependents: this.store.dependentsDetail(task.id).map(row => ({ ...row, ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}) })),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.decorate(this.store.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
@@ -329,8 +330,8 @@ export default {
       messages: bounded(this.store.all(`${MESSAGE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),
       notices: bounded(this.store.all(`${NOTICE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),
       // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。
-      verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
-      resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,
+      verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}), has_report: this.hasReport(row.id) })), 200000) : undefined,
+      resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id).map(row => ({ ...row, ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}) })), 200000) : undefined,
       report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
       runs,
       artifacts,

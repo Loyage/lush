@@ -104,7 +104,7 @@ function forgetWorkers(preview) {
 
 /** Shared detail/graph action; final confirmation alone authorizes discarding code. */
 export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
-  if (pending.has(task.id) || ui.deletedWorkerIds.has(task.id)) return false;
+  if (task.execution_retired === true || pending.has(task.id) || ui.deletedWorkerIds.has(task.id)) return false;
   if (['main', 'owner'].includes(task.task_kind) || isHistoricalDelivery(task)
     || isValet(task) && (task.role !== 'manager' || task.task_kind !== 'management')) return false;
   const reason = deleteReason(task), valet = isValet(task);
@@ -168,6 +168,7 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
 
 /** Active records retain a disabled, focusable help host explaining manual cancellation. */
 export function workerDeleteControl(task, options = {}) {
+  if (task.execution_retired === true) return null;
   if (['main', 'owner'].includes(task.task_kind) || isHistoricalDelivery(task)
     || isValet(task) && (task.role !== 'manager' || task.task_kind !== 'management')) return null;
   const reason = deleteReason(task), help = isValet(task) ? VALET_DELETE_HELP : WORKER_DELETE_HELP;

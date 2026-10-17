@@ -60,7 +60,7 @@ export function integrationSummary(task, { showMerged = true } = {}) {
 
 /** No eager preflight per graph node: the user explicitly reads the authoritative full plan. */
 export function integrationControl(task, { refresh = () => {}, ownsPage = () => true, signal } = {}) {
-  if (!['main', 'owner', 'order', 'child'].includes(task.task_kind) || !task.branch
+  if (task.execution_retired === true || !['main', 'owner', 'order', 'child'].includes(task.task_kind) || !task.branch
     || ['completed', 'failed', 'cancelled'].includes(task.status) || task.archived || task.branch_archive?.archived) return null;
   const root = el('section', undefined, 'integration-control'), current = lifetime(root, ownsPage);
   const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', START_HELP);
@@ -120,7 +120,7 @@ export function integrationControl(task, { refresh = () => {}, ownsPage = () => 
 
 /** The operation lives in its real Worker detail, not in another project management page. */
 export function integrationDetails(task, { refresh = () => {}, ownsPage = () => true, signal } = {}) {
-  if (task.task_kind !== 'integration' || !task.merge_operation) return null;
+  if (task.execution_retired === true || task.task_kind !== 'integration' || !task.merge_operation) return null;
   const root = block('一次性整合'); root.classList.add('integration-details');
   const current = lifetime(root, ownsPage);
   let operation = task.merge_operation, busy = false, uncertain = false;

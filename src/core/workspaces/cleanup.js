@@ -12,8 +12,7 @@ export const methods = {
    * 原子删除——检查之后分支被谁动过就拒绝，历史不会丢。
    */
   async dropBranch(task) {
-    const remote = this.store.runnerBinding(task.id);
-    check(!remote || remote.state === 'removed', 'remote resources must be confirmed removed before branch cleanup');
+    check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     const branch = task.branch;
     if (!branch) return { branch: null, status: 'absent', reason: null };
@@ -62,8 +61,7 @@ export const methods = {
       for (const branch of names) {
         check(branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
         const owner = this.store.branch(branch)?.task_id;
-        const remote = owner ? this.store.runnerBinding(owner) : null;
-        check(preflight_only || !remote || remote.state === 'removed', 'remote resources must be confirmed removed before branch archive');
+        check(!owner || !this.store.executionRetired(owner), 'Remote execution is retired; this Worker is read-only');
       }
       // Historical detached worktrees are recovery points, never ordinary branch checkouts.
       // Inspect stored metadata only; malformed snapshots with retained directories fail closed.
@@ -183,9 +181,7 @@ export const methods = {
    * 任何一步不安全就抛错——cleanup 把它报给用户，clear 记下原因并保留那条任务。
    */
   async release(task, { keepBranch = false } = {}) {
-    const remote = this.store.runnerBinding(task.id);
-    if (remote && remote.state !== 'removed' && keepBranch) return { id: task.id, worktree: 'kept', branch: 'kept', reason: 'Remote keep-branch preserves the registered workspace' };
-    check(!remote || remote.state === 'removed', 'remote resources must be confirmed removed before release');
+    check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (task.task_kind === 'management') {
       check(!task.branch && !task.target_branch, 'management Worker must not own a Git branch');
@@ -291,23 +287,11 @@ export const methods = {
     }
     return { id: task.id, worktree, branch: branch.status, reason: branch.reason };
   },
-  /** Remote cleanup checks committed delivery before any node resource is removed. */
-  async preflightRunnerReleaseUnsafe(task) {
-    const binding = this.store.runnerBinding(task.id);
-    if (!binding || binding.state === 'removed') return;
-    check(['merged','none','superseded'].includes(task.integration), 'unmerged remote work must be kept');
-    check(task.branch && this.store.branch(task.branch)?.status === 'active', 'remote branch registration is missing');
-    const head = await this.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${task.branch}`);
-    check(head === binding.head_commit && head === (task.head_commit ?? task.base_commit), 'remote reviewed HEAD changed');
-    const target = await this.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${task.target_branch}`);
-    check(await this.isAncestor(this.config.project, head, target) || await this.squashedLanded(task.branch, target),
-      'unmerged remote commit must be kept');
-  },
-
-  /** 用户明确回收：网络始终在 Git 串行区之外，中央删除仍由原 release 安全门执行。 */
+  /** Explicit local reclamation under the existing release safety gates. */
   async cleanup(taskId, { keepBranch = false } = {}) {
     check(!this.busy.has(taskId), 'Worker cleanup is already in flight');
     const initial = this.store.task(taskId);
+    check(!this.store.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only');
     const guard = () => {
       const task = this.store.task(taskId);
       check(!this.commandBusy?.(taskId), 'Worker shortcut command is pending or running; wait before cleanup');
@@ -322,16 +306,9 @@ export const methods = {
     };
     guard(); this.busy.add(taskId);
     try {
-      const remote = this.store.runnerBinding(taskId);
-      if (remote && !keepBranch && remote.state !== 'removed') {
-        check(typeof this.remoteReclaim === 'function', 'Project remote reclamation guard is unavailable');
-        await this.exclusive(async () => { guard(); await this.preflightRunnerReleaseUnsafe(this.store.task(taskId)); guard(); });
-        await this.remoteReclaim([initial], guard);
-      }
       return await this.exclusive(async () => {
         guard();
         const outcome = await this.release(this.store.task(taskId), { keepBranch });
-        if (remote && remote.state !== 'removed' && !keepBranch) outcome.worktree = 'removed';
         return { ...this.store.task(taskId), cleanup: outcome };
       });
     } finally { this.busy.delete(taskId); }
@@ -340,7 +317,7 @@ export const methods = {
   async reclaim(tasks) {
     const outcomes = [];
     for (const snapshot of tasks) {
-      if (this.store.runnerBinding(snapshot.id)) {
+      if (this.store.executionRetired(snapshot.id)) {
         try { outcomes.push((await this.cleanup(snapshot.id)).cleanup); }
         catch (error) { outcomes.push({ id: snapshot.id, worktree: 'kept', branch: snapshot.branch ? 'kept' : 'absent', reason: error.message }); }
         continue;

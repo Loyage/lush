@@ -63,6 +63,7 @@ function unavailable(node) {
     parent_task_kind: node.parent_task_kind, kind: 'task', task_kind: node.task_kind,
     worker_number: String(node.worker_number ?? '').slice(0, 100) || null,
     status: node.status, archived: node.archived, integration: node.integration,
+    ...(node.execution_retired ? { execution_retired: true } : {}),
     title: String(node.title ?? '').slice(0, 120), has_result: node.has_result,
     node_truncated: true, details_unavailable: true,
     details_unavailable_reason: 'node exceeds graph byte budget; use worker.inspect/history for details',

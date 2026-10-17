@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { check, TERMINAL } from '../types.js';
 import { HOOK_LIMITS } from '../hooks.js';
 import { workerLabel } from '../worker-number.js';
-import { runnerPendingCount, requestRunnerStop } from './runner-lifecycle.js';
 import { systemRegistration } from './automation-registry.js';
 
 const KEY = 'project_maintenance';
@@ -43,7 +42,6 @@ export default {
     const groups = [
       [this.writing + Number(this.clearing) + Number(Boolean(this.settingsMigrationApplying)), '等待项目后台写操作收尾'],
       [this.workspaces.pending + this.workspaces.busy.size, '等待 Git 操作收尾'],
-      [runnerPendingCount(this), '等待远端 Runner 执行、同步或未知状态对账'],
       [(this.taskMergeBusy?.size ?? 0) + (this.convergenceJobs?.size ?? 0) + (this.convergenceDrivers?.size ?? 0) + this.mergeRunsDriving.size + this.integratingIntents.size, '等待交付或合并收尾'],
       [(this.taskSyncBusy?.size ?? 0) + (this.acceptanceBusy?.size ?? 0) + (this.workerDeleteIds?.size ?? 0), '等待同步或资源回收收尾'],
       [(this.lifecycleHookRunning?.size ?? 0) + (this.lifecycleHookQueued?.size ?? 0)
@@ -98,10 +96,6 @@ export default {
       }
       else this.interrupt(id, 'project maintenance', true);
     }
-    // No local model process can deliver a safe boundary for an orphaned remote lease.
-    // Explicit maintenance requests stop it, but still wait for persistent receipts to reconcile.
-    for (const workerId of new Set(this.store.runnerBarriers().runs.map(run => run.worker_id)))
-      if (!this.running.has(workerId)) requestRunnerStop(this, workerId);
     this.observeMaintenanceCompletion();
     return this.maintenanceView();
   },
@@ -126,9 +120,7 @@ export default {
   settleInterruptionSignal(taskId, run) {
     const task = this.store.task(taskId);
     const closed = run.recordId ? this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId) : null;
-    const remote = this.store.runnerBarriers(taskId);
-    const safe = !remote.bindings.length && !remote.runs.length && !remote.receipts.length
-      && run.interruptionRequested && !run.invocationFailed && !run.resumeRequested && !run.controller.signal.aborted
+    const safe = !this.store.executionRetired(taskId) && run.interruptionRequested && !run.invocationFailed && !run.resumeRequested && !run.controller.signal.aborted
       && (task.status === 'paused' || (task.task_kind === 'management' && run.managementPaused && this.maintenancePaused()))
       && (!closed || ['completed','preempted'].includes(closed.status));
     this.store.transaction(() => {

@@ -1,7 +1,6 @@
 import fs from 'node:fs';
+import { assertLocalWorker } from './execution-retired.js';
 import { forceAcceptanceScope, assertForceAcceptanceMessages } from './acceptance-force.js';
-import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
-import { runnerCleanupReceipt } from './runner-reclamation.js';
 import { assertManagementCodeExecution } from './management-code.js';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
@@ -28,6 +27,7 @@ function acceptanceUnreadMessage(project, task, acceptingIds = new Set(), skippe
 }
 
 export function assertTaskNotSyncing(project, taskId) {
+  assertLocalWorker(project, taskId);
   check(!project.workerDeleteIds?.has(taskId), 'Worker deletion is in progress; wait for cleanup');
   check(!project.taskSyncBusy?.has(taskId), 'Worker parent sync is in flight; wait for its safe point');
 }
@@ -53,6 +53,7 @@ export function resumeTaskDelivery(project, taskId, reason) {
 
 /** Accepted/cancelled ancestors must never acquire active descendants again. */
 export function assertTaskAncestorsOpen(project, task) {
+  assertLocalWorker(project, task.id);
   const seen = new Set([task.id]);
   let parentId = bookingOf(task)?.parent_id ?? task.parent_id;
   while (parentId && !seen.has(parentId)) {
@@ -60,6 +61,7 @@ export function assertTaskAncestorsOpen(project, task) {
     // This gate is also used by safe inbox read projections; no runtime profile is needed.
     const parent = project.store.get('SELECT id,worker_number,parent_id,task_kind,status FROM tasks WHERE id=?', parentId);
     check(parent, `task #${parentId} not found`);
+    assertLocalWorker(project, parent.id);
     // A reusable runtime queue can be idle; its original parent is the actual owner.
     check(parent.task_kind === 'merge' || !TERMINAL.has(parent.status),
       `parent has ended (ancestor Worker ${workerLabel(parent)}); reopen or retry the ancestor first`);
@@ -199,8 +201,7 @@ export function assertNoPartialParentAcceptance(project, taskId) {
       WHERE receipt.task_id=e.task_id AND receipt.type IN ('branch.archive','branch.archive.outcome')
       AND json_extract(receipt.data,'$.acceptance_execution')=e.id
       AND (json_extract(outcome.value,'$.worktree')='removed' OR json_extract(outcome.value,'$.ref')='deleted'))
-      OR EXISTS (SELECT 1 FROM runner_bindings binding,json_each(e.data,'$.task_ids') participant
-        WHERE binding.worker_id=participant.value AND binding.state='removed'))
+      )
     ORDER BY e.id DESC LIMIT 1`, taskId, taskId, taskId);
   check(!partial, `partial parent acceptance must resume at its root Worker ${partial ? workerLabel(project.store.task(partial.task_id)) : ''}`);
 }
@@ -306,8 +307,7 @@ export default {
       for (const child of children) check(child.branch && child.head_commit, 'delivered child has no inspectable resource identity');
       for (const row of subtree) {
         const booking = bookingOf(row);
-        const remote = this.store.runnerBinding(row.id);
-        if (remote) assertRunnerIdle(this, row.id, { allow_removed: true, allow_receipts: [runnerCleanupReceipt(this, row.id)?.request_id].filter(Boolean) });
+        assertLocalWorker(this, row.id);
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         waitCheck(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
@@ -333,7 +333,7 @@ export default {
             continue;
           }
           const removed = recovered.get(row.branch)?.worktree === 'removed' && attempt?.tips[row.branch] === row.head_commit;
-          check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || remote || (row.workspace && fs.existsSync(row.workspace))),
+          check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || (row.workspace && fs.existsSync(row.workspace))),
             'Worker branch/worktree is archived or missing');
           if (row.workspace) {
             try {
@@ -445,12 +445,9 @@ export default {
       guard();
       this.acceptanceBusy ??= new Set();
       for (const row of subtree) this.acceptanceBusy.add(row.id);
-      // End the short preflight Git gate before any remote network/reclamation. The
-      // persistent batch plus acceptanceBusy and guard retain admission through completion.
-      const remoteBatch = subtree.some(row => this.store.runnerBinding(row.id));
       const perform = async () => {
         try {
-          const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, task_ids: acceptingIds, tips, guard, completion: options.completion, git_gate: !remoteBatch,
+          const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, task_ids: acceptingIds, tips, guard, completion: options.completion, git_gate: true,
             deletedRefs: new Set([...recovered].filter(([, outcome]) => outcome.ref === 'deleted').map(([branch]) => branch)),
           } });
           check(!result.failed.length && !result.remaining.length, 'acceptance resource reclamation incomplete; inspect branch.archive and retry worker.accept explicitly');
@@ -486,20 +483,18 @@ export default {
           if (rowId !== task.id || !historical) this.emitTaskHook(rowId, 'worker.accepted');
           this.scheduleTaskCompletion(rowId);
         }
-        if (remoteBatch) await this.workspaces.exclusive(() => this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]));
-        else await this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]);
+        await this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]);
         return this.store.task(task.id);
       };
-      return remoteBatch ? perform : perform();
-    }).then(result => typeof result === 'function' ? result() : result);
+      return perform();
+    });
   },
 
   /** Explicit historical recovery; never starts a provider or recreates an archived ref. */
   async reopenTask(taskId) {
     this.assertWritable('reopen a worker');
     assertTaskNotSyncing(this, id(taskId)); assertTaskNoCommand(this, id(taskId));
-    const remote = this.store.runnerBinding(id(taskId));
-    const remoteProof = remote ? await inspectRunnerSafePoint(this, id(taskId), { head_commit: this.store.task(id(taskId)).head_commit }) : null;
+    assertLocalWorker(this, id(taskId));
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
       assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
@@ -508,18 +503,15 @@ export default {
       check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), 'Agent or cleanup is still in flight');
       check(!this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id),
         'explicitly accepted Workers cannot be reopened; start a new Worker');
-      remoteProof?.guard();
-      check(task.branch && (remote ? remote.state === 'ready' : task.workspace && fs.existsSync(task.workspace))
+      check(task.branch && task.workspace && fs.existsSync(task.workspace)
         && this.store.branch(task.branch)?.status === 'active', 'archived or missing branches cannot be reopened');
       check(task.integration === 'merged', 'only historical completed/merged Workers can be reopened');
       this.assertBranchWritable(task.branch, 'reopen it');
       const booking = bookingOf(task);
       check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status), 'outstanding delivery blocks reopen');
-      const head = remote ? await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`)
-        : await this.workspaces.git(task.workspace, 'rev-parse', 'HEAD');
+      const head = await this.workspaces.git(task.workspace, 'rev-parse', 'HEAD');
       check(head === task.head_commit, 'Worker branch moved; inspect before reopening');
-      if (!remote) await this.workspaces.finish(task);
-      remoteProof?.guard();
+      await this.workspaces.finish(task);
       const integration = await taskDeliveryState(this, this.store.task(task.id));
       check(integration !== 'pending', 'historical Worker has undelivered changes; inspect before reopening');
       this.store.transaction(() => {

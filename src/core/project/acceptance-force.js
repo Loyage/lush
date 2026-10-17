@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { check, TERMINAL } from '../types.js';
+import { assertLocalWorker } from './execution-retired.js';
 
 // Only settled informational receipts, never requests, repair instructions or unknown signal kinds.
 const RECEIPTS = new Set(['child.completed', 'child.failed', 'child.cancelled', 'merge.completed']);
@@ -30,6 +31,7 @@ export function forceAcceptanceScope(project, task, subtree) {
   const rows = [], skipped = [], notifications = [];
   let count = 0;
   for (const row of subtree) {
+    assertLocalWorker(project, row.id);
     const messages = project.store.all('SELECT * FROM messages WHERE task_id=? AND consumed=0 ORDER BY id LIMIT 501', row.id);
     count += messages.length;
     check(count <= 500, '强制验收未读消息过多；请先处理收件箱');
@@ -38,7 +40,7 @@ export function forceAcceptanceScope(project, task, subtree) {
       head_commit: row.head_commit, reservation: row.reservation };
     rows.push({ ...identity, messages: messages.map(messageIdentity),
       decisions: project.store.all("SELECT id,status FROM notices WHERE task_id=? AND status='open' ORDER BY id", row.id),
-      runner: project.store.runnerBinding(row.id) ?? null });
+      execution_retired: project.store.executionRetired(row.id) });
     for (const message of messages) if (skippable(project, row, message)) {
       skipped.push(messageIdentity(message));
       const source = project.store.task(message.sender_id);
@@ -50,7 +52,7 @@ export function forceAcceptanceScope(project, task, subtree) {
   const branches = project.store.branches().filter(branch => subtree.some(row => row.branch === branch.branch));
   const revision = hash({ id: task.id, rows, branches, skipped });
   const preview = { id: task.id, revision, can_force: true,
-    workers: rows.map(({ messages, decisions, runner, reservation, ...row }) => row), notifications,
+    workers: rows.map(({ messages, decisions, execution_retired, reservation, ...row }) => row), notifications,
     resources: { worktrees: rows.map(row => row.workspace).filter(Boolean), branches: branches.map(row => row.branch) },
     warnings: ['仅跳过所列终态 Worker 的系统通知，不表示 Agent 已处理。原消息和跳过审计保留。',
       '验收将归档回收分支子树的 worktree 与本地 ref；失败/取消后代保留原状态，不调用 Agent。',

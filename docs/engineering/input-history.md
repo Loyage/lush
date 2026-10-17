@@ -38,8 +38,8 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 
 | RPC | 参数与行为 |
 |---|---|
-| `draft.add` | `{content,references?,branch?,mode?,target_id?,conditions?,exclusive?,runner_node_id?}`：保存并返回完整 draft；新建省略 branch 时解析 canonical 当前分支所有者，追加必须指定 target_id |
-| `draft.update` | `{id,content,references?,branch?,mode?,target_id?,conditions?,exclusive?,runner_node_id?,expected_revision}`：只更新未挂载条目，省略选项保留原值；执行节点覆盖的显式清除见 [Runner 协议](../reference/rpc/runners.md#创建节点选择接缝) |
+| `draft.add` | `{content,references?,branch?,mode?,target_id?,conditions?,exclusive?}`：保存并返回完整 draft；新建省略 branch 时解析 canonical 当前分支所有者，追加必须指定 target_id |
+| `draft.update` | `{id,content,references?,branch?,mode?,target_id?,conditions?,exclusive?,expected_revision}`：只更新未挂载条目，省略选项保留原值 |
 | `draft.remove` | `{id,expected_revision}`：只删除未挂载条目，不删除 Input |
 | `input.emit` 草稿路径 | `{draft_id,expected_revision,profile?,client_request_id?}`：模式、正文、条件及去向取已保存版本，不接受覆盖 |
 | `input.emission_cancel` / `input.exclusive_release` | `{draft_id,expected_revision}`：分别撤销未执行授权或释放已经持有的独占意愿，不取消已创建工作 |

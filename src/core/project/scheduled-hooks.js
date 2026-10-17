@@ -69,7 +69,7 @@ export default {
     this.stopScheduledHookTimer();
     if (this.stopping || this.recoveringHooks) return;
     const clock = this.hookClock(); let deadline = this.managementTimerDeadline(clock);
-    for (const task of this.store.all('SELECT hooks FROM tasks WHERE hooks IS NOT NULL')) for (const mount of read(task).mounts) {
+    for (const task of this.store.all('SELECT id,hooks FROM tasks WHERE hooks IS NOT NULL').filter(task => !this.store.executionRetired(task.id))) for (const mount of read(task).mounts) {
       if (!mount.schedule || !mount.enabled || ['failed','unknown'].includes(mount.state)) continue;
       if (mount.next_run_at) deadline = Math.min(deadline, mount.state === 'running' ? Math.max(clock + 1000, Date.parse(mount.next_run_at)) : Date.parse(mount.next_run_at));
       if (mount.pending_due_at && mount.state !== 'running') deadline = Math.min(deadline, clock + 1000);
@@ -116,8 +116,8 @@ export default {
     if (this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) { this.armScheduledHookTimer(); return; }
     const clock = this.hookClock();
     this.observeHookSignals(clock);
-    const tasks = taskId === null ? this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL ORDER BY id')
-      : this.store.all('SELECT * FROM tasks WHERE id=? AND hooks IS NOT NULL', taskId);
+    const tasks = (taskId === null ? this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL ORDER BY id')
+      : this.store.all('SELECT * FROM tasks WHERE id=? AND hooks IS NOT NULL', taskId)).filter(task => !this.store.executionRetired(task.id));
     for (const task of tasks) for (const original of read(task).mounts) {
       if (original.schedule?.kind === 'daily' && original.enabled && original.state === 'running'
         && original.next_run_at && Date.parse(original.next_run_at) <= clock) {
@@ -200,16 +200,6 @@ export default {
               this.recordHookAction(taskId, hookId, executionId, index, { worker_id: result.task.id, input_id: result.id });
               const data = read(this.store.task(taskId)); delete data.mounts.find(m => m.id === hookId).action_started_index; save(this, taskId, data);
             });
-          } else if (action.type === 'retry_worker' && !gate.skip && this.store.runnerBinding(action.target_id)) {
-            // Remote stop/reconciliation may await the network. Persist the start first; never
-            // keep a SQLite transaction open or publish a success receipt before it returns.
-            this.store.transaction(begin);
-            await this.retry(action.target_id, action.profile ?? null);
-            this.store.transaction(() => {
-              this.recordHookAction(taskId, hookId, executionId, index, {});
-              const data = read(this.store.task(taskId));
-              delete data.mounts.find(m => m.id === hookId).action_started_index; save(this, taskId, data);
-            });
           } else {
             // Local DB effects, retry/resume authorization, and receipts are atomic. kick() only queues a microtask.
             this.store.transaction(() => {
@@ -239,7 +229,7 @@ export default {
     const clock = this.scheduledHookRecoveryClock ?? this.hookClock();
     this.scheduledHookRecoveryClock = null;
     this.recoverHookSignals(clock);
-    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) for (const original of read(task).mounts) {
+    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL').filter(task => !this.store.executionRetired(task.id))) for (const original of read(task).mounts) {
       if (!original.schedule) continue;
       if (original.state === 'running') {
         // Atomic receipts are positive evidence; an exact single creation Event covers the Git/DB return gap.

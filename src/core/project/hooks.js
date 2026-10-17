@@ -373,7 +373,7 @@ export default {
 
   /** Persist claims before dispatch; reads never call this. */
   emitTaskHook(taskId, trigger, sourceId = null, pendingOnly = false) {
-    if (trigger === 'time.scheduled' || this.stopping || this.clearing || this.workerDeleteIds?.size) return;
+    if (trigger === 'time.scheduled' || this.stopping || this.clearing || this.workerDeleteIds?.size || this.store.executionRetired(taskId)) return;
     if (this.recoveringHooks) { (this.hookRecoveryEvents ??= []).push([taskId, trigger, sourceId]); return; }
     const task = this.store.task(taskId); if (!task.hooks) return;
     const data = parse(task), mounts = data.mounts.filter(m => !m.input_signal && m.trigger === trigger && (hasCommand(m)
@@ -527,8 +527,9 @@ export default {
   /** Runtime state edges, bounded by the number of mounted Workers, not UI polling. */
   observeTaskHooks(taskId = null, parentBoundary = false) {
     if (this.stopping || this.clearing || this.workerDeleteIds?.size) return;
-    const tasks = taskId === null ? this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL ORDER BY id')
-      : this.store.all('SELECT * FROM tasks WHERE id=? AND hooks IS NOT NULL', taskId);
+    const tasks = (taskId === null ? this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL ORDER BY id')
+      : this.store.all('SELECT * FROM tasks WHERE id=? AND hooks IS NOT NULL', taskId))
+      .filter(task => !this.store.executionRetired(task.id));
     for (const task of tasks) {
       const data = parse(task), previous = data.observed;
       const current = { frozen: Boolean(task.branch && this.branchFreeze(task.branch)),
@@ -568,6 +569,7 @@ export default {
     // recovery preserves their known/unknown effects before any explicit user migration.
     this.initializeCommandHookExample();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
+      if (this.store.executionRetired(task.id)) continue;
       for (const mount of parse(task).mounts) {
         if (mount.input_signal) continue;
         if (mount.state === 'waiting' && mount.actions.some(a => a.type === 'prompt_command') && mount.last_execution) {
@@ -588,7 +590,7 @@ export default {
     }
     // Older daemons retained disabled successful one-shots. Retire only those
     // proven complete; waiting, failed, skipped and unknown mounts keep their diagnostics.
-    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL'))
+    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL').filter(task => !this.store.executionRetired(task.id)))
       for (const mount of parse(task).mounts) this.removeSucceededTaskHook(task.id, mount.id);
     this.recoveringHooks = false;
     for (const [taskId, trigger, sourceId] of this.hookRecoveryEvents ?? []) this.emitTaskHook(taskId, trigger, sourceId);

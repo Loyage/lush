@@ -35,7 +35,8 @@ function mergeQueueSummaries(store, ids) {
   for (const row of rows) {
     const summary = summaries.get(row.parent_id);
     summary.counts[row.status] = row.total;
-    summary.items.push({ id: row.id, worker_number: row.worker_number, status: row.status });
+    summary.items.push({ id: row.id, worker_number: row.worker_number, status: row.status,
+      ...(store.executionRetired(row.id) ? { execution_retired: true } : {}) });
   }
   for (const summary of summaries.values()) {
     summary.total = Object.values(summary.counts).reduce((a, b) => a + b, 0);
@@ -302,7 +303,7 @@ export default {
     const archivability = details ? await this.branchArchivability(branchNames,
       { git: refsKnown, refs, current_branch: currentBranch, worktrees }) : new Map();
     const nodes = selected.map(({ goal, progress_plan, reservation, parent_branch, ...row }) => {
-      const view = this.progressView({ progress_plan, reservation, status: row.status }, runs.get(row.id) ?? []);
+      const view = this.progressView({ id: row.id, progress_plan, reservation, status: row.status }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
       const plan = compactProgress(view.progress);
       const notice = pending.get(row.id) ?? { count: 0, notice: null };
@@ -327,6 +328,7 @@ export default {
       const subtree_order = row.branch ? countOrderDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
       return { ...row, ...iterations.get(row.id), kind: 'task', archived,
+        ...(view.execution_retired ? { execution_retired: true } : {}),
         layout_parent_id: page.layoutParent(row), title: row.display_title || row.auto_title || summarize(goal) || row.name || `Worker ${workerLabel(row)}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
@@ -351,7 +353,7 @@ export default {
           current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
           subtree_order, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
             done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, task_id: mergeRun.task_id ?? null } : null } : null,
-        workspace_state: row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
+        workspace_state: !view.execution_retired && row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
         has_result: Boolean(row.has_result),
         has_rule: fs.existsSync(`${this.config.home}/task-rules/task-${row.id}.mjs`) };
     });
@@ -593,7 +595,7 @@ export default {
 
       for (const row of taskRows) {
         const workspacePath = row.workspace || row.baseline_workspace || null;
-        const workspace_state = workspacePath ? (fs.existsSync(workspacePath) ? 'present' : 'missing') : 'none';
+        const workspace_state = !this.store.executionRetired(row.id) && workspacePath ? (fs.existsSync(workspacePath) ? 'present' : 'missing') : 'none';
         const knownRef = row.branch ? refs.get(row.branch) ?? null : null;
         const branch_state = row.branch && knownRef ? 'present' : 'missing';
         // Branch-first 图比较的是分支当前 tip；task.head_commit 只是 agent 最初交付时的 reviewed commit。
@@ -613,6 +615,7 @@ export default {
         const pending = pendingFor(row.id);
         const node = {
           kind: 'task', id: row.id, worker_number: row.worker_number, role: row.role, name: row.name ?? null,
+          ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}),
           task_kind: row.task_kind ?? null, parent_id: row.parent_id ?? null,
           parent_task_kind: row.parent_task_kind ?? null,
           reservation: row.task_kind === 'order' ? this.progressView(row).reservation : null,
@@ -638,6 +641,7 @@ export default {
         nodes.push({
           kind: 'task', id: row.id, worker_number: row.worker_number, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
+          ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch,
           workspace: null, workspace_state: 'none', branch_state: null,

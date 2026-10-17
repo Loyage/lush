@@ -520,8 +520,7 @@ export const methods = {
 
   /** Delete only with legacy equivalent-tree proof or an exact settled multi-source member mapping. */
   async archiveSquashedTaskUnsafe(task, source, landed) {
-    const remote = this.store.runnerBinding(task.id);
-    check(!remote || remote.state === 'removed', 'Runner resources must be confirmed removed before archiving their branch');
+    check(!this.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
     if (task.task_kind === 'integration') return this.archiveConvergenceHelperUnsafe(task, source);
     check(task.integration === 'merged' && task.branch && task.target_branch, 'only integrated workers can be archived');
     const project = this.config.project;

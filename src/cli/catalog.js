@@ -1,20 +1,12 @@
-import { RUNNER_METHODS } from '../rpc/runner-methods.js';
 // Code-owned public CLI catalogue. Main registration and generated help consume
 // this same hierarchy; browser clients receive only the safe projection, never handlers.
 export const COMMAND_MODULES = Object.freeze({
-  runner: ['runner'],
   system: ['daemon', 'status', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status'],
   intent: ['order'], worker: ['worker'], progress: ['progress'], notice: ['notice'],
   branch: ['branch'], agent: ['agent'], config: ['config'], hooks: ['hooks'], skills: ['skills'],
 });
 const entries = [];
 const directories = {
-  runner: '远端执行节点、显式部署恢复与项目授权；不迁移已有工作区。',
-  'runner ssh': '本机 SSH 别名发现与显式登录试连；不检查 Runner。',
-  'runner deployments': '显式检查、批准安装、独立确认与原请求观察；unknown 不重试，不自动授项目权。',
-  'runner deployments recovery': '仅原已确认安装的显式代次恢复；独立审批，不解除旧命令和 Worker/Run 屏障。',
-  'runner nodes': '设备节点配置与显式诊断。', 'runner credentials': '设备私有控制凭据；只写秘密。',
-  'runner project': '当前项目节点授权和默认节点。', 'runner worker': '显式核验当前项目的远端现场，不自动恢复调用。',
   daemon: '项目后台的启动、停止与代码身份。', host: '设备 Web 工作台的启动、停止与身份。',
   worker: '查看、沟通与管理持久 Worker。', branch: '查看分支、管理归并与资源。',
   notice: '发布问题、答复决定与读取告知。', progress: '活动 Agent 汇报里程碑。',
@@ -32,12 +24,6 @@ function add(path, args, description, exampleArgs, rpc = [], kind = 'read', adva
   entries.push({ path, description, directory: false, usage: `lush ${path}${args ? ` ${args}` : ''}`,
     example: `lush ${path}${exampleArgs ? ` ${exampleArgs}` : ''}`, rpc, kind, advanced });
 }
-for (const [method, spec] of Object.entries(RUNNER_METHODS)) {
-  const args = spec.args ?? (spec.file ? '--file PATH' : method === 'runner.nodes.check' ? 'NODE_ID [--project-id PROJECT_ID]' : '');
-  const example = spec.example ?? (spec.file ? `--file ${spec.file}` : method === 'runner.nodes.check' ? 'NODE_ID' : '');
-  add(spec.cli, `${args}${spec.device ? ' [--scope device]' : ''}`.trim(), spec.description, example, [method], spec.readPath ? 'read' : 'write',
-    spec.advanced ?? '仅用户；JSON 文件须 owner-only，包含 expected_revision。秘密不能放命令参数。--scope device 不发现项目、不启动 daemon；check 此时必须 --project-id。诊断不代表已绑定，未知结果先检查、不重试写入。');
-}
 add('help', '', '打印完整公开 CLI 帮助，不发现项目或发送 RPC。', '', [], 'local-read', '--help / -h 可放在任意位置，优先只打印帮助，不执行命令。');
 for (const verb of ['start','stop','restart','status']) {
   add(`daemon ${verb}`, '', { start: '启动所选项目后台；已运行时不替换代码。', stop: '停止所选项目后台。', restart: '停止后重新启动所选项目后台。', status: '读取项目后台身份与状态。' }[verb], '',
@@ -47,12 +33,12 @@ for (const verb of ['start','stop','restart','status']) {
 add('status', '', '读取项目与 Worker 状态。', '', ['system.status']);
 add('doctor', '[--verbose]', '核对当前磁盘、daemon 与 Host 的代码身份。', '', ['system.status'], 'local-read', '--verbose 显示完整诊断；包含本地进程检查，不只是 system.status。');
 add('log', '', '读取所选项目 daemon 日志末尾 60 行。', '', [], 'local-read', '本地文件读取，不向 Valet 开放日志或 Shell。');
-add('order', "'目标' [--branch NAME] [--runner-node UUID|local] [--profile-file PATH] [--management] [--buffer] [--append ID|Wn] [--quiet] [--exclusive] [--after-settled ID|Wn] [--after-merged ID|Wn] [--defer]", '提交开发指令、条件输入或即时 Valet 管理需求。', "'实现需求' --branch main", ['order.submit','input.emit','draft.add','management.submit','worker.lookup'], 'agent', '默认可靠挂载，安全准入后才创建／调用；--buffer 只保存草稿。--management 独立创建 Valet，不可与开发条件混用。条件可重复，profile 文件须 owner-only。--runner-node 随新建输入持久保存，支持条件与暂存，不用于追加、管理或旧 --defer。各 RPC 按实际选项分支调用，授权其中一个不等于开放全部命令。');
+add('order', "'目标' [--branch NAME] [--profile-file PATH] [--management] [--buffer] [--append ID|Wn] [--quiet] [--exclusive] [--after-settled ID|Wn] [--after-merged ID|Wn] [--defer]", '提交开发指令、条件输入或即时 Valet 管理需求。', "'实现需求' --branch main", ['order.submit','input.emit','draft.add','management.submit','worker.lookup'], 'agent', '默认可靠挂载，安全准入后才创建／调用；--buffer 只保存草稿。--management 独立创建 Valet，不可与开发条件混用。条件可重复，profile 文件须 owner-only。各 RPC 按实际选项分支调用，授权其中一个不等于开放全部命令。');
 const workers = [
   ['list','[--brief] [--after N] [--limit N]','按内部 ID 升序分页；after 为非负整数，limit 为 1..1000（默认 200）；--brief 短摘要的 limit 为 1..200（默认 30）。','','worker.list'],
   ['tree','[ID|Wn]','查看 Worker 委派树；非 JSON 附带状态。','','worker.tree,system.status'],
   ['inspect','ID|Wn|Vn','查看完整 Worker 详情。','W5','worker.inspect'],
-  ['spawn',"'目标' --parent ID|Wn [--name NAME] [--runner-node UUID|local]",'在活动指令或 child 下创建独立子 Worker。',"'专项实现' --parent W5",'worker.spawn','agent'],
+  ['spawn',"'目标' --parent ID|Wn [--name NAME]",'在活动指令或 child 下创建独立子 Worker。',"'专项实现' --parent W5",'worker.spawn','agent'],
   ['auto-title',"'标题'",'为自身一次性生成自动展示标题；仅活动指令／child Agent。',"'接口实现'",'worker.auto_title','write'],
   ['rename',"ID|Wn '标题'",'只修改展示标题；空标题恢复自动标题。',"W5 '接口实现'",'worker.rename','write'],
   ['message',"ID|Wn '说明'",'向既有 Worker 追加输入，可能唤醒 Agent。',"W5 '补充测试'",'worker.message','agent'],

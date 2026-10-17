@@ -1,4 +1,5 @@
 import { check, id, text, TERMINAL } from '../types.js';
+import { assertLocalWorker } from './execution-retired.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
 import { normalizeInputOptions, inputOptions, emissionLocked, inputEmission } from './input-emission-data.js';
@@ -82,6 +83,7 @@ export default {
       && !TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} is no longer available; select an active parent Worker`);
     const record = this.store.branch(parent.branch);
     check(!record || !['deleted','archived'].includes(record.status), 'parent branch was deleted or archived; select another parent Worker');
+    assertLocalWorker(this, parent.id);
     assertTaskAncestorsOpen(this, parent);
     return parent;
   },
@@ -127,7 +129,7 @@ export default {
       check(!emissionLocked(draft), 'draft has a mounted input; cancel its emission before editing');
       checkDraftRevision(draft, revision);
       const normalized = references === undefined ? null : this.normalizeReferences(references);
-      const settings = normalizeInputOptions(this, options, inputOptions(draft), { allowRunnerReset: true });
+      const settings = normalizeInputOptions(this, options, inputOptions(draft));
       const target = settings.mode === 'append' ? this.assertAppendInputTarget(settings.target_id) : null;
       const parent = target ? this.inputRoot(target) : branch === undefined ? null : await this.inputParent(branch);
       this.assertWritable('edit a draft');
@@ -159,8 +161,6 @@ export default {
 
   submitBufferedDraft(draftId, revision, start = true, defer = false, profile = null) {
     expectedRevision(revision);
-    check(!Object.hasOwn(inputOptions(this.store.draft(id(draftId))), 'runner_node_id'),
-      'Runner-selected drafts must use input.emit; legacy direct/deferred draft submission does not retain placement');
     return this.order(undefined, null, [], id(draftId), start, revision, profile, defer);
   },
 };

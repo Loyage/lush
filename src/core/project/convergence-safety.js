@@ -86,6 +86,7 @@ export default {
   drainConvergenceWithdrawals(parentId) {
     if (!this.store.deliveryRuns) return;
     for (const run of this.store.deliveryRuns(parentId, ['awaiting'], 1000)) {
+      if (this.convergenceExecutionRetired(run)) continue;
       const data = convergenceJSON(run.data, {});
       if (this.oneShotRun?.(run)) { this.drainOneShotCancellation(run.id); continue; }
       if (data.wait_reason !== 'withdrawing' || this.convergenceJobs?.has(run.id)
@@ -125,7 +126,7 @@ export default {
     for (const parent of parents) {
       if (!parent.id) continue;
       for (const run of this.store.deliveryRuns(parent.id, null, 1000)) {
-        if (done.includes(run.state)) continue;
+        if (done.includes(run.state) || this.convergenceExecutionRetired(run)) continue;
         if (this.oneShotRun?.(run) && convergenceJSON(run.data, {}).wait_reason === 'one_shot_cancelling') {
           this.drainOneShotCancellation(run.id); continue;
         }

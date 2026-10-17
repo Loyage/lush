@@ -20,6 +20,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
     'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
     'test/dashboard-quick-action-buttons.test.js', // v7 button catalogue -> Host revisioned device configuration
+    'test/dashboard-retired-shortcuts.test.js', // preserve old device files without reintroducing node targets
   ]),
   rpc: Object.freeze([
     'test/core-api.test.js', // shared RPC registry and handlers
@@ -29,7 +30,10 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git state/tree/content/diff
     'test/web/input-history.test.js', // persisted input history API
     'test/web/agent-connections-api.test.js', // connection configuration API
-    'test/web/runner-management-api.test.js', // Runner management HTTP entry
+    'test/execution-retired-api.test.js', // real CLI/RPC/Host/HTTP reject retired execution nodes
+    'test/project/execution-retired.test.js', // local runtime, immutable legacy records and restart admission
+    'test/project/retired-delivery-queue.test.js', // real freeze -> queue -> Git, retain unknown landing without replay
+    'test/execution-retired-freeze.test.js', // retired intent releases local parents, unknown Git landing does not
     'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
@@ -38,7 +42,6 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
     'test/project/force-acceptance.test.js', // real CLI/RPC, user-only exact scope and unchanged acceptance safety/recovery
     'test/project/merge-queue.test.js', // local child -> parent -> main Squash and acceptance
-    'test/project/runner-delivery-chain.test.js', // cross-node delivery and acceptance
   ]),
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation main flow
@@ -51,7 +54,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-transcript-view.test.js', // bulk folding across paging and live steps
     'test/web/dom-model-sources.test.js', // model settings main flow
     'test/web/dom-questionnaire.test.js', // questionnaire interaction
-    'test/web/dom-runners-page.test.js', // independent Runner page
+    'test/web/dom-runners-page.test.js', // retired bookmarks, local forms and read-only legacy Worker actions
     'test/web/dom-project-automation.test.js', // automation page
     'test/web/settings.test.js', // settings entry
     'test/web/service-restart-controls.test.js', // quick/manual modes, shared single-flight and disposal
@@ -67,9 +70,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
     'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer
-    'test/project/runner-emission-chain.test.js', // real user CLI -> remote Worker creation
-    'test/runner-deployment-api.test.js', // real CLI/RPC/service -> controlled SSH, fixture artifacts
-    'test/agent/remote-bridge.test.js', // remote tool bridge
+    'test/execution-retired-api.test.js', // public CLI/Provider bridge cannot restore retired execution capabilities
   ]),
 });
 

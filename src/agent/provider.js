@@ -14,7 +14,6 @@ import { createRuntimeConnection, readRuntimeObservations } from './connection-r
 import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
 import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
 import { MANAGEMENT_TOOL_NAMES } from './pi-management.js';
-import { runRemotePi } from './remote-provider.js';
 import { AgentInvocationError, piProcessFailure } from './invocation-error.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
@@ -179,9 +178,7 @@ export class PiProvider {
   async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, onPreempt = null, agent, forkPointer = null,
     connectionRuntime = null, onConnectionObservation = null, choiceFork = null, remote_workspace = null }) {
     const config = this.config;
-    if (remote_workspace !== null) return runRemotePi(config, { task, context, messages, messagesPage, cwd, token, signal,
-      onSpawn, onInputDelivered, onPreempt, agent, forkPointer, connectionRuntime, onConnectionObservation, choiceFork, remote_workspace },
-    { sessionFiles, spawnAgent });
+    if (remote_workspace !== null || task.execution_retired) throw new Error('Remote execution is retired; this Worker is read-only');
     const piMode = agent?.config_mode === 'pi';
     if (piMode && agent.agent !== 'pi') throw new Error('Pi default mode requires the Pi backend');
     if (!piMode && !agent?.connection_id) throw new Error(MISSING_PI_SOURCE_MESSAGE);
@@ -295,7 +292,7 @@ export class CodexProvider {
   constructor(config) { this.config = config; }
   reportsInputDelivery = true;
   async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, agent, remote_workspace = null }) {
-    if (remote_workspace !== null) throw new Error('Remote workspaces do not support Codex; no local fallback');
+    if (remote_workspace !== null || task.execution_retired) throw new Error('Remote execution is retired; this Worker is read-only');
     const config = this.config;
     if (managementTask(task)) throw new Error('manager requires Pi restricted management tools; the legacy Codex CLI backend is not supported');
     integrationTask(config, task, context, cwd);

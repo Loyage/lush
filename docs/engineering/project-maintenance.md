@@ -34,7 +34,7 @@ summary／status 同源提供 maintenance 并纳入 revision：
 }
 ```
 
-远端 Runner 的未释放 Run、未知／未准备完成工作区、未结算执行／对象／父同步／回收收据，以及中央停止请求，均计入动态屏障；没有本地 running Map 项不代表远端已退出。维护期间没有本地 invocation 的孤立租约会请求受控停止，无法确认则仍不允许安全重启。普通远端调用继续等待既有安全边界；每 Worker 的中断完成信号也要求其远端收据已结算。daemon 恢复只撤销旧 Run 准入并保留未知，不重放工具或模型；显式重试先核验停止、原安装／代次和已接收 HEAD，未知操作收据不能以“进程已空”代替精确对账。
+维护与安全重启只管理本机运行，不再连接旧执行节点或对账远端收据；这不证明旧远端进程已停止或资源已回收。旧绑定只读保留且不得续跑，见[执行节点退役](execution-model.md#单机执行与执行节点退役)。
 
 paused 是维护门而非所有 Worker 状态；affected_count 不含原个人暂停。pending_operations 为非负在途计数、不等同精确独立作业数。ready_to_restart 必须核验真实 running Map／模型请求、Git 排队／busy、写门及交付／Hook／同步／验收屏障；不是 paused 或 UI 推断。restart 入口仍原子重检。原因有界固定，不含秘密或原始错误，编号只用明确 worker_number。
 

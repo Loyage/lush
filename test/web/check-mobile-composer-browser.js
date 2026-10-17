@@ -70,9 +70,9 @@ try{
     assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=innerHeight+1`),'focus did not expose input');
     assert(await execute(`return document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length===0;`),`editor controls visible by default ${width} ${theme}`);
     assert(await execute(`const visible=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length);const r=visible.map(b=>b.getBoundingClientRect());return innerWidth>760||visible.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.height===36&&b.left>=0&&b.right<=innerWidth);`),`default actions not one compact row ${width} ${theme}`);
-    assert(await execute(`return document.querySelector('#composer-runner-choice .runner-input-choice').getClientRects().length===0;`),`environment visible before More ${width} ${theme}`);
+    assert(await execute(`return !document.querySelector('#composer-runner-choice,.runner-input-choice');`),`retired environment present before More ${width} ${theme}`);
     await click('#composer-expand');
-    assert(await execute(`return document.querySelector('#composer-runner-choice .runner-input-choice').getClientRects().length>0;`),`environment missing after More ${width} ${theme}`);
+    assert(await execute(`return !document.querySelector('#composer-runner-choice,.runner-input-choice');`),`retired environment present after More ${width} ${theme}`);
     assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length>0&&document.querySelector('#input-history').getClientRects().length>0&&document.querySelector('#input-drafts').getClientRects().length>0&&!document.querySelector('#composer-chat-open,#composer-chat-controls,#quick-chat-open');`),`editor controls not expanded or retired chat entry present ${width} ${theme}`);
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=36)});`),`clipped/small controls ${width} ${theme}`);
     await click('#composer-expand');
@@ -98,7 +98,7 @@ try{
       await resize(width,320);
       await execute('window.page();window.space("global");window.menu();');
       const menuGeometry=await execute(`const m=document.querySelector('#navigation-menu');m.scrollTop=m.scrollHeight;return {scroll:m.scrollHeight,height:m.clientHeight,bottom:m.getBoundingClientRect().bottom,viewport:innerHeight,links:Array.from(m.querySelectorAll('.workspace-link')).filter(b=>b.getClientRects().length).length,top:document.querySelector('#sidebar').getBoundingClientRect().top};`);
-      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===10&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
+      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===9&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
       await execute('window.space("project");window.page();window.scrollTo(0,0);');
       await resize(width,height);
       console.log(`PASS pinned header, equal navigation cards, resource jumps, global scrollable menu ${theme} ${width}`);
@@ -121,7 +121,7 @@ try{
   await click('#composer-expand');
   await execute(`window.frozen(false);window.append();`);
   await click('#composer-expand');
-  assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('#composer-details').hidden&&document.querySelector('#composer-runner-choice .runner-input-choice').getClientRects().length===0;`),'append more does not expose editor or exposes parent');
+  assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('#composer-details').hidden&&!document.querySelector('#composer-runner-choice,.runner-input-choice');`),'append more does not expose editor or exposes parent');
   await execute(`document.querySelector('#input').focus();`);await keys(['z','\uE007']);
   assert(await execute(`return window.calls.length===2&&!document.querySelector('#input-start')`),'append enter sends or conditional entry remains');await click('#draft-commit');
   assert(await wait(`window.calls.length===3`),'append not submitted');assert(await execute(`return window.calls[2].method==='input.emit'&&window.calls[2].params.mode==='append'&&window.calls[2].params.target_id===8`),'append created worker');

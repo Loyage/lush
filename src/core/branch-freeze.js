@@ -19,6 +19,7 @@ import { workerLabel } from './worker-number.js';
 export function branchFreeze(store) {
   const rows = store.branches().filter(row => row.status === 'active');
   const frozen = new Map();
+  const retired = new Set(store.retiredWorkerIds());
   const add = (branch, info) => { if (branch && !frozen.has(branch)) frozen.set(branch, info); };
 
   // 新式解分歧 child 不使用 merger 角色。它创建时即在同一事务里写固定两端提交的事件；
@@ -29,6 +30,7 @@ export function branchFreeze(store) {
         OR (t.status IN ('completed','awaiting_acceptance') AND t.integration!='merged'))
       AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.type='task.divergence_resolution_requested')
     ORDER BY t.id`)) {
+    if (retired.has(task.id)) continue;
     if (task.status === 'completed' && (!task.branch || store.branch(task.branch)?.status !== 'active')) continue;
     const branch = task.target_branch;
     for (const name of [branch, parentOf(rows, branch), ...descendantsOf(rows, branch)]) {
@@ -45,9 +47,26 @@ export function branchFreeze(store) {
     try { request = JSON.parse(task.reservation); } catch { continue; }
     if (!request || request.kind !== 'merge'
       || !(request.status === 'requested' || ([2, 3].includes(request.version) && ['executing','resolving','blocked'].includes(request.status)))) continue;
+    const run = request.version === 3 && Number.isSafeInteger(request.run_id) && request.run_id > 0
+      ? store.deliveryRun(request.run_id) : null;
+    const retiredDelivery = retired.has(task.id) || retired.has(request.parent_id)
+      || run && (retired.has(run.parent_id) || store.deliveryMembers(run.id).some(member => retired.has(member.task_id)));
+    if (retiredDelivery) {
+      // Retained remote intent cannot reserve a local parent forever. But a recorded
+      // landing (or lost v3 landing ownership) can conceal local Git side effects:
+      // keep that parent closed without resuming or rewriting the retired delivery.
+      const uncertain = request.landing_receipt || run?.landing_receipt
+        || request.version === 3 && (!run || run.parent_id !== request.parent_id) && ['executing', 'blocked'].includes(request.status);
+      const info = { kind: 'retired_execution', task_id: task.id, task_worker_number: task.worker_number,
+        commit: request.commit ?? null,
+        reason: uncertain ? `已退役 Worker ${workerLabel(task)} 保留未确认的父侧 Git 落地证据；请人工核查，系统不会重放`
+          : `Worker ${workerLabel(task)} 的远端执行已退役，仅保留只读历史` };
+      add(task.branch, info);
+      if (uncertain) add(task.target_branch, info);
+      continue;
+    }
     if (request.version === 3) {
       // Preparation, validation and private integration do not own the parent writer.
-      const run = request.run_id && store.deliveryRun ? store.deliveryRun(request.run_id) : null;
       const info = { kind: 'convergence', task_id: task.id, task_worker_number: task.worker_number,
         run_id: request.run_id ?? null, generation: request.generation ?? null, commit: request.commit ?? null,
         reason: `Worker ${workerLabel(task)} 的固定成果正在归并（${run?.state ?? request.status}）` };

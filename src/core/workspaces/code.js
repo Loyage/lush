@@ -17,6 +17,7 @@ export function emptyCode(kind, opts) {
 }
 const activeReads = new WeakMap();
 async function read(workspaces, task, raw, kind, body) {
+  check(!workspaces.store.executionRetired(task.id), 'Remote execution is retired; this Worker is read-only');
   const opts = options(raw, kind === 'file'); let io, model;
   const active = activeReads.get(workspaces) ?? 0;
   if (active >= 4) return { ...codeEnvelope(task, opts), ...emptyCode(kind, opts), reason: '代码读取繁忙，请稍后重试' };

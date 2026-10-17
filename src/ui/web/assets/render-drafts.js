@@ -7,7 +7,6 @@ import { refresh } from './navigate.js';
 import { locateReference, locatable } from './context-references.js';
 import { ui } from './state.js';
 import { agentHelp } from './help.js';
-import { runnerChoiceText } from './runner-choice.js';
 
 /* ---------- 待提交意图（底部 composer 面板） ---------- */
 // Keep acknowledged revisions across late overview snapshots, scoped to this boot/document.
@@ -110,7 +109,6 @@ function draftItem(draft, state) {
       if (currentSession(state) && item.parentNode === $('drafts')) {
         ui.draftSignature = null;
         item.replaceChildren(el('p', `草稿 #${draft.id} 已提交，等待安全准入；不代表 Worker 已创建。`, 'hint'), el('p', draft.content, 'goal'));
-        if (draft.mode !== 'append') item.append(el('p', runnerChoiceText(draft.runner_node_id), 'hint'));
       }
     } catch (error) { if (currentSession(state) && item.parentNode === $('drafts')) show(error.message, 'error'); }
     finally { state.pending.delete(draft.id); run.disabled = acknowledged; }
@@ -129,7 +127,6 @@ function draftItem(draft, state) {
   body.title = '点击就地编辑这条待提交意图';
   body.onclick = () => { if (writable()) startDraftEdit(draft, item, state); };
   item.append(row, body);
-  if (draft.mode !== 'append') item.append(el('p', runnerChoiceText(draft.runner_node_id), 'hint'));
   if (draft.references?.length) {
     const references = el('div', undefined, 'draft-references');
     draft.references.forEach((reference, index) => {
@@ -162,7 +159,7 @@ export function renderDrafts(data) {
     ui.draftEditing = null;
   }
   // 只在内容变化时重建，否则轮询会把滚动和正在输入的光标丢掉。
-  const signature = drafts.map(draft => `${draft.id}:${draft.revision}:${draft.runner_node_id ?? ''}:${draft.content}:${JSON.stringify(draft.references || [])}`).join('\u0000');
+  const signature = drafts.map(draft => `${draft.id}:${draft.revision}:${draft.content}:${JSON.stringify(draft.references || [])}`).join('\u0000');
   if (signature === ui.draftSignature) { syncComposer(); return; }
   ui.draftSignature = signature;
   $('drafts').replaceChildren(...drafts.map(draft => draftItem(draft, state)));

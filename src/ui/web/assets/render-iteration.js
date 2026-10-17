@@ -27,6 +27,7 @@ function acceptanceState(owner, view, scope, taskId) {
 
 export const isIterationTask = task => ['order', 'child'].includes(workerKind(task));
 export function iterationBlocker(task, { forAcceptance = false } = {}) {
+  if (task.execution_retired === true) return '远端执行已退役，仅保留只读历史。';
   const recovery = forAcceptance && task.acceptance_recovery === true;
   if (!task.branch || (!recovery && (task.archived || task.branch_archive?.archived || task.branch_info?.archived)))
     return '分支已归档或不可用；不会重建工作区。';
@@ -48,7 +49,7 @@ export function guardedAction(node, reason) {
 
 /** Detail and graph share the same non-Agent acceptance/sync and explicit Agent conflict path. */
 export function iterationControls(task, { refresh = () => {}, events = [], showParentDistance = false } = {}) {
-  if (!isIterationTask(task) || isHistoricalDelivery(task)) return null;
+  if (task.execution_retired === true || !isIterationTask(task) || isHistoricalDelivery(task)) return null;
   const ended = ['completed', 'failed', 'cancelled'].includes(task.status);
   const accepted = task.accepted === true || events.some(event => event.type === 'task.accepted');
   const recovery = task.acceptance_recovery === true && !['failed', 'cancelled'].includes(task.status);

@@ -42,7 +42,6 @@ export const ui = {
   intentSignature: null,
   // 拆解队列的重建哨兵：id/status/batch_id/task_id 变化才重画，轮询不冲掉滚动。
   specSignature: null,
-  composerRunnerNodeId: undefined,
   draftIds: [], draftEditing: null, draftPanelOpen: false, composerExpanded: false, composerSubmitting: false, composerStartNow: false,
   // 尚未加入草稿的输入框引用；引用随 draft.add 持久化，轮询不能清掉本地选择。
   composerReferences: [],
@@ -57,7 +56,6 @@ export const ui = {
   taskGraphFetchedAt: 0, taskGraphIds: new Set(), taskGraphPage: null, disposeTaskGraph: null,
   taskGraphLocator: null, taskGraphLocatorBase: null, taskGraphLocated: false,
   deliveryPage: null, disposeDeliveryView: null,
-  runnersPage: null, disposeRunnersPage: null,
   taskGraphMinimal: readPref('taskGraphMinimal'),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
   taskGraphShowArchived: false,
@@ -91,7 +89,6 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
-  ui.disposeRunnersPage?.(); ui.disposeRunnersPage = null; ui.runnersPage = null;
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;
@@ -103,7 +100,6 @@ export function resetUiState() {
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null; ui.versionsPage = null;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
-  ui.composerRunnerNodeId = undefined;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerStartNow = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeReadPending = new Map(); ui.noticeReadRows = new Map();

@@ -24,10 +24,8 @@ export const methods = {
     const paths = new Set(), generatedPaths = new Set();
     const generated = file => { const resolved = path.resolve(file); paths.add(resolved); generatedPaths.add(resolved); };
     for (const task of tasks) {
-      const remote = this.store.runnerBinding(task.id);
-      if (remote) {
-        if (task.workspace || task.baseline_workspace || allWorktrees.some(tree => tree.branch === task.branch))
-          blockers.push(`remote Worker #${task.id} has an unexpected local checkout; inspect ownership`);
+      if (this.store.executionRetired(task.id)) {
+        blockers.push('Remote execution is retired; this Worker is read-only');
         if (task.branch) branches.add(task.branch);
         continue;
       }
@@ -100,8 +98,7 @@ export const methods = {
     guard();
     for (const entry of plan.branches) {
       const owner = this.store.branch(entry.branch)?.task_id;
-      const remote = owner ? this.store.runnerBinding(owner) : null;
-      check(!remote || remote.state === 'removed', 'remote resources must be confirmed removed before deletion');
+      check(!owner || !this.store.executionRetired(owner), 'Remote execution is retired; this Worker is read-only');
     }
     for (const tree of plan.worktrees) {
       deletionPath(this.config, tree.path);

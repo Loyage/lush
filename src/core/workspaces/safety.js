@@ -10,8 +10,8 @@ export const methods = {
     for (const branch of branches) {
       if (!branch) continue;
       const taskId = this.store.branch(branch)?.task_id;
-      check(!taskId || !this.store.runnerBinding(taskId),
-        'This legacy/integration Git operation does not support remote Runner branches; use ordinary Worker delivery');
+      check(!taskId || !this.store.executionRetired(taskId),
+        'Remote execution is retired; this Worker is read-only');
     }
   },
 

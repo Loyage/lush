@@ -57,7 +57,7 @@ function validateConfig(value) {
     diagnostics: value.version >= 5 ? value.diagnostics : true,
     quick_actions: value.version >= 6 ? value.quick_actions : true,
     quick_action_buttons: value.version >= 7 ? normalizeQuickActionButtons(value.quick_action_buttons) : [...DEFAULT_QUICK_ACTION_BUTTONS],
-    ...(value.version >= 4 ? { widgets: validateWidgets(value.widgets) } : {}),
+    ...(value.version >= 4 ? { widgets: validateWidgets(value.widgets, { allowRetiredLinks: true }) } : {}),
     cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })),
     hidden_projects: [...hidden_projects], layout: layout.map(item => ({ ...item })),
     content: content.map(item => ({ ...item, sections: [...item.sections] })) };

@@ -73,13 +73,9 @@
 - diff 为 `{hunks, next_offset, has_more, too_large, reason}`。hunks 为 `{old_start, old_count, new_start, new_count, lines}`；lines 为 `{kind:'context'|'add'|'delete'|'meta', old_line:number|null, new_line:number|null, text}`。行 text 不含 patch 的 +/- 前缀（UI 独立显示），CR 和无末尾换行标记不可偷偷丢失；meta 保留 Git 的无末尾换行等信息。
 - diff 不可计算/超预算时 `too_large` 或 reason 明示，提供分段原文回退，不假装无差异。上下文扩展可提高 context 重读，完整阅读走 content 分段。
 
-## 远端工作区
+## 旧执行节点历史
 
-三个公共 RPC／HTTP 参数和 version 1 返回字段不变。Project 根据持久 `runnerBinding` 路由，而不是猜测 `task.workspace` 路径；远端现场仍标 `source:workspace`，实际 HEAD、净变化、脏状态与分页在节点有界采样。中央固定 Worker 分支、比较基线及已接收 tip，节点核对登记身份和提交祖先；中央在网络返回后再次核对绑定与基线。读取不持全项目 Git 写锁，也不下载整个工作区。
-
-节点仅提供 control-only 的 `workspace.code.read`，不授予 Run 工具／Agent。禁用节点或撤销开发授权后仍可经原控制身份只读观察；有活动／未知写入立即返回忙，采样期间漂移返回 stale／不可用，不无限等待或绕过写门。复用同一文件模型、FD 安全读取、隔离 Git、分页和字节预算；独立仓库不加载项目 Git 配置，拒绝链接化 Git 元数据、外部对象来源和任意 ref／宿主路径。
-
-离线、安装身份变化、preparing／unknown 绑定明确不可用，**不得用中央旧提交冒充现场**。只有绑定已确认为 `removed` 才按中央记录的原始 `task.head_commit` 归档读取；working 不可用，不连节点、不保留未提交内容。旧 Worker 无绑定时保持本地行为。远端代码读取只保留代表性主流程冒烟，不再逐项回归身份变化、离线与归档组合；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)，独立 stdio Runner／仓库也不等于 SSH／真实 cgroup 实机验收。
+远端现场读取已移除，不能把旧远端路径交给本机 fs／Git，或以中央已接收提交冒充现场。历史固定提交与执行记录仍属只读历史；具体兼容边界见[执行节点退役](execution-model.md#单机执行与执行节点退役)。
 
 ## 生命周期与安全
 

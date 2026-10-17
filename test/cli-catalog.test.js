@@ -15,12 +15,9 @@ import { run as notice } from '../src/cli/commands/notice.js';
 import { run as branch } from '../src/cli/commands/branch.js';
 import { run as progress } from '../src/cli/commands/progress.js';
 import { run as order } from '../src/cli/commands/intent.js';
-import { run as runner } from '../src/cli/commands/runner.js';
-import { RUNNER_METHODS } from '../src/rpc/runner-methods.js';
-import { deploymentRequests } from './runner-deployment-api-fixture.js';
 import { fixture } from './helpers.js';
 
-const handlers = { worker, hooks, agent, config, notice, branch, progress, order, runner };
+const handlers = { worker, hooks, agent, config, notice, branch, progress, order };
 const uuid = '11111111-1111-4111-8111-111111111111';
 function tokens(command) {
   return [...command.matchAll(/'([^']*)'|([^\s]+)/g)].map(match => match[1] ?? match[2]);
@@ -51,15 +48,15 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
   expect(managementPolicy('cli.catalog').access).toBe('unavailable');
 });
 
-test('deployment directory keeps explicit install/recovery descriptions without an obsolete read-only key overriding them', () => {
-  const directory = CLI_COMMANDS.find(item => item.path === 'runner deployments');
-  expect(directory.directory).toBe(true); expect(directory.description).toContain('批准安装'); expect(directory.description).not.toContain('只读状态');
-  expect(CLI_COMMANDS.find(item => item.path === 'runner').description).toContain('显式部署恢复');
-  expect(cliCatalog().commands.find(item => item.path === 'lush runner deployments').description).toBe(directory.description);
-  // Terminal help lists executable leaves, not directory descriptions.
-  expect(cliHelp('lush')).toContain(RUNNER_METHODS['runner.deployments.apply'].description);
-  expect(CLI_COMMANDS.find(item => item.path === 'runner deployments recovery').description).toContain('独立审批');
-  expect(RUNNER_METHODS['runner.deployments.get'].description).toContain('只读');
+test('execution nodes are absent from CLI help, catalogue, RPC registration and management permissions', () => {
+  expect(CLI_COMMANDS.some(item => item.path.startsWith('runner'))).toBe(false);
+  for (const executable of CLI_EXECUTABLES) expect(cliHelp(executable)).not.toContain('--runner-node');
+  expect(Object.keys(PARAMS).some(method => method.startsWith('runner.'))).toBe(false);
+  expect(Object.keys(HANDLERS).some(method => method.startsWith('runner.'))).toBe(false);
+  for (const method of ['order.submit','worker.spawn','input.emit','draft.add','draft.update']) {
+    expect(PARAMS[method]).not.toContain('runner_node_id');
+  }
+  expect(managementPolicy('runner.nodes.set').access).toBe('unavailable');
 });
 
 test('CLI learning follows Valet serial admission and actual stop/deletion settlement boundaries', () => {
@@ -95,14 +92,7 @@ test('all RPC-backed CLI examples reach real parser dispatch and emit only their
     'valet.json': makeFile('valet.json', { name: 'fixture', instruction: '只读查询', signal_id: uuid }),
     'connection.json': makeFile('connection.json', { connection: { label: 'fixture' } }),
     'network.json': makeFile('network.json', { version: 1, mode: 'inherit', proxy_url: null, no_proxy: [], proxy_auth: null }),
-    'runner-nodes.json': makeFile('runner-nodes.json', { nodes: [], expected_revision: 'a'.repeat(64) }),
-    'runner-credentials.json': makeFile('runner-credentials.json', { node_id: uuid, machine_token: 'a'.repeat(64), expected_revision: 'absent' }),
-    'runner-remove.json': makeFile('runner-remove.json', { node_id: uuid, expected_revision: 'absent' }),
-    'runner-project.json': makeFile('runner-project.json', { allowed_node_ids: [], default_node_id: 'local', expected_revision: 0 }),
   };
-  for (const [method, params] of Object.entries(deploymentRequests)) {
-    const name = RUNNER_METHODS[method].file; files[name] = makeFile(name, params);
-  }
   const checked = [];
   try {
     for (const item of CLI_EXECUTABLES.flatMap(executable => cliCommands(executable)).filter(item => !item.directory && item.rpc.length && handlers[item.path.split(' ')[0]])) {
@@ -132,7 +122,6 @@ test('all RPC-backed CLI examples reach real parser dispatch and emit only their
         } };
       await handlers[command](command, args, { client, json: true, executable: item.executable }); expect(calls.length).toBeGreaterThan(0); checked.push(item.path);
     }
-    for (const spec of Object.values(RUNNER_METHODS)) expect(checked).toContain(spec.cli);
     expect(checked.length).toBeGreaterThan(85);
   } finally { await f.close(); }
 });

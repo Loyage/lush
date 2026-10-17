@@ -4,7 +4,6 @@ import { el } from './dom.js';
 import { projectHref, projectRoute } from './route.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { runnersLink } from './runner-page-route.js';
 
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
 let launcher = false;
@@ -147,8 +146,6 @@ function projectItem(row, repaint, { compact = false, displayOnly = false, order
         finally { openingColor = false; }
       };
       actions.append(color);
-      const runners = el('a', '执行节点', 'nav-link project-runner-open'); runners.href = runnersLink(row.id);
-      actions.append(runners);
     }
     if (renderDevelopment) item.append(renderDevelopment(row));
     item.append(actions);

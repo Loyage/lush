@@ -185,6 +185,7 @@ export default {
     const rows = taskId === null ? this.store.all("SELECT * FROM tasks WHERE auto_merge IS NOT NULL AND task_kind IN ('order','child') AND status IN ('waiting','awaiting_acceptance','completed') ORDER BY id") : [this.store.task(taskId)];
     this.completionQueued ??= new Set();
     for (const task of rows) {
+      if (this.store.executionRetired(task.id)) continue;
       try { if (!this.autoMergeView(task) || levelOf(task) === 'off' || this.completionQueued.has(task.id)
         || this.commandHookRunning?.has(task.id)) continue; }
       catch { continue; } // Corrupt historical configuration cannot stop scheduling unrelated Workers.
@@ -308,6 +309,7 @@ export default {
 
   recoverTaskCompletion() {
     for (const task of this.store.all("SELECT * FROM tasks WHERE auto_merge IS NOT NULL AND task_kind IN ('order','child')")) {
+      if (this.store.executionRetired(task.id)) continue;
       let data;
       try { if (!this.autoMergeView(task)) continue; data = state(this, task); }
       catch { continue; } // Unknown stored authorization is never repaired or executed by guessing.

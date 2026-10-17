@@ -81,6 +81,7 @@ export const tasks = {
    * which is why nextTaskId() is pinned first: the retained names must stay unambiguous.
    */
   purge() {
+    check(this.retiredWorkerIds().length === 0, 'Remote execution is retired; this Worker is read-only');
     const counts = {};
     return this.transaction(() => {
       this.setTaskIdHigh(Math.max(this.taskIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM tasks').value));
@@ -122,6 +123,7 @@ export const tasks = {
   deleteTasks(taskIds) {
     const ids = [...new Set(taskIds.map(value => id(value)))];
     check(ids.length > 0, 'deleteTasks needs at least one task id');
+    check(ids.every(workerId => !this.executionRetired(workerId)), 'Remote execution is retired; this Worker is read-only');
     const marks = ids.map(() => '?').join(',');
     return this.transaction(() => {
       const referrers = this.referringTasks(ids);
@@ -172,14 +174,7 @@ export const tasks = {
         WHERE task_id IN (${marks})`, ...ids);
       drop('choice_rechoices', `notice_id IN (SELECT id FROM notices WHERE task_id IN (${marks}))`, ids);
       drop('choice_snapshots', `task_id IN (${marks})`, ids);
-      // Runner facts intentionally have no cascading delete. Only checked explicit deletion
-      // reaches this point, and every bound resource must have exact completed reclamation.
-      check(!this.get(`SELECT worker_id FROM runner_bindings WHERE worker_id IN (${marks}) AND state!='removed' LIMIT 1`, ...ids),
-        'Runner resources have not been reclaimed');
-      check(!this.get(`SELECT worker_id FROM runner_runs WHERE worker_id IN (${marks}) AND state!='released' LIMIT 1`, ...ids)
-        && !this.get(`SELECT worker_id FROM runner_receipts WHERE worker_id IN (${marks}) AND terminal=0 LIMIT 1`, ...ids),
-        'Runner operations remain unresolved');
-      for (const table of ['runner_receipts','runner_runs','runner_bindings']) drop(table, `worker_id IN (${marks})`, ids);
+      check(ids.every(workerId => !this.executionRetired(workerId)), 'Remote execution is retired; this Worker is read-only');
       for (const table of ['artifacts','agent_runs','notices','events','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);
       drop('messages',`task_id IN (${marks}) OR sender_id IN (${marks})`,[...ids,...ids]);
       drop('task_deps',`task_id IN (${marks}) OR depends_on IN (${marks})`,[...ids,...ids]);
@@ -198,22 +193,25 @@ export const tasks = {
     });
   },
   /** Credentials exist only while their invocation runs; Project#actor is the only reader. */
-  armAgent(taskId, hash) { this.run('UPDATE tasks SET agent_token_hash=? WHERE id=?', hash, taskId); },
+  armAgent(taskId, hash) { check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only'); this.run('UPDATE tasks SET agent_token_hash=? WHERE id=?', hash, taskId); },
   /** Last authenticated agent contact; deliberately does not touch updated_at, so it never reorders the tree. */
-  touchAgent(taskId) { this.run("UPDATE tasks SET agent_last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
+  touchAgent(taskId) { check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only'); this.run("UPDATE tasks SET agent_last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   agentByToken(hash) { return this.get('SELECT * FROM tasks WHERE agent_token_hash=?', hash); },
   children(taskId) { return this.all('SELECT * FROM tasks WHERE parent_id=? ORDER BY id', taskId); },
   /** Display-only metadata: keep lifecycle timestamps and execution identity untouched. */
   setTaskDisplayTitle(taskId, title) {
+    check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only');
     this.run('UPDATE tasks SET display_title=? WHERE id=?', title, id(taskId));
   },
   /** First successful Agent title wins across invocations; do not alter lifecycle metadata. */
   setTaskAutoTitle(taskId, title) {
+    check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only');
     return this.run('UPDATE tasks SET auto_title=? WHERE id=? AND auto_title IS NULL', title, id(taskId)).changes > 0;
   },
   /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
-  touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
+  touch(taskId) { check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only'); this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   update(taskId, patch) {
+    check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only');
     const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation','auto_merge','interrupt_state','hooks','management'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     return this.transaction(() => {
@@ -230,11 +228,13 @@ export const tasks = {
   },
   /** Agent 计划是 task 附属元数据；Project 层负责校验与保留同 key 的完成态。 */
   setProgressPlan(taskId, value) {
+    check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only');
     this.run("UPDATE tasks SET progress_plan=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", JSON.stringify(value), taskId);
     return this.task(taskId);
   },
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
   create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, task_kind = null }) {
+    check(!parent_id || !this.executionRetired(parent_id), 'Remote execution is retired; this Worker is read-only');
     check(role !== 'showcase' && task_kind !== 'showcase', 'showcase tasks are no longer supported');
     return this.transaction(() => {
       const taskId = this.nextTaskId();

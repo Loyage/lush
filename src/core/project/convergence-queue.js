@@ -1,3 +1,4 @@
+import { assertLocalWorker } from './execution-retired.js';
 import { check, id, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen, taskSyncDeliveryPaused } from './iteration.js';
 import { CONVERGENCE_LIMITS, convergenceBooking, convergenceJSON, convergenceVerificationMode } from '../convergence-contract.js';
@@ -8,6 +9,11 @@ const sameValidation = (a, b) => a?.command_id === b?.command_id;
 
 /** Formation/preparation own bounded slots, never the parent's publication slot. */
 export default {
+  convergenceExecutionRetired(run) {
+    return Boolean(run && (this.store.executionRetired(run.parent_id)
+      || this.store.deliveryMembers(run.id).some(member => this.store.executionRetired(member.task_id))));
+  },
+
   assertConvergenceCommand(run) {
     const data = convergenceJSON(run.data, {});
     if (convergenceVerificationMode(data.verification_mode, run.validation) === 'agent') return null;
@@ -24,6 +30,7 @@ export default {
     check(run && run.generation === generation && (!states || states.includes(run.state)), 'convergence attempt changed');
     check(!this.stopping && !this.clearing && !this.maintenancePaused(), 'convergence runtime is paused');
     const parent = this.store.task(run.parent_id);
+    assertLocalWorker(this, parent.id);
     check(!TERMINAL.has(parent.status) && parent.branch === run.target_branch
       && ['main', 'owner', 'order', 'child'].includes(parent.task_kind), 'convergence parent changed');
     const members = this.store.deliveryMembers(run.id, true);
@@ -31,6 +38,7 @@ export default {
     check(members.length >= 1 && (this.oneShotRun?.(run) || members.length <= CONVERGENCE_LIMITS.members), 'convergence membership changed');
     for (const member of members) {
       const task = this.store.task(member.task_id), booking = convergenceBooking(task);
+      assertLocalWorker(this, task.id);
       check(booking?.run_id === run.id && booking.generation === generation && booking.delivery_id === member.delivery_id
         && booking.commit === member.source_commit && task.head_commit === member.source_commit
         && task.branch === member.source_branch && task.target_branch === parent.branch && task.parent_id === parent.id
@@ -53,6 +61,7 @@ export default {
   setConvergenceState(runId, generation, state, patch = {}) {
     return this.store.transaction(() => {
       const run = this.store.deliveryRun(runId);
+      check(!this.convergenceExecutionRetired(run), 'Remote execution is retired; this Worker is read-only');
       check(run?.generation === generation, 'convergence attempt changed');
       const next = this.store.updateDeliveryRun(runId, { ...patch, state }, generation);
       const blocked = ['failed', 'blocked', 'awaiting'].includes(state);
@@ -72,7 +81,7 @@ export default {
   },
 
   scheduleConvergenceOperation(parentId) {
-    if (!parentId || this.stopping || this.clearing || this.maintenancePaused()) return;
+    if (!parentId || this.stopping || this.clearing || this.maintenancePaused() || this.store.executionRetired(parentId)) return;
     (this.convergenceWakePending ??= new Set()).add(parentId);
     queueMicrotask(() => this.driveConvergence(parentId).catch(() => {
       this.store.event(parentId, 'convergence.queue_failed', { error: '归并调度未完成；请检查固定交付状态。' });
@@ -83,13 +92,14 @@ export default {
     return this.workspaces.exclusive(async () => {
       if (this.stopping || this.clearing || this.maintenancePaused()) return null;
       const parent = this.store.task(parentId);
-      if (TERMINAL.has(parent.status) || !parent.branch) return null;
+      if (TERMINAL.has(parent.status) || !parent.branch || this.store.executionRetired(parent.id)) return null;
       const rows = this.store.all(`SELECT * FROM tasks WHERE json_valid(reservation)
         AND json_extract(reservation,'$.version')=3 AND json_extract(reservation,'$.parent_id')=?
         AND json_extract(reservation,'$.status')='requested' AND json_extract(reservation,'$.run_id') IS NULL
         ORDER BY json_extract(reservation,'$.enqueue_seq'),id`, parentId);
       const dependencies = new Map(), landed = new Set(), candidates = [];
       for (const task of rows) {
+        if (this.store.executionRetired(task.id)) continue;
         const booking = convergenceBooking(task);
         if (this.reservationWaitReason(task) || this.running.has(task.id) || this.taskSyncBusy?.has(task.id)
           || this.commandHookRunning?.has(task.id)) continue;
@@ -143,16 +153,17 @@ export default {
   },
 
   async driveConvergence(parentId) {
-    if (this.stopping || this.clearing || this.maintenancePaused()) return;
+    if (this.stopping || this.clearing || this.maintenancePaused() || this.store.executionRetired(parentId)
+      || this.retiredConvergenceParentBlocked(parentId)) return;
     this.drainConvergenceWithdrawals?.(parentId);
     this.convergenceDrivers ??= new Set(); this.convergenceJobs ??= new Map();
     if (this.convergenceDrivers.has(parentId)) return;
     this.convergenceDrivers.add(parentId); this.convergenceWakePending?.delete(parentId);
     try {
-      for (const cancelling of this.store.deliveryRuns(parentId, ['awaiting'], 1000))
+      for (const cancelling of this.store.deliveryRuns(parentId, ['awaiting'], 1000).filter(run => !this.convergenceExecutionRetired(run)))
         this.drainOneShotCancellation?.(cancelling.id);
       if (this.convergenceIntegrationCapacity()) {
-        for (const waiting of this.store.deliveryRuns(parentId, ['awaiting'], 1000)) {
+        for (const waiting of this.store.deliveryRuns(parentId, ['awaiting'], 1000).filter(run => !this.convergenceExecutionRetired(run))) {
           const data = convergenceJSON(waiting.data, {});
           if (data.wait_reason === 'integration_slot') this.setConvergenceState(waiting.id, waiting.generation, 'preparing', {
             data: JSON.stringify({ ...data, wait_reason: null }), error: null });
@@ -161,7 +172,7 @@ export default {
       }
       // Publication reconciliation has priority but does not create an unbounded job pool.
       const active = this.activeConvergenceLanding(parentId);
-      if (active) { await this.publishConvergence(active.id); return; }
+      if (active) { if (!this.convergenceExecutionRetired(active)) await this.publishConvergence(active.id); return; }
       for (const run of this.store.deliveryRuns(parentId, preparing, 50)) {
         if (this.convergenceJobs.size >= CONVERGENCE_LIMITS.preparation_concurrency) break;
         this.startConvergenceJob(run.id);
@@ -186,7 +197,7 @@ export default {
     this.convergenceJobs ??= new Map();
     if (this.convergenceJobs.has(runId) || this.convergenceJobs.size >= CONVERGENCE_LIMITS.preparation_concurrency) return false;
     const run = this.store.deliveryRun(runId), controller = new AbortController();
-    if (!run || !preparing.includes(run.state) || (run.state === 'ready' && !this.convergenceCanPublish(run))
+    if (!run || this.convergenceExecutionRetired(run) || !preparing.includes(run.state) || (run.state === 'ready' && !this.convergenceCanPublish(run))
       || (run.integration_worker_id && this.running.has(run.integration_worker_id))) return false;
     const job = { controller, promise: null, generation: run.generation }; this.convergenceJobs.set(runId, job);
     job.promise = this.write('prepare a fixed convergence delivery', async () => {

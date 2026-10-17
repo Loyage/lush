@@ -217,7 +217,7 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
     if (archive) row.append(archive);
   }
 
-  if (node.notice && !isHistoricalDelivery(node)) {
+  if (node.execution_retired !== true && node.notice && !isHistoricalDelivery(node)) {
     if (['question', 'plan'].includes(node.notice.kind)) {
       // Inline decisions refresh this Task view after a response.
       const decision = decisionRow(node, loadTaskGraph);
@@ -236,6 +236,7 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
 }
 
 function archiveControl(node) {
+  if (node.execution_retired === true) return null;
   const branch = node.branch_info;
   const cleanable = !['order', 'child'].includes(workerKind(node)) || ['failed', 'cancelled'].includes(node.status)
     || (node.status === 'completed' && node.accepted !== true);
@@ -246,6 +247,10 @@ function archiveControl(node) {
 
 // 完整卡片和极简浮层共用同一套准入、确认、Agent 标识与 RPC，不复制业务规则。
 function appendTaskActions(row, node, inputWorkers) {
+  if (node.execution_retired === true) {
+    row.append(el('p', '远端执行已退役，仅保留只读历史与固定提交；不会续跑、迁移或回收远端资源。', 'hint execution-retired'));
+    return;
+  }
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
   if (iteration) row.append(iteration);
   const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false, showMerged: false, showPending: false, showStage: !node.delivery_summary });
@@ -322,7 +327,7 @@ function taskActionsMenu(node, inputWorkers) {
     const close = button('关闭', () => panel.hidePopover(), 'ghost');
     close.setAttribute('autofocus', '');
     panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost', { worker: node }),
-      workerRenameControl(node, { refresh: loadTaskGraph }));
+      ...(node.execution_retired === true ? [] : [workerRenameControl(node, { refresh: loadTaskGraph })]));
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
       { worker: node }));
     const queueText = inputQueueText(node);

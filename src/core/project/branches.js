@@ -1,4 +1,4 @@
-import { reclaimRunnerWorkspaces } from './runner-reclamation.js';
+import { assertLocalWorker } from './execution-retired.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL } from '../types.js';
@@ -380,35 +380,9 @@ export default {
       check(owner?.head_commit, 'automatic archive needs a reviewed commit for every subtree branch');
       return [target, owner.head_commit];
     })) : null;
-    const remoteTasks = [...users].map(taskId => this.store.task(taskId)).filter(task => this.store.runnerBinding(task.id));
-    const reclaimGuard = () => {
-      guard();
-      check(this.branchResourceUsers(targets).every(taskId => {
-        const task = this.store.task(taskId);
-        return users.has(taskId) && (TERMINAL.has(task.status) || acceptance?.task_ids.has(taskId))
-          && !this.running.has(taskId) && !this.commandHookRunning?.has(taskId) && !this.workspaces.busy.has(taskId);
-      }), 'archive resource users changed during reclamation');
-      for (const target of targets) this.assertBranchWritable(target, 'archive it');
-    };
-    const ownedBusy = [];
-    let archived;
-    try {
-      if (remoteTasks.length) {
-        check(!acceptance?.git_gate, 'Remote reclamation cannot hold the central Git gate');
-        this.acceptanceBusy ??= new Set();
-        for (const taskId of users) {
-          check(acceptance || !this.acceptanceBusy.has(taskId), 'resource reclamation is already in flight');
-          if (!this.acceptanceBusy.has(taskId)) { this.acceptanceBusy.add(taskId); ownedBusy.push(taskId); }
-        }
-        // Preflight ALL local resources before removing even the first remote resource.
-        await this.workspaces.exclusive(() => this.workspaces.archiveBranchesUnsafe(targets,
-          { discard_worktree, guard: reclaimGuard, expectedTips, preflight_only: true }));
-        await reclaimRunnerWorkspaces(this, remoteTasks, reclaimGuard);
-      }
-      const archive = acceptance?.git_gate ? this.workspaces.archiveBranchesUnsafe.bind(this.workspaces) : this.workspaces.archiveBranches.bind(this.workspaces);
-      archived = await archive(targets, { discard_worktree, onOutcome,
-        guard: remoteTasks.length ? reclaimGuard : guard, expectedTips });
-    } finally { for (const taskId of ownedBusy) this.acceptanceBusy.delete(taskId); }
+    for (const taskId of users) assertLocalWorker(this, taskId);
+    const archive = acceptance?.git_gate ? this.workspaces.archiveBranchesUnsafe.bind(this.workspaces) : this.workspaces.archiveBranches.bind(this.workspaces);
+    const archived = await archive(targets, { discard_worktree, onOutcome, guard, expectedTips });
     const { outcomes, failed, remaining } = archived;
     // pi 会话文件在 <home>/sessions 下，不随 worktree 消失；把位置写进事件，将来 task 行被 clear 掉也能查回。
     const sessions = [];

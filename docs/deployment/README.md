@@ -9,9 +9,8 @@
 | macOS / Linux 本机后台 | [本机部署](local-deployment.md) | [本机 Agent 指导](agent-guide.md) |
 | 服务器自行运行 Host：SSH 转发 / IP端口 / 域名 | [远程 Host](remote-host.md) | [Host Agent 指导](remote-host-agent.md) |
 | Windows 同机运行 Linux 后台 | [WSL2 方案](windows-wsl2.md) | [WSL2 Agent 指导](windows-wsl2-agent.md) |
-| 远端执行节点（手动预装 Runner） | [Runner 管理接口](../reference/rpc/runners.md) | [手动预装 Agent 指导](runner-node-agent.md) |
 
-执行节点只在远端准备 Runner、cgroup v2 子树与节点配置，中央侧的登记、检查、固定身份与项目授权仍由用户在 Lush 管理入口完成；不是把 Lush 后台部署到该机器。
+Lush 的后台、Agent 与工作区统一在同一机器运行；浏览器可以远程访问该机器的 Host，不提供分布式执行节点。旧节点的历史保留边界见[执行模型](../engineering/execution-model.md#单机执行与执行节点退役)。
 
 ## 阅读与委托顺序
 

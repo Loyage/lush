@@ -161,6 +161,7 @@ export default {
 
   /** An observable execution barrier, not a Git verdict. A retry never skips a running invocation or unread signal. */
   reservationWaitReason(task) {
+    if (this.store.executionRetired(task.id)) return '执行环境已退役；历史 Worker 只读保留';
     if (this.taskSyncBusy?.has(task.id)) return 'Worker 父分支同步正在执行，请等待安全点';
     const inbound = this.activeTaskMerge(task.id);
     if (inbound) return `等待子Worker ${workerLabel(inbound)} 的父分支执行位释放`;

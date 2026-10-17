@@ -15,8 +15,6 @@ import * as branch from './commands/branch.js';
 import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
 import * as hooks from './commands/hooks.js';
-import * as runner from './commands/runner.js';
-import { DeviceSettingsService } from '../host/device-settings.js';
 import * as skills from './commands/skills.js';
 
 export { HELP };
@@ -26,7 +24,7 @@ export { HELP };
  * 返回 undefined 表示「命令自己已经打印过」，主流程不再 print，也不做 fingerprint 提醒。
  */
 const COMMANDS = new Map();
-const modules = { runner, system, intent, worker, progress, notice, branch, agent, config, hooks, skills };
+const modules = { system, intent, worker, progress, notice, branch, agent, config, hooks, skills };
 for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   const module = modules[key];
   for (const name of names) {
@@ -46,6 +44,8 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   if (!args.length || ['help','--help','-h'].includes(args[0]) || args.includes('--help') || args.includes('-h')) {
     console.log(cliHelp(executable)); return;
   }
+  check(args[0] !== 'runner', 'Runner execution nodes are retired; only local execution is supported');
+  check(!args.some(arg => arg === '--runner-node' || arg.startsWith('--runner-node=')), '--runner-node is retired; new Workers always execute locally');
   // Resolve the longest registered leaf before project discovery or any handler
   // side effect. The executable is supplied by the fixed bin, never by argv.
   const entry = CLI_COMMANDS.filter(item => !item.directory && item.path.split(' ').every((part, index) => args[index] === part))
@@ -78,17 +78,6 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   if (command === 'skills' || (command === 'notice' && notice.isLocalCommand(args))) {
     const value = await handler(command, args, { json, executable });
     if (value !== undefined) print(value, json);
-    return;
-  }
-  if (command === 'runner' && args.includes('--scope')) {
-    check(!process.env.LUSH_AGENT_TOKEN, 'Runner management is user only');
-    check(option(args, '--scope') === 'device' && !args.includes('--scope') && args[0] !== 'project' && !projectPath,
-      'Runner --scope device accepts only device commands without --project');
-    const service = new DeviceSettingsService(process.env);
-    try {
-      const value = await handler(command, args, { client: { token: null, request: service.request.bind(service) }, json, executable });
-      if (value !== undefined) print(value, json);
-    } finally { await service.stop(); }
     return;
   }
   const globalWeb = command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;

@@ -39,15 +39,9 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 隔离回归 `test/project/merge-queue.test.js` 保留 child 自动交付、parent 显式 Squash 到 main 及批量验收主链；不操作用户项目或调用付费模型。无代码、脏父拒绝、分歧修复及嵌套／冻结组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 
-### 远端普通交付
+### 旧执行节点绑定
 
-远端 order/child 没有中央开发检出，`workspace=null` 不证明现场干净。队列在锁外检查真实 Runner 无 writer、无租约、干净且 HEAD 与固定中央 tip 相同；短 Git 串行区重新检查权威 refs、身份、授权和生命周期。父逻辑执行位贯穿网络步骤，不用全项目 Git 锁等待 SSH。
-
-远端父的 `parent_sync` 在中央 Squash 前固定旧/新 tip 与尝试并持久 prepared；精确中央落地证明后记 landed，远端同步与新鲜检查确认后才 finalize、发送成功信号或运行父 Hook。同步 ACK 丢失保留父执行位和屏障；恢复只核对旧落地凭据并续固定同步，不重复 Squash。仅用户显式重排且中央仍为旧 tip、远端两端已证明干净静息时，可将尚未落地的 prepared 收据记为 rejected 并与释放旧尝试同事务提交；landed/applying/unknown 不可走此路径。中央 refs 漂移、远端脏或未知 HEAD 均保留现场，不 reset/clean。
-
-源侧分歧先通过 Workspaces 下发当前尝试的固定父对象，不推进源 HEAD，再通知原 Worker 修复；仍要求保留两端祖先与语义迁移检查。历史直接合并及集中整合的 Git 写入口拒绝远端分支，不静默绕过上述协议。
-
-远端自动回归只保留代表性交付主链，不再逐项覆盖跨节点修复、ACK 丢失后的重建对账和漂移组合；实际入口与覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。受控 Runner／仓库测试不证明真实模型或 SSH/cgroup 实机部署；后者须单独验收。
+交付只支持本机工作区。涉及旧远端 Worker 的来源或目标不得继续合并，也不恢复远端父同步收据，见[执行节点退役](execution-model.md#单机执行与执行节点退役)。
 
 ### Agent 的语义迁移检查
 
