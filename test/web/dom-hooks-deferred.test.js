@@ -68,7 +68,7 @@ test('detail stays in default creation mode; explicit frozen Worker inbox can sa
   expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('提交指令');
   ui.composerTask = { ...root, branch_archive: { archived: true } }; syncComposer(); expect(input().disabled).toBe(false);
   ui.composerTask = { ...root, task_kind: 'order', branch: 'feature', workspace: '/tmp/feature' }; appendToWorker(ui.composerTask);
-  expect(input().disabled).toBe(false); expect(dom.node('composer-mode-behavior').textContent).toContain('Ctrl/⌘+Enter 提交追加');
+  expect(input().disabled).toBe(false); expect(dom.node('composer-mode-behavior').textContent).toContain('Enter 提交追加');
   expect(input().placeholder).toBe('补充要求、提供反馈，或说明需要调整的地方…');
   expect(deepText(dom.node('composer-shell'))).not.toContain('改投');
 });

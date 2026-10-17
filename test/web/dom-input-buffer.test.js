@@ -77,7 +77,7 @@ test('草稿确认与提交授权文案不同，ACK 不冒充创建或 Agent 接
   expect(dom.node('error').textContent).toContain('尚不代表 Agent 已收到');
 });
 
-test('新建与追加统一 Enter 暂存、Ctrl/Meta Enter 发射；Shift/IME/触屏回车换行', async () => {
+test('Enter 新建暂存、追加提交，Ctrl/Meta Enter 均提交；Shift/IME 回车换行', async () => {
   for (const appendMode of [false, true]) {
     if (appendMode) append();
     for (const options of [{ shiftKey: true }, { isComposing: true }, { keyCode: 229 }, { altKey: true }]) {
@@ -85,7 +85,8 @@ test('新建与追加统一 Enter 暂存、Ctrl/Meta Enter 发射；Shift/IME/�
     }
     type('中文输入'); input().oncompositionstart(); expect(await enter()).toBe(false); input().oncompositionend();
     expect(await enter({ repeat: true })).toBe(true); expect(calls).toHaveLength(0);
-    await enter(); expect(calls.at(-1).method).toBe('draft.add');
+    expect(dom.node('composer-mode-behavior').textContent).toContain(appendMode ? 'Enter 提交追加 · 暂存请点按钮' : 'Enter 暂存');
+    await enter(); expect(calls.at(-1).method).toBe(appendMode ? 'input.emit' : 'draft.add');
     if (appendMode) expect(calls.at(-1).params).toMatchObject({ mode: 'append', target_id: 126 });
     calls.length = 0; if (appendMode) append();
     type('明确发射'); await enter({ metaKey: true }); expect(calls[0].method).toBe('input.emit');
@@ -93,6 +94,19 @@ test('新建与追加统一 Enter 暂存、Ctrl/Meta Enter 发射；Shift/IME/�
     if (appendMode) expect(calls[0].params).toMatchObject({ mode: 'append', target_id: 126 });
     expect(ui.composerAppendTarget).toBeNull(); expect(input().value).toBe(''); calls.length = 0;
   }
+});
+
+test('追加 Enter 与按钮共用单飞及失败保护，暂存只走按钮', async () => {
+  append(); type('追加原文');
+  const pending = deferred(); intercept = () => pending.promise;
+  const sending = enter(); await until(() => calls.length === 1);
+  await enter(); await dom.node('input-buffer').onclick();
+  expect(calls).toHaveLength(1); expect(calls[0].method).toBe('input.emit');
+  pending.resolve({ ok: false, json: async () => ({ error: '断连' }) }); await sending;
+  expect(input().value).toBe('追加原文'); expect(ui.composerAppendTarget).toEqual({ id: 126 });
+  intercept = null; await dom.node('input-buffer').onclick();
+  expect(calls[1]).toMatchObject({ method: 'draft.add', params: { mode: 'append', target_id: 126, content: '追加原文' } });
+  expect(input().value).toBe(''); expect(ui.composerAppendTarget).toBeNull();
 });
 
 test('暂存保存父分支与引用，父候选来自独立读面而非 overview', async () => {

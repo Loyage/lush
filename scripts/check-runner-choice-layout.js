@@ -90,6 +90,10 @@ try {
     const result = await asyncScript(`await window.showSurface('${surface}');return true;`); assert(result === true, JSON.stringify(result));
     const selector = surface === 'composer' ? '#composer-runner-choice .runner-input-choice' : '#detail .runner-input-choice';
     assert(await execute(`return !!document.querySelector('${selector}');`), `${surface} choice missing`);
+    if (surface === 'composer') {
+      assert(await execute(`return document.querySelector('${selector}').getClientRects().length===0;`), 'composer environment visible before More');
+      await asyncScript(`await document.querySelector('#composer-expand').onclick();return true;`);
+    }
     await asyncScript(`const root=document.querySelector('${selector}');await [...root.querySelectorAll('button')].find(n=>n.textContent==='更改执行环境').onclick();return true;`);
     if (surface === 'draft') assert(await execute(`const root=document.querySelector('${selector}'),option=root.querySelector('[data-runner-node="default"]');
       if(option.disabled)return false;option.click();const save=document.querySelector('.input-save');

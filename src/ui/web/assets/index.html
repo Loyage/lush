@@ -141,7 +141,7 @@
     <span id="composer-mode-target" class="composer-mode-target">去向：新 Worker · 基于 main</span>
     <span id="composer-mode-behavior" class="composer-mode-behavior">Enter 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker</span>
   </div>
-  <div id="composer-runner-choice"></div>
+  <div id="composer-runner-choice" hidden></div>
   <div id="composer-details" class="composer-details" hidden>
     <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">先暂存为草稿，准备好再提交</span></div>
     <div class="composer-target"><label for="input-parent">父 Worker</label><select id="input-parent" aria-describedby="input-parent-help"><option value="">main（默认父 Worker）</option></select><span id="input-parent-help" class="hint">新 Worker 从所选父 Worker 的分支创建独立 worktree</span></div>
@@ -158,7 +158,7 @@
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
     <span class="composer-actions">
 
-      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开正文编辑、历史输入、运行设置、父 Worker 与快捷键">⌃ 更多</button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-runner-choice composer-editor-tools composer-shortcuts" data-help="展开正文编辑、历史输入、运行设置、执行环境、父 Worker 与快捷键">⌃ 更多</button>
 
       <button type="button" id="composer-reset" class="ghost" data-help="回到新建工作模式，保留正文与引用；追加模式中输入空白且没有引用时也可按 Esc 返回。" hidden>回到新建工作</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>

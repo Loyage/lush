@@ -167,6 +167,7 @@ export function paintComposerDetails() {
   const open = Boolean(ui.composerExpanded), followup = Boolean(ui.composerAppendTarget);
   $('input-form').dataset.expanded = String(open);
   if ($('composer-details')) $('composer-details').hidden = !open || followup;
+  if ($('composer-runner-choice')) $('composer-runner-choice').hidden = !open || followup || Boolean(ui.composerManagement);
   if ($('composer-shortcuts')) $('composer-shortcuts').hidden = !open || followup;
   if ($('composer-editor-tools')) $('composer-editor-tools').hidden = !open;
   const toggle = $('composer-expand');
@@ -175,7 +176,7 @@ export function paintComposerDetails() {
   toggle.setAttribute('aria-expanded', String(open));
   toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
     ? '展开：显示正文的撤销与重做按钮、历史输入；不改变追加目标。'
-    : `展开：显示正文的撤销与重做按钮、历史输入、运行设置，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
+    : `展开：显示正文的撤销与重做按钮、历史输入、运行设置、执行环境，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
   toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Worker：${parent}` : '⌃ 更多');
 }
 export function renderParentOptions() {
@@ -236,7 +237,7 @@ export function syncComposer() {
     'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}`,
     'composer-mode-behavior': target.reason || (management
       ? '由管家处理，不直接创建开发 Worker · 危险操作先确认 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
-      : followup ? `不创建新 Worker · ${enter} 暂存 · Ctrl/⌘+Enter 提交追加 · 安全点交付，确认后回到新建工作${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+      : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，确认后回到新建工作${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
         : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
   // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
@@ -370,7 +371,7 @@ async function submitInput(mode) {
   if (update) void updateAfterSubmit(update);
 }
 export function buffer() { return submitInput('buffer'); }
-/** Enter buffers development/append work; Ctrl+Enter and Ctrl+Shift+Enter both emit. */
+/** Desktop Enter buffers new work and emits append input; Ctrl(+Shift)+Enter emits either. */
 export function initComposer() {
   textEditor?.dispose(); disposeViewport?.(); runnerChoice?.dispose(); runnerChoice = null; textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
@@ -430,7 +431,7 @@ export function initComposer() {
     if (!event.metaKey && !event.ctrlKey && (event.shiftKey || usesTouchEnter() || ui.composerManagement)) return;
     event.preventDefault();
     if (event.repeat) return;
-    if (!event.metaKey && !event.ctrlKey) return ui.composerManagement ? undefined : buffer();
+    if (!event.metaKey && !event.ctrlKey && !ui.composerAppendTarget) return buffer();
     return submitInput('emit');
   };
   // Load the shared editor outside the static startup closure. Initialization

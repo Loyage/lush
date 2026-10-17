@@ -77,7 +77,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-detail-progressive.test.js', // cached history/loading state, selection deferral and lifecycle listener cleanup
     'test/web/dom-task-message.test.js', // communication/raw references now belong to the lifecycle reader
     'test/web/dom-studio.test.js', // content precedes lifecycle and implementation metadata
-    'test/web/dom-runner-choice.test.js', // lazy reads, mode isolation, fixed selection, fingerprints and late edits
+    'test/web/dom-input-buffer.test.js', // mode-specific Enter, button buffering, IME/touch and shared submission guards
+    'test/web/dom-runner-choice.test.js', // More visibility, lazy reads, mode isolation, fixed selection, fingerprints and late edits
     'test/web/dom-runner-choice-reset.test.js', // D655 null only on draft.update, omitted old fields and ACK revision baseline
     'test/web/dom-runner-choice-legacy.test.js', // legacy draft ACK consumption, failed refresh and stale snapshot guards
     'test/web/dom-runner-settings.test.js', // revisions, secret disposal, explicit pin, fixed source and unknown-write/late response guards

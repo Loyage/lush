@@ -2,7 +2,7 @@ import { beforeEach, afterEach, test, expect } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { createRunnerChoice } from '../../src/ui/web/assets/runner-choice.js';
 import { createProjectOrderForm } from '../../src/ui/web/assets/project-order-form.js';
-import { initComposer, buffer, appendToWorker, resetComposerMode } from '../../src/ui/web/assets/composer.js';
+import { initComposer, buffer, appendToWorker, resetComposerMode, toggleComposerDetails } from '../../src/ui/web/assets/composer.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { renderDrafts } from '../../src/ui/web/assets/render-drafts.js';
@@ -74,6 +74,27 @@ test('new boot does not reuse an earlier pending configuration; keyboard choice 
   expect(document.activeElement).toBe(fresh.node.querySelector('[data-runner-node="local"]'));
   pending.resolve(Response.json({ nodes, ...policy })); await reading;
   expect(deepText(old.node)).not.toContain('当前预览'); expect(fresh.value()).toBe('local');
+});
+
+test('composer More hides environment information and controls without clearing selection or loading on toggle', async () => {
+  await initComposer(); const root = dom.node('composer-runner-choice');
+  expect(root.hidden).toBe(true);
+  expect(dom.node('composer-expand').getAttribute('data-help')).toContain('执行环境');
+  expect(calls.some(call => call.path.includes('/runner/'))).toBe(false);
+  await toggleComposerDetails(true); expect(root.hidden).toBe(false);
+  await button(root, '更改执行环境').onclick(); choose(root, NODE);
+  await toggleComposerDetails(false); expect(root.hidden).toBe(true);
+  const reads = calls.filter(call => call.path.includes('/runner/')).length;
+  await toggleComposerDetails(true); expect(root.hidden).toBe(false);
+  expect(ui.composerRunnerNodeId).toBe(NODE);
+  expect(root.querySelector(`[data-runner-node="${NODE}"]`).getAttribute('aria-pressed')).toBe('true');
+  expect(calls.filter(call => call.path.includes('/runner/'))).toHaveLength(reads);
+  ui.view = { id: 'task' }; ui.selected = 3;
+  appendToWorker({ id: 3, task_kind: 'order', status: 'running', branch: 'work' });
+  expect(root.hidden).toBe(true);
+  resetComposerMode(); expect(root.hidden).toBe(false);
+  ui.composerManagement = true; ui.syncComposer(); expect(root.hidden).toBe(true);
+  expect(ui.composerRunnerNodeId).toBe(NODE); expect(writes()).toHaveLength(0);
 });
 
 test('composer selection enters direct/buffer fingerprints, failure and in-flight edits survive; append/management omit selection', async () => {

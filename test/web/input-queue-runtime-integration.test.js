@@ -65,7 +65,7 @@ test('HTTP frozen append is persisted, rendered and delivered only after the fix
     await append.click();
     expect(dom.node('input').disabled).toBe(false);
     expect(dom.node('input').placeholder).toBe('补充要求、提供反馈，或说明需要调整的地方…');
-    expect(dom.node('composer-mode-behavior').textContent).toContain('Enter 暂存');
+    expect(dom.node('composer-mode-behavior').textContent).toContain('Enter 提交追加');
     expect(dom.node('composer-mode-behavior').textContent).toContain('等待交付解冻');
     resetUiState(); dom.restore(); dom = null;
     landing.resolve(); await received.promise;
