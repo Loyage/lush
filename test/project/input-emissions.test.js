@@ -43,7 +43,7 @@ test('emission mounts first, returns no fictitious Worker, dispatches latest bas
     const result = await f.project.emitBufferedInput({ draft_id: draft.id, expected_revision: 1, client_request_id: 'one' });
     expect(result).toMatchObject({ emitted: true, mode: 'order', draft_id: draft.id, dispatch: { state: 'queued' } });
     expect(result.task).toBeUndefined(); expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
-    expect(f.project.inputHistory({ status: 'emitted' }).items[0]).toMatchObject({ id: draft.id, mode: 'order', dispatch: { state: 'queued' } });
+    expect(f.project.inputHistory({ view: 'drafts', status: 'emitted' }).items[0]).toMatchObject({ id: draft.id, mode: 'order', dispatch: { state: 'queued' } });
     await git(f.root, 'commit', '--allow-empty', '-m', 'new main'); const latest = await git(f.root, 'rev-parse', 'HEAD');
     await drain(f);
     const receipt = f.project.inputEmissionResult(draft.id);

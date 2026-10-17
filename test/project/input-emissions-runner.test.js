@@ -30,7 +30,7 @@ test('Runner selection survives draft edits and Store reopen; omitted legacy opt
     expect(draft.runner_node_id).toBe(f.node.id);
     const edited = await f.project.updateBufferedDraft(draft.id, 'edited', undefined, undefined, draft.revision, {});
     expect(edited.runner_node_id).toBe(f.node.id);
-    expect(f.project.inputHistory().items.find(row => row.id === draft.id).runner_node_id).toBe(f.node.id);
+    expect(f.project.inputHistory({ view: 'drafts' }).items.find(row => row.id === draft.id).runner_node_id).toBe(f.node.id);
     const before = f.store.draft(draft.id);
     for (const options of [{ runner_node_id: '' }, { mode: 'append', target_id: 1 }, { mode: 'management' }])
       await expect(f.project.updateBufferedDraft(draft.id, 'bad edit', undefined, undefined, edited.revision, options)).rejects.toThrow();
@@ -54,7 +54,7 @@ test('RPC draft reset removes placement durably, preserves revision protection a
     const legacy = { mode: 'order', conditions: [], exclusive: false };
     expect(inputOptions(f.store.draft(draft.id))).toEqual(legacy);
     expect(definitionHash(inputOptions(f.store.draft(draft.id)))).toBe(definitionHash(legacy));
-    expect(Object.hasOwn(f.project.inputHistory().items.find(row => row.id === draft.id), 'runner_node_id')).toBe(false);
+    expect(Object.hasOwn(f.project.inputHistory({ view: 'drafts' }).items.find(row => row.id === draft.id), 'runner_node_id')).toBe(false);
     const reopened = new Store(path.join(f.config.home, 'project.db'), f.root);
     try { expect(inputOptions(reopened.draft(draft.id))).toEqual(legacy); } finally { reopened.close(); }
     const kept = await rpc.dispatch('draft.update', { id: draft.id, content: 'still default', expected_revision: cleared.revision });

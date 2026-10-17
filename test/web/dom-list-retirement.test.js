@@ -98,7 +98,7 @@ test('real hash routing keeps new pure settings and conditional input alongside 
     expect(reads.every(url => url === '/api/hooks')).toBe(true);
     for (const hash of ['#hooks-emission', '#hooks-emission-history']) {
       dom.location.hash = hash; await dom.fire('hashchange');
-      expect(dom.location.hash).toBe('#inputs'); expect(dom.node('detail').querySelector('.inputs-page')).toBeTruthy();
+      expect(dom.location.hash).toBe('#drafts'); expect(ui.view.id).toBe('drafts'); expect(dom.node('detail').querySelector('.inputs-page').dataset.inputSection).toBe('drafts');
     }
     expect(writes).toHaveLength(beforeWrites);
   } finally { intercept = null; activateDetailView({ view: 'overview' }); }

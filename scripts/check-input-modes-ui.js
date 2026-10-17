@@ -11,13 +11,15 @@ const base = { created_at: '2026-10-13T00:00:00Z', status: 'running', merge_stat
 const rows = [
   { ...base, kind: 'input', mode: 'order', id: 1, task_id: 1, content: '新建原始输入' },
   { ...base, kind: 'message', mode: 'append', id: 2, task_id: 1, task_worker_number: 'W1', append_number: 'A1-1', content: '<img src=x>追加原文' },
-  { ...base, kind: 'management', mode: 'management', id: 3, task_id: 3, task_worker_number: 'V1', content: '管理 Lush 原文' }
+  { ...base, kind: 'management', mode: 'management', id: 3, task_id: 3, task_worker_number: 'V1', content: '管理 Lush 原文' },
+  { ...base, kind: 'draft', mode: 'order', id: 9, status: 'draft', content: '尚未发送的草稿，不得混入历史', revision: 1 }
 ];
 window.fetch = async (url, options = {}) => {
   const route = new URL(url, location.href), path = route.pathname.replace(/^\\/p\\/[^/]+/, '');
   if (path === '/api/inputs') {
     const modes = JSON.parse(route.searchParams.get('modes') ?? '["order","append","management"]');
-    return json({ items: rows.filter(row => modes.includes(row.mode)), next_cursor: null });
+    if (route.searchParams.get('view') !== 'history') throw Error('history must explicitly request sent scope');
+    return json({ items: rows.filter(row => row.kind !== 'draft' && modes.includes(row.mode)), next_cursor: null });
   }
   const match = /^\\/api\\/input\\/(input|message|management)\\/(\\d+)$/.exec(path);
   if (match) return json(rows.find(row => row.kind === match[1] && row.id === Number(match[2])));

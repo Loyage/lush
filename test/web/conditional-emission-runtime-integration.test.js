@@ -71,7 +71,9 @@ test('HTTP versioned append draft preserves a Message receipt and A number witho
     expect(f.store.all('SELECT body FROM messages WHERE id=?', stored.dispatch.message_id)).toEqual([{ body: 'exact final append' }]);
     await action(f, 'input.emit', { draft_id: edited.id, expected_revision: edited.revision, client_request_id: 'append-once' }); await drain(f);
     expect(f.store.all('SELECT * FROM messages')).toHaveLength(1);
-    expect((await get(f, '/api/inputs?status=sent')).items[0].dispatch.message_id).toBe(stored.dispatch.message_id);
+    const history = (await get(f, '/api/inputs?modes=%5B%22append%22%5D')).items;
+    expect(history).toMatchObject([{ kind: 'message', id: stored.dispatch.message_id, source_draft_id: draft.id }]);
+    expect((await get(f, '/api/inputs?view=drafts')).items).toHaveLength(0);
   } finally { await f.close(); }
 });
 

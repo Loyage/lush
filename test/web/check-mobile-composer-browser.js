@@ -73,7 +73,7 @@ try{
     assert(await execute(`return document.querySelector('#composer-runner-choice .runner-input-choice').getClientRects().length===0;`),`environment visible before More ${width} ${theme}`);
     await click('#composer-expand');
     assert(await execute(`return document.querySelector('#composer-runner-choice .runner-input-choice').getClientRects().length>0;`),`environment missing after More ${width} ${theme}`);
-    assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length>0&&document.querySelector('#input-history').getClientRects().length>0&&!document.querySelector('#composer-chat-open,#composer-chat-controls,#quick-chat-open');`),`editor controls not expanded or retired chat entry present ${width} ${theme}`);
+    assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length>0&&document.querySelector('#input-history').getClientRects().length>0&&document.querySelector('#input-drafts').getClientRects().length>0&&!document.querySelector('#composer-chat-open,#composer-chat-controls,#quick-chat-open');`),`editor controls not expanded or retired chat entry present ${width} ${theme}`);
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=36)});`),`clipped/small controls ${width} ${theme}`);
     await click('#composer-expand');
     console.log(`PASS focus, compact default/expanded controls, themes ${theme} ${width}x${height}`);
@@ -86,7 +86,7 @@ try{
       await execute('document.querySelector("#input").blur();window.scrollTo(0,700);');
       assert(await execute(`const r=document.querySelector('.rail-heading').getBoundingClientRect();return Math.abs(document.querySelector('#sidebar').getBoundingClientRect().top)<1&&r.height===52&&document.querySelector('#sidebar-toggle').getBoundingClientRect().right<=innerWidth;`),`header not pinned ${width} ${theme}`);
       await click('#sidebar-toggle');
-      assert(await execute(`const buttons=Array.from(document.querySelectorAll('#navigation-menu .workspace-link,#navigation-menu .nav-item')).filter(b=>b.getClientRects().length);return document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&buttons.length===7&&buttons.every(b=>{const r=b.getBoundingClientRect();return r.height===44&&r.width<=innerWidth/2&&r.left>=0&&r.right<=innerWidth;});`),`inconsistent navigation cards ${width} ${theme}`);
+      assert(await execute(`const buttons=Array.from(document.querySelectorAll('#navigation-menu .workspace-link,#navigation-menu .nav-item')).filter(b=>b.getClientRects().length);return document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&buttons.length===8&&buttons.some(b=>b.id==='drafts-open')&&buttons.some(b=>b.id==='inputs-open')&&buttons.every(b=>{const r=b.getBoundingClientRect();return r.height===44&&r.width<=innerWidth/2&&r.left>=0&&r.right<=innerWidth;});`),`inconsistent navigation cards ${width} ${theme}`);
       await execute(`const r=document.querySelector('#navigation-menu').getBoundingClientRect(),header=document.querySelector('#sidebar').getBoundingClientRect();if(Math.abs(r.top-header.bottom)>1)throw Error('menu overlaps project header');`);
       if(width===390)await Bun.write(`/tmp/w206-mobile-nav-${theme}.png`,Buffer.from(await rpc(`/session/${session}/screenshot`,undefined,'GET'),'base64'));
       for(const id of ['notices','tasks']){
@@ -98,7 +98,7 @@ try{
       await resize(width,320);
       await execute('window.page();window.space("global");window.menu();');
       const menuGeometry=await execute(`const m=document.querySelector('#navigation-menu');m.scrollTop=m.scrollHeight;return {scroll:m.scrollHeight,height:m.clientHeight,bottom:m.getBoundingClientRect().bottom,viewport:innerHeight,links:Array.from(m.querySelectorAll('.workspace-link')).filter(b=>b.getClientRects().length).length,top:document.querySelector('#sidebar').getBoundingClientRect().top};`);
-      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===8&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
+      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===10&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
       await execute('window.space("project");window.page();window.scrollTo(0,0);');
       await resize(width,height);
       console.log(`PASS pinned header, equal navigation cards, resource jumps, global scrollable menu ${theme} ${width}`);

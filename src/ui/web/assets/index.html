@@ -59,7 +59,8 @@
   </nav>
   <nav id="side-nav" class="side-nav" aria-label="工作页面" data-project-navigation></nav>
   <nav class="workspace-nav" aria-label="输入与代码演变" data-project-navigation>
-    <button type="button" id="inputs-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>历史输入</strong><small>草稿、提交状态与原文检索</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="drafts-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">▤</span><span><strong>草稿</strong><small>工作暂存、追加暂存与执行条件</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="inputs-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>历史输入</strong><small>已发送原文、批示时间与来源</small></span><span class="nav-arrow">→</span></button>
 
   </nav>
   <nav class="workspace-nav" aria-label="CLI 接口学习" data-global-navigation="true">
@@ -158,9 +159,10 @@
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
     <span class="composer-actions">
 
-      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-runner-choice composer-editor-tools composer-shortcuts" data-help="展开正文编辑、历史输入、运行设置、执行环境、父 Worker 与快捷键">⌃ 更多</button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-runner-choice composer-editor-tools composer-shortcuts" data-help="展开正文编辑、草稿、历史输入、运行设置、执行环境、父 Worker 与快捷键">⌃ 更多</button>
 
       <button type="button" id="composer-reset" class="ghost" data-help="回到新建工作模式，保留正文与引用；追加模式中输入空白且没有引用时也可按 Esc 返回。" hidden>回到新建工作</button>
+      <button type="button" id="input-drafts" class="ghost">草稿</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>
       <span class="help-host" id="input-buffer-help" data-help="保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行；不创建 Worker 或工作区，不调用 Agent。"><button type="button" id="input-buffer" data-help="保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行；不创建 Worker 或工作区，不调用 Agent。">暂存</button></span>
       <span class="help-host" id="input-send-help"><button type="submit" id="draft-commit" class="agent-call">提交指令</button></span>

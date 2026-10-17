@@ -15,6 +15,7 @@ import { attachTextEditor } from './text-editor.js';
 import { searchField } from './search-field.js';
 import { createRunnerChoice, runnerChoiceText } from './runner-choice.js';
 import { listEntry, listSurface } from './list-surface.js';
+import { registerPageLeaveGuard } from './page-leave-guard.js';
 import { inputPreviewText } from './entity-preview.js';
 import { createEmissionConditions, createEmissionWorkerPicker, dispatchText, emissionAcknowledgement, emissionRequestId } from './emission-form.js';
 
@@ -74,50 +75,61 @@ function selectField(label, values) {
   select.value = ''; field.append(select); return { field, select };
 }
 
-/** Full-library server search. Overview polling deliberately never touches this page or its editor. */
-export function openInputs({ item = null, push = true } = {}) {
-  if (ui.view?.id === 'inputs' && ui.inputsPage?.view === ui.view) {
-    const page = ui.inputsPage;
+/** Independent sent-history and deferred-draft pages share one protected editor. */
+export function openInputs({ item = null, push = true, section = item?.kind === 'draft' ? 'drafts' : 'history' } = {}) {
+  const pageId = section === 'drafts' ? 'drafts' : 'inputs', slot = section === 'drafts' ? 'draftsPage' : 'inputsPage';
+  if (ui.view?.id === pageId && ui[slot]?.view === ui.view) {
+    const page = ui[slot];
     return item ? page.openItem(item, { push }) : page.showList();
   }
-  const hash = item ? `#input-${item.kind}-${item.id}` : '#inputs';
-  const view = activateDetailView({ view: 'inputs', hash, push });
-  const page = createInputBrowser({ view, ownsPage: () => ui.view === view && ui.inputsPage === page.state });
-  ui.inputsPage = page.state; $('detail').replaceChildren(page);
+  const hash = item ? `#input-${item.kind}-${item.id}` : `#${pageId}`;
+  const view = activateDetailView({ view: pageId, hash, push });
+  const page = createInputBrowser({ view, section, ownsPage: () => ui.view === view && ui[slot] === page.state });
+  ui[slot] = page.state; $('detail').replaceChildren(page);
   const loaded = page.load();
   return item ? Promise.all([loaded, page.state.openItem(item, { push })]) : loaded;
 }
 
 /** Shared browser/editor. Embedded mode never mutates the global view, hash or detail root. */
-export function createInputBrowser({ view = null, ownsPage: owner, embedded = false, conditional, readOnly = false } = {}) {
+export function createInputBrowser({ view = null, ownsPage: owner, embedded = false, conditional, readOnly = false, section = 'history' } = {}) {
+  const drafts = !embedded && section === 'drafts', pageId = drafts ? 'drafts' : 'inputs';
   const scope = projectApi('/api/'); let disposed = false;
   const ownsPage = () => !disposed && owner() && projectApi('/api/') === scope;
-  const state = { view, request: 0, pending: null, cursor: null, detailRequest: 0, editor: null, activeItem: null, listScroll: 0, items: new Map(), emissionSources: new Map(), query: {}, modes: embedded ? null : new Set(Object.keys(INPUT_MODES)) };
+  const state = { view, request: 0, pending: null, cursor: null, detailRequest: 0, editor: null, activeItem: null, listScroll: 0, items: new Map(), emissionSources: new Map(), query: {}, modes: embedded ? null : new Set(drafts ? ['order'] : Object.keys(INPUT_MODES)) };
   const root = el('div', undefined, 'inputs-page resource-page');
   const browse = el('section', undefined, 'inputs-browse');
   const header = el('header', undefined, 'resource-hero');
-  header.append(el('span', 'INPUTS', 'resource-kicker'), el('h1', '历史输入'), el('p', '按输入模式查找工作指令、追加指令、管理指令与草稿，点开查看原文、编辑或提交草稿。'));
+  root.dataset.inputSection = embedded ? 'conditional' : section;
+  header.append(el('span', drafts ? 'DRAFTS' : 'INPUTS', 'resource-kicker'), el('h1', drafts ? '草稿' : '历史输入'),
+    el('p', drafts ? '暂缓的工作与追加输入；管理正文、去向与执行条件，实际发送后归入历史。' : '查找自己何时向项目发出了什么批示；这里只收录已创建工作、已入箱追加与已提交管理指令。'));
   const filters = el('form', undefined, 'inputs-filters resource-tools');
-  const searchControl = searchField({ label: '搜索原文', placeholder: '搜索全库输入正文', scope: embedded ? '范围：本项目全部条件输入，服务端分页检索' : '范围：项目全库新建、追加与管理指令；旧无来源证明消息及定时管理不收录', onSubmit: () => searchNow() });
+  const searchControl = searchField({ label: '搜索原文', placeholder: drafts ? '搜索暂存正文' : '搜索已发送原文', scope: embedded ? '范围：本项目全部条件输入，服务端分页检索' : drafts ? '范围：本项目当前分类的全部未发送草稿，含等待条件、准入、失败及未知授权' : '范围：本项目全部已发送新建、追加与管理指令；旧无来源证明消息及定时管理不收录', onSubmit: () => searchNow() });
   const search = searchControl.input;
-  const status = selectField('Worker 状态', INPUT_STATUS), merge = selectField('合并状态', INPUT_MERGE);
+  const draftStatuses = Object.fromEntries(Object.entries(INPUT_STATUS).filter(([key]) => ['draft','waiting_conditions','emitted','emission_failed','unknown_dispatch'].includes(key)));
+  const historyStatuses = Object.fromEntries(Object.entries(INPUT_STATUS).filter(([key]) => !['draft','waiting_conditions','emitted','sent','emission_failed','unknown_dispatch'].includes(key)));
+  const status = selectField(drafts ? '暂存状态' : 'Worker 状态', drafts ? draftStatuses : historyStatuses), merge = selectField('合并状态', INPUT_MERGE);
   status.select.value = '';
   const modeFilters = el('div', undefined, 'input-mode-filters');
-  modeFilters.setAttribute('role', 'group'); modeFilters.setAttribute('aria-label', '输入模式');
-  modeFilters.append(el('span', '输入模式', 'input-mode-label'));
+  modeFilters.setAttribute('role', 'group'); modeFilters.setAttribute('aria-label', drafts ? '暂存分类' : '输入模式');
+  modeFilters.append(el('span', drafts ? '暂存分类' : '输入模式', 'input-mode-label'));
+  const modeLabel = mode => drafts ? mode === 'append' ? '追加输入暂存' : '工作暂存' : INPUT_MODES[mode].label;
   const modeButtons = new Map();
   function paintModes() {
     for (const [mode, node] of modeButtons) {
       const selected = state.modes.has(mode), info = INPUT_MODES[mode];
-      node.textContent = `${selected ? '✓' : info.icon} ${info.label}`;
+      node.textContent = `${selected ? '✓' : info.icon} ${modeLabel(mode)}`;
       node.setAttribute('aria-pressed', String(selected)); node.classList.toggle('is-off', !selected);
-      node.setAttribute('data-help', `${selected ? '取消勾选，隐藏' : '勾选，显示'}「${info.label}」模式的历史输入；多选取并集，全不选不显示记录，不修改输入或 Worker。`);
+      if (drafts) node.removeAttribute('data-help');
+      else node.setAttribute('data-help', `${selected ? '取消勾选，隐藏' : '勾选，显示'}「${info.label}」模式的历史输入；多选取并集，全不选不显示记录，不修改输入或 Worker。`);
     }
   }
   if (!embedded) {
-    for (const [mode, info] of Object.entries(INPUT_MODES)) {
+    for (const [mode, info] of Object.entries(INPUT_MODES).filter(([mode]) => !drafts || mode !== 'management')) {
       const toggle = button('', () => {
-        if (state.modes.has(mode)) state.modes.delete(mode); else state.modes.add(mode);
+        if (drafts) {
+          if (state.modes.has(mode)) return;
+          state.modes = new Set([mode]); state.items.clear(); state.cursor = null; paintList();
+        } else if (state.modes.has(mode)) state.modes.delete(mode); else state.modes.add(mode);
         paintModes(); return searchNow();
       }, `badge input-mode-toggle b-${info.tone}`);
       toggle.dataset.mode = mode; modeButtons.set(mode, toggle); modeFilters.append(toggle);
@@ -132,13 +144,21 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   listCard.append(listHead, list);
   const detailView = el('section', undefined, 'input-detail-view'); detailView.hidden = true;
   const breadcrumb = el('div', undefined, 'breadcrumb');
-  const back = button(embedded ? '← 返回条件输入列表' : '← 返回历史输入', () => showList(), 'nav-link nav-back'); breadcrumb.append(back);
+  const back = button(embedded ? '← 返回条件输入列表' : drafts ? '← 返回草稿' : '← 返回历史输入', () => showList(), 'nav-link nav-back'); breadcrumb.append(back);
   const panel = el('section', undefined, 'input-detail resource-card'); panel.hidden = true; panel.setAttribute('aria-label', '输入原文与编辑'); panel.setAttribute('tabindex', '-1');
   detailView.append(breadcrumb, panel);
   const more = controlsButton('加载更多', () => load(true), { help: '按当前搜索和筛选条件，继续读取更早的输入记录。' }); more.node.hidden = true;
   const reload = controlsButton('刷新列表', () => load(), { className: 'ghost', help: '重新读取列表的最新状态，不会覆盖尚未保存的草稿编辑。' });
   filters.append(searchControl.root);
-  if (!embedded) filters.append(modeFilters, status.field, merge.field);
+  if (!embedded) {
+    filters.append(modeFilters);
+    if (drafts) filters.append(status.field);
+    else {
+      const advanced = el('details', undefined, 'input-advanced-filters');
+      const body = el('div', undefined, 'input-advanced-filter-body'); body.append(status.field, merge.field);
+      advanced.append(el('summary', '高级筛选'), body); filters.append(advanced);
+    }
+  }
   filters.append(reload.host);
   const pagination = el('div', undefined, 'inputs-pagination'); pagination.append(more.host);
   if (!embedded) browse.append(header);
@@ -171,8 +191,18 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     head.append(recordTime(item));
     const summary = el('span', undefined, 'input-summary');
     const openLabel = el('span', `${item.content_truncated ? '摘要已截断 · ' : ''}${label} →`, 'input-open-label');
-    summary.append(...stateBadges(item, true), openLabel);
-    row.append(head, el('span', preview, 'input-preview'), summary);
+    let draftHint = null;
+    if (drafts) {
+      const target = item.mode === 'append' ? `追加到 ${workerLabel(item.target_id, item.target_worker_number)}` : `父 ${item.branch === 'main' ? 'main' : workerLabel(item.parent_id, item.parent_worker_number)}`;
+      const definitions = item.dispatch?.conditions ?? item.conditions ?? [];
+      const conditions = definitions.map(condition => condition.kind === 'parent_quiet' ? '目标树静息' : `${workerLabel(condition.worker_id, condition.worker_number)} ${condition.kind === 'worker_merged' ? '本轮合入 main' : '安全收尾'}`);
+      const hint = el('span', `${target} · 条件：${conditions.length ? conditions.join('、') : '未设置'}${item.exclusive ? ' · 独占' : ''}`, 'input-draft-summary');
+      row.classList.add('input-draft-row'); draftHint = hint;
+      summary.append(...(item.dispatch ? stateBadges(item, true) : [el('span', '未提交', 'badge b-neutral')]), openLabel);
+    } else summary.append(...stateBadges(item, true), openLabel);
+    row.append(head, el('span', preview, 'input-preview'));
+    if (draftHint) row.append(draftHint);
+    row.append(summary);
     card.append(listEntry(row)); return card;
   }
   function rememberEmissionSource(record) {
@@ -188,14 +218,14 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   function showDetail(item, push = true) {
     if (!state.activeItem) state.listScroll = embedded ? root.scrollTop : $('detail').scrollTop;
     state.activeItem = item; browse.hidden = true; detailView.hidden = false; panel.hidden = false;
-    if (!embedded) activateDetailView({ view: 'inputs', title: recordLabel(item),
+    if (!embedded) activateDetailView({ view: pageId, title: recordLabel(item),
       hint: '完整原文与引用 · 返回列表保留搜索和已加载记录', hash: `#input-${item.kind}-${item.id}`, push });
   }
   function showList() {
     if (!ownsPage() || !state.activeItem) return state.pending ?? Promise.resolve();
     ++state.detailRequest; state.activeItem = null;
     detailView.hidden = true; panel.hidden = true; browse.hidden = false;
-    if (!embedded) { activateDetailView({ view: 'inputs' }); $('detail').scrollTop = state.listScroll; }
+    if (!embedded) { activateDetailView({ view: pageId }); $('detail').scrollTop = state.listScroll; }
     else root.scrollTop = state.listScroll;
     const row = state.editor && list.querySelector(`[data-input="${state.editor.recordKey}"]`);
     (row?.querySelector('.input-row') ?? search).focus({ preventScroll: true });
@@ -209,6 +239,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const request = ++state.request;
     const current = () => ownsPage() && request === state.request;
     const query = new URLSearchParams({ limit: '40', ...state.query, ...(conditional ? { conditional } : {}),
+      ...(!embedded ? { view: drafts ? 'drafts' : 'history' } : {}),
       ...(state.modes ? { modes: JSON.stringify(Object.keys(INPUT_MODES).filter(mode => state.modes.has(mode))) } : {}) });
     if (morePage) query.set('cursor', state.cursor);
     more.node.disabled = true; feedback.textContent = '正在读取输入…'; feedback.setAttribute('role', 'status');
@@ -251,7 +282,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const restoreRoute = () => {
       if (embedded) return;
       const previous = state.activeItem;
-      window.history.replaceState?.(null, '', previous ? `#input-${previous.kind}-${previous.id}` : '#inputs');
+      window.history.replaceState?.(null, '', previous ? `#input-${previous.kind}-${previous.id}` : `#${pageId}`);
     };
     if (!reread && state.editor?.recordKey === keyOf(item)) {
       showDetail(item, push); panel.focus({ preventScroll: true }); return;
@@ -261,6 +292,13 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       if (current()) restoreRoute(); return;
     }
     if (!current()) return;
+    if (!embedded && (item.kind === 'draft') !== drafts) {
+      await openInputs({ item, push });
+      const destination = item.kind === 'draft' ? ui.draftsPage : ui.inputsPage;
+      if (!push && destination?.view === ui.view && destination.activeItem && keyOf(destination.activeItem) === keyOf(item))
+        window.history.replaceState?.(null, '', `#input-${item.kind}-${item.id}`);
+      return;
+    }
     showDetail(item, push);
     // Keep existing editor visible until the next full record is available, including on read failure.
     const previous = state.editor, editKey = previous?.editKey?.();
@@ -277,6 +315,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       }
       if ((record.kind !== item.kind && !(item.kind === 'draft' && record.kind === 'input')) || (record.kind === item.kind && record.id !== item.id) || typeof record.content !== 'string'
         || !Array.isArray(record.references) || !Array.isArray(parents.items)) throw new Error('输入详情格式不兼容');
+      if (drafts && record.kind === 'draft' && ['order','append'].includes(record.mode) && !state.modes.has(record.mode)) {
+        state.modes = new Set([record.mode]); state.items.clear(); paintModes(); paintList(); void load();
+      }
       renderEditor(record, parents.items);
       if (!embedded) $('detail').scrollTop = 0;
       panel.focus({ preventScroll: true });
@@ -291,15 +332,28 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     let saved = record, references = [...record.references], runProfile = null;
     const mounted = record.kind === 'draft' && record.hook_mount;
     const dispatch = record.kind === 'draft' && record.dispatch;
+    if (drafts && record.kind === 'draft' && (dispatch?.state === 'succeeded' || (Number.isSafeInteger(record.input_id) && record.input_id > 0))) {
+      state.items.delete(keyOf(record)); paintList();
+    }
     const editable = !readOnly && record.kind === 'draft' && !mounted && (!dispatch || dispatch.state === 'cancelled');
     const append = record.mode === 'append';
     rememberWorkers(parents);
     state.editor?.textEditor?.dispose();
     const editor = { busy: false, dirty: () => false, recordKey: keyOf(record) }; state.editor = editor;
     const current = () => ownsPage() && state.editor === editor;
+    function appendSourceLink() {
+      const sourceId = Object.hasOwn(record, 'source_draft_id') ? record.source_draft_id : record.kind === 'input' ? state.emissionSources.get(record.id) : null;
+      if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return;
+      const source = controlsButton(`查看提交草稿 #${sourceId} · 条件与独占`, () => {
+        if (!current() || editor.busy) return;
+        return embedded ? openItem({ kind: 'draft', id: sourceId }) : openInputs({ item: { kind: 'draft', id: sourceId } });
+      }, { help: '按明确持久关联查看条件授权收据及最新独占状态；打开不调用 Agent，释放独占须另行确认。' });
+      panel.append(el('p', `此原文关联提交草稿 #${sourceId}；条件与独占以草稿最新收据为准。`, 'hint'), source.host);
+    }
     if (['message', 'management'].includes(record.kind)) {
       panel.replaceChildren(el('h2', recordLabel(record)), statusLine(record), el('pre', record.content, 'input-original'),
         el('p', record.kind === 'message' ? '追加指令原文只读；不是原始工作指令，不创建 O 编号。Worker 状态与合并状态是来源 Worker 的当前投影，不代表这条消息已处理。' : '管理指令原文只读；来自主输入框的 Valet 管理需求，不创建开发 Worker 或 O 编号。', 'hint'));
+      appendSourceLink();
       if (Number.isSafeInteger(record.task_id) && record.task_id > 0) panel.append(button(
         `查看来源 ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id), 'ghost', { worker: record.task_id }));
       return;
@@ -329,8 +383,6 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         try {
           if (!embedded && dispatch.state === 'succeeded' && Number.isSafeInteger(dispatch.input_id) && !append && !record.exclusive) {
             await openItem({ kind: 'input', id: dispatch.input_id }, { push: false, reread: true, allowBusyEditor: editor });
-            if (!embedded && ownsPage() && state.activeItem?.kind === 'input' && state.editor?.recordKey === `input:${dispatch.input_id}`)
-              window.history.replaceState?.(null, '', `#input-input-${dispatch.input_id}`);
           } else await openItem(record, { push: false, reread: true, allowBusyEditor: editor });
         } finally { editor.busy = false; refresh.node.disabled = false; }
       }); row.append(refresh.host);
@@ -373,7 +425,14 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       }
       if (Number.isSafeInteger(dispatch.worker_id)) row.append(button(`查看 Worker ${workerLabel(dispatch.worker_id, dispatch.worker_number)}`, () => detail(dispatch.worker_id), 'ghost', { worker: dispatch.worker_id }));
       if (append && Number.isSafeInteger(record.target_id)) row.append(button(`查看追加目标 ${workerLabel(record.target_id, record.target_worker_number)}`, () => detail(record.target_id), 'ghost', { worker: record.target_id }));
-      if (append && dispatch.message_id) panel.append(el('p', `追加消息 #${dispatch.message_id}${dispatch.append_number ? ` · ${dispatch.append_number}` : ''}；这是追加指令的消息记录，不另占 O 编号。`, 'hint'));
+      if (append && dispatch.message_id) {
+        panel.append(el('p', `追加消息 #${dispatch.message_id}${dispatch.append_number ? ` · ${dispatch.append_number}` : ''}；这是追加指令的消息记录，不另占 O 编号。`, 'hint'));
+        if (!embedded && dispatch.state === 'succeeded' && Number.isSafeInteger(dispatch.message_id) && dispatch.message_id > 0)
+          row.append(controlsButton('查看已入箱追加原文', () => {
+            if (!current() || editor.busy) return;
+            return openItem({ kind: 'message', id: dispatch.message_id });
+          }).host);
+      }
       return;
     }
     if (mounted) {
@@ -428,16 +487,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
     if (editable) { content.value = record.content; content.rows = 10; content.maxLength = 32000; content.setAttribute('aria-label', '草稿正文'); }
     panel.append(content);
-    const sourceId = record.kind === 'input' ? state.emissionSources.get(record.id) : null;
-    if (Number.isSafeInteger(sourceId) && sourceId > 0) {
-      const source = controlsButton(`查看提交草稿 #${sourceId} · 条件与独占`, async () => {
-        if (!current() || editor.busy) return;
-        editor.busy = true; source.node.disabled = true;
-        try { await openItem({ kind: 'draft', id: sourceId }, { reread: true, allowBusyEditor: editor }); }
-        finally { editor.busy = false; if (current()) source.node.disabled = false; }
-      }, { help: '按已知的真实关联重新读取提交草稿与最新版本，检查条件、独占状态及安全释放；只读，不调用 Agent。' });
-      panel.append(el('p', `此原文关联提交草稿 #${sourceId}。独占是否仍有效以草稿最新状态为准，不从已创建或 Worker 状态推断。`, 'hint'), source.host);
-    }
+    appendSourceLink();
     if (editable) {
       editor.textEditor = attachTextEditor(content, { onChange: () => syncSave() });
       panel.append(editor.textEditor.controls);
@@ -471,7 +521,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       mode: append ? 'append' : 'order', ownsPage: current, onChange: () => syncSave() }) : null;
     if (conditionsForm) {
       conditionsForm.node.id = `draft-conditions-${record.id}`;
-      conditionsForm.node.hidden = true;
+      conditionsForm.node.hidden = !drafts;
     }
     const refs = el('div', undefined, 'input-references'); panel.append(refs);
     const mutating = [], referenceControls = [];
@@ -554,7 +604,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         profile.node.textContent = runProfile ? `运行设置：${runProfile.config_mode === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}` : '运行设置：提交时固定默认';
         message.textContent = '运行参数只保留在本页，提交时才写入；普通“保存”只保存草稿正文、明确目标、条件和引用。';
       }, { className: 'ghost', help: '编辑本次工作指令的完整运行参数，不调用 Agent，不读取既有挂载的私有参数。只在提交时随授权保存，不写入草稿。' });
-      mutating.push(profile.node); secondaryActions.append(profile.host);
+      mutating.push(profile.node);
+      const runtime = el('details', undefined, 'input-runtime-settings'); runtime.append(el('summary', '运行参数'), profile.host);
+      secondaryActions.append(runtime);
     }
     function setBusy(busy) {
       editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; editor.textEditor.sync(); conditionsForm?.setBusy(busy); appendTarget?.setBusy(busy); runner?.setBusy(busy); }
@@ -640,10 +692,11 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         conditionsForm.node.hidden = !conditionsForm.node.hidden;
         conditionsToggle.node.setAttribute('aria-expanded', String(!conditionsForm.node.hidden));
       }, { className: 'ghost', help: '展开或收起这条草稿的执行条件与独占选项；不提交、不调用 Agent，收起保留设置。' });
-      conditionsToggle.node.setAttribute('aria-expanded', 'false');
+      conditionsToggle.node.setAttribute('aria-expanded', String(drafts));
       conditionsToggle.node.setAttribute('aria-controls', conditionsForm.node.id);
       mutating.push(conditionsToggle.node); submitActions.append(conditionsToggle.host);
-      panel.append(conditionsForm.node);
+      if (drafts) panel.insertBefore(conditionsForm.node, refs);
+      else panel.append(conditionsForm.node);
       paintParent(); syncSave();
       panel.onkeydown = event => {
         if (!current() || panel.hidden || !state.activeItem || event.defaultPrevented
@@ -655,7 +708,17 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     }
     if (record.task_id) actions.append(button(`查看 Worker ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id), undefined, { worker: record.task_id }));
   }
+  const leaveGuard = embedded ? null : registerPageLeaveGuard(async target => {
+    if (!ownsPage()) return true;
+    const samePage = drafts ? target === '#drafts' || /^#input-draft-/.test(target) : target === '#inputs' || /^#input-(input|message|management)-/.test(target);
+    if (samePage) return true;
+    if (state.editor?.busy) return false;
+    return !state.editor?.dirty() || await confirmDialog({ title: '放弃尚未保存的编辑？', message: '离开草稿页会丢弃本地编辑；服务器上保存的草稿不变。', confirmLabel: '放弃编辑', danger: true });
+  }, { stay: () => {
+    if (ownsPage()) window.history.replaceState?.(null, '', state.activeItem ? `#input-${state.activeItem.kind}-${state.activeItem.id}` : `#${pageId}`);
+    return false;
+  } });
   root.state = state; root.load = load;
-  root.dispose = () => { disposed = true; ++state.request; ++state.detailRequest; state.editor?.textEditor?.dispose(); panel.onkeydown = null; };
+  root.dispose = () => { leaveGuard?.(); disposed = true; ++state.request; ++state.detailRequest; state.editor?.textEditor?.dispose(); panel.onkeydown = null; };
   return root;
 }

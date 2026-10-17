@@ -30,7 +30,7 @@ export const ui = {
   agentStatusPage: null, // 页面与查询身份；仅进入 Agent 状态和手动刷新时取数。
   versionsPage: null, // main 历史固定 tip、分页与请求身份；仅显式读取。
   disposeServiceRestart: null, // 项目管理代际结束时取消只读批次观测，不撤销已接受请求。
-  inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
+  inputsPage: null, draftsPage: null, // 已发送历史与未发送草稿各自分页；不受 overview 轮询影响。
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
   automationPage: null, disposeProjectAutomation: null,
   valetSettingsPage: null, disposeValetSettings: null,
@@ -97,7 +97,7 @@ export function resetUiState() {
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;
   ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.automationPage = null;
   ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.valetSettingsPage = null;
-  ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
+  ui.view = null; ui.inputsPage = null; ui.draftsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerManagement = false; ui.composerManagementProfile = null; ui.composerManagementResult = null; ui.composerConditions = []; ui.composerExclusive = false;
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;

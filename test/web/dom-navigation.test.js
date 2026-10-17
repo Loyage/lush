@@ -94,7 +94,7 @@ test('项目所有全局入口都在独立根标签打开，保留输入、选�
 });
 
 const navEntries = () => [
-  ...['overview', 'task-graph', 'inputs', 'hooks', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'inputs', 'drafts', 'hooks', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
 const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id === 'hook-tools' ? 'hooks-commands' : id}`;
@@ -121,7 +121,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       if (ui.indexOpen) expect(dom.node(`side-${id}`).hidden).toBe(false);
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
-    for (const id of ['task-graph', 'inputs', 'hooks', 'notices', 'tasks', 'valets', 'overview']) {
+    for (const id of ['task-graph', 'inputs', 'drafts', 'hooks', 'notices', 'tasks', 'valets', 'overview']) {
       dom.location.hash = routeHash(id);
       await dom.fire('hashchange');
       expectSelected(id);

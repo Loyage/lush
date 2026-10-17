@@ -38,7 +38,9 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     if (path === '/api/inputs') {
       const q = route.searchParams.get('q') ?? '', status = route.searchParams.get('status'), merge = route.searchParams.get('integration');
       const modes = JSON.parse(route.searchParams.get('modes') ?? '["order","append","management"]');
-      return json({ items: rows.filter(row => modes.includes(row.mode) && row.content.includes(q) && (!status || row.status === status) && (!merge || row.merge_status === merge)), next_cursor: modes.length ? pageCursor : null });
+      const drafts = route.searchParams.get('view') === 'drafts';
+      const selected = rows.filter(row => drafts ? row.kind === 'draft' && !row.input_id && row.dispatch?.state !== 'succeeded' : row.kind !== 'draft');
+      return json({ items: selected.filter(row => modes.includes(row.mode) && row.content.includes(q) && (!status || row.status === status) && (!merge || row.merge_status === merge)), next_cursor: modes.length ? pageCursor : null });
     }
     const [, kind, id] = /\/api\/input\/(draft|input|message|management)\/(\d+)/.exec(path);
     return json(rows.find(row => row.kind === kind && row.id === Number(id)));
@@ -51,7 +53,9 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body?.method === 'worker.hook_remove') { calls.push(body); return intercept?.(path, body, route) || json({ version: 1, revision: 'hooks-v2', mounts: [] }); }
   return world.fetchImpl(url, options);
 } });
-const { openInputs } = await import('../../src/ui/web/assets/render-inputs.js');
+const { openInputs: openHistory } = await import('../../src/ui/web/assets/render-inputs.js');
+// Draft editor regressions exercise the real drafts route, never mixed history fixtures.
+const openInputs = options => openHistory({ ...(!options?.item ? { section: 'drafts' } : {}), ...options });
 const { createEmissionConditions } = await import('../../src/ui/web/assets/emission-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
@@ -61,8 +65,14 @@ await boot();
 const root = () => dom.node('detail');
 const text = () => deepText(root());
 const panel = () => root().querySelector('.input-detail');
-const btn = (label, parent = root()) => [...parent.querySelectorAll('button'), ...parent.querySelectorAll('a')].find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
-const openDraft = () => btn('查看草稿与提交状态').onclick();
+const btn = (label, parent = root()) => [...parent.querySelectorAll('button'), ...parent.querySelectorAll('a')].find(node => node.textContent === label || (label === '← 返回历史输入' && node.textContent === '← 返回草稿') || node.getAttribute('aria-label')?.endsWith(`：${label}`));
+const openDraft = async () => {
+  if (ui.view.id !== 'drafts') await openInputs();
+  const draft = rows.find(row => row.kind === 'draft');
+  if (draft?.mode === 'append' && form().querySelector('[data-mode="append"]').getAttribute('aria-pressed') !== 'true') await form().querySelector('[data-mode="append"]').onclick();
+  const entry = btn('查看草稿与提交状态');
+  return entry ? entry.onclick() : openInputs({ item: { kind: 'draft', id: draft.id } });
+};
 // Module loading may need an event-loop turn before the confirmation appears.
 // Wait for the explicit UI condition, not an arbitrary sleep or an unresolved navigation promise.
 const readyDialogButton = async label => {
@@ -93,15 +103,16 @@ test('已发射却缺少dispatch或版本的草稿保守只读，不提供重复
   }
 });
 
-test('发射读面的五种新增状态都可显式筛选，不退回未知或当前Worker状态', async () => {
-  const statuses = { waiting_conditions: '已提交 · 等待条件', emitted: '已提交 · 等待准入', sent: '追加指令已入箱', emission_failed: '提交后投递失败', unknown_dispatch: '投递结果待核验' };
+test('草稿仅筛选未发送授权状态，成功追加不留草稿选项', async () => {
+  const statuses = { waiting_conditions: '已提交 · 等待条件', emitted: '已提交 · 等待准入', emission_failed: '提交后投递失败', unknown_dispatch: '投递结果待核验' };
   rows = Object.keys(statuses).map((status, index) => fixture('draft', index + 1, { status, content: `输入${index}` }));
   await openInputs();
   for (const [status, label] of Object.entries(statuses)) {
     const option = form().querySelector('select').children.find(node => node.value === status); expect(option.textContent).toBe(label);
     await selectStatus(status); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('status')).toBe(status);
-    expect(deepText(root().querySelector('.input-record'))).toContain(label);
+    expect(form().querySelector('select').children.some(node => node.value === 'sent')).toBe(false);
+    expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('view')).toBe('drafts');
   }
 });
 
@@ -121,12 +132,13 @@ test('未提交关键词不因即时筛选、刷新或分页生效，IME 不提�
   expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('q')).toBe('');
 });
 
-test('工作导航 #inputs、输入区入口、独立状态与只读原文，轮询不覆盖编辑', async () => {
+test('独立历史与草稿导航、输入区入口、只读原文，轮询不覆盖草稿编辑', async () => {
   await dom.node('inputs-open').onclick();
   expect(dom.location.hash).toBe('#inputs'); expect(dom.node('inputs-open').getAttribute('aria-current')).toBe('page');
   expect(dom.node('view-context').textContent).toBe('工作');
   expect(form().querySelector('select').value).toBe('');
-  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['draft:1', 'input:2']);
+  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['input:2']);
+  expect(root().querySelector('.input-advanced-filters').open).not.toBe(true);
   await selectStatus('');
   expect(root().querySelector('[aria-label="Worker 状态：待验收"]')).toBeTruthy(); expect(root().querySelector('[aria-label="合并状态：已合并"]')).toBeTruthy();
   await btn('查看原文').onclick(); expect(panel().querySelector('textarea')).toBe(null); expect(deepText(panel())).toContain('已发送原文只读');
@@ -134,14 +146,19 @@ test('工作导航 #inputs、输入区入口、独立状态与只读原文，轮
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
   expect(editor()).toBe(node); expect(node.value).toBe('还没保存'); expect(reads.length).toBe(before);
   await btn('刷新列表').onclick(); expect(editor()).toBe(node); expect(node.value).toBe('还没保存');
-  dom.location.hash = '#workers'; await dom.fire('hashchange');
-  await dom.node('input-history').onclick(); expect(dom.location.hash).toBe('#inputs');
-  expect(form().querySelector('select').value).toBe('');
-  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['draft:1', 'input:2']);
+  const leaving = dom.node('input-history').onclick();
+  await (await readyDialogButton('取消')).onclick(); await leaving;
+  expect(editor()).toBe(node); expect(editor().value).toBe('还没保存'); expect(dom.location.hash).toBe('#input-draft-1');
+  const accepted = dom.node('input-history').onclick(); await (await readyDialogButton('放弃编辑')).onclick(); await accepted;
+  expect(dom.location.hash).toBe('#inputs'); expect(dom.node('inputs-open').getAttribute('aria-current')).toBe('page');
+  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['input:2']);
+  await dom.node('input-drafts').onclick(); expect(dom.location.hash).toBe('#drafts');
+  expect(dom.node('drafts-open').getAttribute('aria-current')).toBe('page');
+  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['draft:1']);
 });
 
-test('默认全部状态用于搜索、刷新和分页，主动切换后保留筛选，重新进页恢复全部', async () => {
-  pageCursor = 'next'; await openInputs();
+test('历史默认全部状态用于搜索、刷新和分页，主动切换后保留筛选，重新进页恢复全部', async () => {
+  pageCursor = 'next'; await openHistory();
   expect(new URL(reads[0], 'http://localhost').searchParams.has('status')).toBe(false);
   await btn('刷新列表').onclick(); await btn('加载更多').onclick();
   form().querySelector('input').value = '想法'; await form().onsubmit({ preventDefault() {} });
@@ -150,30 +167,30 @@ test('默认全部状态用于搜索、刷新和分页，主动切换后保留�
   await form().querySelector('input').listeners.input[0]();
   await selectStatus('awaiting_acceptance');
   expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['input:2']);
-  await btn('查看原文').onclick(); await btn('← 返回历史输入').onclick(); await openInputs();
+  await btn('查看原文').onclick(); await btn('← 返回历史输入').onclick(); await openHistory();
   expect(form().querySelector('select').value).toBe('awaiting_acceptance');
   await selectStatus('');
   expect(new URL(reads.at(-1), 'http://localhost').searchParams.has('status')).toBe(false);
-  expect(root().querySelectorAll('.input-record')).toHaveLength(2);
+  expect(root().querySelectorAll('.input-record')).toHaveLength(1);
   activateDetailView({ view: 'overview' }); rows = [fixture('input', 2)];
-  await openInputs();
+  await openHistory();
   expect(form().querySelector('select').value).toBe('');
   expect(root().querySelectorAll('.input-record')).toHaveLength(1);
-  await selectStatus('draft'); expect(text()).toContain('没有符合条件的输入');
+  expect(form().querySelector('select').children.some(option => option.value === 'draft')).toBe(false);
 });
 
 test('三种色块独立多选、全不选为空；搜索刷新分页保留模式，未提交关键词不应用', async () => {
   rows.push(fixture('draft', 3, { mode: 'append' }), fixture('message', 4, { append_number: 'A2-1' }), fixture('management', 5));
-  pageCursor = 'next'; await openInputs();
+  pageCursor = 'next'; await openHistory();
   const mode = value => form().querySelector(`[data-mode="${value}"]`);
-  expect(root().querySelectorAll('.input-record')).toHaveLength(5);
+  expect(root().querySelectorAll('.input-record')).toHaveLength(3);
   for (const value of ['order', 'append', 'management']) {
     expect(mode(value).getAttribute('aria-pressed')).toBe('true');
     expect(mode(value).getAttribute('data-help')).toContain('不修改');
   }
   form().querySelector('input').value = '未提交';
   await mode('order').onclick();
-  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['draft:3', 'message:4', 'management:5']);
+  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['message:4', 'management:5']);
   expect(mode('order').classList.contains('is-off')).toBe(true);
   await mode('management').onclick();
   await btn('刷新列表').onclick(); await btn('加载更多').onclick();
@@ -186,14 +203,14 @@ test('三种色块独立多选、全不选为空；搜索刷新分页保留模�
   form().querySelector('input').value = ''; await form().onsubmit({ preventDefault() {} });
   await btn('查看原文').onclick(); await btn('← 返回历史输入').onclick();
   expect(mode('management').getAttribute('aria-pressed')).toBe('true'); expect(mode('append').getAttribute('aria-pressed')).toBe('false');
-  activateDetailView({ view: 'overview' }); await openInputs();
-  expect(root().querySelectorAll('.input-record')).toHaveLength(5);
+  activateDetailView({ view: 'overview' }); await openHistory();
+  expect(root().querySelectorAll('.input-record')).toHaveLength(3);
 });
 
 test('追加与管理使用真实编号、只读安全正文和来源跳转；新深链接由 app 路由打开', async () => {
   rows = [fixture('message', 4, { append_number: 'A2-1', task_id: 20, task_worker_number: 'W2', content: '<img src=x>用户追加' }),
     fixture('management', 5, { task_id: 5, task_worker_number: 'V3', content: '管理原文' }), fixture('message', 6, { task_id: 20, append_number: null })];
-  await openInputs();
+  await openHistory();
   expect(text()).toContain('追加指令 A2-1'); expect(text()).toContain('管理指令 V3'); expect(text()).toContain('消息 #6');
   expect(form().querySelector('[data-mode="order"]').textContent).toContain('新建工作');
   for (const [key, content] of [['message:4', '追加指令'], ['management:5', '管理指令']]) {
@@ -222,7 +239,7 @@ test('追加与管理使用真实编号、只读安全正文和来源跳转；�
 });
 
 test('模式变化作废旧分页与旧模式响应，离页读取不能回写', async () => {
-  pageCursor = 'next'; rows.push(fixture('management', 5)); await openInputs();
+  pageCursor = 'next'; rows.push(fixture('management', 5)); await openHistory();
   const stale = deferred(); intercept = (path, _body, route) => path === '/api/inputs' && route.searchParams.has('cursor') ? stale.promise : null;
   const more = btn('加载更多').onclick(); await form().querySelector('[data-mode="order"]').onclick();
   stale.resolve(json({ items: [fixture('input', 99, { content: '过时新建' })], next_cursor: 'old' })); await more;
@@ -233,9 +250,9 @@ test('模式变化作废旧分页与旧模式响应，离页读取不能回写',
 });
 
 test('紧凑条目只有一个详情入口，等高摘要不内嵌操作或引用，沿用资源页样式', async () => {
-  rows = [fixture('draft', 1, { content: '短句' }), fixture('input', 2, { content: '\n\n' + '长段落\n'.repeat(200), content_truncated: true }),
+  rows = [fixture('input', 1, { content: '短句' }), fixture('input', 2, { content: '\n\n' + '长段落\n'.repeat(200), content_truncated: true }),
     fixture('input', 3, { content: '', status: 'missing', merge_status: 'missing' })];
-  await openInputs(); await selectStatus('');
+  await openHistory(); await selectStatus('');
   expect(root().querySelector('.resource-hero')).toBeTruthy(); expect(root().querySelector('.resource-tools')).toBeTruthy();
   const cards = root().querySelectorAll('.input-record');
   expect(cards.map(card => card.querySelectorAll('.input-row').length)).toEqual([1, 1, 1]);
@@ -258,7 +275,7 @@ test('独立详情与返回保留筛选、分页、滚动和未保存编辑，�
   expect(document.activeElement).toBe(panel());
   editor().value = '未保存的本地编辑'; const node = editor(), before = reads.length;
   await btn('← 返回历史输入').onclick();
-  expect(dom.location.hash).toBe('#inputs'); expect(root().querySelector('.inputs-browse').hidden).toBe(false);
+  expect(dom.location.hash).toBe('#drafts'); expect(root().querySelector('.inputs-browse').hidden).toBe(false);
   expect(root().querySelector('.input-detail-view').hidden).toBe(true); expect(panel().hidden).toBe(true);
   expect(form().querySelector('input')).toBe(search); expect(search.value).toBe('想法'); expect(reads.length).toBe(before);
   expect(root().scrollTop).toBe(240); expect(document.activeElement).toBe(record.querySelector('button')); expect(btn('加载更多').hidden).toBe(false);
@@ -271,8 +288,9 @@ test('详情深链接、浏览器后退与迟到读取，切换草稿取消时�
   expect(deepText(panel())).toContain('原始指令 O2'); expect(panel().hidden).toBe(false);
   dom.location.hash = '#inputs'; await dom.fire('hashchange'); expect(panel().hidden).toBe(true);
   const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
-  const opening = openDraft(); await btn('← 返回历史输入').onclick();
-  late.resolve(json(fixture())); await opening; expect(panel().hidden).toBe(true); expect(dom.location.hash).toBe('#inputs');
+  await openInputs();
+  const opening = openDraft(); await until(() => dom.location.hash === '#input-draft-1'); await btn('← 返回历史输入').onclick();
+  late.resolve(json(fixture())); await opening; expect(panel().hidden).toBe(true); expect(dom.location.hash).toBe('#drafts');
   intercept = null; await openDraft(); editor().value = '不丢弃';
   dom.location.hash = '#input-input-2'; const switching = dom.fire('hashchange');
   await (await readyDialogButton('取消')).onclick(); await switching;
@@ -283,7 +301,7 @@ test('详情深链接、浏览器后退与迟到读取，切换草稿取消时�
 });
 
 test('正文全库搜索与状态/合并筛选发到服务端，游标分页与失败重试', async () => {
-  pageCursor = 'cursor +/opaque'; await openInputs(); await selectStatus('');
+  pageCursor = 'cursor +/opaque'; await openHistory(); await selectStatus('');
   const next = deferred(); let count = 0;
   intercept = (path, _body, route) => {
     if (path !== '/api/inputs') return;
@@ -293,7 +311,7 @@ test('正文全库搜索与状态/合并筛选发到服务端，游标分页与�
   const a = btn('加载更多').onclick(), b = btn('加载更多').onclick(); expect(count).toBe(1);
   expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('cursor')).toBe(pageCursor);
   next.resolve(json({ items: [fixture('input', 9, { content: '更早的记录' })], next_cursor: null })); await Promise.all([a, b]);
-  expect(root().querySelectorAll('.input-record')).toHaveLength(3);
+  expect(root().querySelectorAll('.input-record')).toHaveLength(2);
   intercept = null; pageCursor = null;
   form().querySelector('input').value = '原始输入'; const selects = form().querySelectorAll('select');
   selects[0].value = 'awaiting_acceptance'; selects[1].value = 'merged'; await form().onsubmit({ preventDefault() {} });
@@ -330,7 +348,7 @@ test('发射先保存再以新版本挂载，ACK 不冒充已创建，实际成�
   expect(dom.location.hash).toBe('#input-draft-1'); expect(editor()).toBeNull(); expect(deepText(panel())).toContain('新正文');
   expect(deepText(panel())).toContain('当时所见'); expect(deepText(panel())).toContain('不代表 Worker 已创建');
   rows[0].dispatch = { state: 'succeeded', input_id: 3, worker_id: 33, worker_number: 'W33' };
-  rows.unshift(fixture('input', 3, { content: '新正文', task_id: 33, task_worker_number: 'W33', status: 'queued' }));
+  rows.unshift(fixture('input', 3, { content: '新正文', task_id: 33, task_worker_number: 'W33', status: 'queued', source_draft_id: 1 }));
   await btn('刷新提交状态').onclick(); expect(deepText(panel())).toContain('已投递');
   await btn('刷新提交状态').onclick();
   expect(dom.location.hash).toBe('#input-input-3'); expect(text()).toContain('原始指令 O3');
@@ -397,7 +415,7 @@ test('删除草稿走应用内确认，取消无动作、确认单飞且使用�
   const removed = btn('删除草稿', panel()).onclick(); await btn('删除草稿', panel()).onclick();
   await dialogButton(dom, '删除草稿').onclick(); await removed;
   expect(calls).toEqual([{ method: 'draft.remove', params: { id: 1, expected_revision: 3 } }]);
-  expect(text()).toContain('草稿已删除'); expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['input:2']);
+  expect(text()).toContain('草稿已删除'); expect(root().querySelectorAll('.input-record')).toHaveLength(0);
 });
 
 test('列表查询/详情迟到响应与离页返回身份保护；切换期间新编辑不覆盖', async () => {
@@ -405,13 +423,15 @@ test('列表查询/详情迟到响应与离页返回身份保护；切换期间�
   const old = openInputs(); activateDetailView({ view: 'settings' }); root().replaceChildren(document.createTextNode('设置页')); pending.resolve(json({ items: rows, next_cursor: null })); await old;
   expect(text()).toBe('设置页');
   intercept = null; await openInputs(); await selectStatus('');
+  rows.push(fixture('draft', 9, { content: '第二条未发送想法' })); await btn('刷新列表').onclick();
+  const second = () => root().querySelector('[data-input="draft:9"]').querySelector('button');
   const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
-  const opening = openDraft(); await btn('查看原文').onclick(); late.resolve(json(fixture())); await opening;
-  expect(deepText(panel())).toContain('原始指令 O2'); expect(editor()).toBe(null);
+  const opening = openDraft(); await second().onclick(); late.resolve(json(fixture())); await opening;
+  expect(editor().value).toBe('第二条未发送想法');
   intercept = null; await openDraft();
-  const pendingSwitch = deferred(); intercept = path => path === '/api/input/input/2' ? pendingSwitch.promise : null;
-  const loading = btn('查看原文').onclick(); editor().value = '请求期间的新编辑';
-  pendingSwitch.resolve(json(fixture('input', 2))); await loading;
+  const pendingSwitch = deferred(); intercept = path => path === '/api/input/draft/9' ? pendingSwitch.promise : null;
+  const loading = second().onclick(); editor().value = '请求期间的新编辑';
+  pendingSwitch.resolve(json(rows.find(row => row.id === 9))); await loading;
   expect(editor().value).toBe('请求期间的新编辑'); expect(deepText(panel())).toContain('未覆盖当前编辑');
 });
 
@@ -419,7 +439,7 @@ test('新搜索作废旧分页，项目路由前缀不丢；详情父列表失�
   dom.location.pathname = '/p/0123456789abcdef/'; pageCursor = 'next'; await openInputs(); await selectStatus('');
   expect(dom.requests.filter(row => row.path.includes('/api/inputs')).at(-1).path).toContain('/p/0123456789abcdef/api/inputs');
   const stale = deferred(); intercept = (path, _body, route) => path === '/api/inputs' && route.searchParams.has('cursor') ? stale.promise : null;
-  const more = btn('加载更多').onclick(); form().querySelector('input').value = '原始输入'; await form().onsubmit({ preventDefault() {} });
+  const more = btn('加载更多').onclick(); form().querySelector('input').value = '想法'; await form().onsubmit({ preventDefault() {} });
   stale.resolve(json({ items: [fixture('input', 88, { content: '过时分页' })], next_cursor: null })); await more;
   expect(text()).not.toContain('过时分页'); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
   form().querySelector('input').value = ''; await form().onsubmit({ preventDefault() {} });
@@ -487,7 +507,7 @@ test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最�
 });
 
 test('O 编号原生链接保留新标签手势，直接深链接不受暂存筛选限制且不执行写动作', async () => {
-  await openInputs(); await selectStatus('');
+  await openHistory(); await selectStatus('');
   const link = btn('查看原文'); expect(link.tagName).toBe('A'); expect(link.getAttribute('href')).toBe('#input-input-2');
   let prevented = 0; const before = reads.length;
   for (const gesture of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }])
@@ -552,7 +572,7 @@ test('返回列表和刷新保留同一正文历史，离页重开或切换原�
   expect(editor()).not.toBe(node); expect(editor().value).toBe('服务端新正文');
   expect(btn('撤销').disabled).toBe(true); expect(btn('重做').disabled).toBe(true);
   await undo.onclick(); expect(node.value).toBe('尚未执行的想法'); expect(editor().value).toBe('服务端新正文');
-  await selectStatus(''); await btn('查看原文').onclick(); expect(panel().querySelector('.text-editor-controls')).toBeNull();
+  await openHistory({ item: { kind: 'input', id: 2 } }); expect(panel().querySelector('.text-editor-controls')).toBeNull();
 });
 
 test('历史编辑输入法确认分组且正文键盘撤销不发射请求', async () => {
@@ -617,7 +637,7 @@ test('保存快捷键忽略输入法和其他组合，普通 Enter 与发射组�
   editorEvent(editor(), 'compositionend'); expect(btn('保存').disabled).toBe(false);
   saveKey(); await until(() => !editor().disabled);
   expect(calls.map(call => call.method)).toEqual(['draft.update']);
-  await selectStatus(''); await btn('查看原文').onclick(); expect(saveKey().defaultPrevented).toBe(false);
+  await openHistory({ item: { kind: 'input', id: 2 } }); expect(saveKey().defaultPrevented).toBe(false);
 });
 
 test('发射 ACK 后状态读取失败保持锁定原文与引用，不重提成功请求', async () => {
@@ -637,7 +657,7 @@ test('发射后迟到状态读取不能把返回列表或离页用户拉回来',
   const loading = btn('刷新提交状态').onclick(); await until(() => reads.filter(path => path.endsWith('/api/input/draft/1')).length === 2);
   expect(editor()).toBeNull(); await btn('← 返回历史输入').onclick();
   late.resolve(json(rows[0])); await loading;
-  expect(dom.location.hash).toBe('#inputs'); expect(panel().hidden).toBe(true); expect(calls.map(call => call.method)).toEqual(['input.emit']);
+  expect(dom.location.hash).toBe('#drafts'); expect(panel().hidden).toBe(true); expect(calls.map(call => call.method)).toEqual(['input.emit']);
 });
 
 test('追加草稿保持真实目标、暂存版本和条件，不造 O 或静默改投父', async () => {
@@ -655,7 +675,7 @@ test('追加草稿保持真实目标、暂存版本和条件，不造 O 或静�
 
 test('多个条件与独占保存同一版本，Worker 目录分页和编号使用真实身份', async () => {
   await openInputs(); await openDraft(); const conditions = panel().querySelector('.emission-conditions');
-  await btn('执行条件设置').onclick(); expect(conditions.hidden).toBe(false);
+  expect(conditions.hidden).toBe(false);
   let pages = 0; intercept = (path, _body, route) => path === '/api/workers' ? (++pages === 1
     ? json({ tasks: [{ id: 903, worker_number: 'W230', goal: '第一份' }], has_more: true, cursor: 900 })
     : json({ tasks: [{ id: 203, worker_number: 'W17', goal: '更早重构' }], has_more: false })) : null;
@@ -673,6 +693,39 @@ test('多个条件与独占保存同一版本，Worker 目录分页和编号使�
   expect(editor()).toBeNull(); expect(deepText(panel())).toContain('W17');
 });
 
+test('草稿分类互斥、摘要常显，切换作废旧分页且不应用未提交关键词', async () => {
+  rows.push(fixture('draft', 3, { mode: 'append', target_id: 777, target_worker_number: 'W27', conditions: [{ kind: 'worker_merged', worker_id: 41, worker_number: 'W19' }], dispatch: { state: 'waiting_conditions' } }));
+  pageCursor = 'order-next'; await openInputs();
+  const mode = value => form().querySelector(`[data-mode="${value}"]`);
+  expect(mode('order').getAttribute('aria-pressed')).toBe('true'); expect(mode('append').getAttribute('aria-pressed')).toBe('false');
+  expect(form().querySelector('[data-mode="management"]')).toBeNull(); expect(form().querySelectorAll('select')).toHaveLength(1);
+  expect(text()).toContain('父 main · 条件：未设置');
+  const stale = deferred(); intercept = (path, _body, url) => path === '/api/inputs' && url.searchParams.has('cursor') ? stale.promise : null;
+  const more = btn('加载更多').onclick(); form().querySelector('input').value = '尚未提交的新关键词';
+  await mode('append').onclick();
+  expect(mode('order').getAttribute('aria-pressed')).toBe('false'); expect(mode('append').getAttribute('aria-pressed')).toBe('true');
+  let query = new URL(reads.at(-1), 'http://localhost').searchParams;
+  expect(query.get('view')).toBe('drafts'); expect(JSON.parse(query.get('modes'))).toEqual(['append']); expect(query.get('q')).toBe(''); expect(query.has('cursor')).toBe(false);
+  stale.resolve(json({ items: [fixture('draft', 99, { content: '过时工作分类' })], next_cursor: 'stale' })); await more;
+  expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['draft:3']);
+  expect(text()).toContain('追加到 W27 · 条件：W19 本轮合入 main'); expect(text()).toContain('等待条件'); expect(text()).not.toContain('过时工作分类');
+  const count = reads.length; await mode('append').onclick(); expect(reads).toHaveLength(count);
+});
+
+test('追加成功从草稿列表移除，真实消息和源草稿往返始终只读，不伪造 O 或已处理', async () => {
+  rows[0] = fixture('draft', 1, { mode: 'append', target_id: 777, target_worker_number: 'W27', references: [] });
+  await openInputs(); await openDraft(); await btn('提交追加').onclick();
+  rows[0].dispatch = { state: 'succeeded', message_id: 8, append_number: 'A27-4', worker_id: 777 };
+  rows.push(fixture('message', 8, { content: '真实已入箱正文', append_number: 'A27-4', task_id: 777, task_worker_number: 'W27', source_draft_id: 1 }));
+  await btn('刷新提交状态').onclick(); expect(root().querySelectorAll('.input-record')).toHaveLength(0);
+  await btn('查看已入箱追加原文').onclick();
+  expect(ui.view.id).toBe('inputs'); expect(dom.location.hash).toBe('#input-message-8'); expect(editor()).toBeNull();
+  expect(text()).toContain('真实已入箱正文'); expect(text()).toContain('不代表这条消息已处理'); expect(text()).not.toContain('O8');
+  await btn('查看提交草稿 #1 · 条件与独占').onclick();
+  expect(ui.view.id).toBe('drafts'); expect(dom.location.hash).toBe('#input-draft-1'); expect(editor()).toBeNull();
+  expect(calls.map(call => call.method)).toEqual(['input.emit']);
+});
+
 const mainChild = (id, extra = {}) => ({ id, parent_id: 42, worker_number: `W${id + 500}`, task_kind: 'order', status: 'running', integration: 'none', ...extra });
 const mainParents = () => json({ items: [{ id: 42, branch: 'main' }, { id: 900, branch: 'feature/old' }] });
 const childPage = (items, has_more = false) => json({ children: { items, has_more, cursor: items.at(-1)?.id ?? 0 } });
@@ -682,7 +735,7 @@ test('快捷导入完整 main 直接子项分页，不限运行状态，保留�
   const initial = [{ kind: 'worker_settled', worker_id: 102 }, { kind: 'worker_merged', worker_id: 104 }, { kind: 'parent_quiet' }];
   rows[0].conditions = initial; rows[0].exclusive = true;
   await openInputs(); await openDraft(); const conditions = panel().querySelector('.emission-conditions');
-  expect(conditions.hidden).toBe(true); await btn('执行条件设置 · 3 项 · 独占').onclick();
+  expect(conditions.hidden).toBe(false); expect(btn('执行条件设置 · 3 项 · 独占').getAttribute('aria-expanded')).toBe('true');
   intercept = (path, _body, route) => path === '/api/input-parents' ? mainParents()
     : path === '/api/worker/42/relations' ? (route.searchParams.get('after') === '0'
       ? childPage([mainChild(101, { status: 'awaiting_acceptance', integration: 'merged' }), mainChild(102, { status: 'paused' }), mainChild(103, { task_kind: 'management' }), mainChild(104)], true)
@@ -773,13 +826,15 @@ test('快捷导入单飞并保护在途保存、离页和跨项目的迟到结�
   expect(importButton(form.node).parentNode.getAttribute('data-help')).toContain('输入已提交');
 });
 
-test('条件设置默认收起，显式展开不发射，收起保留未保存选项并提示条件授权', async () => {
+test('独立草稿条件默认展开，收起不发射且保留未保存选项并提示条件授权', async () => {
   await openInputs(); await openDraft();
   const conditions = panel().querySelector('.emission-conditions'), toggle = btn('执行条件设置');
-  expect(conditions.hidden).toBe(true); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(conditions.hidden).toBe(false); expect(toggle.getAttribute('aria-expanded')).toBe('true');
   expect(toggle.getAttribute('aria-controls')).toBe(conditions.id);
   expect(btn('保存').disabled).toBe(true);
-  await toggle.onclick(); expect(conditions.hidden).toBe(false); expect(calls).toHaveLength(0);
+  expect(panel().querySelector('.emission-advanced-body').hidden).toBe(true);
+  expect(panel().querySelector('.input-runtime-settings').open).not.toBe(true);
+  expect(calls).toHaveLength(0);
   const quiet = conditions.querySelector('[aria-label="等待目标树彻底静息后执行"]'); quiet.checked = true; quiet.onchange();
   expect(btn('保存').disabled).toBe(false); expect(toggle.textContent).toContain('1 项');
   const emit = btn('按条件提交'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
@@ -826,11 +881,11 @@ test('已有条件卡片与高级设置保留独占隐含静息，收起、移�
   expect(append.collect().exclusive).toBe(false);
 });
 
-test('已有条件草稿仍默认收起，发射明确遵守已保存条件', async () => {
+test('已有条件草稿默认展开，发射明确遵守已保存条件', async () => {
   rows[0].conditions = [{ kind: 'parent_quiet' }];
   await openInputs(); await openDraft();
-  expect(panel().querySelector('.emission-conditions').hidden).toBe(true);
-  expect(btn('执行条件设置 · 1 项').getAttribute('aria-expanded')).toBe('false');
+  expect(panel().querySelector('.emission-conditions').hidden).toBe(false);
+  expect(btn('执行条件设置 · 1 项').getAttribute('aria-expanded')).toBe('true');
   expect(btn('保存').disabled).toBe(true);
   await btn('按条件提交').onclick();
   expect(calls.map(call => call.method)).toEqual(['input.emit']);
@@ -891,6 +946,7 @@ test('独占active不覆盖明确can_release=false，dispatching即使错误投�
 
 test('独占草稿读取实际Input后保留关联；返回草稿必须读新版本再释放', async () => {
   rows[0].exclusive = true; rows[0].dispatch = { state: 'succeeded', input_id: 2, exclusive_active: true };
+  rows[1].source_draft_id = 1;
   await openInputs(); await openDraft(); await btn('查看已创建原文 O2').onclick();
   expect(editor()).toBeNull(); expect(deepText(panel())).toContain('此原文关联提交草稿 #1');
   expect(btn('释放独占')).toBeUndefined(); expect(btn('查看提交草稿 #1 · 条件与独占').classList.contains('agent-call')).toBe(false);
@@ -901,7 +957,8 @@ test('独占草稿读取实际Input后保留关联；返回草稿必须读新版
   expect(calls.at(-1)).toEqual({ method: 'input.exclusive_release', params: { draft_id: 1, expected_revision: 9 } });
 });
 
-test('只读Input没有已知发射关联时不猜草稿id，不自动扫描历史', async () => {
+test('只读Input没有关联或服务端明确关联歧义时，不猜草稿也不覆盖null', async () => {
+  await openHistory(); ui.inputsPage.emissionSources.set(2, 1); rows[1].source_draft_id = null;
   await openInputs({ item: { kind: 'input', id: 2 } });
   expect(deepText(panel())).not.toContain('此原文关联');
   expect(panel().querySelectorAll('button').some(node => node.textContent.includes('提交草稿'))).toBe(false);

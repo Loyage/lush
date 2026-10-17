@@ -107,7 +107,7 @@ export async function openComposerRunSettings() {
 }
 
 
-// Historical panel helpers remain for legacy readers; new drafts live in #inputs.
+// Historical panel helpers remain for legacy readers; new drafts live in #drafts.
 export function paintDraftPanel() {
   const open = Boolean(ui.draftPanelOpen);
   $('draft-panel')?.classList.toggle('open', open);
@@ -175,8 +175,8 @@ export function paintComposerDetails() {
   const parent = followup ? null : selectedParentLabel();
   toggle.setAttribute('aria-expanded', String(open));
   toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
-    ? '展开：显示正文的撤销与重做按钮、历史输入；不改变追加目标。'
-    : `展开：显示正文的撤销与重做按钮、历史输入、运行设置、执行环境，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
+    ? '展开：显示正文的撤销与重做按钮、草稿、历史输入；不改变追加目标。'
+    : `展开：显示正文的撤销与重做按钮、草稿、历史输入、运行设置、执行环境，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
   toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Worker：${parent}` : '⌃ 更多');
 }
 export function renderParentOptions() {
@@ -266,7 +266,7 @@ export function syncComposer() {
   if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; }
   if ($('input-buffer-help')) {
     $('input-buffer-help').hidden = management;
-    const bufferHelp = followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在历史输入编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
+    const bufferHelp = followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在草稿页编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
     $('input-buffer-help').setAttribute('data-help', bufferHelp); $('input-buffer')?.setAttribute('data-help', bufferHelp);
   }
   if ($('composer-management')) $('composer-management').textContent = management ? '回到新建工作' : '管理 Lush';
@@ -339,7 +339,7 @@ async function submitInput(mode) {
     if (management && (result.management !== true || !Number.isSafeInteger(result.task?.id)))
       throw new Error('管理响应缺少可靠记录身份；请核对服务版本与管理历史，不会自动重试。');
     if (!management && mode !== 'buffer' && (result.emitted !== true || !Number.isSafeInteger(result.draft_id)))
-      throw new Error('提交响应缺少可靠挂载收据；请核对服务版本与历史输入，原文保留，不会自动重试。');
+      throw new Error('提交响应缺少可靠挂载收据；请核对服务版本与草稿授权收据，原文保留，不会自动重试。');
     // The composer survives page navigation: consume unchanged submitted content even after a page switch.
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
     const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
@@ -354,12 +354,13 @@ async function submitInput(mode) {
       show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，危险操作须确认。`);
     } else if (mode === 'buffer') {
       if (target.id != null && untouched) ui.composerAppendTarget = null;
-      show(`已暂存为草稿 #${result.id}，尚未提交；可到「历史输入」编辑或提交，未创建 Worker、未调用 Agent。`);
-      ui.inputsPage?.added?.();
+      show(`已暂存为草稿 #${result.id}，尚未提交；可到「草稿」编辑或设定条件，未创建 Worker、未调用 Agent。`);
+      ui.draftsPage?.added?.();
     } else {
       if (target.id != null && untouched) ui.composerAppendTarget = null;
       if (target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;
       paintRunSettings(); show(emissionAcknowledgement(result, target.id != null));
+      ui.draftsPage?.added?.();
       ui.inputsPage?.added?.();
     }
     update = { identity, submission, view, appendTarget: ui.composerAppendTarget,

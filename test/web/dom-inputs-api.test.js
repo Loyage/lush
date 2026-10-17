@@ -17,6 +17,7 @@ const { renderNoticeBanner } = await import('../../src/ui/web/assets/notice-bann
 const { renderNotices } = await import('../../src/ui/web/assets/render-notices.js');
 afterAll(() => dom.restore());
 const root = () => dom.node('detail');
+const rowKeys = () => root().querySelectorAll('.input-record').map(card => card.dataset.input);
 const btn = (label, host = root()) => [...host.querySelectorAll('button'), ...host.querySelectorAll('a')].find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 
 test('真实 API：详情默认新建，显式追加 Ctrl+Enter 可靠挂载且 ACK 恢复新建', async () => {
@@ -74,7 +75,7 @@ test('真实 API：发射确认留在原页，不伪造已创建告知或 Agent 
   } finally { restore(); await fixture.close(); }
 });
 
-test('真实 API：默认三模式全部状态，色块多选在全库筛选并打开消息与管理来源', async () => {
+test('真实 API：历史只含已发送三模式，草稿分工作和追加暂存，条件默认展开', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   try {
     resetUiState();
@@ -84,7 +85,9 @@ test('真实 API：默认三模式全部状态，色块多选在全库筛选并�
     const message = fixture.store.get('SELECT * FROM messages WHERE task_id=? AND append_number IS NOT NULL', order.task.id);
     const manager = fixture.project.submitManagementInstruction({ instruction: '真实管理输入' });
     await openInputs();
-    expect(root().querySelectorAll('.input-record')).toHaveLength(4);
+    expect(root().querySelectorAll('.input-record')).toHaveLength(3);
+    expect(root().querySelector(`[data-input="draft:${draft.id}"]`)).toBeNull();
+    expect(root().querySelector('.input-advanced-filters').open).not.toBe(true);
     const form = root().querySelector('.inputs-filters'), mode = value => form.querySelector(`[data-mode="${value}"]`);
     expect([...form.querySelectorAll('.input-mode-toggle')].every(node => node.getAttribute('aria-pressed') === 'true')).toBe(true);
     await mode('order').onclick(); await mode('management').onclick();
@@ -98,13 +101,77 @@ test('真实 API：默认三模式全部状态，色块多选在全库筛选并�
     await btn('← 返回历史输入').onclick(); await mode('append').onclick(); await mode('order').onclick();
     const status = form.querySelector('select');
     expect(status.value).toBe('');
-    status.value = 'draft'; await status.onchange();
-    expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual([`draft:${draft.id}`]);
+    expect([...status.children].some(option => option.value === 'draft')).toBe(false);
     status.value = 'created'; await status.onchange();
     expect(root().querySelectorAll('.input-record')).toHaveLength(2);
     expect(root().querySelectorAll('.input-record').some(card => card.dataset.input.startsWith('input:'))).toBe(true);
     status.value = ''; await status.onchange();
-    expect(root().querySelectorAll('.input-record')).toHaveLength(4);
+    expect(root().querySelectorAll('.input-record')).toHaveLength(3);
+    await fixture.project.addBufferedDraft('追加暂存正文', [], 'main', { mode: 'append', target_id: order.task.id });
+    await openInputs({ section: 'drafts' });
+    expect(ui.view.id).toBe('drafts'); expect(dom.location.hash).toBe('#drafts');
+    expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual([`draft:${draft.id}`]);
+    expect(deepText(root())).toContain('父 main · 条件：未设置');
+    expect(root().querySelector('[data-mode="management"]')).toBeNull();
+    await root().querySelector('[data-mode="append"]').onclick();
+    expect(root().querySelectorAll('.input-record')).toHaveLength(1);
+    expect(deepText(root())).toContain('追加暂存正文');
+    await btn('查看草稿与提交状态').onclick();
+    expect(root().querySelector('.emission-conditions').hidden).toBe(false);
+    expect(deepText(root())).toContain('追加目标 Worker');
+    await btn('← 返回草稿').onclick();
+    expect(root().querySelector('[data-mode="append"]').getAttribute('aria-pressed')).toBe('true');
+  } finally { await fixture.close(); }
+});
+
+test('真实 API 归档：实际创建和追加入箱后才入历史，真实原文与源条件收据往返', async () => {
+  fixture = await setup(); fixture.project.stopping = true; fixture.project.kick = () => {};
+  fixture.project.scheduleInputEmissions = () => {}; await repo(fixture.root);
+  const read = async suffix => (await httpFetch(fixture.url + suffix)).json();
+  try {
+    resetUiState();
+    const draft = await fixture.project.addBufferedDraft('稍后创建的原始批示', [], 'main');
+    await openInputs({ section: 'drafts' });
+    expect(rowKeys()).toEqual([`draft:${draft.id}`]);
+    await btn('查看草稿与提交状态').onclick();
+    expect(root().querySelector('.emission-conditions').hidden).toBe(false);
+    await btn('提交指令').onclick();
+    expect(deepText(root())).toContain('等待准入');
+    expect((await read('/api/inputs')).items).toHaveLength(0);
+    expect((await read('/api/inputs?view=drafts')).items).toHaveLength(1);
+    fixture.project.stopping = false; await fixture.project.drainInputEmissions(); fixture.project.stopping = true;
+    const receipt = await read(`/api/input/draft/${draft.id}`);
+    expect(receipt.dispatch.state).toBe('succeeded');
+    expect((await read('/api/inputs?view=drafts')).items).toHaveLength(0);
+    await openInputs();
+    expect(rowKeys()).toEqual([`input:${receipt.input_id}`]);
+    await btn('查看原文').onclick();
+    expect(root().querySelector('.input-detail textarea')).toBeNull();
+    expect(deepText(root())).toContain('稍后创建的原始批示');
+    await btn(`查看提交草稿 #${draft.id} · 条件与独占`).onclick();
+    expect(ui.view.id).toBe('drafts'); expect(deepText(root())).toContain('已投递');
+    expect(root().querySelector('.input-detail textarea')).toBeNull();
+    const append = await fixture.project.addBufferedDraft('后来追加的批示', [], 'main', { mode: 'append', target_id: receipt.dispatch.worker_id });
+    await openInputs({ item: { kind: 'draft', id: append.id } });
+    await btn('提交追加').onclick();
+    expect((await read('/api/inputs?modes=%5B%22append%22%5D')).items).toHaveLength(0);
+    expect((await read('/api/inputs?view=drafts&modes=%5B%22append%22%5D')).items).toHaveLength(1);
+    fixture.project.stopping = false; await fixture.project.drainInputEmissions(); fixture.project.stopping = true;
+    const sent = await read(`/api/input/draft/${append.id}`);
+    expect(sent.dispatch.state).toBe('succeeded');
+    await openInputs();
+    expect(new Set(rowKeys())).toEqual(new Set([`message:${sent.dispatch.message_id}`, `input:${receipt.input_id}`]));
+    expect(rowKeys().some(key => key.startsWith('draft:'))).toBe(false);
+    await openInputs({ item: { kind: 'message', id: sent.dispatch.message_id } });
+    expect(deepText(root())).toContain('后来追加的批示');
+    expect(deepText(root())).toContain(sent.dispatch.append_number);
+    expect(root().querySelector('.input-detail textarea')).toBeNull();
+    await btn(`查看提交草稿 #${append.id} · 条件与独占`).onclick();
+    expect(ui.view.id).toBe('drafts'); expect(deepText(root())).toContain('追加消息 #');
+    expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
+    expect(fixture.store.all('SELECT * FROM inputs')).toHaveLength(1);
+    expect(fixture.store.all('SELECT * FROM messages')).toHaveLength(1);
+    expect((await read('/api/inputs?view=drafts')).items).toHaveLength(0);
   } finally { await fixture.close(); }
 });
 
@@ -119,7 +186,8 @@ test('真实 API 串联：Enter 暂存、全库检索、保存修订与挂载、
     await input.onkeydown({ key: 'Enter', preventDefault() {} });
     expect(input.value).toBe('');
     expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
-    await openInputs(); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
+    await openInputs(); expect(root().querySelectorAll('.input-record')).toHaveLength(0);
+    await openInputs({ section: 'drafts' }); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     const form = root().querySelector('.inputs-filters');
     // Default to all; empty selects send no enum restriction, not invalid status='' / integration=''.
     expect(form.querySelector('select').value).toBe('');
@@ -144,7 +212,7 @@ test('真实 API 串联：Enter 暂存、全库检索、保存修订与挂载、
     expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
     expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     expect(root().querySelector('.input-record').dataset.input).toMatch(/^draft:/);
-    await btn('← 返回历史输入').onclick();
+    await btn('← 返回草稿').onclick();
     await btn('查看草稿与提交状态').onclick();
     expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
     expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');

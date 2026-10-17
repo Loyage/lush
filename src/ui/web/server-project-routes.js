@@ -82,7 +82,7 @@ export async function projectRoutes(context, projectHost, staticAssets) {
     if (url.pathname === '/api/inputs') {
       const params = {};
       for (const [key, value] of url.searchParams) {
-        check(['cursor','limit','q','status','integration','conditional','modes'].includes(key) && !(key in params), 'unknown or duplicate input history query parameter');
+        check(['cursor','limit','q','status','integration','conditional','view','modes'].includes(key) && !(key in params), 'unknown or duplicate input history query parameter');
         if (key === 'modes') {
           try { params.modes = JSON.parse(value); } catch { check(false, 'modes must be a JSON array'); }
           check(Array.isArray(params.modes), 'modes must be a JSON array');

@@ -7,6 +7,7 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // Existing regression files only. Keep selection here, not in docs or a second runner.
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
+    'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git: sent history, deferred modes, actual delivery and receipt navigation
     'test/web/runner-choice-page-integration.test.js', // page -> real HTTP/RPC/draft -> independent Runner creation and no fallback
     'test/web/runner-settings-page-integration.test.js', // independent global page -> real Host/project policy, inert reads and explicit Runner check
     'test/web/dom-runners-page.test.js', // bookmarks, navigation migration, fixed project source, offline/late replies and retained editors
@@ -27,6 +28,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/loading-assets.test.js', // authenticated Host, cold JS/CSS budgets and compression
   ]),
   rpc: Object.freeze([
+    'test/web/input-history.test.js', // registered view parameters, strict HTTP/RPC queries and unchanged user-only writes
+    'test/web/input-read-models.test.js', // actual history/draft partition, conditional receipts, frozen inbox and management bridge
+    'test/project/input-read-models.test.js', // whole-database pagination, unique source links and conservative user provenance
     'test/web/runner-deployment-api.test.js', // user HTTP -> real deployment service -> controlled SSH blocked; no install or fabricated production readiness
     'test/project/lifecycle-evidence.test.js', // controlled Provider -> durable phases/input provenance -> existing authenticated history APIs
     'test/web/worker-lifecycle-integration.test.js', // real Project/HTTP facts -> two independent readers and exact source navigation
@@ -71,6 +75,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/runtime-coordinator-integration.test.js', // HTTP/RPC -> durable intent -> coordinated checks -> Provider/bound RPC; freeze/cancel/edge preservation
   ]),
   component: Object.freeze([
+    'test/web/dom-inputs.test.js', // separate history/drafts, conditional editor, dirty navigation, single-flight and late-result guards
     'test/web/dom-worker-lifecycle.test.js', // phase intervals, causal evidence, retained reader state and exact reference routing
     'test/web/worker-lifecycle-model.test.js', // honest legacy/gap/partial-history projection
     'test/web/dom-detail-layout-preferences.test.js', // confirmed input-output / lifecycle module hierarchy

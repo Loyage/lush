@@ -58,6 +58,8 @@ test('三种模式分离标题、常驻去向和正文提示，提交文案保�
   expect(dom.node('composer-mode-target').textContent).toBe('去向：Worker W15 · 命名讨论');
   expect(dom.node('composer-mode-behavior').textContent).toContain('等待固定交付结束');
   expect(dom.node('input-buffer').hidden).toBe(false);
+  expect(dom.node('input-buffer').getAttribute('data-help')).toContain('草稿页编辑条件');
+  expect(dom.node('composer-expand').getAttribute('data-help')).toContain('草稿、历史输入');
   await management();
   assertMode('管理 Lush', '去向：管家 · 当前项目', '描述你希望管家查询、调整或安排的事项…', '管理指令', '提交管理指令');
   expect(input().value).toBe('继续输入');

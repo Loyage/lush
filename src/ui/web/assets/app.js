@@ -86,8 +86,8 @@ const openHooks = (feature = null, subpage = 'settings') => openPage(() => impor
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
-const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), 'inputs',
-  { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : '#inputs' });
+const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), options.section === 'drafts' || options.item?.kind === 'draft' ? 'drafts' : 'inputs',
+  { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : options.section === 'drafts' ? '#drafts' : '#inputs' });
 const openSources = (connectionId = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId }),
   'model-sources', { hash: connectionId ? `#model-source-${connectionId}` : '#model-sources' });
 
@@ -150,8 +150,8 @@ function openHashTarget(hash, project, doc, generation) {
   }
   if (!workbenchStatus().projectUsable) return noProjectView();
   if (/^#hooks-emission(?:-history)?$/.test(hash)) {
-    window.history.replaceState(null, '', '#inputs');
-    return openInputs();
+    window.history.replaceState(null, '', '#drafts');
+    return openInputs({ section: 'drafts' });
   }
   const automation = /^#hooks(?:-(completion|push|convergence|acceptance_notice)(-history)?)?$/.exec(hash);
   if (automation || hash === '#hooks-history') return openHooks(automation?.[1] || null);
@@ -166,6 +166,7 @@ function openHashTarget(hash, project, doc, generation) {
   }
   if (hash === '#versions') return openVersionsRedirect();
   if (hash === '#inputs') return openInputs({ push: false });
+  if (hash === '#drafts') return openInputs({ section: 'drafts', push: false });
   const input = /^#input-(draft|input|message|management)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
   const delivery = deliveryTarget(hash);
@@ -271,7 +272,7 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'drafts-open', 'hooks-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
@@ -279,6 +280,8 @@ export async function boot() {
   if (projectReady) { syncSidebarSortSelect(); $('sidebar-sort').addEventListener('change', onSidebarSortChange); }
   if ($('hooks-open')) $('hooks-open').onclick = () => requestPageLeave('#hooks', { leave: () => projectReady ? openHooks() : noProjectView() });
   if ($('inputs-open')) $('inputs-open').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });
+  if ($('drafts-open')) $('drafts-open').onclick = () => requestPageLeave('#drafts', { leave: () => projectReady ? openInputs({ section: 'drafts' }) : noProjectView() });
+  if ($('input-drafts')) $('input-drafts').onclick = () => requestPageLeave('#drafts', { leave: () => projectReady ? openInputs({ section: 'drafts' }) : noProjectView() });
   if ($('input-history')) $('input-history').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });
   $('sidebar-toggle').onclick = () => toggleMobileNavigation();
   $('sidebar').onkeydown = event => {

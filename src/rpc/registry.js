@@ -46,7 +46,7 @@ export const PARAMS = {
   'worker.hook_attach': ['id','hook','expected_revision'],
   'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
   'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer','runner_node_id'],
-  'input.history': ['cursor','limit','q','status','integration','conditional','modes'], 'input.get': ['kind','id'], 'input.parents': [],
+  'input.history': ['cursor','limit','q','status','integration','conditional','view','modes'], 'input.get': ['kind','id'], 'input.parents': [],
   'input.emit': ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'],
   'input.emission_cancel': ['draft_id','expected_revision'], 'input.exclusive_release': ['draft_id','expected_revision'],
   'draft.add': ['content','references','branch',...INPUT_OPTION_KEYS],

@@ -1,277 +1,169 @@
-// Real browser regression with the actual app shell and an in-memory API fixture. No daemon/model calls.
-import { join } from 'node:path';
+// Isolated real Firefox/app-shell regression. Fixture APIs only: no daemon, model or user project.
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { request } from 'node:http';
+import { join } from 'node:path';
+
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
-const fixtureScript = `
+const output = process.argv[2] || '/tmp/lush-input-pages-browser';
+await mkdir(output, { recursive: true });
+const fixture = `
 import { makeWorld } from '/fixture-world.js';
-const world=makeWorld();world.state.inputParents=[{id:1,branch:'main',goal:'主干 Worker'},{id:800,branch:'feature/old',goal:'不在 overview 中的旧父 Worker'}];
-const base={created_at:'2026-10-02T00:00:00Z',parent_id:1,branch:'main',integration:'none',merge_status:'none',references:[],content_truncated:false};
-window.rows=[{...base,kind:'draft',id:1,content:'尚未实施的想法\\n可以随时编辑',task_id:null,status:'draft',revision:1},
- {...base,kind:'input',id:2,content:'原始输入 <img src=x onerror=alert(1)>\\n'+('多行很长的原始输入内容\\n'.repeat(100)),content_truncated:true,task_id:1,status:'awaiting_acceptance',integration:'merged',merge_status:'merged',revision:null},
- {...base,kind:'input',id:3,content:'',task_id:null,status:'unknown',merge_status:'none',revision:null},
- {...base,kind:'input',id:4,content:'X'.repeat(1000),task_id:1,status:'created',merge_status:'blocked',revision:null}];
-window.calls=[];window.delayMutation=false;window.hold=null;
-window.supplementReleases=[];window.supplementPaths=[];window.refreshReleases=[];window.holdSupplements=false;window.holdRefresh=false;
+const world=makeWorld(), json=data=>({ok:true,json:async()=>structuredClone(data)});
+world.state.inputParents=[{id:1,branch:'main',goal:'主干'}];
+const base={created_at:'2026-10-17T05:00:00Z',parent_id:1,parent_worker_number:null,branch:'main',merge_status:'none',integration:'none',references:[],content_truncated:false};
+window.rows=[
+ {...base,kind:'input',mode:'order',id:20,task_id:1,status:'awaiting_acceptance',content:'已经发送的工作原文 <img src=x>，记录用户何时对项目作出批示。'},
+ {...base,kind:'message',mode:'append',id:21,task_id:1,task_worker_number:'W20',append_number:'A20-1',status:'waiting',content:'已入箱的追加指令，不代表 Agent 已经收到。'},
+ {...base,kind:'management',mode:'management',id:22,task_id:22,task_worker_number:'V1',status:'running',content:'管理指令原文'},
+ {...base,kind:'draft',mode:'order',id:1,status:'draft',revision:1,content:'未发送工作暂存：调整历史与草稿页面，允许修改执行条件。',conditions:[{kind:'worker_merged',worker_id:17,worker_number:'W17'}],exclusive:false},
+ {...base,kind:'draft',mode:'order',id:2,status:'unknown_dispatch',revision:1,content:'未知投递授权保留待核验',conditions:[],dispatch:{state:'unknown',reason:'等待核验真实现场',conditions:[]}},
+ {...base,kind:'draft',mode:'append',id:3,status:'draft',revision:1,target_id:1,target_worker_number:'W20',content:'追加输入暂存：补充窄屏验证。',conditions:[],exclusive:false}
+];window.calls=[];window.reads=[];
 window.fetch=async(url,options={})=>{
- // The actual app now requires an explicit project route; normalize only this fixture's API prefix.
- const requestUrl=new URL(url,location.href);if(requestUrl.pathname.startsWith('/p/aaaaaaaaaaaaaaaa/api/'))requestUrl.pathname=requestUrl.pathname.slice('/p/aaaaaaaaaaaaaaaa'.length);
- url=requestUrl.href;const path=requestUrl.pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
- if(window.holdRefresh&&(path==='/api/overview'||path==='/api/snapshot')) await new Promise(resolve=>window.refreshReleases.push(resolve));
- if(window.holdSupplements&&(/^\\/api\\/worker\\/\\d+\\/(history-page|diff|usage)$/.test(path)||path==='/api/agent/connections')) {
-  window.supplementPaths.push(path);await new Promise(resolve=>window.supplementReleases.push(resolve));
+ const route=new URL(url,location.href),path=route.pathname.replace(/^\\/p\\/[^/]+/,'');
+ if(path==='/api/inputs'){
+  window.reads.push(route.search);const drafts=route.searchParams.get('view')==='drafts',modes=JSON.parse(route.searchParams.get('modes')||'["order","append","management"]');
+  const q=route.searchParams.get('q')||'',status=route.searchParams.get('status');
+  return json({items:window.rows.filter(row=>(drafts?row.kind==='draft'&&row.dispatch?.state!=='succeeded':row.kind!=='draft')&&modes.includes(row.mode)&&row.content.includes(q)&&(!status||row.status===status)),next_cursor:null});
  }
- if(path==='/api/inputs')return json({items:window.rows,next_cursor:null});
  if(path==='/api/input-parents')return json({items:world.state.inputParents});
- if(path==='/api/worker/1'){const task=await(await world.fetchImpl(url,options)).json();return json({...task,task_kind:'order',status:window.workerStatus||'paused',agent:{...task.agent,active:false}});}
- const match=/^\\/api\\/input\\/(draft|input)\\/(\\d+)$/.exec(path);
+ const match=/^\\/api\\/input\\/(draft|input|message|management)\\/(\\d+)$/.exec(path);
  if(match)return json(window.rows.find(row=>row.kind===match[1]&&row.id===Number(match[2])));
  if(path==='/api/action'){
-  const body=JSON.parse(options.body);window.calls.push(body);const p=body.params;
-  if(window.delayMutation){window.delayMutation=false;await new Promise(resolve=>{window.hold=resolve;});}
-  if(body.method==='notice.read'){const row=world.state.notices.find(n=>n.id===p.id);row.read_at='2026-10-08T12:00:00Z';return json(row);}
-  if(body.method==='draft.add'){const row={...base,...p,kind:'draft',id:Math.max(...window.rows.map(r=>r.id))+1,task_id:null,status:'draft',revision:1};window.rows.unshift(row);return json(row);}
-  if(body.method==='draft.update'){const row=window.rows.find(r=>r.kind==='draft'&&r.id===p.id);Object.assign(row,p,{revision:row.revision+1});if(p.branch)row.parent_id=world.state.inputParents.find(t=>t.branch===p.branch).id;return json(row);}
-  if(body.method==='draft.remove'){window.rows=window.rows.filter(r=>!(r.kind==='draft'&&r.id===p.id));return json({id:p.id});}
-  if(body.method==='order.submit'&&p.draft_id){const row=window.rows.find(r=>r.kind==='draft'&&r.id===p.draft_id);row.kind='input';row.task_id=1;row.status=p.start?'queued':'created';row.revision=null;return json({id:row.id,task:{id:1}});}
+  const body=JSON.parse(options.body);window.calls.push(body);const p=body.params,row=window.rows.find(row=>row.kind==='draft'&&row.id===(p.id??p.draft_id));
+  if(body.method==='draft.update'){if(p.expected_revision!==row.revision)throw Error('revision conflict');Object.assign(row,p,{revision:row.revision+1});return json(row);}
+  if(body.method==='input.emit'){row.dispatch={state:'waiting_conditions',conditions:row.conditions};return json({emitted:true,draft_id:row.id,revision:row.revision,dispatch:row.dispatch});}
  }
- return world.fetchImpl(url,options);
+ return world.fetchImpl(path+route.search,options);
 };
-await import('/app.js');
-window.ui=(await import('/state.js')).ui;window.world=world;
-window.detailApi=(await import('/detail.js')).loadDetail;
-window.commonNav=(await import('/sidebar-ui.js')).openResource;
-const {renderNotices}=await import('/render-notices.js');const {renderNoticeBanner}=await import('/notice-banner.js');
-window.paintNotices=()=>{window.ui.lastSnapshot={...window.ui.lastSnapshot,notices:world.state.notices};renderNotices(window.ui.lastSnapshot);renderNoticeBanner(window.ui.lastSnapshot);};
-window.releaseReads=()=>{window.holdRefresh=false;window.holdSupplements=false;
- for(const release of [...window.refreshReleases.splice(0),...window.supplementReleases.splice(0)])release();};
-window.ready=true;
+window.finishDraft=()=>{const row=window.rows.find(row=>row.kind==='draft'&&row.id===1);row.dispatch={state:'succeeded',input_id:30,worker_id:30,conditions:row.conditions};row.input_id=30;
+ window.rows.push({...base,kind:'input',mode:'order',id:30,task_id:30,status:'queued',content:row.content,source_draft_id:1});};
+await import('/app.js');window.ui=(await import('/state.js')).ui;window.ready=true;
 `;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '<script type="module" src="/fixture.js"></script>');
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const path = new URL(req.url).pathname;
-  if (path === '/' || path === '/p/aaaaaaaaaaaaaaaa/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
-  if (path === '/fixture.js') return new Response(fixtureScript, { headers: { 'Content-Type': 'text/javascript' } });
-  if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text())
-    .replace('../../src/ui/web/assets/prefs.js', '/prefs.js'), { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/') return new Response('<!doctype html><html><body style="margin:0"><iframe id="view" src="/p/aaaaaaaaaaaaaaaa/#inputs" style="width:1440px;height:1000px;border:0;display:block"></iframe></body></html>', { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/p/aaaaaaaaaaaaaaaa/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text()).replace('../../src/ui/web/assets/prefs.js', '/prefs.js'), { headers: { 'Content-Type': 'text/javascript' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
 const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
 const port = reservation.port; reservation.stop(true);
-const temp = await mkdtemp(join(tmpdir(), 'lush-input-history-ui-')), log = join(temp, 'geckodriver.log');
-const driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], {
-  env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(log), stderr: Bun.file(log),
-});
+const temp = await mkdtemp(join(tmpdir(), 'lush-input-pages-')), log = join(temp, 'driver.log');
+const driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], { env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(log), stderr: Bun.file(log) });
 let session, passed = false;
 async function rpc(path, body, method = 'POST') {
-  const response = await new Promise((resolve, reject) => {
-    const req = request(`http://127.0.0.1:${port}${path}`, { method, headers: { 'Content-Type': 'application/json' } }, res => {
-      let text = ''; res.setEncoding('utf8'); res.on('data', part => { text += part; });
-      res.on('end', () => resolve({ status: res.statusCode, text })); res.on('error', reject);
-    });
-    req.on('error', reject); req.setTimeout(60000, () => req.destroy(new Error('WebDriver request timed out')));
-    req.end(body === undefined ? undefined : JSON.stringify(body));
-  });
-  const data = JSON.parse(response.text); if (response.status >= 400) throw new Error(JSON.stringify(data)); return data.value;
+  const response = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20000) });
+  const data = await response.json(); if (!response.ok) throw Error(JSON.stringify(data)); return data.value;
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
-const setTheme = theme => rpc(`/session/${session}/execute/async`, {
-  script: `const done=arguments[0];Promise.all([import('/prefs.js'),import('/appearance.js')]).then(async([{saveDevicePreference},{refreshTheme}])=>{await saveDevicePreference('theme','${theme}');refreshTheme();requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>done(true),250)));}).catch(error=>done({error:error.message}));`, args: [],
-});
-const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const waitFor = expression => rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>(${expression})?done(true):++n>150?done(false):setTimeout(check,20);check();`, args: [] });
-async function click(selector) {
-  const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
-  await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
+const assert = (value, message) => { if (!value) throw Error(message); };
+async function frame(script) {
+  const result = await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0],win=document.querySelector('#view').contentWindow,doc=win.document;
+    const until=async test=>{for(let i=0;i<200;i++){if(test())return;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('UI condition timed out');};
+    const button=text=>[...doc.querySelectorAll('button')].find(node=>node.textContent===text);
+    (async()=>{${script}})().then(done).catch(error=>done({error:error.message}));`, args: [] });
+  if (result?.error) throw Error(JSON.stringify(result)); return result;
 }
-async function keys(actions) {
-  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions }] });
-}
-const press = value => keys([{ type: 'keyDown', value }, { type: 'keyUp', value }]);
-async function checkComposerMode(mode, theme, width) {
-  const layout = await execute(`const form=document.querySelector('#input-form'),band=document.querySelector('#composer-mode'),box=document.querySelector('#input');
-    const rect=band.getBoundingClientRect();return {theme:document.documentElement.dataset.theme,viewport:innerWidth,mode:form.dataset.mode,title:document.querySelector('#composer-mode-title').textContent,
-      target:document.querySelector('#composer-mode-target').textContent,behavior:document.querySelector('#composer-mode-behavior').textContent,
-      button:document.querySelector('#draft-commit').textContent,color:getComputedStyle(band).borderLeftColor,
-      fits:rect.width>0 && rect.top>=0 && rect.bottom<=innerHeight && rect.left>=0 && rect.right<=innerWidth && band.scrollWidth<=band.clientWidth+1,
-      childrenFit:[...band.children].every(n=>{const r=n.getBoundingClientRect();return r.left>=rect.left && r.right<=rect.right+1 && r.bottom<=rect.bottom;}),
-      described:box.getAttribute('aria-describedby').includes('composer-mode-behavior')};`);
-  assert(layout.theme===theme && layout.mode===mode && layout.fits && layout.childrenFit && layout.described, `mode band clipped/inaccessible ${mode} ${theme} ${width}: ${JSON.stringify(layout)}`);
-  assert(mode==='create'
-    ? layout.title==='新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存') && layout.button==='仅创建'
-    : layout.title==='继续当前 Worker' && layout.target.includes('Worker #1') && layout.behavior.includes('不创建新 Worker') && layout.behavior.includes('Enter 追加') && layout.button==='追加输入', `wrong mode copy: ${JSON.stringify(layout)}`);
-  console.log(`PASS persistent ${mode} mode band ${theme} ${layout.viewport}px viewport (${layout.color})`);
+async function screenshot(name) {
+  const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#view' });
+  const bytes = await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/screenshot`, undefined, 'GET');
+  await Bun.write(join(output, name), Buffer.from(bytes, 'base64'));
 }
 try {
-  let ready = false;
-  for (let i = 0; i < 100; i++) {
-    try { await rpc('/status', undefined, 'GET'); ready = true; break; } catch {}
-    if (driver.exitCode !== null) throw new Error('geckodriver exited before startup');
-    await Bun.sleep(100);
+  // Only wait for our isolated browser startup, never Workers or user processes.
+  for (let attempt=0;attempt<100;attempt++) {
+    try { await rpc('/status', undefined, 'GET'); break; } catch { if(driver.exitCode!==null)throw Error('geckodriver exited');await Bun.sleep(50); }
   }
-  assert(ready, 'geckodriver startup timed out');
-  session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/p/aaaaaaaaaaaaaaaa/#inputs` });
-  assert(await waitFor('window.ready && document.querySelectorAll(".input-record").length===4'), 'app/history did not load');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
-    await rpc(`/session/${session}/window/rect`, { width, height });
-    await setTheme(theme);
-    const layout = await execute(`const rows=[...document.querySelectorAll('.input-row')];return {viewport:innerWidth,
-      overflow:document.documentElement.scrollWidth>innerWidth+1,
-      heights:rows.map(n=>n.getBoundingClientRect().height),
-      clipped:rows.some(n=>n.scrollWidth>n.clientWidth+1),
-      previewScrollers:rows.some(n=>getComputedStyle(n.querySelector('.input-preview')).overflowY==='auto'),
-      buttons:rows.map(n=>n.querySelectorAll('button').length),
-      badgesFit:rows.every(n=>[...n.querySelectorAll('.badge')].every(b=>b.getBoundingClientRect().right<=n.getBoundingClientRect().right-8))};`);
-    assert(!layout.overflow && !layout.clipped && !layout.previewScrollers && layout.badgesFit, `list overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
-    assert(layout.heights.every(h=>Math.abs(h-layout.heights[0])<0.1) && layout.buttons.every(n=>n===0), `rows are not equal-height/native buttons: ${JSON.stringify(layout)}`);
-    assert(await execute(`const root=document.querySelector('.inputs-page'),heading=root.querySelector('.ui-list-heading'),search=root.querySelector('.search-field');return root.classList.contains('ui-list-page')&&getComputedStyle(heading).position==='sticky'&&search.querySelector('.search-field-submit').textContent==='搜索'&&search.querySelector('.search-field-clear').textContent==='清空'&&search.scrollWidth<=search.clientWidth+1;`), 'history did not adopt shared chrome/search or controls overflow');
-    console.log(`PASS equal-height input rows and shared list/search chrome ${theme} ${layout.viewport}px viewport: ${layout.heights.join('/')}px`);
+  session=(await rpc('/session',{capabilities:{alwaysMatch:{browserName:'firefox','moz:firefoxOptions':{args:['-headless']}}}})).sessionId;
+  await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1120 });
+  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
+  await frame('await until(()=>win.ready);return true;');
+  for (const theme of ['light','dark']) for (const width of [1440,900,390]) {
+    await execute(`document.querySelector('#view').style.width='${width}px';`);
+    const result=await frame(`
+      doc.documentElement.dataset.theme='${theme}';win.location.hash='#inputs';
+      await until(()=>win.ui.view.id==='inputs'&&doc.querySelector('.inputs-browse')&&!doc.querySelector('.inputs-browse').hidden);
+      await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));
+      const history=[...doc.querySelectorAll('.input-record')].map(node=>node.dataset.input);
+      const advanced=doc.querySelector('.input-advanced-filters');
+      const historyClosed=!advanced.open;
+      const equal=[...doc.querySelectorAll('.input-row')].map(node=>node.getBoundingClientRect().height);
+      doc.querySelector('[data-input="input:20"] .input-row').click();
+      await until(()=>win.location.hash==='#input-input-20'&&doc.querySelector('.input-original'));
+      const readOnly=!doc.querySelector('.input-detail textarea')&&!doc.querySelector('.input-detail img');
+      button('← 返回历史输入').click();
+      if(${width}<=760)doc.querySelector('#sidebar-toggle').click();
+      doc.querySelector('#drafts-open').click();
+      await until(()=>win.ui.view.id==='drafts'&&doc.querySelectorAll('.input-record').length===2);
+      const draftScope=new URLSearchParams(win.reads.at(-1)).get('view');
+      const summary=doc.querySelector('.input-draft-summary').textContent;
+      const modes=[...doc.querySelectorAll('.input-mode-toggle')];
+      const workOnly=modes.length===2&&modes.find(node=>node.dataset.mode==='order').getAttribute('aria-pressed')==='true';
+      doc.querySelector('[data-mode="append"]').click();await until(()=>doc.querySelectorAll('.input-record').length===1);
+      const appendOnly=doc.querySelector('.input-record').dataset.input==='draft:3';
+      doc.querySelector('.input-row').click();await until(()=>win.location.hash==='#input-draft-3'&&doc.querySelector('.input-detail textarea'));
+      const target=doc.querySelector('.input-detail').textContent.includes('W20');
+      button('← 返回草稿').click();
+      const retained=doc.querySelector('[data-mode="append"]').getAttribute('aria-pressed')==='true';
+      doc.querySelector('[data-mode="order"]').click();await until(()=>doc.querySelectorAll('.input-record').length===2);
+      doc.querySelector('[data-input="draft:1"] .input-row').click();await until(()=>win.location.hash==='#input-draft-1'&&doc.querySelector('.input-detail textarea'));
+      await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));
+      const conditions=doc.querySelector('.emission-conditions'),runtime=doc.querySelector('.input-runtime-settings');
+      const conditionOpen=!conditions.hidden,advancedClosed=doc.querySelector('.emission-advanced-body').hidden&&!runtime.open;
+      const fits=[doc.querySelector('.input-detail'),conditions,...doc.querySelectorAll('.input-actions')].every(node=>node.scrollWidth<=node.clientWidth+1);
+      const actions=[...doc.querySelectorAll('.input-actions button')].filter(node=>node.getClientRects().length).map(node=>{const r=node.getBoundingClientRect();return {text:node.textContent,x:r.x,right:r.right,height:r.height};});
+      return {width:win.innerWidth,scrollWidth:doc.documentElement.scrollWidth,history,historyClosed,equal,readOnly,draftScope,summary,workOnly,appendOnly,target,retained,conditionOpen,advancedClosed,fits,actions};
+    `);
+    assert(result.width===width&&result.scrollWidth<=width&&result.fits,`overflow ${theme}/${width}: ${JSON.stringify(result)}`);
+    assert(JSON.stringify(result.history)===JSON.stringify(['input:20','message:21','management:22'])&&result.readOnly&&result.historyClosed,`history ${JSON.stringify(result)}`);
+    assert(result.equal.every(height=>height===result.equal[0])&&result.draftScope==='drafts'&&result.summary.includes('W17 本轮合入 main'),`list summaries ${JSON.stringify(result)}`);
+    assert(result.workOnly&&result.appendOnly&&result.target&&result.retained&&result.conditionOpen&&result.advancedClosed,`hierarchy ${JSON.stringify(result)}`);
+    assert(result.actions.every(row=>row.x>=0&&row.right<=width+1&&(width>760||row.height>=44)),`actions ${JSON.stringify(result)}`);
+    if(width===390||width===1440){
+      await screenshot(`draft-${theme}-${width}.png`);
+      const reachable=await frame("doc.querySelector('.emission-conditions').scrollIntoView({block:'start',behavior:'instant'});await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));const node=doc.querySelector('.emission-conditions'),r=node.getBoundingClientRect();return {top:r.top,bottom:r.bottom,scroll:node.scrollWidth,client:node.clientWidth};");
+      assert(reachable.top>=-1&&reachable.bottom>0&&reachable.scroll<=reachable.client+1,`condition form not reachable ${theme}/${width}: ${JSON.stringify(reachable)}`);
+      await screenshot(`conditions-${theme}-${width}.png`);
+      const submitReachable=await frame("const control=doc.querySelector('.input-submit-actions .agent-call');control.scrollIntoView({block:'center',behavior:'instant'});await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));const r=control.getBoundingClientRect(),composer=doc.querySelector('.composer').getBoundingClientRect();return r.top>=0&&r.bottom<=composer.top+1;");
+      assert(submitReachable,`submit hidden under composer ${theme}/${width}`);
+    }
+    console.log(`PASS ${theme}/${width}px real iframe: sent history, independent navigation, two draft classes, expanded conditions, advanced collapsed, no overflow`);
   }
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  await setTheme('light');
-  for (const page of ['tasks','notices']) {
-    await execute(`window.commonNav('${page}')`);
-    assert(await waitFor(`!document.querySelector('#side-${page}').hidden`), `resource ${page} did not open`);
-    assert(await execute(`const root=document.querySelector('#side-${page}'),heading=root.querySelector('.ui-list-heading'),search=root.querySelector('.search-field');return root.classList.contains('ui-list-page')&&heading&&getComputedStyle(heading).position==='sticky'&&root.querySelector('.ui-list-body')&&search&&search.querySelector('.search-field-submit').textContent==='搜索'&&search.querySelector('.search-field-clear').textContent==='清空';`), `${page} did not reuse list/search foundation`);
-  }
-  await execute(`location.hash='#inputs'`);
-  assert(await waitFor(`document.querySelector('.inputs-page')&&!document.querySelector('.inputs-browse').hidden&&document.querySelectorAll('.input-record').length===4`), 'return to history did not preserve records');
-  const listScreenshot = (process.argv[2] || '/tmp/lush-input-history-ui.png').replace(/\.png$/, '-list.png');
-  await Bun.write(listScreenshot, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-  await click('.input-record button');
-  assert(await waitFor('document.querySelector(".input-detail textarea")'), 'editor did not load');
-  assert(await execute(`return document.querySelector('.inputs-browse').hidden && !document.querySelector('.input-detail-view').hidden && location.hash==='#input-draft-1';`), 'detail did not replace list');
-  await rpc(`/session/${session}/back`, {});
-  assert(await waitFor('!document.querySelector(".inputs-browse").hidden && location.hash==="#inputs"'), 'browser back did not restore list');
-  await click('.input-record button');
-  assert(await waitFor('!document.querySelector(".input-detail").hidden'), 'cached editor did not reopen');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
-    await rpc(`/session/${session}/window/rect`, { width, height });
-    await setTheme(theme);
-    const layout = await execute(`const panel=document.querySelector('.input-detail'),box=panel.querySelector('textarea'),composer=document.querySelector('.composer');
-      return {viewport:innerWidth,pageOverflow:document.documentElement.scrollWidth>innerWidth+1,editorWidth:box.getBoundingClientRect().width,
-      detailOverflow:panel.scrollWidth>panel.clientWidth+1,composerOverflow:composer.scrollWidth>composer.clientWidth+1,
-      controls:[...composer.querySelectorAll('.composer-actions button')].filter(n=>!n.hidden&&n.getClientRects().length>0).map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,width:r.width,x:r.x,right:r.right};})};`);
-    assert(!layout.pageOverflow && !layout.detailOverflow && !layout.composerOverflow && layout.editorWidth >= 200, `layout overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
-    assert(layout.controls.every(c => c.width >= 20 && c.x >= 0 && c.right <= layout.viewport), `composer controls clipped: ${JSON.stringify(layout)}`);
-    const focus = await execute(`const box=document.querySelector('#input');box.blur();const collapsed=box.getBoundingClientRect().height;
-      box.focus();const expanded=box.getBoundingClientRect().height;box.blur();const restored=box.getBoundingClientRect().height;
-      return {collapsed,expanded,restored,overflow:document.documentElement.scrollWidth>innerWidth+1};`);
-    assert(focus.expanded>focus.collapsed+20 && Math.abs(focus.restored-focus.collapsed)<1 && !focus.overflow, `focus expansion failed ${theme} ${width}: ${JSON.stringify(focus)}`);
-    await execute(`const box=document.querySelector('#input');box.value='输入文字后模式提示依然可见';box.dispatchEvent(new Event('input'));`);
-    await checkComposerMode('create', theme, layout.viewport);
-    console.log(`PASS history/editor/composer layout and focus expansion ${theme} ${layout.viewport}px viewport (window ${width}x${height})`);
-  }
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  await execute(`const input=document.querySelector('#input');input.value='键盘暂存';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();`);
-  await press('\uE007');
-  assert(await waitFor('window.calls.some(c=>c.method==="draft.add") && document.querySelector("#input").value===""'), 'real Enter did not buffer');
-  assert(await execute('return window.calls.length===1 && window.calls[0].method==="draft.add"'), 'Enter also submitted order');
-  await execute(`const input=document.querySelector('#input');input.value='两行';input.focus();input.setSelectionRange(2,2);`);
-  await keys([{ type: 'keyDown', value: '\uE008' }, { type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }, { type: 'keyUp', value: '\uE008' }]);
-  assert(await execute(`return document.querySelector('#input').value==='两行\\n' && window.calls.length===1;`), 'Shift+Enter did not insert newline');
-  await execute(`window.delayMutation=true;const input=document.querySelector('#input');input.value='慢请求';input.dispatchEvent(new Event('input'));input.focus();`);
-  await press('\uE007'); assert(await waitFor('!!window.hold'), 'request was not held'); await press('\uE007');
-  assert(await execute(`const input=document.querySelector('#input');input.value='网络期间的新想法';input.dispatchEvent(new Event('input'));window.hold();return window.calls.length===2;`), 'repeated Enter duplicated request');
-  assert(await waitFor('!document.querySelector("#input-buffer").disabled'), 'buffer not released');
-  assert(await execute(`return document.querySelector('#input').value==='网络期间的新想法';`), 'new text lost');
-  assert(await execute(`return document.querySelector('.input-save').disabled && ![...document.querySelectorAll('.input-detail button')].some(n=>n.textContent==='重新读取详情'||n.textContent==='仅创建');`), 'clean draft/save or button copy incorrect');
-  await execute(`const box=document.querySelector('.input-detail textarea');box.value='快捷键保存的草稿';box.dispatchEvent(new Event('input',{bubbles:true}));box.focus();window.beforeSaveCalls=window.calls.length;`);
-  assert(await execute(`return !document.querySelector('.input-save').disabled;`), 'editing did not enable save');
-  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'s'},{type:'keyUp',value:'s'},{type:'keyUp',value:'\uE009'}]);
-  assert(await waitFor('window.calls.length===window.beforeSaveCalls+1 && document.querySelector(".input-save").disabled && !document.querySelector(".input-detail textarea").disabled'), 'real Ctrl+S did not save/disable');
-  assert(await execute(`return window.calls.at(-1).method==='draft.update' && window.rows.find(row=>row.id===1).content==='快捷键保存的草稿';`), 'save shortcut fired an order');
-  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'s'},{type:'keyUp',value:'s'},{type:'keyUp',value:'\uE009'}]);
-  assert(await execute(`return window.calls.length===window.beforeSaveCalls+1;`), 'clean save key sent another mutation');
-  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'z'},{type:'keyUp',value:'z'},{type:'keyUp',value:'\uE009'}]);
-  assert(await execute(`return !document.querySelector('.input-save').disabled;`), 'undo after save did not enable save');
-  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE008'},{type:'keyDown',value:'z'},{type:'keyUp',value:'z'},{type:'keyUp',value:'\uE008'},{type:'keyUp',value:'\uE009'}]);
-  assert(await execute(`return document.querySelector('.input-save').disabled;`), 'redo to saved content did not disable save');
-  console.log('PASS real draft Ctrl+S, clean-save suppression and undo/redo dirty state');
-  await execute(`const box=document.querySelector('.input-detail textarea');box.value='浏览器里编辑的原文';box.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.input-detail .agent-call').scrollIntoView({block:'center',behavior:'instant'});`);
-  // Flush the deliberate scroll and park the pointer away from old hover targets before testing keyboard dwell.
-  await rpc(`/session/${session}/actions`, { actions: [{ type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' }, actions: [{ type: 'pointerMove', duration: 0, origin: 'viewport', x: 1, y: 1 }] }] });
-  await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));', args: [] });
-  await press('\uE008'); // Establish real keyboard modality without scrolling away from the target.
-  await execute(`const node=document.querySelector('.input-detail .agent-call');node.blur();node.focus({preventScroll:true});`);
-  assert(await waitFor('!!document.querySelector("#help-tip") && !document.querySelector("#help-tip").hidden && document.querySelector("#help-tip").textContent.includes("token")'), 'Agent keyboard help did not appear after dwell');
-  const help = await execute(`const node=document.querySelector('.input-detail .agent-call'),tip=document.querySelector('#help-tip');return {focused:document.activeElement===node,visible:!!tip&&!tip.hidden,text:tip?.textContent};`);
-  assert(help.focused && help.visible && help.text.includes('token'), `Agent focus help missing: ${JSON.stringify(help)}`);
-  await click('.input-detail .agent-call');
-  assert(await waitFor('location.hash==="#input-input-1" && !document.querySelector(".input-detail textarea") && document.querySelector(".input-detail").textContent.includes("浏览器里编辑的原文")'), 'fired draft did not convert to readonly Order');
-  await rpc(`/session/${session}/back`, {});
-  assert(await waitFor('location.hash==="#inputs" && !document.querySelector(".inputs-browse").hidden'), 'Back reopened consumed draft instead of list');
-  assert(await execute(`const calls=window.calls.slice(-2);return calls[0].method==='draft.update' && calls[1].method==='order.submit' && calls[1].params.expected_revision===3 && calls[1].params.start===true && !('content' in calls[1].params);`), 'save/fire contract invalid');
-  assert(await execute(`return document.querySelectorAll('img').length===0;`), 'unsafe input rendered as markup');
-  await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));`);
-  await execute(`location.hash='#worker-1';`);
-  assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1"'), 'Worker detail did not open');
-  assert(await execute(`return document.querySelector('#composer-mode-title').textContent==='新建独立 Worker';`), 'navigation implicitly entered append mode');
-  await execute(`window.appendAgain=()=>{const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='追加输入');if(!entry)throw Error('append entry missing');entry.click();};window.appendAgain();`);
-  assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'explicit Worker destination did not activate');
-  assert(await execute(`return document.querySelector('#input-buffer-help').hidden && !document.querySelector('#composer-expand').hidden && document.querySelector('#composer-details').hidden && document.querySelector('#composer-shortcuts').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
-    await rpc(`/session/${session}/window/rect`, { width, height });
-    await setTheme(theme);
-    await execute(`const box=document.querySelector('#input');box.value='正在追加当前工作';box.dispatchEvent(new Event('input'));`);
-    await checkComposerMode('append', theme, width);
-    if (width===390) await Bun.write(`/tmp/lush-composer-append-${theme}.png`, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-  }
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  await setTheme('light');
-  await execute(`const box=document.querySelector('#input');box.value='当前 Worker 的后续要求';box.dispatchEvent(new Event('input'));box.focus();`);
-  await press('\uE007');
-  assert(await waitFor('window.calls.at(-1)?.method==="worker.message" && document.querySelector("#input").value===""'), 'Enter did not append');
-  assert(await execute(`const c=window.calls.at(-1);return c.params.id===1 && c.params.body==='当前 Worker 的后续要求';`), 'followup sent to wrong Worker');
-  await execute(`window.appendAgain();const box=document.querySelector('#input');box.value='点击发送保留内容';box.dispatchEvent(new Event('input'));box.focus();`);
-  await click('#draft-commit');
-  assert(await waitFor('window.calls.at(-1)?.params.body==="点击发送保留内容" && document.querySelector("#input").value===""'), 'blur shrink prevented button send');
-  // Real composer ACK must release the next input even while all global reads stay pending.
-  await execute(`window.appendAgain();window.holdRefresh=true;const box=document.querySelector('#input');box.value='ACK 后马上继续';box.dispatchEvent(new Event('input'));box.focus();`);
-  await press('\uE007');
-  assert(await waitFor('window.refreshReleases.length>0 && !window.ui.composerSubmitting && document.querySelector("#input").value===""'), 'composer ACK waited for global refresh');
-  await execute(`window.appendAgain();const box=document.querySelector('#input');box.value='第二条立即发射';box.dispatchEvent(new Event('input'));box.focus();`);
-  assert(await execute(`return !document.querySelector('#draft-commit').disabled;`), 'next input still disabled');
-  await press('\uE007');
-  assert(await waitFor('window.calls.at(-1)?.params.body==="第二条立即发射" && !window.ui.composerSubmitting'), 'second input waited for old refresh');
-  await execute(`const box=document.querySelector('#input');box.value='第三条尚未提交';box.dispatchEvent(new Event('input'));window.releaseReads();`);
-  assert(await waitFor('!window.ui.busy'), 'global refresh did not finish after release');
-  assert(await execute(`return document.querySelector('#input').value==='第三条尚未提交';`), 'late refresh consumed the next input');
-  // Use the actual detail loader and actual ACK implementation, not a navigation stub.
-  await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));
-    window.holdRefresh=true;window.holdSupplements=true;
-    window.world.state.notices=[201,202].map(id=>({id,task_id:1,kind:'info',status:'sent',lifecycle_type:'idle',source_event_id:id,read_at:null,title:'慢详情告知 '+id,created_at:'2026-10-08T11:00:00Z'}));window.paintNotices();`);
-  await click('.notice-banner-info');
-  assert(await waitFor('document.querySelector(".notice-banner-row")?.dataset.noticeId==="201" && window.supplementReleases.length>=2'), 'slow detail blocked notice ACK');
-  assert(await execute(`return document.querySelector('#detail').dataset.taskId==='1'
-    && document.querySelector('.detail-diff')?.dataset.state==='loading'
-    && !document.querySelector('.detail-diff > summary')
-    && !document.querySelector('.notice-banner-info').disabled;`), 'detail did not paint independently of supplements');
-  assert(await waitFor('window.supplementPaths.some(path=>path.endsWith("/diff"))'), 'automatic diff read did not start');
-  await click('.notice-banner-info');
-  assert(await waitFor('document.querySelector("#notice-banner").hidden'), 'second notice waited for supplements or global refresh');
-  await execute('window.releaseReads();');
-  assert(await waitFor('!window.ui.busy && !document.querySelector("#detail").textContent.includes("改动加载中")'), 'detail did not fill supplements after release');
-  console.log('PASS real app fast composer ACK, next input protection, progressive detail and continuous notice ACK under slow reads');
-  await execute(`window.workerStatus='completed';location.hash='#workers';`);
-  assert(await waitFor('document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'list did not restore main');
-  await execute(`location.hash='#worker-1';`);
-  assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1" && document.querySelector("#composer-mode-title").textContent==="新建独立 Worker"'), 'terminal Worker navigation changed creation mode');
-  assert(await execute(`return !document.querySelector('#input').disabled && ![...document.querySelectorAll('.task-actions button')].some(n=>n.textContent==='追加输入');`), 'terminal Worker offered append or blocked independent creation');
-  await execute(`location.hash='#workers';`);
-  assert(await waitFor('!document.querySelector("#input").disabled && document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'back navigation did not restore main');
-  console.log('PASS real browser Worker followup Enter/button routing, paused hint, terminal guard and navigation restoration');
-  const screenshot = process.argv[2] || '/tmp/lush-input-history-ui.png';
-  await Bun.write(screenshot, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-  console.log(`PASS independent detail/browser back, real keyboard buffering/newline, duplicate/in-flight preservation, Agent help and edit/fire; screenshots: ${listScreenshot}, ${screenshot}`);
-  passed = true;
-} catch (error) { console.error(`Browser check failed; complete geckodriver log: ${log}`); throw error; }
-finally {
-  if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
-  driver.kill(); await driver.exited; server.stop(true);
-  if (passed) await rm(temp, { recursive: true, force: true });
+  // Actual history/back and keyboard save within the iframe browsing context.
+  await execute("document.querySelector('#view').style.width='900px';");
+  await frame("win.location.hash='#drafts';await until(()=>!doc.querySelector('.inputs-browse').hidden);doc.querySelector('[data-input=\"draft:1\"] .input-row').click();await until(()=>!doc.querySelector('.input-detail').hidden);return true;");
+  const frameElement=await rpc(`/session/${session}/element`,{using:'css selector',value:'#view'});
+  await rpc(`/session/${session}/frame`,{id:frameElement});
+  await rpc(`/session/${session}/back`,{});
+  const back=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>location.hash==='#drafts'&&!document.querySelector('.inputs-browse').hidden?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  assert(back,'browser back did not return to drafts list');
+  await execute("document.querySelector('[data-input=\"draft:1\"] .input-row').click();");
+  await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>document.querySelector('.input-detail textarea')&&!document.querySelector('.input-detail').hidden?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  await execute("const node=document.querySelector('.input-detail textarea');node.value='真实键盘保存的工作暂存';node.dispatchEvent(new Event('input',{bubbles:true}));node.focus();");
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'s'},{type:'keyUp',value:'s'},{type:'keyUp',value:'\uE009'}]}]});
+  const saved=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>window.calls.at(-1)?.method==='draft.update'&&document.querySelector('.input-save').disabled?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  assert(saved,'real Ctrl+S failed');
+  await execute("document.querySelector('.input-detail .agent-call').click();");
+  const mounted=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>!document.querySelector('.input-detail textarea')&&window.calls.at(-1)?.method==='input.emit'?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  assert(mounted,'mount must consume editor, not create fake Worker');
+  await execute("window.finishDraft();[...document.querySelectorAll('button')].find(node=>node.textContent==='刷新提交状态').click();");
+  const finished=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>document.querySelector('.input-detail').textContent.includes('已投递')?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  assert(finished,'successful receipt did not refresh');
+  await execute("[...document.querySelectorAll('button')].find(node=>node.textContent==='查看已创建原文 O30').click();");
+  const source=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>location.hash==='#input-input-30'&&document.querySelector('.input-detail').textContent.includes('查看提交草稿 #1')?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  assert(source,'actual original must expose source receipt');
+  await execute("[...document.querySelectorAll('button')].find(node=>node.textContent==='查看提交草稿 #1 · 条件与独占').click();");
+  await rpc(`/session/${session}/frame`,{id:null});
+  const noDuplicate=await frame("await until(()=>win.location.hash==='#input-draft-1');button('← 返回草稿').click();return ![...doc.querySelectorAll('.input-record')].some(node=>node.dataset.input==='draft:1');");
+  assert(noDuplicate,'successful source still appears in draft list');
+  console.log('PASS real browser back, Ctrl+S, mounted readonly receipt, successful history/source round trip and no duplicate draft');
+  passed=true;
+} finally {
+  if(session){try{await rpc(`/session/${session}`,undefined,'DELETE');}catch{}}
+  driver.kill();await driver.exited;server.stop(true);
+  if(passed)await rm(temp,{recursive:true,force:true});else console.error(`Browser diagnostic: ${log}`);
 }
