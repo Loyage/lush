@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { managementInvocation, validateManagementRPC, MANAGEMENT_RPC_METHODS } from './management-rpc.js';
 import { builtInPrompt } from './prompts.js';
 import { isWorkerNumber } from '../core/worker-number.js';
+import { safeWorkerQueryError } from '../core/worker-query.js';
 
 const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
 export const MANAGEMENT_TOOL_NAMES = Object.freeze(MANAGEMENT_RPC_METHODS.filter(method => method.startsWith('manager.'))
@@ -47,9 +48,14 @@ export async function managementRPCRequest(method, params, signal, env = process
       child.stdin.on('error', () => { kill(); finish(new Error(UNCONFIRMED)); });
       child.on('error', () => finish(new Error(UNCONFIRMED)));
       child.on('close', code => {
-        if (signal?.aborted || code !== 0) { finish(new Error(UNCONFIRMED)); return; }
+        if (signal?.aborted) { finish(new Error(UNCONFIRMED)); return; }
         try {
           const response = JSON.parse(output);
+          if (code !== 0) {
+            const safe = safeWorkerQueryError(response);
+            if (safe) { finish(Object.assign(new Error(safe.error), safe)); return; }
+            throw new Error();
+          }
           if (!response || Object.hasOwn(response, 'error') || !Object.hasOwn(response, 'result')) throw new Error();
           finish(null, response.result);
         } catch { finish(new Error(UNCONFIRMED)); }
@@ -112,7 +118,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
     return { content: [{ type: 'text', text }], details: result };
   };
   pi.registerTool({ name: 'manager_catalog', label: '管理能力目录', exposure: 'model-only',
-    description: '列出当前 Lush 全部公开功能及可自动执行、需用户确认、不可用的真实边界；目录不是授权。',
+    description: '列出当前 Lush 全部公开功能、查询 schema/枚举/默认值/分页示例及真实权限边界；scope 的含义按接口区分，不猜 development/device。目录不是授权。',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async execute(_id, params, signal) { return resultView(await call('manager.catalog', params, signal)); },

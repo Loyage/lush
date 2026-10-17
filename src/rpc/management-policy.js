@@ -2,6 +2,7 @@ import { RUNNER_METHODS } from './runner-methods.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
 import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
+import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-query.js';
 import { CLI_COMMANDS, LUSHC_PATHS, LUSHC_METHODS } from '../cli/catalog.js';
 
 export { LUSHC_METHODS };
@@ -155,7 +156,7 @@ export function managementCatalog(snapshot = null, legacy = false) {
   return { scope: 'current_project', groups: MANAGEMENT_GROUPS.map(group => ({ ...group })),
     methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
       parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])],
-      ...(AUTOMATION_CAPABILITIES[item.method] ?? {}) })),
+      ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}) })),
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
 }
@@ -164,6 +165,7 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   check(typeof method === 'string' && Object.hasOwn(PARAMS, method), 'unknown management capability');
   const policy = effectiveManagementPolicy(method, snapshot);
   check(policy.access !== 'unavailable', policy.reason);
+  validateWorkerQuery(method, params);
   check(isPlainObject(params) && Object.keys(params).every(key => PARAMS[method].includes(key)
     || key === 'scope' && MANAGEMENT_DEVICE_ALIASES.has(method)), 'unknown management parameter');
   // Auth identities and secret-bearing payloads must never be model-controlled, including nested dictionaries.
@@ -178,11 +180,15 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   };
   visit(params);
   check(Buffer.byteLength(JSON.stringify(params)) <= 32768, 'management parameters exceed limit');
+  // A query's range is not device configuration authority. Keep unknown scoped
+  // methods conservative; only code-owned query contracts and the legacy mount
+  // policy have a reviewed non-device meaning for scope.
+  const queryScope = WORKER_QUERY_CAPABILITIES[method]?.schema.properties.scope;
   const projectMountScope = method === 'branch.convergence_defaults_set';
-  if (!projectMountScope && Object.hasOwn(params, 'scope')) {
+  if (!queryScope && !projectMountScope && Object.hasOwn(params, 'scope')) {
     check(params.scope === 'device', 'management settings must explicitly select device scope');
     check(/设备|全局|device/i.test(instruction), 'device scope must be explicitly requested in the user instruction');
-  } else if (!projectMountScope && (PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
+  } else if (!queryScope && !projectMountScope && (PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
     check(false, 'device settings require explicit scope in both user instruction and parameters');
   }
   // Validate registration before asking for authorization; mounting is a separate exact request.

@@ -33,6 +33,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
+    'test/project/management-query.test.js', // typed CLI/manager queries -> real bridge, scope separation and safe rejection
     'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
     'test/project/force-acceptance.test.js', // real CLI/RPC, user-only exact scope and unchanged acceptance safety/recovery

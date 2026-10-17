@@ -50,5 +50,18 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     expect(saved.permissions).toEqual(Object.fromEntries(saved.methods.map(item => [item.method, item.method === 'draft.add' ? 'confirmation' : item.base_access])));
     expect(saved.permissions['worker.cancel']).toBe('automatic');
     expect(saved.methods.find(item => item.method === 'management.permission_set').allowed_access).toEqual(['confirmation', 'unavailable']);
+    // The same shipped CLI catalogue now explains typed query parameters in the
+    // existing advanced section; browsing never executes the examples.
+    await button('返回搜索结果').onclick();
+    search.value = 'worker list'; search.oninput({});
+    dom.node('detail').querySelector('[data-command="lushc worker list"]').onclick();
+    const advanced = dom.node('detail').querySelector('details');
+    expect(advanced.open).toBe(false);
+    expect(deepText(advanced)).toContain('RPC 参数契约（类型、必填、默认值与枚举）');
+    expect(deepText(advanced)).toContain('"type": "integer"');
+    expect(deepText(advanced)).toContain('"maximum": 1000');
+    expect(deepText(advanced)).toContain('RPC 参数示例（仅说明，不执行）');
+    expect(deepText(advanced)).toContain('"after": 0');
+    expect(writes).toEqual(['/api/host/management/permissions']);
   } finally { ui.disposeValetSettings?.(); dom?.restore(); await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); }
 });

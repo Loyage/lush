@@ -2,7 +2,7 @@ import { check } from '../core/types.js';
 import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { publicResult } from './public-result.js';
 import { LUSHC_METHODS } from './management-policy.js';
-import { assertManagementCapabilityExecution, dispatchManagementCode } from '../core/project/management-code.js';
+import { assertManagementCapabilityExecution, dispatchManagementCode, managementCodeReadResult } from '../core/project/management-code.js';
 import { handlers as runnerHandlers } from './handlers/runner.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
@@ -41,7 +41,7 @@ export class Dispatcher {
       const result = LUSHC_METHODS.has(method)
         ? await dispatchManagementCode(project, method, params, actorId, receiptId,
           actor => HANDLERS[method].call(this, project, params, actor))
-        : await HANDLERS[method].call(this, project, params, null);
+        : managementCodeReadResult(method, await HANDLERS[method].call(this, project, params, null, { management: true }), project, params);
       return publicResult(result, method);
     };
   }

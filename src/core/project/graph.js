@@ -134,11 +134,13 @@ export default {
    */
   async taskGraph(params = {}, projection = null) {
     const options = graphOptions(params);
-    if (options.details && !projection) {
+    const pageLimit = projection?.pageLimit ?? GRAPH_NODE_LIMIT;
+    check(Number.isSafeInteger(pageLimit) && pageLimit > 0 && pageLimit <= GRAPH_NODE_LIMIT, 'invalid internal graph page limit');
+    if (options.details && !projection?.summary && !projection?.preview) {
       // Select by serialized structure before any sessions or Git diagnostics.
       // Keep the public details identity so summary/full cursors cannot be mixed.
-      const preview = await this.taskGraph(params, { summary: true });
-      return this.taskGraph(params, { preview: preview.graph.nodes, identity: preview.identity });
+      const preview = await this.taskGraph(params, { summary: true, pageLimit });
+      return this.taskGraph(params, { preview: preview.graph.nodes, identity: preview.identity, pageLimit });
     }
     const details = options.details && !projection?.summary;
     const branchRows = this.store.branches();
@@ -158,7 +160,7 @@ export default {
     if (projection?.identity) check(page.identity === projection.identity, 'Worker graph cursor stale; refresh from first page');
     const windowIds = projection?.preview
       ? projection.preview.filter(node => !node.node_truncated).map(node => node.id)
-      : page.filtered.slice(page.offset, page.offset + GRAPH_NODE_LIMIT).map(row => row.id);
+      : page.filtered.slice(page.offset, page.offset + pageLimit).map(row => row.id);
     const rows = windowIds.length ? this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, display_title, auto_title, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
       reservation, auto_merge, interrupt_state, progress_plan, created_at, updated_at, calls, agent_wakes,

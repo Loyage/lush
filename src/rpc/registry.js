@@ -4,6 +4,7 @@ import { RUNNER_METHODS } from './runner-methods.js';
 import { INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
 import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
+import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
 
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
@@ -44,8 +45,8 @@ export const PARAMS = {
   'management.create': ['name','instruction','signal_id','mode','profile','client_request_id'],
   'management.binding_update': ['id','enabled','expected_revision'],
   'management.submit': ['instruction','profile','client_request_id'],
-  'manager.catalog': [], 'manager.history': ['id','before','limit'], 'manager.call': ['method','params','request_id'],
-  'manager.query': ['id'], 'manager.start': ['id'], 'manager.retry': ['id'],
+  'manager.catalog': [], 'manager.history': WORKER_QUERY_PARAMETERS['manager.history'], 'manager.call': ['method','params','request_id'],
+  'manager.query': WORKER_QUERY_PARAMETERS['manager.query'], 'manager.start': ['id'], 'manager.retry': ['id'],
   'worker.hooks': ['id'], 'worker.completion_page': ['before','limit'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],
   'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
@@ -56,9 +57,10 @@ export const PARAMS = {
   'draft.add': ['content','references','branch',...INPUT_OPTION_KEYS],
   'draft.update': ['id','content','references','branch','expected_revision',...INPUT_OPTION_KEYS],
   'draft.remove': ['id','expected_revision'],
-  'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details','hidden_statuses','include_archived','cursor','scope'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
-  'worker.delivery_graph': ['history','cursor','limit'],
-  'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
+  'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'],
+  'worker.graph': WORKER_QUERY_PARAMETERS['worker.graph'], 'worker.list': WORKER_QUERY_PARAMETERS['worker.list'],
+  'worker.activity': WORKER_QUERY_PARAMETERS['worker.activity'], 'worker.delivery_graph': ['history','cursor','limit'],
+  'worker.page': WORKER_QUERY_PARAMETERS['worker.page'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
   'worker.progress_history': ['id','before','limit'], 'worker.relations': ['id','after','limit'],
   'worker.version_graph': ['id','delivery','cursor','limit'], 'worker.version_deliveries': ['id','before','limit'],
   'worker.version_commit': ['id','snapshot','commit'],

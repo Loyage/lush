@@ -1,21 +1,15 @@
 import { createHash } from 'node:crypto';
 import { check } from '../types.js';
+import { WORKER_GRAPH_STATUSES as STATUSES, validateWorkerQuery } from '../worker-query.js';
 
 // Leaves >148 KiB for the JSON-RPC envelope; measure serialized UTF-8, not characters.
 export const GRAPH_BYTE_BUDGET = 900000;
 export const GRAPH_PAGE_LIMIT = 200;
-const STATUSES = ['queued', 'running', 'waiting', 'awaiting', 'paused', 'awaiting_acceptance', 'completed', 'failed', 'cancelled'];
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const jsonBytes = value => Buffer.byteLength(JSON.stringify(value));
 
 export function graphOptions({ details = true, hidden_statuses = [], include_archived = true, scope = 'all', cursor } = {}) {
-  check(scope === 'all' || scope === 'tree', 'scope must be all or tree');
-  check(typeof details === 'boolean', 'details must be boolean');
-  check(typeof include_archived === 'boolean', 'include_archived must be boolean');
-  check(Array.isArray(hidden_statuses) && hidden_statuses.length <= STATUSES.length
-    && hidden_statuses.every(status => typeof status === 'string' && STATUSES.includes(status))
-    && new Set(hidden_statuses).size === hidden_statuses.length, 'hidden_statuses must be an array of unique known statuses');
-  check(cursor === undefined || (typeof cursor === 'string' && cursor.length > 0 && cursor.length <= 1024), 'cursor must be a non-empty string (max 1024)');
+  validateWorkerQuery('worker.graph', { details, hidden_statuses, include_archived, scope, cursor });
   return { details, hidden_statuses: [...hidden_statuses].sort(), include_archived, scope, cursor };
 }
 

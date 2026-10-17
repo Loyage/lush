@@ -1,4 +1,6 @@
 import { check, id, bounded } from '../../core/types.js';
+import { validateWorkerQuery } from '../../core/worker-query.js';
+import { MANAGEMENT_READ_ITEMS } from '../../core/project/management-data.js';
 import { validateRunnerNodeSelection } from '../runner-methods.js';
 
 /** worker.* (persistent Task data and internal methods keep their names). */
@@ -6,15 +8,21 @@ export const handlers = {
   'worker.auto_title'(p, params, actor) { return p.setTaskAutoTitle(actor, params.title); },
   'worker.rename'(p, params) { return p.renameTask(id(params.id), params.title); },
   'worker.lookup'(p, params) { return p.store.lookupWorker(params.number); },
-  'worker.graph'(p, params) { return p.taskGraph(params); },
+  'worker.graph'(p, params, _actor, context) {
+    // Trusted dispatcher-only context; never a public parameter or user actor.
+    return p.taskGraph(params, context?.management ? { pageLimit: MANAGEMENT_READ_ITEMS } : null);
+  },
   'worker.delivery_graph'(p, params) { return p.workerDeliveryGraph(params); },
   'worker.list'(p, params, actor) {
     const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
-    check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid worker page');
+    validateWorkerQuery('worker.list', { after, limit });
     return bounded(p.decorate(p.store.summaries('work').filter(task => task.id > after).slice(0, limit)), 900000);
   },
   'worker.activity'(p, params, actor) { return p.activity(Number(params.limit ?? 50), params.scope ?? 'work'); },
-  'worker.page'(p, params, actor) { return p.taskPage(params.before ?? null, Number(params.limit ?? 50), params.scope ?? 'work'); },
+  'worker.page'(p, params, _actor, context) {
+    const requested = Number(params.limit ?? 50);
+    return p.taskPage(params.before ?? null, context?.management ? Math.min(requested, MANAGEMENT_READ_ITEMS) : requested, params.scope ?? 'work');
+  },
   'worker.relations'(p, params) { return p.taskRelations(id(params.id), {
     ...(params.after !== undefined ? { after: params.after } : {}), ...(params.limit !== undefined ? { limit: params.limit } : {}),
   }); },

@@ -126,6 +126,8 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(PARAMS)));
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(HANDLERS)));
       expect(catalog.methods.find(item => item.method === 'draft.add').access).toBe('automatic');
+      expect(catalog.methods.find(item => item.method === 'worker.graph').schema.properties.scope.enum).toEqual(['all', 'tree']);
+      expect(catalog.methods.find(item => item.method === 'worker.list').schema.properties.limit).toMatchObject({ type: 'integer', minimum: 1, maximum: 1000 });
       expect(catalog.methods.find(item => item.method === 'worker.transcript').access).toBe('read');
       expect(catalog.methods.find(item => item.method === 'worker.transcript_page').access).toBe('unavailable');
       const history = replies[1].response.details;

@@ -69,6 +69,17 @@ export function managementCodeReadResult(method, value, project, params) {
       ...(Array.isArray(row.children) ? { children: row.children.map(workerMetadata) } : {}),
       coverage: 'worker_metadata_only', omitted: ['provider_result', 'provider_error', 'inbox', 'artifacts', 'raw_runs', 'notice_bodies'] };
   };
+  if (method === 'worker.graph') {
+    // The graph's cursor is packed at the management page size by the real
+    // handler. Do not slice nodes here and skip unreturned rows on continuation.
+    const fields = ['id','worker_number','parent_id','layout_parent_id','task_kind','status','integration',
+      'archived','has_result','node_truncated','details_unavailable','notice_count','children_total','children_active'];
+    return { ...value, nodes: value.nodes.map(row => ({
+      ...Object.fromEntries(fields.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]])),
+      title: String(row.title ?? '').slice(0, 48), goal_preview: String(row.goal_preview ?? '').slice(0, 100),
+      goal_truncated: row.node_truncated === true || String(row.goal_preview ?? '').length > 100,
+    })), coverage: 'worker_metadata_only', omitted: ['provider_result', 'provider_error', 'notice_bodies', 'git_diagnostics', 'resources'] };
+  }
   if (method === 'worker.inspect') return workerMetadata(value);
   if (method === 'worker.tree') return Array.isArray(value) ? value.map(workerMetadata) : workerMetadata(value);
   if (method === 'worker.history') {

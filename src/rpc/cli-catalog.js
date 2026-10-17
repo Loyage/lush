@@ -1,5 +1,6 @@
 import { CLI_EXECUTABLES, cliCommands } from '../cli/catalog.js';
 import { AUTOMATION_CAPABILITIES } from '../core/hook-registration.js';
+import { WORKER_QUERY_CAPABILITIES } from '../core/worker-query.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { managementPolicy, managementAllowedAccess } from './management-policy.js';
 
@@ -22,7 +23,8 @@ export function cliCatalog() {
     advanced: entry.advanced ?? '',
     rpc: entry.rpc.map(method => {
       const policy = managementPolicy(method);
-      return { method, parameters: [...PARAMS[method]], ...(AUTOMATION_CAPABILITIES[method] ?? {}), base_access: policy.access,
+      return { method, parameters: [...PARAMS[method]], ...(WORKER_QUERY_CAPABILITIES[method] ?? {}),
+        ...(AUTOMATION_CAPABILITIES[method] ?? {}), base_access: policy.access,
         allowed_access: [...managementAllowedAccess(policy.access, method)], reason: policy.reason,
         audience: USER_ONLY.has(method) ? 'user' : AGENT_ONLY.has(method) ? 'agent' : 'user-and-agent' };
     }),

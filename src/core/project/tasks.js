@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
+import { validateWorkerQuery } from '../worker-query.js';
 import { scopeMatches } from '../automation-scopes.js';
 import { workerLabel } from '../worker-number.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
@@ -233,9 +234,8 @@ export default {
 
   /** Task window: active items plus a bounded terminal tail; all includes control-plane roles. */
   activity(limit = 50, scope = 'work') {
-    check(['work', 'all'].includes(scope), 'invalid worker scope');
     const size = Number(limit);
-    check(Number.isInteger(size) && size >= 1 && size <= 200, 'activity limit must be 1..200');
+    validateWorkerQuery('worker.activity', { limit: size, scope });
     const active = this.store.summaryPage({ active: true, limit: 1000, scope });
     const recent = this.store.summaryPage({ limit: size, scope });
     const byId = new Map([...active, ...recent].map(task => [task.id, task]));
@@ -250,11 +250,9 @@ export default {
 
   /** Older terminal items within the requested scope; callers merge pages by id. */
   taskPage(before = null, limit = 50, scope = 'work') {
-    check(['work', 'all'].includes(scope), 'invalid worker scope');
     const cursor = before === null || before === undefined ? null : Number(before);
     const size = Number(limit);
-    check(cursor === null || (Number.isSafeInteger(cursor) && cursor > 0), 'invalid worker history cursor');
-    check(Number.isInteger(size) && size >= 1 && size <= 200, 'worker history limit must be 1..200');
+    validateWorkerQuery('worker.page', { before: cursor, limit: size, scope });
     const rows = this.store.summaryPage({ before: cursor, limit: size + 1, scope });
     const hasMore = rows.length > size;
     const page = rows.slice(0, size);

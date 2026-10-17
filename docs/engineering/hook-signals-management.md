@@ -32,6 +32,8 @@ W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设�
 
 capability 仅在真正进入执行回调、完成最新权限及精确确认校验后标 running，私有 `execution_authorization` 固定该方法开始时的权限，后续真实 bridge／receipt 校验不因项目权限变化误拦截。已经开始的操作不因之后修改权限被强制中断，完成的副作用不撤销；历史 running 收据保留原开始授权及既有 unknown／精确完成证明恢复规则。开始／重试返回的 waiting 动作仍是**未开始**：capability succeeded 仅表示提交，动作真正执行前还须用最新权限和原精确批准重新核验。
 
+查询契约由 `src/core/worker-query.js` 同源供给 CLI 学习目录、管家目录及校验，包含类型、枚举、默认值、分页说明与参数示例。`worker.graph.scope` 是 `all|tree`，`worker.activity/page.scope` 是 `work|all`；这些是当前项目的查询范围，不要求设备指令或 `scope:'device'`，也不接受自造 `development`。设备设置仍须显式指令与设备作用域，不能以查询例外扩权。只有这组契约在执行前产生的固定参数错误使用 `-32030`，可信 bridge 双端按代码和固定消息白名单投影为 `kind:'invalid_parameters',execution:'not_started'`，不回显错误参数值、路径或任意异常；可修正参数后重新提交只读查询。权限拒绝、普通 handler 错误、输出超限、超时、断连及未知结果仍采用保守失败，不声明未执行、不自动重放。
+
 `manager.query`、`manager.history` 是独立审核的安全 read 条目；直接工具与 manager.call 使用同一最新项目权限检查。worker.lookup 的真实管理 actor 亦需该条目 read 授权。manager.start 对应 worker.resume，manager.retry 对应 worker.retry；两个专用入口和 manager.call 均遵守对应权限。收紧为 confirmation 时发布既有精确用户确认 Notice，用户批准后交给原受控动作引擎，不直接转发普通 resume/retry handler；仍检查目标类型／状态、祖先、冻结、旧调用、配置、去重、等待与 unknown，不允许 profile 覆盖。自动权限也走同一动作引擎，不能借 manager.call 绕过目标门禁。确认收据 succeeded 只表示已提交，result.action 及独立 action receipt 显示 waiting／skipped／succeeded 等实际结果。
 
 ### 开发能力的受控代理
@@ -39,6 +41,8 @@ capability 仅在真正进入执行回调、完成最新权限及精确确认校
 `lushc` 是开发协作入口，`lush` 是管理入口，二者共用命令目录与业务实现。Valet 继续仅通过可信 `manager.call`／真实 bridge 调用开发能力，不获得 Shell、本地文件工具、开发 Skill 或任意 RPC 直通；本地 help、指南和问卷示例不是 RPC，不构成文件或命令执行授权。CLI 分区与迁移见[双入口](../reference/api.md#开发与管理双入口)。
 
 Valet 可向当前项目任意合法开发目标发消息，保存真实 Valet sender；可在指定活动 order/child 下派生 child，child 的分支基线、父子编号与交付目标仍属于该开发 parent，不挂在无 Git 分支的 Valet 下。进度、自动标题与决策 Notice 只作用于 Valet 自身。`worker.accept` 按最新权限经原统一验收入口执行；设为 confirmation 时须真实用户批准精确目标，默认 automatic 时无需逐次确认，但仍复核干净现场、交付、消息、后代、冻结及资源归属；接口默认开放不提高 Worker 的自动链最高级别。普通开发 invocation 的直接父子约束不变。
+
+`worker.graph` 的管理调用同样只返回 `worker_metadata_only`，剔除结果预览、通知正文、资源和 Git 诊断；在真实图查询入口将页大小限制为 100，游标按实际返回节点推进，不经事后裁剪跳过记录。`worker.page` 的管理分页同样在实际查询前限制为 100 条，返回的 limit/cursor 对应实际页，不丢弃同页尾部。查询 scope、筛选及 cursor 语义仍与普通入口相同。
 
 `worker.inspect`／`worker.tree` 的管理调用返回 `coverage:'worker_metadata_only'`，剔除原始 Run 结果／错误、收件箱正文、Artifact 与 Notice 正文，避免绕过执行记录的安全读面。`worker.history`／`worker.transcript` 返回有界、可续读的 `event_metadata_only`／`step_metadata_only` 投影。条数预算与通用安全出口同源，最多 100 条；`next` 固定在末个实际返回记录，`has_more` 包含本层未返回记录，不能按请求 limit 推算游标。`steps_truncated`／`events_truncated` 标明本层条数裁剪，`truncated` 保留上游字节预算事实，不混为同一原因。inspect／tree 的 `goal_truncated`／`goal_length`（UTF-16 长度）标明目标摘要范围，不能把已有树摘要当完整目标；不返回原始事件正文、提示词、工具参数／输出或会话路径，不把安全摘要冒充完整执行记录。Valet 发布自身决策问题后结束调用，同一 occurrence 挂起并保留项目串行执行位；用户答复后受控恢复，答案来自 `context.management.decisions` 的真实 Notice 来源与截断标志，不开放任意管理收件箱。这不是向 Valet 开放连续追加管理对话，也不重放已执行动作；设为 confirmation 的动作仍采用独立的精确确认收据。
 

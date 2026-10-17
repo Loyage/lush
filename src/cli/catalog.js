@@ -49,7 +49,7 @@ add('doctor', '[--verbose]', '核对当前磁盘、daemon 与 Host 的代码身�
 add('log', '', '读取所选项目 daemon 日志末尾 60 行。', '', [], 'local-read', '本地文件读取，不向 Valet 开放日志或 Shell。');
 add('order', "'目标' [--branch NAME] [--runner-node UUID|local] [--profile-file PATH] [--management] [--buffer] [--append ID|Wn] [--quiet] [--exclusive] [--after-settled ID|Wn] [--after-merged ID|Wn] [--defer]", '提交开发指令、条件输入或即时 Valet 管理需求。', "'实现需求' --branch main", ['order.submit','input.emit','draft.add','management.submit','worker.lookup'], 'agent', '默认可靠挂载，安全准入后才创建／调用；--buffer 只保存草稿。--management 独立创建 Valet，不可与开发条件混用。条件可重复，profile 文件须 owner-only。--runner-node 随新建输入持久保存，支持条件与暂存，不用于追加、管理或旧 --defer。各 RPC 按实际选项分支调用，授权其中一个不等于开放全部命令。');
 const workers = [
-  ['list','[--brief] [--after N] [--limit N]','读取 Worker 列表，可选短摘要。','','worker.list'],
+  ['list','[--brief] [--after N] [--limit N]','按内部 ID 升序分页；after 为非负整数，limit 为 1..1000（默认 200）；--brief 短摘要的 limit 为 1..200（默认 30）。','','worker.list'],
   ['tree','[ID|Wn]','查看 Worker 委派树；非 JSON 附带状态。','','worker.tree,system.status'],
   ['inspect','ID|Wn|Vn','查看完整 Worker 详情。','W5','worker.inspect'],
   ['spawn',"'目标' --parent ID|Wn [--name NAME] [--runner-node UUID|local]",'在活动指令或 child 下创建独立子 Worker。',"'专项实现' --parent W5",'worker.spawn','agent'],

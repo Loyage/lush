@@ -182,7 +182,16 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       advanced.append(el('code', item.usage, 'cli-command-code'));
       advanced.append(el('p', '通用选项：--project PATH 明确项目；--json 输出结构化结果（终端 watch 不支持）；--help / -h 只打印帮助，不执行命令。', 'hint'));
       if (item.advanced) advanced.append(el('p', item.advanced, 'hint'));
-      for (const rpc of item.rpc) advanced.append(el('p', `${rpc.method} · RPC 参数：${rpc.parameters.join(', ') || '无'} · ${rpc.audience === 'user' ? '用户专属入口' : rpc.audience === 'agent' ? '专用 Agent 入口' : '用户／开发 Agent（仍受身份门禁）'}`, 'hint'));
+      for (const rpc of item.rpc) {
+        advanced.append(el('p', `${rpc.method} · RPC 参数：${rpc.parameters.join(', ') || '无'} · ${rpc.audience === 'user' ? '用户专属入口' : rpc.audience === 'agent' ? '专用 Agent 入口' : '用户／开发 Agent（仍受身份门禁）'}`, 'hint'));
+        if (rpc.schema) {
+          advanced.append(el('h4', 'RPC 参数契约（类型、必填、默认值与枚举）'),
+            el('pre', JSON.stringify(rpc.schema, null, 2), 'cli-command-code'));
+        }
+        if (rpc.examples?.length) advanced.append(el('h4', 'RPC 参数示例（仅说明，不执行）'),
+          el('pre', JSON.stringify(rpc.examples, null, 2), 'cli-command-code'));
+        for (const limitation of rpc.limitations ?? []) advanced.append(el('p', limitation, 'hint'));
+      }
       detail.append(advanced);
     }
     sync();
