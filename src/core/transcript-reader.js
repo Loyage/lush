@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check } from './types.js';
 import { projectRecord, sessionFiles } from './transcript.js';
+import { transcriptShell } from './transcript-shell.js';
 
 const MAX_LINE = 16 * 1024 * 1024;
 const BODY_PAGE = 24000;
@@ -49,7 +50,8 @@ function summary(step, query = '') {
   const body = step.body || '';
   const index = query ? body.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) : 0;
   const start = Math.max(0, index - 160);
-  return { ...step, body: body.slice(0, 1800), body_length: body.length,
+  const shell = transcriptShell(step);
+  return { ...step, ...(shell ? { shell } : {}), body: body.slice(0, 1800), body_length: body.length,
     excerpt: `${start ? '…' : ''}${body.slice(start, start + 500)}`, body_truncated: body.length > 1800 };
 }
 

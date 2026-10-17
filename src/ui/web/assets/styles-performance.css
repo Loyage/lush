@@ -1,17 +1,19 @@
-/* One main scroll surface; rankings and raw evidence do not add nested vertical scrollers. */
+/* Actual command rankings: one main scroll surface, no nested command/output scrollers. */
 .performance-view{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;padding:20px clamp(12px,3vw,44px) 48px}
-.performance-view[hidden],.performance-evidence[hidden]{display:none}
-.performance-view h2{font-size:18px;margin:0 0 12px}.performance-view h3{font-size:14px;margin:0 0 12px}
+.performance-view[hidden]{display:none}.performance-view h2{font-size:18px;margin:0 0 12px}.performance-view h3{font-size:14px;margin:0 0 12px}
 .performance-controls{flex-wrap:wrap}.performance-status{overflow-wrap:anywhere}
 .performance-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}
 .performance-metric{display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
 .performance-metric strong{font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .performance-ranks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.performance-sort{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;margin:0 0 12px}
+.performance-sort select{min-width:0;max-width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;color:var(--text);background:var(--panel);font:inherit}
 .performance-list{padding:0;margin:0;list-style:none}.performance-row{padding:12px;border:1px solid var(--line-soft);border-radius:8px;background:var(--panel);margin:0 0 10px;min-width:0}
-.performance-row-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px}.performance-row-head strong{overflow-wrap:anywhere;min-width:0}
+.performance-command{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:12px/1.7 ui-monospace,monospace;padding:10px;background:var(--code);border-radius:6px;margin:0 0 10px;max-height:none;overflow:visible}
+.performance-command-stats{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px}.performance-command-stats>span{min-width:0;overflow-wrap:anywhere}
 .performance-duration{font-variant-numeric:tabular-nums;color:var(--accent);overflow-wrap:anywhere}.performance-row p{margin:6px 0;overflow-wrap:anywhere}
-.performance-advanced{margin-top:24px;border-top:1px solid var(--line);padding-top:16px}.performance-advanced>summary{cursor:pointer;font-weight:600}.performance-advanced>section{margin-top:18px}
-.performance-evidence{border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:20px;background:var(--panel)}
-.performance-evidence-body{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:12px/1.7 ui-monospace,monospace;max-height:none;overflow:visible}
+.performance-attempts>summary{cursor:pointer;color:var(--accent);font-size:12px;padding:8px 0}.performance-attempt-list{list-style:none;padding:0;margin:0}
+.performance-attempt{border-top:1px solid var(--line-soft);padding:10px 0;font-size:12px}.performance-attempt>.performance-duration{display:block}.performance-attempt-failed>strong{color:var(--failed)}.performance-attempt-succeeded>strong{color:var(--completed)}
+.performance-advanced{margin-top:24px;border-top:1px solid var(--line);padding-top:16px}.performance-advanced>summary{cursor:pointer;font-weight:600}
 .execution-navigation,.execution-tabs{flex-wrap:wrap}
-@media(max-width:760px){.performance-summary,.performance-ranks{grid-template-columns:minmax(0,1fr);gap:12px}.performance-view{padding:14px 10px 30px}.performance-view button,.execution-tabs button{min-height:44px}.performance-metric strong{font-size:18px}.performance-evidence{padding:10px}.execution-tabs{gap:4px}}
+@media(max-width:760px){.performance-summary,.performance-ranks{grid-template-columns:minmax(0,1fr);gap:12px}.performance-view{padding:14px 10px 30px}.performance-view button,.performance-sort select,.execution-tabs button{min-height:44px}.performance-attempts>summary{min-height:44px;display:flex;align-items:center}.performance-metric strong{font-size:18px}.execution-tabs{gap:4px}}

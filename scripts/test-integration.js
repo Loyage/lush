@@ -80,6 +80,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-inputs.test.js', // separate history/drafts, conditional editor, dirty navigation, single-flight and late-result guards
     'test/web/dom-worker-lifecycle.test.js', // phase intervals, causal evidence, retained reader state and exact reference routing
     'test/web/worker-lifecycle-model.test.js', // honest legacy/gap/partial-history projection
+    'test/transcript-shell.test.js', // complete Bash argument fingerprints, bounded previews and explicit result evidence
     'test/web/performance-data.test.js', // explicit full scan, bounded metadata, cancellation and strict pagination
     'test/web/performance-model.test.js', // interval unions, unknown/partial evidence, net milestones and unique tool pairing
     'test/web/dom-performance-view.test.js', // lazy tab, cancelled/late scans, ranked source navigation and retained samples

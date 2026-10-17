@@ -134,3 +134,66 @@ export function analyzePerformance({ task, events = [], runs = task.runs || [], 
       unknown_intervals: unknownIntervals },
     stages: progress.stages, calls, waits, tools, progress_waits: progress.progress_waits, notes };
 }
+
+/** Actual Bash attempts only. Server fingerprints describe full parameters, never display previews. */
+export function analyzeShellCommands({ steps = [], coverage = {} } = {}) {
+  const wireSteps = unique(steps.filter(step => step && positive(step.seq)), step => step.seq);
+  const commands = groupSteps(wireSteps).filter(step => step.kind === 'tool' && (step.tool_name || step.title) === 'bash')
+    .sort((a, b) => a.seq - b.seq);
+  const groupsByKey = new Map();
+  for (const step of commands) {
+    const shell = step.shell || {};
+    const identity = shell.identity_complete === true && typeof shell.fingerprint === 'string'
+      && /^[a-f0-9]{64}$/.test(shell.fingerprint) && typeof shell.command === 'string' && shell.command.length > 0;
+    const key = identity ? `shell:${shell.fingerprint}` : `shell:step-${step.seq}`;
+    if (!groupsByKey.has(key)) groupsByKey.set(key, { key, command: text(shell.command, '命令不可读取'),
+      command_truncated: shell.command_truncated === true, parameters: structuredClone(shell.parameters ?? null),
+      parameters_truncated: shell.parameters_truncated === true, identity_complete: identity,
+      fingerprint: identity ? shell.fingerprint : null, attempts: [] });
+    // Pairing identity and sequence are independent of clock readability. A failed
+    // command with missing timestamps is still failed, not an unknown result.
+    const paired = typeof step.file === 'string' && step.file && step.results.length === 1
+      && step.results[0].seq > step.seq ? step.results[0] : null;
+    // The compatibility projection may coerce malformed old flags; require original boolean evidence here.
+    const outcome = paired?.error_known === true && paired.is_error === true ? 'failed'
+      : paired?.is_error === false && paired.error_known === true ? 'succeeded' : 'unknown';
+    groupsByKey.get(key).attempts.push({ key: `shell-attempt:${step.seq}`, seq: step.seq, result_seq: paired?.seq ?? null,
+      start: step.at ?? null, end: paired?.at ?? null, duration_ms: paired ? toolDurationMs(step) : null,
+      outcome, source: { kind: 'transcript_step', seq: step.seq } });
+  }
+  const sumKnown = attempts => {
+    const known = attempts.filter(attempt => attempt.duration_ms !== null);
+    return known.length ? known.reduce((sum, attempt) => sum + attempt.duration_ms, 0) : null;
+  };
+  const groups = [...groupsByKey.values()].map(group => {
+    const attempts = group.attempts, failures = attempts.filter(attempt => attempt.outcome === 'failed');
+    const known = attempts.filter(attempt => attempt.duration_ms !== null);
+    return { ...group, count: attempts.length, failure_count: failures.length,
+      success_count: attempts.filter(attempt => attempt.outcome === 'succeeded').length,
+      unknown_count: attempts.filter(attempt => attempt.outcome === 'unknown').length,
+      total_ms: sumKnown(attempts), max_ms: known.length ? Math.max(...known.map(attempt => attempt.duration_ms)) : null,
+      failed_ms: failures.length ? sumKnown(failures) : attempts.every(attempt => attempt.outcome === 'succeeded') ? 0 : null,
+      unknown_durations: attempts.length - known.length,
+      unknown_failed_durations: failures.filter(attempt => attempt.duration_ms === null).length,
+      last_outcome: attempts.at(-1).outcome };
+  }).sort((a, b) => (b.max_ms ?? -1) - (a.max_ms ?? -1) || a.key.localeCompare(b.key));
+  const attempts = groups.flatMap(group => group.attempts), failures = attempts.filter(attempt => attempt.outcome === 'failed');
+  const summary = { commands: groups.length, attempts: attempts.length, failures: failures.length,
+    unknown_results: attempts.filter(attempt => attempt.outcome === 'unknown').length,
+    ungrouped_attempts: groups.filter(group => !group.identity_complete).reduce((sum, group) => sum + group.count, 0),
+    known_failed_ms: failures.length ? sumKnown(failures)
+      : attempts.length && attempts.every(attempt => attempt.outcome === 'succeeded') ? 0 : null,
+    unknown_durations: attempts.filter(attempt => attempt.duration_ms === null).length,
+    unknown_failed_durations: failures.filter(attempt => attempt.duration_ms === null).length };
+  const notes = [
+    '仅统计实际 Bash/Shell 命令调用，不计计划阶段、read/edit 工具或模型思考。',
+    '仅按完整命令与参数的可核验精确指纹归组；空白、路径或 timeout 改变即为不同身份。预览相同不代表命令相同，不推断改参数后属于同一问题。',
+    '耗时是同文件唯一调用到结果的记录间隔估算；累计时间包含可能重叠的尝试，不是墙钟耗时，不包含尝试间隙。失败尝试累计仅是返工线索，不代表已确认的返工时间。',
+    '重复失败排行只应纳入明确失败次数至少 2 次的命令；一次失败后成功不算屡次失败。',
+  ];
+  if (coverage.steps !== true) notes.push('仅分析已读取的部分 steps 范围，排行与累计不代表全部历史。');
+  if (summary.ungrouped_attempts) notes.push('部分命令身份不可核验，逐次独立成组，不按正文、工具名或截断预览合并。');
+  if (summary.unknown_results || summary.unknown_durations) notes.push('存在结果证据或耗时未知的尝试；仅原始结果明确记录了布尔错误标记才分类成功／失败，缺结果不代表成功、失败或仍在运行，未知耗时不补零。');
+  if (!attempts.length) notes.push('当前范围没有实际 Bash 命令证据，不以空列表伪装完整零耗时。');
+  return { groups, summary, notes };
+}

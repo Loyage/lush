@@ -44,6 +44,20 @@ test('cancelled or late collection cannot publish data; continuation reads the s
   await another.load({ all: true }); expect(another.snapshot().coverage.history).toBe(true);
 });
 
+test('shell-only collection preserves authoritative bounded command identity and never loads plans, runs or lifecycle', async () => {
+  const f = fixture(), shell = { command: 'bun run test', parameters: '{"timeout":20}', identity_complete: true, fingerprint: 'a'.repeat(64) };
+  const data = createPerformanceData(7, { commandsOnly: true, read: async route => {
+    const result = await f.read(route);
+    if (route.includes('transcript-search')) { result.steps[0].shell = shell; result.steps[0].error_known = true; }
+    return result;
+  } });
+  const first = await data.load(); expect(first.steps[0].shell).toEqual(shell); expect(first.steps[0].body).toBeUndefined();
+  expect(first.steps[0].error_known).toBe(true); expect(f.calls).toHaveLength(2);
+  expect(first.task.progress).toBeUndefined();
+  await data.load({ all: true }); expect(data.snapshot().coverage.steps).toBe(true);
+  expect(f.calls.some(route => /progress-history|runs-page|reading-page/.test(route))).toBe(false);
+});
+
 for (const kind of ['stalled', 'foreign', 'unreadable', 'budget']) test(`performance collection preserves incomplete scope for ${kind} evidence`, async () => {
   const f = fixture(), data = createPerformanceData(7, { maxRecords: kind === 'budget' ? 0 : 5000, read: async route => {
     const result = await f.read(route);

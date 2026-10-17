@@ -6,8 +6,9 @@ const pick = (value, keys) => Object.fromEntries(keys.filter(key => Object.hasOw
 const positive = value => Number.isSafeInteger(value) && value > 0;
 
 /** Bounded, cancellable evidence collection. No model calls, background scans or descendant reads. */
-export function createPerformanceData(taskId, { read = api, maxRecords = 5000, maxChars = 4 * 1024 * 1024 } = {}) {
+export function createPerformanceData(taskId, { read = api, maxRecords = 5000, maxChars = 4 * 1024 * 1024, commandsOnly = false } = {}) {
   let task = null, sampledAt = null, scanned = 0, chars = 0, exhausted = false;
+  const groups = commandsOnly ? ['steps'] : GROUPS;
   const maps = Object.fromEntries(GROUPS.map(group => [group, new Map()]));
   const cursors = { history: null, runs: null, steps: 0, progress: null };
   const coverage = Object.fromEntries(GROUPS.map(group => [group, false]));
@@ -46,7 +47,7 @@ export function createPerformanceData(taskId, { read = api, maxRecords = 5000, m
     }
     const retained = group === 'history' ? items.filter(timingEvent).map(item => ({ ...pick(item, ['id', 'task_id', 'type', 'created_at', 'limitations']),
       data: pick(item.data || {}, ['version', 'from', 'to', 'to_status', 'reason', 'run_id', 'call', 'suspended', 'notice_id', 'child_ids', 'notice_ids']) }))
-      : group === 'steps' ? items.map(item => pick(item, ['seq', 'file', 'kind', 'at', 'call_id', 'tool_name', 'title', 'is_error']))
+      : group === 'steps' ? items.map(item => pick(item, ['seq', 'file', 'kind', 'at', 'call_id', 'tool_name', 'title', 'is_error', 'error_known', 'shell']))
         : group === 'runs' ? items.map(item => pick(item, ['id', 'task_id', 'attempt', 'status', 'started_at', 'ended_at']))
           : items.map(item => pick(item, ['id', 'progress', 'archived_at']));
     budget(items.length, retained);
@@ -62,10 +63,10 @@ export function createPerformanceData(taskId, { read = api, maxRecords = 5000, m
     if (!task) {
       const value = await read(`/api/worker/${taskId}`, { signal }); check(signal);
       if (value.id !== taskId) throw new Error('Worker 身份不匹配，已停止读取。');
-      task = pick(value, ['id', 'status', 'task_kind', 'calls', 'created_at', 'worker_number', 'progress']);
+      task = pick(value, ['id', 'status', 'task_kind', 'calls', 'created_at', 'worker_number', ...(commandsOnly ? [] : ['progress'])]);
       sampledAt = new Date().toISOString(); onProgress(snapshot());
     }
-    for (const group of GROUPS) {
+    for (const group of groups) {
       if (coverage[group] || (!all && loaded.has(group))) continue;
       do { await page(group, signal); onProgress(snapshot()); } while (all && !coverage[group]);
     }

@@ -138,10 +138,15 @@ try {
     { key: 'test', label: '测试阶段', status: 'completed', started_at: '2026-01-01T00:00:25Z', completed_at: '2026-01-01T00:00:30Z', duration_ms: 5000 },
   ] }); // Recorded evidence fixture; no Provider is run.
   fs.mkdirSync(path.join(f.config.home, 'sessions'), { recursive: true });
-  fs.writeFileSync(path.join(f.config.home, 'sessions', `001_lush-task-${worker.id}.jsonl`), [
-    { type: 'message', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'browser-timing', name: 'bash', arguments: { command: 'echo performance-browser' } }] } },
-    { type: 'message', timestamp: '2026-01-01T00:00:08Z', message: { role: 'toolResult', toolCallId: 'browser-timing', toolName: 'bash', content: [{ type: 'text', text: 'recorded result' }] } },
-  ].map(record => JSON.stringify(record)).join('\n') + '\n');
+  const commandRecords = [], at = ms => new Date(Date.parse('2026-01-01T00:00:00Z') + ms).toISOString();
+  for (let index = 0; index < 53; index++) {
+    const failed = index < 2, command = index === 52 ? 'sleep 12' : 'echo performance-browser';
+    const timeout = index === 51 ? 21 : 20, elapsed = failed ? 7000 : index === 52 ? 12000 : index === 51 ? 1000 : 2000;
+    commandRecords.push({ type: 'message', timestamp: at(index * 20000), message: { role: 'assistant', content: [{ type: 'toolCall', id: `browser-${index}`, name: 'bash', arguments: { command, timeout } }] } },
+      { type: 'message', timestamp: at(index * 20000 + elapsed), message: { role: 'toolResult', toolCallId: `browser-${index}`, toolName: 'bash', isError: failed,
+        content: [{ type: 'text', text: failed ? 'recorded failed attempt' : 'recorded successful attempt' }] } });
+  }
+  fs.writeFileSync(path.join(f.config.home, 'sessions', `001_lush-task-${worker.id}.jsonl`), commandRecords.map(record => JSON.stringify(record)).join('\n') + '\n');
   const host = await (await fetch(f.url + '/api/host/projects')).json();
   const projectId = host.projects.find(row => row.project === f.root)?.id;
   assert(projectId, 'temporary project missing');
@@ -180,25 +185,29 @@ try {
   }
   // A dedicated analysis bookmark in an exact-size iframe verifies the approved information hierarchy.
   await execute(`location.hash='#worker-${worker.id}-execution-performance'`);
-  await wait(`document.querySelector('.performance-status')?.textContent.includes('调用未读全')&&!document.querySelector('.performance-controls button').disabled`);
-  assert(await execute(`return !document.querySelector('.performance-advanced').open&&document.querySelector('.performance-stages strong').textContent.includes('实现阶段瓶颈')`), 'analysis does not prioritize bottleneck stages or advanced tools are expanded');
+  await wait(`document.querySelector('.performance-status')?.textContent.includes('尚非全部历史')&&!document.querySelector('.performance-controls button').disabled`);
+  assert(await execute(`return !document.querySelector('.performance-advanced').open&&!document.querySelector('.performance-stages')&&!document.querySelector('.performance-view').textContent.includes('实现阶段瓶颈')&&document.querySelector('.performance-slow .performance-command').textContent==='echo performance-browser'`), 'analysis still shows plans instead of actual command bottlenecks');
   await click('.performance-controls button:nth-child(2)');
   await wait(`document.querySelector('.performance-status')?.textContent.includes('当前采样范围已扫描完')`);
+  assert(await execute(`return document.querySelectorAll('.performance-slow .performance-command-row').length===3&&document.querySelectorAll('.performance-retries .performance-command-row').length===1&&document.querySelector('.performance-retries').textContent.includes('2 / 51')&&document.querySelector('.performance-retries').textContent.includes('明确成功')`), 'exact parameters or repeated failure outcomes were not preserved');
+  await execute(`const sort=document.querySelector('[aria-label="慢指令排序"]');sort.value='total_ms';sort.dispatchEvent(new Event('change',{bubbles:true}));`);
+  assert(await execute(`return document.querySelector('.performance-slow .performance-command').textContent==='echo performance-browser'`), 'cumulative command sort failed');
+  await execute(`const sort=document.querySelector('[aria-label="慢指令排序"]');sort.value='max_ms';sort.dispatchEvent(new Event('change',{bubbles:true}));`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`);
-    const layout = await execute(`const root=document.querySelector('.performance-view'),r=root.getBoundingClientRect(),rank=document.querySelector('.performance-ranks'),buttons=[...root.querySelectorAll('button')].filter(n=>n.getClientRects().length);return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth||root.scrollWidth>root.clientWidth,columns:getComputedStyle(rank).gridTemplateColumns.split(' ').length,height:r.height,inside:r.left>=0&&r.right<=innerWidth,buttons:buttons.every(n=>n.getBoundingClientRect().height>=${width <= 760 ? 44 : 30}),metrics:document.querySelector('.performance-summary').textContent,order:[...document.querySelectorAll('.performance-stages strong')].map(n=>n.textContent)};`);
+    const layout = await execute(`const root=document.querySelector('.performance-view'),r=root.getBoundingClientRect(),rank=document.querySelector('.performance-ranks'),buttons=[...root.querySelectorAll('button')].filter(n=>n.getClientRects().length);return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth||root.scrollWidth>root.clientWidth,columns:getComputedStyle(rank).gridTemplateColumns.split(' ').length,height:r.height,inside:r.left>=0&&r.right<=innerWidth,buttons:buttons.every(n=>n.getBoundingClientRect().height>=${width <= 760 ? 44 : 30}),metrics:document.querySelector('.performance-summary').textContent,order:[...document.querySelectorAll('.performance-slow .performance-command')].map(n=>n.textContent)};`);
     assert(layout.width === width && !layout.overflow && layout.inside && layout.height > 150 && layout.buttons && layout.columns === (width <= 760 ? 1 : 2), `performance layout ${theme}/${width}: ${JSON.stringify(layout)}`);
-    assert(layout.metrics.includes('25 秒') && layout.order[0].includes('实现阶段瓶颈'), 'performance clocks/ranking missing'); layouts.push({ theme, performance: layout });
+    assert(layout.metrics.includes('14 秒') && layout.order[0] === 'sleep 12', 'command timing/failure ranking missing'); layouts.push({ theme, performance: layout });
     await screenshot(`performance-${theme}-${width}`);
   }
-  await click('.performance-stages .performance-source'); await wait(`!document.querySelector('.performance-evidence').hidden&&document.querySelector('.performance-evidence-body').textContent.includes('work_ms')`);
-  await execute(`document.querySelector('.performance-advanced').open=true`); await click('.performance-tools .performance-source');
+  await execute(`document.querySelector('.performance-retries .performance-attempts').open=true`);
+  await click('.performance-retries .performance-source');
   await wait(`document.querySelector('[role="tab"][aria-selected="true"]').textContent==='执行记录'&&document.querySelector('.step-located')`);
-  assert(await execute(`return document.querySelector('.step-located').textContent.includes('performance-browser')`), 'performance tool did not locate its source record');
+  assert(await execute(`return document.querySelector('.step-located').textContent.includes('performance-browser')&&document.querySelector('.step-located').textContent.includes('recorded failed attempt')`), 'command analysis did not locate its failed attempt/output');
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify(layouts, null, 2));
   success = true;
-  console.log('PASS navigation: light/dark × 1440/768/390/320px, native new tab/noopener, Worker transcript/code new tabs + reload/return + preserved source draft/scroll, performance ranking/full-scan/source + exact narrow layouts, callback route/back, keyboard focus/Enter, hover, hidden/long labels and reference/prose exclusions');
+  console.log('PASS navigation: light/dark × 1440/768/390/320px, native new tab/noopener, Worker transcript/code new tabs + reload/return + preserved source draft/scroll, Shell longest/cumulative + exact-parameter repeated-failure rankings/full-scan/source + exact narrow layouts, callback route/back, keyboard focus/Enter, hover, hidden/long labels and reference/prose exclusions');
 } catch (error) {
   if (session) { try { await screenshot('failure'); fs.writeFileSync(path.join(evidence, 'failure-page.json'), JSON.stringify(await execute('return {url:location.href,html:document.documentElement.outerHTML}')));
   } catch {} }

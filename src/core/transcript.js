@@ -61,7 +61,8 @@ function fromMessage(record, at, max = MAX_BODY) {
   if (message.role === 'user') return [{ kind: 'input', title: 'Worker 上下文', at, body: bodyOf(textOf(message.content)) }];
   if (message.role === 'toolResult') {
     return [{ kind: 'result', title: `${message.toolName || 'tool'}${message.isError ? '（失败）' : ''}`, at,
-      call_id: message.toolCallId ?? null, tool_name: message.toolName ?? null, is_error: Boolean(message.isError), body: bodyOf(textOf(message.content)) }];
+      call_id: message.toolCallId ?? null, tool_name: message.toolName ?? null, is_error: Boolean(message.isError),
+      error_known: typeof message.isError === 'boolean', body: bodyOf(textOf(message.content)) }];
   }
   if (message.role !== 'assistant') return [{ kind: 'meta', title: `消息 ${message.role}`, at, body: bodyOf(textOf(message.content)) }];
   // Pi's assistant timestamp is captured when the response starts; the enclosing

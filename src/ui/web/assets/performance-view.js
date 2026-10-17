@@ -1,73 +1,108 @@
 import { el, button } from './dom.js';
-import { loadReadingRecord } from './api.js';
 import { createPerformanceData } from './performance-data.js';
-import { analyzePerformance } from './performance-model.js';
+import { analyzeShellCommands } from './performance-model.js';
 import { absolute, lifecycleDuration } from './format.js';
 
-const scopes = { history: '生命周期', runs: '调用', steps: '工具记录', progress: '阶段历史' };
 const stamp = value => value && Number.isFinite(Date.parse(value)) ? absolute(value) : '时间未知';
+const outcomes = { failed: '明确失败', succeeded: '明确成功', unknown: '结果未知' };
+const duration = value => `${value == null ? '' : '≈ '}${lifecycleDuration(value)}`;
+const descending = metric => (a, b) => (b[metric] ?? -1) - (a[metric] ?? -1) || a.key.localeCompare(b.key);
 
-/** Foreground-only sampled analysis. Explicit full scans, never background polling or model calls. */
+/** Actual Shell commands and failed attempts, not an Agent's self-reported plan. */
 export function createPerformanceView(taskId, { onStep = async () => {} } = {}) {
-  const root = el('section', undefined, 'performance-view'); root.setAttribute('aria-label', '当前 Worker 性能分析');
-  const heading = el('h2', '性能分析');
+  const root = el('section', undefined, 'performance-view'); root.setAttribute('aria-label', '当前 Worker Shell 指令性能分析');
   const controls = el('div', undefined, 'actions performance-controls');
-  const status = el('p', '进入页签后读取有界计时证据；完整历史须显式扫描。', 'hint performance-status'); status.setAttribute('role', 'status');
+  const status = el('p', '仅在进入页签后读取实际 Bash 命令；完整历史须显式扫描。', 'hint performance-status'); status.setAttribute('role', 'status');
   const summary = el('div', undefined, 'performance-summary');
   const ranks = el('div', undefined, 'performance-ranks');
-  const stages = el('section', undefined, 'performance-stages'), waits = el('section', undefined, 'performance-waits'); ranks.append(stages, waits);
-  const advanced = el('details', undefined, 'performance-advanced'); advanced.append(el('summary', '各轮调用、工具排行与统计口径'));
-  const calls = el('section', undefined, 'performance-calls'), tools = el('section', undefined, 'performance-tools'), notes = el('ul', undefined, 'hint performance-notes');
-  advanced.append(calls, tools, notes);
-  const evidence = el('section', undefined, 'performance-evidence'); evidence.hidden = true; evidence.tabIndex = -1; evidence.setAttribute('aria-label', '性能计时证据');
-  let collector = createPerformanceData(taskId), active = false, disposed = false, generation = 0, reading = null, evidenceRead = null, evidenceGeneration = 0;
-  let loading = false, initialized = false, needsPaint = false, message = '', expanded = new Set();
-  const refresh = button('刷新分析', () => { cancel(); collector = createPerformanceData(taskId); initialized = false; expanded.clear(); return load(false); }, 'ghost');
-  const scan = button('分析全部历史', () => load(true), 'ghost', { help: '显式分批读取当前 Worker 的全部调用、生命周期、阶段与执行记录，达到预算或失败时保留局部结果；不读取子 Worker，不调用 Agent。' });
+  const slow = el('section', undefined, 'performance-slow'), retries = el('section', undefined, 'performance-retries'); ranks.append(slow, retries);
+  const advanced = el('details', undefined, 'performance-advanced'); advanced.append(el('summary', '统计口径与未知证据'));
+  const notes = el('ul', undefined, 'hint performance-notes'); advanced.append(notes);
+  let collector = createPerformanceData(taskId, { commandsOnly: true }), active = false, disposed = false, generation = 0, reading = null;
+  let loading = false, initialized = false, needsPaint = false, message = '';
+  const expandedCommands = new Set(), openAttempts = new Set(), limits = new Map();
+  const sortControls = {};
+  function sort(label, values, field) {
+    const host = el('label', undefined, 'performance-sort'); host.append(el('span', label));
+    const select = el('select'); select.setAttribute('aria-label', label);
+    for (const [value, text] of values) { const option = el('option', text); option.value = value; select.append(option); }
+    select.value = values[0][0]; select.onchange = () => { limits.delete(field); paint(); };
+    sortControls[field] = select; host.append(select); return host;
+  }
+  const slowSort = sort('慢指令排序', [['max_ms', '单次最长'], ['total_ms', '累计尝试耗时']], 'slow');
+  const retrySort = sort('重复失败排序', [['failed_ms', '失败尝试累计耗时'], ['failure_count', '明确失败次数']], 'retries');
+  const refresh = button('刷新分析', () => {
+    cancel(); collector = createPerformanceData(taskId, { commandsOnly: true }); initialized = false;
+    limits.clear(); openAttempts.clear(); expandedCommands.clear(); return load(false);
+  }, 'ghost');
+  const scan = button('分析全部历史', () => load(true), 'ghost', { help: '显式分批读取当前 Worker 的全部执行记录，仅统计实际 Bash 命令；到预算或失败时保留局部结果，不分析计划，不读取子 Worker，也不调用 Agent。' });
   const cancelButton = button('取消读取', () => { cancel(); message = '读取已取消，保留当前范围；可继续分析全部历史。'; paint(); }, 'ghost');
-  controls.append(refresh, scan, cancelButton); root.append(heading, controls, status, summary, ranks, advanced, evidence);
-  function cancelEvidence() { evidenceGeneration++; evidenceRead?.abort(); evidenceRead = null; }
-  function cancel() { generation++; reading?.abort(); reading = null; loading = false; cancelEvidence(); }
+  controls.append(refresh, scan, cancelButton);
+  root.append(el('h2', '性能分析'), el('p', '仅统计实际 Bash 命令；定位慢指令与反复失败的时间浪费。', 'hint'), controls, status, summary, ranks, advanced);
+  function cancel() { generation++; reading?.abort(); reading = null; loading = false; }
   const current = () => active && !disposed;
-  function section(host, title, rows, limit = 5) {
-    host.replaceChildren(el('h3', title));
-    if (!rows.length) { host.append(el('p', '没有可用的已记录计时证据；不是零耗时。', 'hint')); return; }
-    const shown = expanded.has(host) ? rows.length : limit;
-    const list = el('ol', undefined, 'performance-list');
-    for (const row of rows.slice(0, shown)) {
-      const item = el('li', undefined, 'performance-row'); item.dataset.performanceKey = row.key;
-      const head = el('div', undefined, 'performance-row-head');
-      head.append(el('strong', row.label), el('span', `${row.estimated ? '≈ ' : ''}${lifecycleDuration(row.duration_ms)}${row.open ? '（采样时仍进行中）' : ''}`, 'performance-duration'));
-      item.append(head, el('p', `${stamp(row.start)} → ${row.end ? stamp(row.end) : row.open ? '采样时刻' : '结束边界未知'}`, 'hint'));
-      if (row.kind === 'unknown' || row.timing_unknown) item.append(el('p', '计时或等待原因未知，不据此推断性能结论。', 'hint'));
-      if (row.frozen) item.append(el('p', '历史冻结阶段', 'hint'));
-      if (row.source) item.append(button('查看对应记录', () => showEvidence(row), 'ghost performance-source'));
+  function commandCard(group, scope) {
+    const card = el('li', undefined, 'performance-row performance-command-row'); card.dataset.commandKey = group.key;
+    const command = el('pre', undefined, 'performance-command');
+    const preview = () => { command.textContent = expandedCommands.has(group.key) || group.command.length <= 400 ? group.command : `${group.command.slice(0, 400)}…`; };
+    preview(); card.append(command);
+    if (group.command.length > 400) {
+      const toggle = button(expandedCommands.has(group.key) ? '收起命令预览' : '展开命令预览', () => {
+        if (expandedCommands.has(group.key)) expandedCommands.delete(group.key); else expandedCommands.add(group.key);
+        toggle.textContent = expandedCommands.has(group.key) ? '收起命令预览' : '展开命令预览'; preview();
+      }, 'ghost'); card.append(toggle);
+    }
+    const parameters = typeof group.parameters === 'string' ? group.parameters : JSON.stringify(group.parameters);
+    if (parameters && parameters !== '{}') card.append(el('p', `其余参数：${parameters}`, 'hint performance-parameters'));
+    if (group.command_truncated || group.parameters_truncated) card.append(el('p', '此处仅显示有界预览；定位原始步骤可分段读取完整命令与参数。归组依据完整指纹，而非预览。', 'hint'));
+    if (!group.identity_complete) card.append(el('p', '完整参数身份不可核验：本次执行独立列出，未按预览归组。', 'hint'));
+    const stats = el('div', undefined, 'performance-command-stats');
+    for (const [label, value] of [['最长单次', duration(group.max_ms)], ['已知累计尝试', duration(group.total_ms)],
+      ['明确失败／执行次数', `${group.failure_count} / ${group.count}`], ['失败尝试已知累计', duration(group.failed_ms)]]) {
+      const metric = el('span'); metric.append(el('span', `${label}：`, 'hint'), el('strong', value)); stats.append(metric);
+    }
+    card.append(stats, el('p', `最近结果：${outcomes[group.last_outcome]}${group.unknown_count ? ` · ${group.unknown_count} 次结果未知` : ''}${group.unknown_durations ? ` · ${group.unknown_durations} 次缺少有效计时` : ''}`, 'hint'));
+    if (group.unknown_failed_durations) card.append(el('p', `${group.unknown_failed_durations} 次明确失败缺少计时，已知累计不是完整失败耗时。`, 'hint'));
+    const key = `${scope}:${group.key}`, attempts = el('details', undefined, 'performance-attempts'); attempts.open = openAttempts.has(key);
+    attempts.addEventListener('toggle', () => { if (attempts.open) openAttempts.add(key); else openAttempts.delete(key); });
+    attempts.append(el('summary', `查看 ${group.count} 次执行与输出`));
+    const list = el('ol', undefined, 'performance-attempt-list');
+    const limit = limits.get(key) || 5;
+    for (const attempt of group.attempts.slice(0, limit)) {
+      const item = el('li', undefined, `performance-attempt performance-attempt-${attempt.outcome}`); item.dataset.attemptSeq = String(attempt.seq);
+      item.append(el('strong', `#${attempt.seq} · ${outcomes[attempt.outcome]}`), el('span', duration(attempt.duration_ms), 'performance-duration'),
+        el('p', `${stamp(attempt.start)} → ${stamp(attempt.end)}`, 'hint'),
+        button('定位指令与输出', () => current() ? onStep(attempt.seq) : undefined, 'ghost performance-source'));
       list.append(item);
     }
-    host.append(list);
-    if (rows.length > limit) host.append(button(expanded.has(host) ? '收起排行' : `展开全部 ${rows.length} 项`, () => {
-      if (expanded.has(host)) expanded.delete(host); else expanded.add(host); paint();
-    }, 'ghost'));
+    attempts.append(list);
+    if (group.count > limit) attempts.append(button(`再显示 ${Math.min(20, group.count - limit)} 次执行`, () => { limits.set(key, limit + 20); openAttempts.add(key); paint(); }, 'ghost'));
+    card.append(attempts); return card;
+  }
+  function section(host, title, rows, scope, sortNode) {
+    host.replaceChildren(el('h3', title), sortNode);
+    if (!rows.length) {
+      host.append(el('p', scope === 'retries' ? '当前已读范围未发现同一完整指令至少两次明确失败；未知结果不当作成功或失败。' : '当前范围没有实际 Bash 命令证据；可能尚未读取或历史已缺失，不代表零耗时。', 'hint')); return;
+    }
+    const limit = limits.get(scope) || 5, list = el('ol', undefined, 'performance-list');
+    for (const group of rows.slice(0, limit)) list.append(commandCard(group, scope)); host.append(list);
+    if (rows.length > limit) host.append(button(`再显示 ${Math.min(20, rows.length - limit)} 条指令`, () => { limits.set(scope, limit + 20); paint(); }, 'ghost'));
   }
   function paint() {
     if (!current()) return;
-    const scroll = root.scrollTop, data = collector.snapshot();
-    const complete = Object.values(data.coverage).every(Boolean);
-    const counts = `已读取 ${data.scanned} 条证据 · ${Object.entries(data.coverage).map(([key, done]) => `${scopes[key]}${done ? '已扫描' : '未读全'}`).join(' / ')}`;
-    status.textContent = `${loading ? '正在读取… ' : ''}${message ? `${message} ` : ''}${complete ? '当前采样范围已扫描完；旧记录缺失仍保持未知。' : '仅分析已读取范围，尚非全部历史。'} ${counts}${data.sampled_at ? ` · 采样 ${stamp(data.sampled_at)}` : ''}`;
+    const scroll = root.scrollTop, data = collector.snapshot(), complete = data.coverage.steps;
+    status.textContent = `${loading ? '正在读取… ' : ''}${message ? `${message} ` : ''}${complete ? '当前采样范围已扫描完；缺失记录仍保持未知。' : '仅分析已读取范围，尚非全部历史。'} 已读取 ${data.steps.length} 条执行记录${data.sampled_at ? ` · 采样 ${stamp(data.sampled_at)}` : ''}`;
     refresh.disabled = loading; scan.disabled = loading || complete || data.exhausted; cancelButton.hidden = !loading;
-    if (!data.task) return;
-    const model = analyzePerformance(data);
-    summary.replaceChildren();
-    for (const [label, value] of [['已知调用用时（区间去重）', lifecycleDuration(model.summary.call_ms)], ['已证实非执行等待', lifecycleDuration(model.summary.wait_ms)],
-      ['未知计时／原因项', `${model.summary.unknown_intervals} 项`]]) {
-      const card = el('div', undefined, 'performance-metric'); card.append(el('span', label, 'hint'), el('strong', value)); summary.append(card);
+    if (!data.task) { summary.replaceChildren(); slow.replaceChildren(); retries.replaceChildren(); notes.replaceChildren(); return; }
+    const model = analyzeShellCommands(data); summary.replaceChildren();
+    for (const [label, value, extra] of [['实际 Shell 尝试', `${model.summary.attempts} 次`, `${model.summary.commands} 组指令`],
+      ['明确失败', `${model.summary.failures} 次`, `${model.summary.unknown_results} 次结果未知`],
+      ['失败尝试已知累计（估算）', duration(model.summary.known_failed_ms), `${model.summary.unknown_failed_durations} 次失败缺计时；非墙钟返工时间`]]) {
+      const card = el('div', undefined, 'performance-metric'); card.append(el('span', label, 'hint'), el('strong', value), el('span', extra, 'hint')); summary.append(card);
     }
-    section(stages, model.stages.length ? '最耗时的阶段' : '最耗时的调用（暂无里程碑计时）', model.stages.length ? model.stages : model.calls);
-    section(waits, '等待与未知间隔（单独分析）', model.waits);
-    section(calls, '各轮调用排行', model.calls, 10); section(tools, '工具调用间隔排行（估算）', model.tools, 10);
-    notes.replaceChildren(...model.notes.map(note => el('li', note)), el('li', '各读面分批采样，不是原子快照。运行中数据不会自动替换；需要更新时点击刷新分析。'));
-    if (model.progress_waits.length) notes.append(el('li', '计划中的等待行不重复加入阶段排行或等待合计；生命周期等待以实际阶段边界为准。'));
+    section(slow, '慢指令', [...model.groups].sort(descending(sortControls.slow.value)), 'slow', slowSort);
+    section(retries, '重复失败指令（返工线索）', model.groups.filter(group => group.failure_count >= 2).sort(descending(sortControls.retries.value)), 'retries', retrySort);
+    notes.replaceChildren(...model.notes.map(note => el('li', note)), el('li', '仅统计当前 Worker；运行中记录不会自动替换。需要新采样时点击刷新分析。'));
     root.scrollTop = scroll;
   }
   async function load(all) {
@@ -78,41 +113,11 @@ export function createPerformanceView(taskId, { onStep = async () => {} } = {}) 
     catch (error) { if (valid()) message = `读取未完成：${error.message}`; }
     finally { if (valid()) { loading = false; reading = null; paint(); } }
   }
-  async function showEvidence(row) {
-    if (!current()) return;
-    if (row.source.kind === 'transcript_step') { await onStep(row.source.seq); return; }
-    cancelEvidence(); evidence.hidden = false;
-    const ticket = evidenceGeneration, controller = new AbortController(); evidenceRead = controller;
-    const valid = () => current() && ticket === evidenceGeneration && !controller.signal.aborted;
-    const body = el('pre', undefined, 'performance-evidence-body');
-    evidence.replaceChildren(el('h3', `${row.label} · 原始计时证据`), button('关闭证据', () => { cancelEvidence(); evidence.hidden = true; }, 'ghost'), body);
-    evidence.focus?.({ preventScroll: true }); evidence.scrollIntoView?.({ block: 'nearest' });
-    if (row.source.kind !== 'history_event') {
-      const data = collector.snapshot();
-      const record = row.source.kind === 'run' ? data.runs.find(run => run.id === row.source.run_id)
-        : (row.source.plan_id === 'current' ? data.task.progress : data.progressVersions.find(plan => plan.id === row.source.plan_id)?.progress)?.items?.find(item => item.key === row.source.step_key);
-      body.textContent = record ? JSON.stringify(record, null, 2) : '对应证据未加载，不能补猜。'; return;
-    }
-    body.textContent = '正在读取原始事件…';
-    let offset = 0, first = true;
-    const more = button('继续读取原始事件', readMore, 'ghost'); evidence.append(more); more.hidden = true;
-    async function readMore() {
-      try {
-        const page = await loadReadingRecord(taskId, 'event', row.source.event_id, offset, { signal: controller.signal });
-        if (!valid()) return;
-        if (typeof page.text !== 'string' || !Number.isSafeInteger(page.next_offset) || (page.has_more && page.next_offset <= offset)) throw new Error('原始事件分页不可用');
-        body.textContent = first ? page.text : body.textContent + page.text; first = false; offset = page.next_offset; more.hidden = !page.has_more;
-        if (body.textContent.length > 96000) { more.hidden = true; evidence.append(el('p', '达到证据显示预算；只显示已加载原文，不代表全文。', 'hint')); }
-      } catch (error) { if (valid()) { evidence.append(el('p', `原始证据读取未完成：${error.message}`, 'error')); more.hidden = false; more.textContent = '重试读取证据'; } }
-    }
-    await readMore();
-  }
   return { root,
     async setActive(value) {
       if (disposed) return; active = value;
       if (!value) { const interrupted = loading; cancel(); if (interrupted) { message = '读取已暂停，范围尚未完成；可继续分析全部历史。'; needsPaint = true; } return; }
-      if (!initialized) await load(false);
-      else if (needsPaint) { needsPaint = false; paint(); }
+      if (!initialized) await load(false); else if (needsPaint) { needsPaint = false; paint(); }
     },
     dispose() { disposed = true; active = false; cancel(); },
   };
