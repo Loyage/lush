@@ -16,6 +16,7 @@ import { aggregateRows, aggregateProjectIds, aggregateAccountIds, aggregateLinks
 import { createAggregateRenderer, dashboardNavigation } from './dashboard-widget-aggregate-render.js';
 import { DIAGNOSTICS_ID, createDiagnosticsController, renderDiagnosticsCard } from './dashboard-diagnostics.js';
 import { QUICK_ACTIONS_ID, createQuickActionsCard } from './dashboard-quick-actions.js';
+import { QUICK_ACTIONS } from '../../../shared/dashboard-quick-actions.js';
 
 const cardName = row => row.name || '未命名项目';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -82,6 +83,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       const item = row.type === 'quick_actions' ? quickActions.root : row.type === 'diagnostics'
         ? renderDiagnosticsCard(row, { ...options, state: diagnostics.state, refresh: diagnostics.refresh, ownsPage: active })
         : renderer.render(row, { ...options, mode: config.account_view });
+      if (row.type === 'quick_actions') quickActions.setGeometry(options.geometry);
       item.querySelector('.dashboard-card-settings-host')?.remove();
       const control = el('button', undefined, 'ghost dashboard-card-settings'); control.type = 'button'; control.append(dashboardIcon('settings'));
       control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
@@ -171,8 +173,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     rows = config ? aggregateRows(config, projects, connections) : [];
     if (config?.diagnostics) rows.push({ id: DIAGNOSTICS_ID, type: 'diagnostics', name: '运行诊断' });
     if (config?.quick_actions) {
-      quickActions ||= createQuickActionsCard({ ownsPage: active, canAct: () => active() && !busy && !editing });
-      quickActions.updateProjects(projects);
+      quickActions ||= createQuickActionsCard({ ownsPage: active, canAct: () => active() && !busy && !editing, buttons: config.quick_action_buttons });
+      quickActions.setButtons(config.quick_action_buttons); quickActions.updateProjects(projects);
       rows.push({ id: QUICK_ACTIONS_ID, type: 'quick_actions', name: '快捷操作' });
     } else { quickActions?.dispose(); quickActions = null; }
     diagnostics.setEnabled(!!config?.diagnostics);
@@ -285,7 +287,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     checkbox(diagnosticChoices, '显示运行诊断卡（只读，分钟级估算）', diagnosticsEnabled, checked => { diagnosticsEnabled = checked; }, { diagnostics: 'enabled' });
     editor.insertBefore(diagnosticChoices, actions);
     const quickChoices = el('fieldset'); quickChoices.append(el('legend', '快捷操作'));
-    checkbox(quickChoices, '显示快捷操作卡（一键安全重启）', quickActionsEnabled, checked => { quickActionsEnabled = checked; }, { quickActions: 'enabled' });
+    checkbox(quickChoices, '显示快捷操作卡（按钮在每卡设置中选择）', quickActionsEnabled, checked => { quickActionsEnabled = checked; }, { quickActions: 'enabled' });
     editor.insertBefore(quickChoices, actions);
     const applyAccounts = accountSettings(actions), navigationChanges = new Map(), navigationChoices = el('div');
     linkChoices(navigationChoices, null, navigationChanges); editor.insertBefore(navigationChoices, actions);
@@ -308,8 +310,17 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const remove = checkbox(editor, '从总览移除此卡片（不删除来源，可重新添加）', false, checked => { removed = checked; }, { removeCard: row.id });
     remove.parentNode.dataset.help = '仅在保存后移出总览，不删除项目、账号或诊断数据；本次应用也可撤销。';
     if (row.type === 'quick_actions') {
-      editor.insertBefore(el('p', '仅提供一键安全重启；项目行重启、独立界面重启与手动维护仍在项目管理。移除后停止后续步骤，已发送请求仍可能生效，不能撤销。', 'hint'), actions);
-      save.onclick = () => { const next = structuredClone(config); next.quick_actions = !removed; return applyDraft(next); };
+      editor.insertBefore(el('p', '选择只改变卡片展示，不执行操作或修改自动选择策略。可全不选；详情中仍能原地执行容纳不了的已选操作。移除卡片停止后续维护步骤，已发送请求仍可能生效。', 'hint'), actions);
+      const chosen = new Set(config.quick_action_buttons), choices = el('fieldset'); choices.append(el('legend', '快捷按钮'));
+      for (const item of QUICK_ACTIONS) checkbox(choices, item.label, chosen.has(item.id), checked => {
+        if (checked) chosen.add(item.id); else chosen.delete(item.id);
+      }, { quickActionButton: item.id });
+      editor.insertBefore(choices, actions);
+      save.onclick = () => {
+        const next = structuredClone(config); next.quick_actions = !removed;
+        next.quick_action_buttons = QUICK_ACTIONS.filter(item => chosen.has(item.id)).map(item => item.id);
+        return applyDraft(next);
+      };
       show(); syncControls(); editor.focus?.(); return;
     }
     if (row.type === 'diagnostics') {
@@ -356,7 +367,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const candidates = [...projects.map(row => ({ id: row.id, name: cardName(row), detail: row.project || row.id, type: 'project' })),
       { id: 'accounts', name: '额度窗口', detail: '统一窗口，添加后在卡片设置选择已有额度来源', type: 'accounts' },
       { id: DIAGNOSTICS_ID, name: '运行诊断', detail: '只读汇总已登记项目，不启动后台', type: 'diagnostics' },
-      { id: QUICK_ACTIONS_ID, name: '快捷操作', detail: '一键安全重启，沿用确认范围与安全门', type: 'quick_actions' }];
+      { id: QUICK_ACTIONS_ID, name: '快捷操作', detail: '自选维护与自动选择按钮，沿用确认范围与安全门', type: 'quick_actions' }];
     const entries = candidates.map(row => {
       const item = el('div', undefined, 'dashboard-library-item'); item.dataset.libraryId = row.id;
       const input = checkbox(item, `${row.name}${existing.has(row.id) ? ' · 已添加' : ''}`, existing.has(row.id), checked => {
@@ -411,7 +422,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   async function savePatch(patch) {
     if (!active() || busy || !config || failedWrite) return false;
     busy = true; syncControls();
-    try { await readDashboardConfig({ value: { ...config, ...patch, version: 6, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
+    try { await readDashboardConfig({ value: { ...config, ...patch, version: 7, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
     catch (error) {
       busy = false;
       if (active()) { setStatus(`配置未发送：${error.message}；选择原样保留，请减少来源或入口后保存。`, true); syncControls(); }
@@ -426,7 +437,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       if (!active()) return false;
       // Reuse the same strict read validator without a second HTTP request.
       const acknowledgedConfig = await readDashboardConfig({ value: next });
-      if (acknowledgedConfig.version !== 6) throw new Error('保存响应不是完整 v6 确认');
+      if (acknowledgedConfig.version !== 7) throw new Error('保存响应不是完整 v7 确认');
       if (!active()) return false;
       config = acknowledgedConfig; confirmed = structuredClone(config);
       acknowledged = true;
@@ -539,7 +550,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const accepted = await confirmDialog({ title: '恢复当前卡片的默认布局？', message: '只重置当前可见卡片的位置与尺寸，按默认网格排列；来源、内容、导航和旧成员布局保留。修改只进入草稿，可撤销。', confirmLabel: '恢复布局' });
     if (!accepted || !active() || busy || !editing) return;
     const next = structuredClone(config), ids = new Set(rows.map(row => row.id));
-    const sizes = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 }, quick_actions: { w: 6, h: 10 } };
+    const sizes = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 }, quick_actions: { w: 6, h: 12 } };
     const bottom = [0, 0];
     layoutDraft = rows.map(row => {
       const column = bottom[0] <= bottom[1] ? 0 : 1;

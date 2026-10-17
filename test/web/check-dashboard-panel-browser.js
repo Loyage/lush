@@ -1,4 +1,4 @@
-// Compiled real panel + grid + private v6 writer, isolated controlled source APIs.
+// Compiled real panel + grid + private v7 writer, isolated controlled source APIs.
 // No user daemon/Host, real credentials, provider queries or model calls.
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -33,6 +33,7 @@ const infos = [20, 18, 16, 14, 12].map(id => ({ id, task_id: 27, task_worker_num
   read_at: null, title: `告知${id} ` + '变化信息'.repeat(60), body: '', created_at: '2026-10-01T00:00:00Z', sync_identity: id.toString(16).padStart(32, '0'), sync_epoch: 'e'.repeat(32), sync_revision: 1 }));
 let sourceState = 'normal', rejectRead = false, diagnosticsState = 'partial', diagnosticReads = 0;
 let restartPaused = false, restartReady = false, restartNotify = true, restartWrites = [];
+let automationMode = 'normal', automationWrites = 0;
 const restartError = '受控安全门拒绝：' + '完整异常来源诊断。'.repeat(120) + '异常末尾可见';
 const restartAccepted = new Set();
 const restartMaintenance = id => {
@@ -82,8 +83,18 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
         restartWrites.push({ path, body }); restartPaused = true; restartNotify = body.params.notify_completion !== false;
         return Response.json(restartMaintenance(id));
       }
+      if (body.method === 'system.resume_all') {
+        restartWrites.push({ path, body }); restartPaused = false;
+        return Response.json({ paused: false, phase: 'running', ready_to_restart: true, batch_id: '00000000-0000-4000-8000-000000000001', completion_state: 'cancelled', completion_notice_id: null, notify_completion: restartNotify });
+      }
       if (path.endsWith('/api/service/restart')) { restartWrites.push({ path, body }); return Response.json({ error: restartError }, { status: 409 }); }
       return Response.json({ error: 'unexpected mutation' }, { status: 500 });
+    }
+    if (path === '/api/host/automation') {
+      if (req.method === 'POST') {
+        automationWrites++;
+        if (automationMode === 'bad_ack') return Response.json({ ...world.state.deviceAutomation, auto_select: { enabled: false } });
+      } else if (automationMode === 'read_error') return Response.json({ error: 'controlled unknown policy' }, { status: 503 });
     }
     if (path === '/api/host/diagnostics') { diagnosticReads++; return diagnosticsState === 'error'
       ? Response.json({ error: '受控诊断错误' }, { status: 503 }) : Response.json(diagnosticSnapshot()); }
@@ -129,8 +140,9 @@ async function rpc(path, body, method = 'POST') {
     }); req.on('error', reject); req.setTimeout(60000, () => req.destroy(Error('WebDriver timeout'))); req.end(body === undefined ? undefined : JSON.stringify(body));
   }); const data = JSON.parse(response.text); if (response.status >= 400) throw Error(JSON.stringify(data)); return data.value;
 }
-const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
-const asyncExecute = script => rpc(`/session/${session}/execute/async`, { script, args: [] });
+let lastScript = '';
+const execute = script => { lastScript = script; return rpc(`/session/${session}/execute/sync`, { script, args: [] }); };
+const asyncExecute = script => { lastScript = script; return rpc(`/session/${session}/execute/async`, { script, args: [] }); };
 const wait = condition => asyncExecute(`const done=arguments[0];let n=0;const check=()=>(${condition})?done(true):++n>180?done(false):setTimeout(check,30);check();`);
 const settle = () => asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));');
 const assert = (value, message) => { if (!value) throw Error(message); };
@@ -149,6 +161,7 @@ async function containment(context) {
     if(document.documentElement.scrollWidth>innerWidth+1)problems.push('page width');return problems;`);
   assert(!problems.length, `${context}: ${JSON.stringify(problems)}`);
 }
+let phase = 'startup';
 try {
   let started = false; for (let i = 0; i < 100; i++) { try { await rpc('/status', undefined, 'GET'); started = true; break; } catch {} if (driver.exitCode !== null) throw Error('driver exited'); await Bun.sleep(100); }
   assert(started, 'driver timeout'); session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
@@ -232,10 +245,14 @@ try {
   assert(await execute("return quickButton.disabled&&quickButton.parentElement.dataset.help.includes('编辑')"), 'editing quick action is writable');
   const quickResize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="widget:quick-actions"] .project-board-resize[data-corner="east"]' });
   await rpc(`/session/${session}/element/${quickResize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
+  await execute("document.querySelector('[data-card-id=\"widget:quick-actions\"] .dashboard-card-settings').click();document.querySelector('input[data-quick-action-button=interrupt_all]').click()");
+  await clickText('应用到草稿'); await ready();
+  assert(await execute("return quickButton===document.querySelector('[data-service-restart=safe]')&&document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')"), 'selection rebuilt ongoing flow');
+  await clickText('撤销'); await ready();
   await clickText('刷新全部'); await ready();
   assert(await execute("return quickButton===document.querySelector('[data-service-restart=safe]')&&document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')&&document.querySelectorAll('.dashboard-quick-actions-card .dashboard-card-settings').length===1"), 'refresh/resize replaced controller or lost progress');
   await clickText('保存更改'); await ready();
-  assert(readDashboardSettings(config).layout.find(c => c.id === 'widget:quick-actions').h === 11, 'quick geometry not persisted');
+  assert(readDashboardSettings(config).layout.find(c => c.id === 'widget:quick-actions').h === 13, 'quick geometry not persisted');
   await execute("document.querySelector('.dashboard-quick-actions-details').click()"); restartReady = true;
   assert(await wait("document.querySelector('.dashboard-quick-actions-controls').textContent.includes('异常末尾可见')"), 'quick failure not reported');
   assert(await wait("document.querySelector('#modal .dashboard-quick-actions-result')?.textContent.includes('异常末尾可见')"), 'open details lost full live result');
@@ -272,7 +289,7 @@ try {
   await clickText('编辑模式'); await clickText('添加卡片');
   await execute("document.querySelector('input[data-library-id=\"widget:quick-actions\"]').click()");
   await clickText('应用到草稿'); await ready(); await clickText('保存更改'); await ready();
-  assert(readDashboardSettings(config).quick_actions === true && readDashboardSettings(config).layout.find(c => c.id === 'widget:quick-actions').h === 11, 'library add lost shared selection/layout');
+  assert(readDashboardSettings(config).quick_actions === true && readDashboardSettings(config).layout.find(c => c.id === 'widget:quick-actions').h === 13, 'library add lost shared selection/layout');
   // Leave while confirming: dispose the exact dialog, never write or resume on return.
   restartPaused = false; restartReady = false;
   await execute("document.querySelector('[data-service-restart=safe]').click()");
@@ -283,6 +300,85 @@ try {
   assert(restartWrites.length === beforeQuickLeave, 'leave confirmation wrote');
   await execute("location.hash='#projects'"); await ready();
   assert(await execute("return !document.querySelector('.dashboard-quick-actions-controls').textContent.includes('等待固定批次')"), 'return resumed old authorization');
+  // D681: selection is one draft, not execution; all five actions stay reachable in-place.
+  const allButtons = ['safe_restart','auto_select','interrupt_all','resume_all','restart_all'];
+  const setButtons = async ids => {
+    await execute("document.querySelector('[data-card-id=\"widget:quick-actions\"] .dashboard-card-settings').click()");
+    await execute(`for(const input of document.querySelectorAll('input[data-quick-action-button]')){input.checked=${JSON.stringify(ids)}.includes(input.dataset.quickActionButton);input.dispatchEvent(new Event('change',{bubbles:true}))}`);
+    await clickText('应用到草稿'); await ready();
+  };
+  const initialButtonsRevision = readDashboardSettings(config).revision, initialActionWrites = automationWrites + restartWrites.length;
+  await clickText('编辑模式'); await setButtons(allButtons);
+  assert(await execute("return document.querySelectorAll('.dashboard-quick-actions-card [data-service-restart]').length===4&&document.querySelector('.dashboard-quick-actions-card button[data-quick-action=auto_select]').disabled"), 'all selection not rendered/guarded');
+  await clickText('撤销'); await ready();
+  assert(await execute("return document.querySelectorAll('.dashboard-quick-actions-card [data-service-restart]').length===1"), 'buttons undo');
+  await clickText('重做'); await ready(); await setButtons([]);
+  assert(await execute("return document.querySelector('.dashboard-quick-actions-empty')&&!document.querySelector('.dashboard-quick-actions-card button[data-quick-action]')&&!document.querySelector('.dashboard-quick-actions-card [data-service-restart]')"), 'empty selection not real');
+  assert(readDashboardSettings(config).revision === initialButtonsRevision && automationWrites + restartWrites.length === initialActionWrites, 'selection executed or published a policy');
+  await clickText('取消编辑'); await ready();
+  assert(readDashboardSettings(config).quick_action_buttons.join(',') === 'safe_restart,auto_select', 'cancel lost default selection');
+  await clickText('编辑模式'); await setButtons(allButtons); await clickText('保存更改'); await ready();
+  assert(readDashboardSettings(config).quick_action_buttons.join(',') === allButtons.join(','), 'shared buttons did not persist');
+  await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
+  assert(await execute("return document.querySelectorAll('.dashboard-quick-actions-card [data-service-restart]').length===4"), 'reload lost selected operations');
+  for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}'`); await settle();
+    await containment('multi-button '+theme+'/'+width);
+    await execute("document.querySelector('.dashboard-quick-actions-details').click()");
+    assert(await execute("const m=document.querySelector('.dashboard-quick-actions-modal');return m.querySelectorAll('[data-service-restart]').length===4&&[...m.querySelectorAll('[data-service-restart],button[data-quick-action=auto_select]')].every(b=>b.getClientRects().length&&b.getBoundingClientRect().right<=innerWidth)&&m.scrollWidth<=m.clientWidth+1"), 'selected operations hidden/unusable in narrow details');
+    await screenshot(`all-buttons-details-${theme}-${width}`); await clickText('关闭');
+  }
+  for (const [kind, title, agent] of [['pause','全部中断？',false],['resume','全部继续？',true],['all','全部重启？',false],['safe','一键安全重启？',true]]) {
+    await execute(`document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal [data-service-restart=${kind}]').click()`);
+    assert(await wait(`!document.getElementById('modal').hidden&&document.getElementById('modal').textContent.includes('${title}')`), 'detail maintenance confirmation '+kind);
+    assert(await execute(`return document.getElementById('modal').textContent.includes('/fixture/project-a')&&!!document.querySelector('#modal .modal-confirm.agent-call')===${agent}`), 'detail scope/Agent cost '+kind);
+    await clickText('取消');
+  }
+  const beforeManual = restartWrites.length;
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal [data-service-restart=pause]').click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('全部中断？')"), 'manual detail pause'); await execute("document.querySelector('#modal .modal-confirm').click()");
+  assert(await wait("document.querySelector('.dashboard-quick-actions-controls').textContent.includes('中断请求已接受')"), 'manual card acceptance');
+  restartReady = true;
+  assert(await wait("document.querySelector('.dashboard-quick-actions-controls .maintenance-ready')"), 'manual card completion reminder');
+  assert(restartWrites.length === beforeManual + 2 && restartWrites.slice(beforeManual).every(write=>JSON.stringify(write.body.params)==='{}'), 'manual card inherited silent policy');
+  for (const kind of ['resume','all']) {
+    await execute(`document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal [data-service-restart=${kind}]').click()`);
+    assert(await wait(`!document.getElementById('modal').hidden&&document.getElementById('modal').textContent.includes('${kind==='resume'?'全部继续？':'全部重启？'}')`), 'manual execution confirmation'); await execute("document.querySelector('#modal .modal-confirm').click()");
+    assert(await wait(`document.querySelector('.dashboard-quick-actions-controls').textContent.includes('${kind==='resume'?'全部继续请求已接受':'异常末尾可见'}')`), 'manual card result '+kind);
+  }
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
+  assert(await wait("document.querySelector('#modal .modal-confirm.agent-call')&&document.getElementById('modal').textContent.includes('持续授权')"), 'auto-select sustained authorization'); await clickText('取消'); assert(automationWrites===0, 'auto cancel wrote policy');
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'auto enable'); await execute("document.querySelector('#modal .modal-confirm').click()");
+  assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status')?.textContent.includes('已确认开启')&&!document.getElementById('auto-select-banner').hidden"), 'card/banner did not share enable state');
+  await execute("document.querySelector('#auto-select-banner button').click()");
+  assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认关闭')&&document.getElementById('auto-select-banner').hidden"), 'banner close not reflected in card');
+  automationMode='bad_ack';
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'unknown ACK confirmation'); await execute("document.querySelector('#modal .modal-confirm').click()");
+  assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('状态未知')&&document.querySelector('.dashboard-quick-actions-card button[data-quick-action=auto_select]').disabled"), 'unknown ACK not locked');
+  const failedWrites = automationWrites;
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
+  assert(automationWrites === failedWrites, 'unknown write retried'); automationMode='read_error';
+  await execute("document.querySelector('#modal .device-auto-select-reread').click()");
+  assert(await wait("document.querySelector('#modal .device-auto-select-status').textContent.includes('controlled unknown policy')&&document.querySelector('#modal button[data-quick-action=auto_select]').disabled"), 'failed reread cleared uncertainty');
+  automationMode='normal';
+  await execute("document.querySelector('#modal .device-auto-select-reread').click()");
+  assert(await wait("!document.querySelector('#modal button[data-quick-action=auto_select]').disabled"), 'explicit reread did not recover'); await clickText('关闭');
+  // An edit during an outstanding authorization cannot use the old confirmation to write.
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'stale edit confirmation');
+  await execute("document.querySelector('.dashboard-layout-edit').click();document.querySelector('#modal .modal-confirm').click()");
+  assert(await wait("document.getElementById('modal').hidden"), 'stale edit confirmation unresolved');
+  assert(automationWrites===failedWrites, 'edit admitted old authorization'); await clickText('取消编辑'); await ready();
+  await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
+  assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'leave authorization');
+  await execute("document.getElementById('automation-open').click()");
+  assert(await wait("document.querySelector('.workspace-automation .device-auto-select-action')&&document.getElementById('modal').hidden"), 'leave did not dismiss owned authorization');
+  assert(automationWrites===failedWrites, 'leave confirmation wrote');
+  await execute("document.getElementById('projects-open').click()"); await ready();
+  console.log('PASS D681 selection/empty/history/shared reload, all detail actions, manual notifying vs silent safe, auto authorization/cancel/banner sync/unknown ACK/reread/stale edit; no navigation to execute');
+  phase = 'unified editor';
   // Unified editor: visible settings, searchable library, history, layout reset and whole-page cancellation.
   const beforeEditor = readDashboardSettings(config), editorSaves = saves.length;
   await clickText('编辑模式');
@@ -299,13 +395,14 @@ try {
   await clickText('应用到草稿'); await ready();
   await clickText('恢复默认布局'); await clickText('恢复布局'); await ready(); await containment('reset layout draft');
   await clickText('撤销'); await ready();
-  await execute("location.hash='#settings'");
+  await execute("document.getElementById('settings-open').click()");
   assert(await wait("document.getElementById('modal').textContent.includes('离开并丢弃未保存更改')&&!document.getElementById('modal').hidden"), 'hash navigation lost draft without confirmation');
   await clickText('取消'); assert(await wait("location.hash==='#projects'"), 'cancel leave did not restore route');
   assert(saves.length === editorSaves && readDashboardSettings(config).revision === beforeEditor.revision, 'editor draft/history published implicitly');
   await clickText('取消编辑'); await ready();
   assert(await execute("return !document.querySelector('.dashboard-layout-editing')&&document.querySelector('.dashboard-edit-status').hidden"), 'cancel did not leave editor');
   assert(JSON.stringify(readDashboardSettings(config)) === JSON.stringify(beforeEditor), 'cancel changed shared document');
+  phase = 'account and Worker paging';
   // Real account and Worker pages; no implicit writes/provider queries.
   await execute("document.querySelector('[data-card-id=\"accounts\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
   assert(await wait("document.querySelector('[data-card-id=\"accounts\"]').textContent.includes('账户3')"), 'account next page');
@@ -329,6 +426,7 @@ try {
   }
   assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('告知14')`), 'three-record continuation missing');
   assert(calls.filter(c => c.path.includes('status=unread')).length === beforeContinuation + 1, 'continuation must read only this source');
+  phase = 'business states';
   // Fixed business-state transitions, including long error/source text.
   for (const state of ['empty', 'error', 'offline', 'normal']) {
     sourceState = state; projects[0].running = state !== 'offline'; projects[0].error = state === 'error' ? '受控来源错误'.repeat(50) : null;
@@ -336,6 +434,7 @@ try {
     assert(await execute("return window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))"), 'state changed fixed grid'); await containment(state);
   }
   assert(queries.every(id => ids.slice(0, 4).includes(id)), 'refresh queried unplaced source');
+  phase = 'keyboard geometry and reload';
   // Real controller keyboard geometry save + shared private writer + reload.
   await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='1440px'"); await frame(); await settle(); await clickText('编辑模式');
   const resize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="aaaaaaaaaaaaaaaa"] .project-board-resize[data-corner="east"]' });
@@ -382,5 +481,5 @@ try {
   console.log('PASS quick actions: scope/cancel/Agent costs, in-flight resize+refresh retention, full live failure details light/dark 1440/390/320, remove/undo/redo/cancel/library/shared save/layout and leave-confirmation cleanup; no continuation after removal.');
   console.log(`PASS restored controller: diagnostics independent read/focus/draft/unknown/no-project/error/toggle/keyboard resize, flat/paged navigation, account/Worker paging, h17 boundary, minimum project+diagnostic summary/details, read failure+ACK identity+continuation, business-state geometry, raw-member-preserving device save/reload and 100-source stress. Logs/screenshots: ${output}`);
   console.log('LIMIT Firefox headless/controlled source APIs; physical touch, Chromium/Safari and real providers unverified.');
-} catch (error) { if (session) { try { await screenshot('failure'); console.error(await execute("return [...document.querySelectorAll('.dashboard-widget')].map(c=>({id:c.dataset.cardId,text:c.textContent.slice(0,300),html:c.innerHTML.slice(0,500)}))")); } catch {} } throw error; }
+} catch (error) { console.error('Panel fixture phase:', phase, 'script:', lastScript, 'last requests:', calls.slice(-12)); if (session) { try { await screenshot('failure'); console.error(await execute("return [...document.querySelectorAll('.dashboard-widget')].map(c=>({id:c.dataset.cardId,text:c.textContent.slice(0,300),html:c.innerHTML.slice(0,500)}))")); } catch {} } throw error; }
 finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); await rm(temp, { recursive: true, force: true }); }

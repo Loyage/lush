@@ -5,6 +5,7 @@ import { projectHref } from './route.js';
 import { agentHelp } from './help.js';
 import { readPref } from './prefs.js';
 import { safeRestartFlow, safeRestartHelp } from './safe-restart-flow.js';
+import { QUICK_ACTIONS, DEFAULT_QUICK_ACTION_BUTTONS, normalizeQuickActionButtons } from '../../../shared/dashboard-quick-actions.js';
 
 // One foreground operation, including confirmation, across overview generations.
 let restarting = false;
@@ -74,12 +75,13 @@ export async function waitForHostRestart(pid, { fetchHost = () => fetch('/api/ho
 }
 
 /** Global overview controls. Project identities are explicit, never the current page's project. */
-export function serviceRestartControls({ mode = 'management', canAct = () => true, request = api, confirm = confirmDialog, recover = waitForHostRestart,
+export function serviceRestartControls({ mode = 'management', buttons = DEFAULT_QUICK_ACTION_BUTTONS, canAct = () => true, request = api, confirm = confirmDialog, recover = waitForHostRestart,
   reload = () => location.reload(), ownsPage = () => true, changed = async () => {},
   schedule = (fn, ms) => setTimeout(fn, ms), unschedule = id => clearTimeout(id), now = Date.now,
   observationTimeout = 15 * 60 * 1000 } = {}) {
   if (!['management', 'quick_actions'].includes(mode)) throw new TypeError('invalid restart controls mode');
   const quick = mode === 'quick_actions';
+  let selected = normalizeQuickActionButtons(buttons);
   const root = quick ? el('div', undefined, 'dashboard-quick-actions-controls') : block('服务重启');
   if (!quick) {
     root.classList.add('workbench-service-restart');
@@ -158,15 +160,14 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
     button.setAttribute('data-help', help); wrapper.append(button);
     return { wrapper, button };
   };
-  const safeControl = quick ? wrap('一键安全重启', 'safe', safeRestartHelp) : null;
+  let safeControl = null;
   const hostControl = quick ? null : wrap('重启界面服务', 'host', hostHelp);
-  const allControl = quick ? null : wrap('全部重启', 'all', allHelp);
-  const pauseControl = quick ? null : wrap('全部中断', 'pause', pauseHelp);
-  const resumeControl = quick ? null : wrap('全部继续', 'resume', resumeHelp);
-  if (quick) {
-    safeControl.button.className = 'agent-call';
-    actions.append(safeControl.wrapper); root.append(actions, status);
-  } else {
+  let allControl = quick ? null : wrap('全部重启', 'all', allHelp);
+  let pauseControl = quick ? null : wrap('全部中断', 'pause', pauseHelp);
+  let resumeControl = quick ? null : wrap('全部继续', 'resume', resumeHelp);
+  const quickControls = new Map();
+  if (quick) root.append(actions, status);
+  else {
     resumeControl.button.className = 'agent-call'; actions.append(hostControl.wrapper);
     const manual = el('details', undefined, 'settings-runtime-manual');
     manual.append(el('summary', '手动维护'));
@@ -206,6 +207,7 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
   const run = async (target, entry = null) => {
     const maintenance = target === 'pause' || target === 'resume';
     const verb = target === 'pause' ? '中断' : '继续';
+    if (quick && !QUICK_ACTIONS.some(item => selected.includes(item.id) && item.service === target)) return;
     if (!active() || !canAct() || restarting || (maintenance ? !projects?.some(online) : target !== 'daemon' && host?.restart_supported !== true)
       || (entry && (!entry.present || !online(entry.row)))) return;
     restarting = true; paintAll();
@@ -233,7 +235,7 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
       const accepted = await confirm({ title: maintenance ? `全部${verb}？` : target === 'all' ? '全部重启？' : entry ? '重启项目后台？' : '重启界面服务？',
         message: `${help}${maintenance || target === 'all' ? ` 本次包含 ${planned.length} 个在线项目后台${maintenance ? '，不涉及界面服务' : '和当前界面服务'}；未运行或不可达的项目不在范围内，确认后新上线的项目也不加入。逐项提交，遇到失败停止后续操作，不自动重试。` : ''}`,
         detail: scope, confirmLabel: maintenance ? `全部${verb}` : '确认重启', confirmHelp: help, agent: target === 'resume' });
-      if (!accepted) return;
+      if (!accepted || !canAct() || quick && !QUICK_ACTIONS.some(item => selected.includes(item.id) && item.service === target)) return;
       checkPage();
       stopObservation(); statusTouched = true;
       batch = target === 'pause' ? { planned, accepted: [], deadline: null } : null;
@@ -293,8 +295,8 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
       }
     } finally { operationScope = null; restarting = false; paintAll(); }
   };
-  if (safeControl) safeControl.button.onclick = async () => {
-    if (!active() || !canAct() || restarting || host?.restart_supported !== true) return;
+  const runSafe = async () => {
+    if (!selected.includes('safe_restart') || !active() || !canAct() || restarting || host?.restart_supported !== true) return;
     restarting = true; paintAll(); stopObservation(); statusTouched = true;
     try {
       const result = await safeRestartFlow({
@@ -305,7 +307,10 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
           const value = await request(route, options);
           if (active() && !options.signal.aborted && route === '/api/host/projects' && Array.isArray(value?.projects)) projects = value.projects;
           return value;
-        }, confirm, checkPage, signal: lifetime.signal, recover, reload, now, schedule, unschedule, observationTimeout,
+        }, confirm: async options => {
+          const accepted = await confirm(options);
+          return accepted && active() && canAct() && selected.includes('safe_restart');
+        }, checkPage, signal: lifetime.signal, recover, reload, now, schedule, unschedule, observationTimeout,
         onScope: rows => { operationScope = rows; },
         progress: message => { if (active()) { status.className = 'settings-note'; status.textContent = message; } },
       });
@@ -351,6 +356,25 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
       } catch (error) { stopped(error.message); }
     }
   };
+  function setButtons(next) {
+    if (!quick) return;
+    selected = normalizeQuickActionButtons(next);
+    for (const [id, control] of quickControls) if (!selected.includes(id)) { control.wrapper.remove(); quickControls.delete(id); }
+    for (const item of QUICK_ACTIONS.filter(item => item.service && selected.includes(item.id))) {
+      if (quickControls.has(item.id)) continue;
+      const help = { safe: safeRestartHelp, pause: pauseHelp, resume: resumeHelp, all: allHelp }[item.service];
+      const control = wrap(item.label, item.service, help);
+      if (['safe', 'resume'].includes(item.service)) control.button.className = 'agent-call';
+      control.button.onclick = item.service === 'safe' ? runSafe : () => run(item.service);
+      control.wrapper.dataset.quickAction = item.id; quickControls.set(item.id, control);
+    }
+    safeControl = quickControls.get('safe_restart'); allControl = quickControls.get('restart_all');
+    pauseControl = quickControls.get('interrupt_all'); resumeControl = quickControls.get('resume_all');
+    actions.replaceChildren(...QUICK_ACTIONS.flatMap(item => quickControls.has(item.id) ? [quickControls.get(item.id).wrapper] : []));
+    status.hidden = !quickControls.size && !statusTouched;
+    paint();
+  }
+  if (quick) setButtons(selected);
   paint();
   const ready = request('/api/host', { signal: AbortSignal.timeout(4000) }).then(value => {
     if (!active()) return;
@@ -362,6 +386,6 @@ export function serviceRestartControls({ mode = 'management', canAct = () => tru
     if (!restarting && !statusTouched) { status.className = 'settings-error'; status.textContent = `无法读取界面服务状态：${error.message}`; }
     paint();
   });
-  return { root, status, updateProjects, ready, dispose, sync: paint,
+  return { root, actions, status, updateProjects, ready, dispose, sync: paint, setButtons,
     ...(quick ? {} : { projectControl }) };
 }

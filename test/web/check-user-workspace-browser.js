@@ -66,6 +66,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     const response = await world.fetchImpl(logical, options);
     return Response.json(await response.json(), { status: response.status || (response.ok ? 200 : 400) });
   }
+  if (path === '/shared/dashboard-quick-actions.js') return new Response(Bun.file(new URL('../../src/shared/dashboard-quick-actions.js', import.meta.url)), { headers: { 'Content-Type': 'text/javascript' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) { assetCalls.push(path); return new Response(Bun.file(join(servedAssets, path.slice(1)))); }
   return new Response('not found', { status: 404 });
 } });

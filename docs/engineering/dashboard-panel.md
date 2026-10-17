@@ -10,7 +10,7 @@ W234／D552 恢复根 `#projects` 的原项目聚合卡片、统一额度窗口�
 - `dashboard-widget-aggregate-render.js` 渲染原项目指标、消息和 Worker 组合，按几何分配固定槽位；宽卡直接显示所选导航，窄卡／编辑模式以详情或入口弹窗兜底，纯导航项目在正文分页。`dashboard-widget-render.js`／`dashboard-widget-pagination.js` 保留来源隔离的消息、Worker 和固定分页接缝，`dashboard-widget-model.js` 保留 v4 成员校验／兼容接口。`project-dashboard-content.js` 复用语义；`dashboard-cards.js` 读取连接缓存、渲染有界指标与独立详情；`dashboard-accounts-group.js` 负责统一额度来源窗口。
 - `project-board.js` 消费布局，负责网格吸附、避让、响应式投影、拖动、边角缩放和键盘操作。保留调用方原始 `li` 及其属性；`renderCard(row,{geometry})` 与 `row.geometry` 接收显示投影，`onGeometryChange(row,geometry,item)` 仅在几何变化时回调，`getLayout()` 保持规范 12 列坐标。来源配色使用 `project_id`，不把 widget ID 当项目路径。
 
-W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置常显，查看模式仍隐藏并禁用布局手柄。原空白处长按 650ms／Shift+F10 保留为设置捷径，打开设置也进入同一编辑模式；移动、滚动和交互控件不触发长按。关闭弹窗恢复焦点且不滚动页面。展示与导航保持原边界；W312／D674 增加独立「快捷操作」卡，默认只提供一键安全重启，沿用现有确认、安全门和 Agent 代价，不新增跨项目执行器。
+W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置常显，查看模式仍隐藏并禁用布局手柄。原空白处长按 650ms／Shift+F10 保留为设置捷径，打开设置也进入同一编辑模式；移动、滚动和交互控件不触发长按。关闭弹窗恢复焦点且不滚动页面。展示与导航保持原边界；W312／D674 增加独立「快捷操作」卡，D681 扩展后默认提供一键安全重启与自动选择，其余按钮在每卡设置勾选；沿用现有确认、安全门和 Agent 代价，不新增跨项目执行器。
 
 「添加卡片」打开可搜索的已登记项目／统一额度窗口／运行诊断／快捷操作库，已添加来源不能重复选择，空面板也有入口；不在这里新建项目或账号。每卡设置支持适用内容、额度来源、项目导航和移出总览；诊断设置说明固定采样范围并允许移出。移除不删除来源，重新添加使用现有配置模型的默认内容；撤销可恢复移除前的完整草稿。面板设置管理整体选择和全局导航。弹窗「应用到草稿」只修改内存，取消弹窗不修改页面草稿。
 
@@ -18,11 +18,12 @@ W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置
 
 ## 配置与兼容
 
-`GET /api/host/dashboard` 返回完整设备 v6 模型：
+`GET /api/host/dashboard` 返回完整设备 v7 模型：
 
 ```js
 {
-  version: 6, revision, account_view: 'list', diagnostics: true, quick_actions: true,
+  version: 7, revision, account_view: 'list', diagnostics: true, quick_actions: true,
+  quick_action_buttons: ['safe_restart', 'auto_select'],
   cards: [{ type: 'account', connection_id }],
   hidden_projects: [project_id],
   layout: [{ id, x, y, w, h }],
@@ -33,9 +34,9 @@ W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置
 { id, type, project_id, connection_ids: [], links: [], sections: [] }
 ```
 
-`POST /api/host/dashboard` 接受 `{expected_revision,cards?,hidden_projects?,layout?,content?,account_view?,widgets?,diagnostics?,quick_actions?}`，至少一个配置字段。省略字段保持不变；成功返回完整 v6 ACK。`quick_actions` 仅允许 boolean，控制快捷操作卡，与项目／账户成员独立；`diagnostics` 仅允许 boolean，控制全局运行诊断卡，不改变项目或额度成员。乐观锁覆盖整份配置，白名单、结构、数量和 256KiB 总大小在服务构造前校验。设备私有根、写锁、原子发布与路径安全不变。Host 先规范化 patch，不创建伪项目、不查询账户或启动 daemon。
+`POST /api/host/dashboard` 接受 `{expected_revision,cards?,hidden_projects?,layout?,content?,account_view?,widgets?,diagnostics?,quick_actions?,quick_action_buttons?}`，至少一个配置字段。省略字段保持不变；成功返回完整 v7 ACK。`quick_action_buttons` 为按钮枚举数组，可空、去重并按固定目录顺序规范化；未知枚举拒绝，不接受自定义执行内容。`quick_actions` 仅允许 boolean，控制快捷操作卡，与项目／账户成员独立；`diagnostics` 仅允许 boolean，控制全局运行诊断卡，不改变项目或额度成员。乐观锁覆盖整份配置，白名单、结构、数量和 256KiB 总大小在服务构造前校验。设备私有根、写锁、原子发布与路径安全不变。Host 先规范化 patch，不创建伪项目、不查询账户或启动 daemon。
 
-- 旧 v1–v5 文件只读映射为 v6、`quick_actions:true`，v1–v4 补 `diagnostics:true`，v1–v3 的 `widgets:null` 保持，不自动改写。前端继承旧可见项目、所选账户、内容和位置；查看和仅布局保存保持 `widgets` 原样。`null` 与有意空数组不可互换，旧 localStorage 顺序不自动导入。
+- 旧 v1–v6 文件只读映射为 v7、`quick_action_buttons:['safe_restart','auto_select']`，v1–v5 补 `quick_actions:true`，v6 保留原整卡可见性；v1–v4 补 `diagnostics:true`，v1–v3 的 `widgets:null` 保持，不自动改写。前端继承旧可见项目、所选账户、内容和位置；查看和仅布局保存保持 `widgets` 原样。`null` 与有意空数组不可互换，旧 localStorage 顺序不自动导入。
 - 保留 v3 的 `cards/hidden_projects/layout/content/account_view`。历史数组保存仅改账户选择，不清空其它字段；`account_view` 仍仅接受 `list/tiles`，不支配聚合展示。旧账户、项目及成员布局／内容不因投影被删除。v4 显式成员决定来源，空 sections、空额度成员、不可用来源和自定义链接仍保留；相关来源／内容／导航显式编辑只改相关成员，导航编辑需要 materialize legacy 时完整保留旧选择与分来源内容。超 100 成员先拒绝保存并保留草稿，不截断、不 POST。
 - `widgets` 最多 100 个完整对象；ID 唯一，格式 `widget:[a-z0-9][a-z0-9-]{0,79}`。类型为上述五种，前三种必须绑定 16 位小写 hex 项目 ID，其余 `project_id:null`。
 - `connection_ids` 仅 accounts 可非空，最多 100 个唯一 UUID；`links` 仅 shortcuts 可非空，最多 24 个完整 `{scope,target,project_id}`。全局目标 `notices/project-management/model-sources/runners/settings/agent-status/automation/docs` 绑定 null，项目目标 `workers/inputs/versions/notices` 绑定项目 ID。
@@ -46,7 +47,7 @@ W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置
 
 ## 固定几何与信息密度
 
-规范布局为 12 列 × 24px 行高；存储 `x:0–11,y:0–4095,w:1–12,x+w<=12,h:6–80`。项目默认 6×24，额度窗口 6×16，快捷操作 6×10，查看投影至少 4×10；窄屏六列投影至少三列，再收窄为单列满宽。优先使用原项目／`accounts` 坐标，否则按原成员的最早坐标作聚合种子；旧小尺寸和原成员几何保持存储，不把响应式或最小展示投影写回，仅显式尺寸编辑改尺寸。
+规范布局为 12 列 × 24px 行高；存储 `x:0–11,y:0–4095,w:1–12,x+w<=12,h:6–80`。项目默认 6×24，额度窗口 6×16，快捷操作 6×12，查看投影至少 4×10；窄屏六列投影至少三列，再收窄为单列满宽。优先使用原项目／`accounts` 坐标，否则按原成员的最早坐标作聚合种子；旧小尺寸和原成员几何保持存储，不把响应式或最小展示投影写回，仅显式尺寸编辑改尺寸。
 
 业务数量、加载、错误、长标题、消息 ACK、详情查看和内容设置不改变高度，不测内容自动下移邻居。ResizeObserver 只观察看板宽度；保存与用户尺寸编辑才改规范布局。只有整个总览滚动，不设嵌套列表滚动窗；详情放弹窗。
 
@@ -64,11 +65,15 @@ Worker 使用来源 `/api/workers?scope=work&limit=&before=` 有界分页；服�
 
 ## 快捷操作卡
 
-卡片 ID `widget:quick-actions`，由设备 `quick_actions` 控制，默认显示；可移动、缩放、移除并从卡片库加回，选择和布局参与同一编辑草稿、撤销／重做、整页保存与取消。移除不删除维护记录，布局保留供重新添加。编辑时禁止从卡片开始维护动作，已确认的在途流程与进度不因尺寸变化、信息刷新或布局保存而重建。
+卡片 ID `widget:quick-actions`，由设备 `quick_actions` 控制，默认显示；可移动、缩放、移除并从卡片库加回，选择和布局参与同一编辑草稿、撤销／重做、整页保存与取消。移除不删除维护记录，布局保留供重新添加。编辑时禁止从卡片开始维护动作或修改自动选择策略，已确认的在途流程与进度不因尺寸变化、信息刷新或布局保存而重建。
 
-`dashboard-quick-actions.js` 保留单个卡片及 `service-restart.js` 的 `quick_actions` 模式控制器；仅构造一键入口。项目管理使用 `management` 模式，只构造项目行重启、独立界面重启与手动维护，不重复一键入口。所有模式共享模块级单飞；一键按钮与范围确认沿用紫色 `agent-call`／`agentHelp` 和 `safeRestartFlow`。
+W312／D681：按钮目录由 `src/shared/dashboard-quick-actions.js` 统一供配置校验、Host、前端和编辑器使用；包括 `safe_restart`、`auto_select`、`interrupt_all`、`resume_all`、`restart_all`，默认前两项。每卡设置逐项勾选，只应用到草稿；取消、撤销／重做、保存和重载与整卡配置一致，全空显示选择提示，不执行策略变更或清空来源。没有独立 Host 重启或刷新按钮。
 
-正文有界显示当前进度／异常，详情弹窗显示完整且持续更新的结果，不使卡片撑高或产生嵌套滚动列表。离页或移除释放控制器、观测与自身弹窗，停止后续写入；已发请求仍可能生效，不能承诺撤销。恢复卡片或返回页面不恢复旧执行授权。手动维护仍在项目管理，执行安全契约不因展示迁移而改变。
+`dashboard-quick-actions.js` 保留单个卡片及 `service-restart.js` 的 `quick_actions` 模式控制器，只构造所选按钮；更改选择不重建在途维护流程。项目管理使用 `management` 模式，保留项目行重启、独立界面重启与手动维护，不重复一键入口。所有维护模式共享模块级单飞；安全重启沿用 `safeRestartFlow` 静默中断，手动全部中断仍生成完成提醒，继续和一键确认沿用紫色 `agent-call`／`agentHelp`。
+
+自动选择使用 `auto-select-action.js` 复用全局页的持续授权确认，关闭为普通动作。`workspace-automation.js` 是卡片、全局页与 banner 的唯一策略状态／读写接缝，仍走既有 Host revision API；展示已确认开启／关闭或未知，配置按钮不等于授权。确认与写入共享单飞，迟到读取不回退新 ACK；未知或失败写入锁定再次写入，必须显式重新读取，观察器不暗中重试或解除未知。离页、编辑或策略 revision 变化使未提交的确认失效。
+
+正文按固定槽位纵排按钮，窄屏文字换行；容纳不了的已选按钮在原地详情弹窗完整展示且仍可执行，不导航离开总览。正文有界显示当前进度／异常，详情复用原控件与控制器并显示完整实时结果，不使卡片撑高或产生嵌套滚动列表。离页或移除释放控制器、观测与自身弹窗，停止后续写入；已发请求仍可能生效，不能承诺撤销。恢复卡片或返回页面不恢复旧执行授权。手动维护仍在项目管理，执行安全契约不因展示迁移而改变。
 
 ## 运行诊断卡
 

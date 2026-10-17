@@ -2,7 +2,7 @@ import { PROJECT_COLORS } from './project-colors.js';
 
 const validId = id => typeof id === 'string' && /^(?:widget:[a-z0-9][a-z0-9-]{0,79}|accounts|[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
 const widgetType = row => row.widget_type || row.widget?.type || row.type;
-const widgetSizes = { quick_actions: [6, 10], diagnostics: [6, 18], status: [4, 10], messages: [4, 10], workers: [4, 10], accounts: [6, 14], shortcuts: [4, 8] };
+const widgetSizes = { quick_actions: [6, 12], diagnostics: [6, 18], status: [4, 10], messages: [4, 10], workers: [4, 10], accounts: [6, 14], shortcuts: [4, 8] };
 const isWidget = row => row.id.startsWith('widget:');
 const projectId = row => isWidget(row) ? (/^[a-f0-9]{16}$/.test(row.project_id || '') ? row.project_id : null)
   : /^[a-f0-9]{16}$/.test(row.id) && (row.type == null || row.type === 'project') ? row.id : null;

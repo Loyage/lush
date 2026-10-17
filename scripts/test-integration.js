@@ -18,6 +18,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
     'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
     'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
+    'test/dashboard-quick-action-buttons.test.js', // v7 button catalogue -> Host revisioned device configuration
   ]),
   rpc: Object.freeze([
     'test/core-api.test.js', // shared RPC registry and handlers
@@ -50,6 +51,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-project-automation.test.js', // automation page
     'test/web/settings.test.js', // settings entry
     'test/web/service-restart-controls.test.js', // quick/manual modes, shared single-flight and disposal
+    'test/web/device-auto-select-action.test.js', // shared authorization lease, unknown-write gate, stale reads and pagehide
     'test/web/safe-restart-flow.test.js', // fixed scope, silent evidence and restart failure boundaries
   ]),
   cli: Object.freeze([

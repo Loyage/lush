@@ -8,6 +8,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-maintenance-browser-'))
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const pathname = new URL(req.url).pathname;
   if (pathname === '/') return new Response('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-workbench.css"><div class="project-manager"><main class="workbench-view"></main></div>', { headers: { 'Content-Type': 'text/html' } });
+  if (pathname === '/shared/dashboard-quick-actions.js') return new Response(Bun.file(new URL('../../src/shared/dashboard-quick-actions.js', import.meta.url)), { headers: { 'Content-Type': 'text/javascript' } });
   if (/^\/assets\/[\w.-]+\.(js|css)$/.test(pathname)) return new Response(Bun.file(new URL(pathname.slice(8), assets)));
   return new Response('not found', { status: 404 });
 } });

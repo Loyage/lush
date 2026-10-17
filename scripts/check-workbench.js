@@ -9,10 +9,13 @@ import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
 import { DeviceSettingsService } from '../src/host/device-settings.js';
 import { readDashboardSettings } from '../src/core/dashboard-settings.js';
+import { DeviceAutomationSettings } from '../src/core/device-automation.js';
 import { emptyDiagnostics } from '../src/core/runtime-diagnostics.js';
 import { HostRuntimeDiagnostics } from '../src/host/runtime-diagnostics.js';
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-workbench-ui-')));
+const evidence = process.argv[2];
+if (evidence) fs.mkdirSync(evidence, { recursive: true });
 let offline = false, richProjects = false;
 const development = { workers_total: 314, active: 5, agents_running: 2, awaiting_acceptance: 3, parent_confirmation: 4,
   pending_merges: 7, merging: 1, merge_conflicts: 2,
@@ -126,7 +129,9 @@ async function resize(width) {
   await bidi('browsingContext.setViewport', { context, viewport: { width, height: 900 }, devicePixelRatio: 1 });
 }
 async function screenshot(name) {
-  fs.writeFileSync(path.join(root, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+  const image = Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64');
+  fs.writeFileSync(path.join(root, `${name}.png`), image);
+  if (evidence) fs.writeFileSync(path.join(evidence, `${name}.png`), image);
 }
 try {
   const bidiReservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
@@ -256,6 +261,35 @@ try {
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
   await until(`document.querySelectorAll('.project-board-card').length===4&&document.querySelector('[data-board-color="rose"]')&&document.querySelector('.dashboard-diagnostics-card')&&document.querySelector('.dashboard-quick-actions-card')`);
   assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), 'dashboard mixed cards or non-editing boundary failed');
+  // Real card -> authenticated Host automation API -> private DeviceAutomationSettings -> all views.
+  const policy = new DeviceAutomationSettings({ deviceHome: deviceSettings.config.home });
+  const policyBefore = policy.get();
+  await until(`document.querySelector('.dashboard-quick-actions-card .device-auto-select-status')?.textContent.includes('已确认关闭')`);
+  await click('.dashboard-quick-actions-card button[data-quick-action="auto_select"]');
+  await until(`document.querySelector('#modal .modal-confirm.agent-call') !== null`);
+  assert(await evaluate(`document.querySelector('#modal .modal-confirm').dataset.help.includes('token')`), 'card enable lacks Agent cost');
+  await click('#modal .modal-cancel');
+  assert(policy.get().revision === policyBefore.revision, 'cancel enabled device policy');
+  await click('.dashboard-quick-actions-card button[data-quick-action="auto_select"]'); await click('#modal .modal-confirm');
+  await until(`document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认开启')&&!document.getElementById('auto-select-banner').hidden`);
+  assert(policy.get().auto_select.enabled && fs.existsSync(policy.file), 'card did not persist through real Host');
+  await screenshot('quick-auto-select-confirmed');
+  await until(`document.getElementById('toast').hidden`);
+  await click('#auto-select-banner button');
+  await until(`document.getElementById('auto-select-banner').hidden&&document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认关闭')`);
+  assert(policy.get().auto_select.enabled === false, 'banner close did not share policy with card');
+  await click('#automation-open'); await until(`document.querySelector('.workspace-automation .device-auto-select-action') !== null`);
+  await until(`document.querySelector('.workspace-automation .module-toggle') !== null`);
+  if (await evaluate(`document.querySelector('.workspace-automation .module-toggle').getAttribute('aria-expanded')==='false'`)) await click('.workspace-automation .module-toggle');
+  await click('.workspace-automation button[data-quick-action="auto_select"]'); await click('#modal .modal-confirm');
+  await until(`document.querySelector('.workspace-automation .device-auto-select-status').textContent.includes('已确认开启')`);
+  assert(policy.get().auto_select.enabled, 'global page failed real policy write');
+  await click('#projects-open'); await until(`document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled&&document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认开启')`);
+  assert(await evaluate(`!document.querySelector('.dashboard-quick-actions-card button[data-quick-action="auto_select"]').classList.contains('agent-call')`), 'disable incorrectly calls Agent');
+  await click('.dashboard-quick-actions-card button[data-quick-action="auto_select"]');
+  await until(`document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认关闭')`);
+  assert(!policy.get().auto_select.enabled, 'card close not durable');
+  console.log('PASS real authenticated card/Host/device-file authorization, cancel, Agent costs, global-page and banner shared state, explicit ordinary close');
   await click('.dashboard-layout-edit');
   const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-accounts-group .project-board-resize[data-corner="east"]' });
   await rpc(`/session/${session}/element/${accountHandle['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE012' });

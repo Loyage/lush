@@ -1,4 +1,5 @@
 import { el } from './dom.js';
+import { DEFAULT_QUICK_ACTION_BUTTONS, normalizeQuickActionButtons } from '../../../shared/dashboard-quick-actions.js';
 import { dashboardIcon } from './dashboard-icons.js';
 import { api } from './api.js';
 import { settingsClient } from './settings-api.js';
@@ -29,7 +30,7 @@ const uniqueIds = rows => new Set(rows.map(row => row?.id)).size === rows.length
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'dashboard-card-warning' : 'dashboard-card-note'));
 const stalePage = () => new DOMException('账户卡片页面已离开', 'AbortError');
 function validateConfig(value) {
-  if (![1, 2, 3, 4, 5, 6].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
+  if (![1, 2, 3, 4, 5, 6, 7].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
     || value.cards.some(card => !fields(card, ['type', 'connection_id']) || card.type !== 'account' || !uuid(card.connection_id))
     || new Set(value.cards.map(card => card.connection_id)).size !== value.cards.length) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
@@ -55,6 +56,7 @@ function validateConfig(value) {
   return { version: value.version, revision: value.revision, account_view: value.version >= 3 ? value.account_view : 'list',
     diagnostics: value.version >= 5 ? value.diagnostics : true,
     quick_actions: value.version >= 6 ? value.quick_actions : true,
+    quick_action_buttons: value.version >= 7 ? normalizeQuickActionButtons(value.quick_action_buttons) : [...DEFAULT_QUICK_ACTION_BUTTONS],
     ...(value.version >= 4 ? { widgets: validateWidgets(value.widgets) } : {}),
     cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })),
     hidden_projects: [...hidden_projects], layout: layout.map(item => ({ ...item })),

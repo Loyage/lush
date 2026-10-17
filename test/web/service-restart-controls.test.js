@@ -7,7 +7,7 @@ const row = maintenance => ({ id, name: '来源项目', project: '/fixture/a', r
 const running = { paused: false, phase: 'running', ready_to_restart: true, batch_id: null, completion_state: null, completion_notice_id: null };
 const batch = (notify_completion = false) => ({ paused: true, phase: 'paused', ready_to_restart: true, batch_id,
   completion_state: 'completed', completion_notice_id: notify_completion ? 7 : null, notify_completion });
-const flush = async () => { for (let n = 0; n < 30; n++) await Promise.resolve(); };
+const flush = async () => { for (let n = 0; n < 100; n++) await Promise.resolve(); };
 
 test('restart modes expose only their operations, guard edits and share confirmation single-flight', async () => {
   const dom = installDom(); let release, confirmations = 0, writable = false;
@@ -66,5 +66,24 @@ test('disposing a quick action with an accepted in-flight request cannot authori
     await flush(); expect(calls).toEqual([`/p/${id}/api/action`]);
     section.dispose(); release(); await operation; await flush();
     expect(calls).toEqual([`/p/${id}/api/action`]);
+  } finally { section.dispose(); dom.restore(); }
+});
+
+test('selected maintenance controls retain one flow/lock and removed selection cannot confirm an old action', async () => {
+  const dom = installDom(), writes = []; let release;
+  const section = serviceRestartControls({ mode: 'quick_actions', request: async (path, options) => {
+    if (options?.method === 'POST') writes.push(path);
+    return path === '/api/host' ? { restart_supported: true, pid: 1 } : { projects: [row(running)] };
+  }, confirm: () => new Promise(resolve => { release = resolve; }) });
+  try {
+    await section.ready; section.updateProjects([row(running)]);
+    const safe = section.root.querySelector('button'), operation = safe.onclick(); await flush();
+    section.setButtons(['safe_restart','auto_select','interrupt_all','resume_all','restart_all']);
+    expect(section.root.querySelector('[data-service-restart="safe"]')).toBe(safe);
+    expect(section.root.querySelectorAll('button').map(b => b.dataset.serviceRestart)).toEqual(['safe','pause','resume','all']);
+    expect(section.root.querySelectorAll('button').every(b => b.disabled)).toBe(true);
+    section.setButtons(['interrupt_all']); release(true); await operation;
+    expect(writes).toEqual([]); expect(section.root.querySelectorAll('button').map(b => b.dataset.serviceRestart)).toEqual(['pause']);
+    section.setButtons([]); expect(section.root.querySelectorAll('button')).toHaveLength(0);
   } finally { section.dispose(); dom.restore(); }
 });

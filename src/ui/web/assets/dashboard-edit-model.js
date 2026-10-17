@@ -1,5 +1,5 @@
 /** In-memory full-document history. Only changed fields are published, never a read projection. */
-export const DASHBOARD_FIELDS = ['cards', 'hidden_projects', 'layout', 'content', 'account_view', 'widgets', 'diagnostics', 'quick_actions'];
+export const DASHBOARD_FIELDS = ['cards', 'hidden_projects', 'layout', 'content', 'account_view', 'widgets', 'diagnostics', 'quick_actions', 'quick_action_buttons'];
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export function dashboardPatch(base, next) {
   return Object.fromEntries(DASHBOARD_FIELDS.filter(key => !equal(base[key], next[key])).map(key => [key, structuredClone(next[key])]));

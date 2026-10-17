@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { check, isPlainObject } from './types.js';
+import { DEFAULT_QUICK_ACTION_BUTTONS, normalizeQuickActionButtons } from '../shared/dashboard-quick-actions.js';
 import { validateConfigurationDirectory, withConfigurationWriteLock } from './device-config.js';
 
 const MAX_BYTES = 256 * 1024;
@@ -11,7 +12,8 @@ const V2_FIELDS = ['cards', 'hidden_projects', 'layout', 'content'];
 const V3_FIELDS = [...V2_FIELDS, 'account_view'];
 const V4_FIELDS = [...V3_FIELDS, 'widgets'];
 const V5_FIELDS = [...V4_FIELDS, 'diagnostics'];
-const PATCH_FIELDS = [...V5_FIELDS, 'quick_actions'];
+const V6_FIELDS = [...V5_FIELDS, 'quick_actions'];
+const PATCH_FIELDS = [...V6_FIELDS, 'quick_action_buttons'];
 const PROJECT_ID = /^[a-f0-9]{16}$/;
 const PROJECT_SECTIONS = ['metrics', 'distribution', 'delivery', 'recent', 'messages', 'shortcuts'];
 const ACCOUNT_SECTIONS = ['quota', 'balance', 'reset', 'observed', 'details', 'history', 'provenance'];
@@ -20,7 +22,7 @@ const WIDGET_SECTIONS = { status: ['metrics', 'distribution', 'delivery'], messa
   accounts: ACCOUNT_SECTIONS, shortcuts: ['shortcuts'] };
 const GLOBAL_TARGETS = ['notices', 'project-management', 'model-sources', 'runners', 'settings', 'agent-status', 'automation', 'docs'];
 const PROJECT_TARGETS = ['workers', 'inputs', 'versions', 'notices'];
-const empty = () => ({ version: 6, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true, quick_actions: true });
+const empty = () => ({ version: 7, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true, quick_actions: true, quick_action_buttons: [...DEFAULT_QUICK_ACTION_BUTTONS] });
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
 function fields(value, allowed) {
@@ -146,6 +148,7 @@ export function normalizeDashboardPatch(patch) {
     check(typeof patch.quick_actions === 'boolean', 'invalid dashboard quick_actions');
     result.quick_actions = patch.quick_actions;
   }
+  if (Object.hasOwn(patch, 'quick_action_buttons')) result.quick_action_buttons = normalizeQuickActionButtons(patch.quick_action_buttons);
   if (Object.hasOwn(patch, 'widgets')) result.widgets = normalizeDashboardWidgets(patch.widgets);
   if (Object.hasOwn(patch, 'account_view')) {
     check(patch.account_view === 'list' || patch.account_view === 'tiles', 'invalid dashboard account_view');
@@ -175,8 +178,8 @@ function load(config) {
       fields(data, ['version', 'cards']);
       return { ...empty(), cards: normalizeDashboardCards(data.cards) };
     }
-    check([2, 3, 4, 5, 6].includes(data.version), 'invalid dashboard version');
-    fields(data, ['version', ...(data.version === 2 ? V2_FIELDS : data.version === 3 ? V3_FIELDS : data.version === 4 ? V4_FIELDS : data.version === 5 ? V5_FIELDS : PATCH_FIELDS)]);
+    check([2, 3, 4, 5, 6, 7].includes(data.version), 'invalid dashboard version');
+    fields(data, ['version', ...(data.version === 2 ? V2_FIELDS : data.version === 3 ? V3_FIELDS : data.version === 4 ? V4_FIELDS : data.version === 5 ? V5_FIELDS : data.version === 6 ? V6_FIELDS : PATCH_FIELDS)]);
     const { version, ...patch } = data;
     const normalized = normalizeDashboardPatch(patch);
     // Old documents retain their own strict identity rules; reading is not a migration.

@@ -42,6 +42,9 @@ test('authenticated HTTP -> RPC user gate -> real maintenance -> Host: manual de
     const repeated = await (await post(f, 'system.interrupt_all')).json();
     expect(repeated.batch_id).toBe(ack.batch_id); expect(repeated.notify_completion).toBe(false);
     expect(persisted(f).notify_completion).toBe(false);
+    const completionMount = JSON.parse(f.store.task(task.id).hooks).mounts.find(mount => mount.signal_binding?.batch_id === ack.batch_id);
+    expect(completionMount).toMatchObject({ registry_id: 'system:interruption-notice', registry_version: 1 });
+    expect(f.project.hooksList().registry.items.find(item => item.id === completionMount.registry_id)).toMatchObject({ readonly: true });
     expect(count(f)).toBe(0);
     hold.resolve();
     await until(() => { f.project.observeMaintenanceCompletion(); return f.project.maintenanceView().completion_state === 'completed'; });

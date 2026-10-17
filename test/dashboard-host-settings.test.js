@@ -7,7 +7,7 @@ import { readDashboardSettings, saveDashboardSettings } from '../src/core/dashbo
 import { readDashboardConfig } from '../src/ui/web/assets/dashboard-cards.js';
 import { createDashboardHistory, dashboardPatch } from '../src/ui/web/assets/dashboard-edit-model.js';
 
-test('Host dashboard adapter validates quick_actions and returns shared v6 ACK with optimistic revision', async () => {
+test('Host dashboard adapter validates quick_actions and returns shared v7 ACK with optimistic revision', async () => {
   const root = temp(), config = { deviceHome: path.join(root, 'shared') };
   const services = createUserServices({}, { dashboardService: {
     get: () => readDashboardSettings(config), save: (patch, revision) => saveDashboardSettings(config, patch, revision),
@@ -18,7 +18,7 @@ test('Host dashboard adapter validates quick_actions and returns shared v6 ACK w
     for (const quick_actions of [null, 'false', 0, {}]) await expect(services.saveDashboard({ quick_actions, expected_revision: before.revision })).rejects.toThrow();
     await expect(services.saveDashboard({ quick_actions: false, unexpected: true, expected_revision: before.revision })).rejects.toThrow();
     const next = await readDashboardConfig({ value: await services.saveDashboard({ quick_actions: false, expected_revision: before.revision }) });
-    expect(next.version).toBe(6); expect(next.quick_actions).toBe(false);
+    expect(next.version).toBe(7); expect(next.quick_actions).toBe(false);
     await expect(services.saveDashboard({ quick_actions: true, expected_revision: before.revision })).rejects.toThrow();
     expect(await services.readDashboard()).toEqual(next);
     await expect(readDashboardConfig({ value: { ...next, quick_actions: 'false' } })).rejects.toThrow();
