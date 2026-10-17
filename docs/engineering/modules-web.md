@@ -36,7 +36,7 @@
 | Worker 详情版本图与旧入口兼容 | `render-versions.js`、`retired-pages.js` | [版本迭代](version-history.md) |
 | 文档与全文检索 | `docs.js`、`render-docs.js`、`docs-search.js` | [文档维护与格式](../contributing/documentation.md) |
 
-W263／D611：「工作列表」仅展示开发 Worker，「管家列表」仅展示持久 Valet，复用 `render-tree.js` 的同源列表与既有详情；「工作树」独立表达开发委派层级。两列表共享 overview 和 `scope=all` 的有界历史分页，状态筛选即时生效、文本搜索显式提交，检索仅覆盖已读取范围；不把 `/api/hooks` 的绑定快照当完整管家历史，也不从局部卡片估算全量。Valet 使用真实 V 编号，旧未编号记录回退 `#内部ID`；详情共享 Agent 与执行记录，展示安全绑定／操作收据；`render-detail.js` 经 `valet-actions.js` 提供停用授权与停止管家，删除共用 `worker-delete.js` 的预检、revision 及精确确认协议。停止已提交不等于实际退出，调用与在途操作收口后须重新预检；失败或未知不自动重发。仍不提供开发、合并交付、验收、Git 或连续追加对话。
+W263／D611：「工作列表」仅展示开发 Worker，「管家列表」仅展示持久 Valet，复用 `render-tree.js` 的同源列表与既有详情；「工作树」独立表达开发委派层级。两列表共享 overview 和 `scope=all` 的有界历史分页，状态筛选即时生效、文本搜索显式提交，检索仅覆盖已读取范围；不把 `/api/hooks` 的绑定快照当完整管家历史，也不从局部卡片估算全量。Valet 使用真实 V 编号，旧未编号记录回退 `#内部ID`；详情共享 Agent 与执行记录，展示安全绑定／操作收据；`render-detail.js` 经 `valet-actions.js` 提供停用授权与停止管家，删除共用 `worker-delete.js` 的预检、revision 及精确确认协议。停止已提交不等于实际退出，调用与在途操作收口后须重新预检；失败或未知不自动重发。正常结束并安全收口后，详情可通过标准表单向同一 Valet 追加输入，授权新一轮；具体准入与拒绝保留原文的边界见[管家追加契约](hook-signals-management.md#数据与时间)。仍不提供开发暂存／条件发射、合并交付、验收或 Git 动作。
 
 旧独立 Valet 时间信号／绑定设置与指令／Hook 工具页面及其 Web 配置入口已删除（「CLI 接口」位于全局工作台，配置设备共享管家权限，内建默认与审核边界见[权限契约](hook-signals-management.md#设备全局管家权限)），不迁往其他页面；`render-management.js`、`openHookTools` 只保留退休导航兼容。项目自动化及 Worker 实例挂载管理保留，推送功能引用指令只读；后端 API、CLI、持久配置、授权与历史不删除或迁移。旧 `#versions` 从有界 overview 读取持久 main 身份后跳真实 Worker 详情，无 main 明示不可用，不再挂独立版本页；`render-versions.js` 已由 `render-detail.js` 接入版本模块，滚入时直接读取有界分支提交历程／main 图页，完整节点与交付映射收据按需展开。路由兼容见[Web 路由](../reference/web-routes.md#worker-页面与命名)，权限见[Valet 契约](hook-signals-management.md)。
 

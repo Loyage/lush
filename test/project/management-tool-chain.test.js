@@ -35,6 +35,62 @@ test('management tools, trusted bridge, RPC registrations and invocation allowli
   expect(description).toContain('修改接口权限始终须真实用户审核');
 });
 
+test('completed Valet user append -> registered RPC -> real Provider/bridge uses fresh occurrence, instruction and latest permissions', async () => {
+  const f = fixture(); let rpc;
+  try {
+    f.project.kick = () => {};
+    await repo(f.root);
+    const cli = managementToolCLI(f.root, 'node');
+    f.config.env.LUSH_PI_COMMAND = cli.command;
+    const provider = new AgentProvider(f.config, f.project.agentSettings);
+    const contexts = [], run = provider.run.bind(provider);
+    provider.run = options => { contexts.push(options); return run(options); };
+    f.project.provider = provider;
+    const dispatcher = new Dispatcher(f.project, createSignal(), {});
+    rpc = new RPCServer(f.config.socket, dispatcher); await rpc.start();
+    const manager = f.project.submitManagementInstruction({ instruction: '检查设备全局配置并记录原始事项',
+      profile: { agent: 'pi', config_mode: 'pi' } }).task;
+    const execute = async plan => {
+      cli.plan(plan); f.project.pump();
+      await Promise.all([...f.project.running.values()].map(run => run.promise));
+      expect(f.store.task(manager.id).status).toBe('completed');
+      return JSON.parse(f.store.task(manager.id).result).replies;
+    };
+    const draft = content => ({ name: 'manager_call', callId: 'same-model-call-id',
+      params: { method: 'draft.add', params: { content, branch: 'main' } } });
+    await execute([draft('原始事项')]);
+    const initialRun = f.store.task(manager.id).calls;
+    await dispatcher.dispatch('worker.message', { id: manager.id, body: '只记录本轮事项，不涉及设置' });
+    const second = await execute([
+      draft('本轮事项'),
+      { name: 'manager_call', params: { method: 'management.permission_get', params: { method: 'draft.add', scope: 'device' } } },
+      { name: 'manager_call', params: { method: 'worker.message', params: { id: manager.id, body: '不允许管家自行追加' } } },
+      { name: 'manager_query', params: {} },
+    ]);
+    expect(second[0].response.details).toMatchObject({ method: 'draft.add', status: 'succeeded' });
+    expect(second[1].error).toContain('管理请求被拒绝');
+    expect(second[2].error).toContain('管理请求被拒绝');
+    expect(second[3].response.details.workers).toEqual([]);
+    expect(f.store.draftCount()).toBe(2);
+    const permission = f.project.managementPermissionGet('draft.add', 'device');
+    f.project.managementPermissionSet('draft.add', 'unavailable', permission.revision, 'device');
+    await dispatcher.dispatch('worker.message', { id: manager.id, body: '查询设备全局权限，再尝试记录第三轮' });
+    const third = await execute([
+      { name: 'manager_call', params: { method: 'management.permission_get', params: { method: 'draft.add', scope: 'device' } } },
+      draft('禁止写入的第三轮'),
+    ]);
+    expect(third[0].response.details).toMatchObject({ status: 'succeeded', result: { method: 'draft.add', access: 'unavailable' } });
+    expect(third[1].error).toContain('管理请求被拒绝');
+    expect(f.store.draftCount()).toBe(2);
+    expect(f.store.task(manager.id)).toMatchObject({ goal: manager.goal, calls: initialRun + 2 });
+    expect(contexts.map(options => options.context.management.instruction)).toEqual([
+      manager.goal, '只记录本轮事项，不涉及设置', '查询设备全局权限，再尝试记录第三轮',
+    ]);
+    expect(contexts[1].messages).toMatchObject([{ body: '只记录本轮事项，不涉及设置', append_number: null }]);
+    expect(f.store.unread(manager.id)).toEqual([]);
+  } finally { await rpc?.close(); await f.close(); }
+});
+
 // Node/Lush covers the production Pi extension import graph; Bun/Pi preserves the other config path.
 for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
   test(`${runtime}/${mode}: Provider -> active real tools -> Bun bridge -> invocation-authorized RPC -> persisted effects/public results`, async () => {

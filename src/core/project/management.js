@@ -9,7 +9,7 @@ import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
 import { safeInvocationMessage } from '../../agent/invocation-error.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
-  managementView, managementWorkers, managementEnableReason, managementUnsettled } from './management-data.js';
+  managementView, managementWorkers, managementEnableReason, managementUnsettled, managementAppendReason, managementInstruction } from './management-data.js';
 
 const unknownReason = '管理调用或操作曾中断，副作用未知；绑定已停用，不自动重放。';
 const failureAction = '管理授权已停用，不自动重放。请先核对执行记录与受控操作收据，确认安全并修复原因后再另建管理指令。';
@@ -174,6 +174,31 @@ export default {
     return this.inspect(task.id);
   },
 
+  appendManagementInstruction(taskId, instruction) {
+    this.assertWritable('append a management instruction');
+    text(instruction, 'management instruction');
+    const task = this.store.task(id(taskId)), state = managementState(task);
+    const reason = managementAppendReason(this, task, state);
+    check(!reason, reason);
+    assertTaskAncestorsOpen(this, task);
+    this.store.transaction(() => {
+      const messageId = this.store.appendMessage(task.id, instruction);
+      this.store.event(task.id, 'message', { sender: null, body: instruction, message_id: messageId,
+        append_number: null, user_append: true });
+      const occurrenceId = this.store.event(task.id, 'management.input_submitted', { mode: 'append', message_id: messageId });
+      state.pending_signal = { id: occurrenceId, signal_id: null, name: '追加管理输入',
+        due_at: managementTime(this), submitted_at: managementTime(this), phase: 'pending',
+        origin: 'append', message_id: messageId, restore_enabled: state.enabled };
+      state.enabled = true; state.consumed = false; state.config_revision += 1;
+      state.state = 'queued'; state.reason = '追加管理输入已提交，等待运行槽；不重放旧操作。';
+      state.receipts = []; state.control_calls = [];
+      saveManagement(this, task.id, state);
+      this.store.update(task.id, { status: 'queued', error: null });
+    });
+    this.kick();
+    return { ...this.store.task(task.id), input_queue: { buffered: 0, reason: null } };
+  },
+
   updateManagementBinding(taskId, enabled, expectedRevision) {
     this.assertWritable('configure a management binding');
     const task = this.store.task(id(taskId)), state = managementState(task);
@@ -192,6 +217,7 @@ export default {
     }
     this.store.transaction(() => {
       state.enabled = enabled; state.config_revision += 1;
+      if (state.pending_signal?.origin === 'append') state.pending_signal.restore_enabled = enabled;
       if (!enabled) {
         revokeOwnQuestion(this, task.id, state);
         this.revokeManagementCapabilities(task.id, state);
@@ -290,7 +316,7 @@ export default {
       .map(notice => ({ notice_id: notice.id, kind: notice.kind, status: notice.status, answer_source: notice.answer_source,
         answer: String(notice.answer ?? '').slice(0, 4000), text_truncated: String(notice.answer ?? '').length > 4000,
         total_chars: String(notice.answer ?? '').length }));
-    return { instruction: task.goal, decisions, signal: state.pending_signal ? { id: state.pending_signal.id,
+    return { instruction: managementInstruction(this, task, state), decisions, signal: state.pending_signal ? { id: state.pending_signal.id,
       signal_id: state.pending_signal.signal_id, name: state.pending_signal.name, due_at: state.pending_signal.due_at } : null,
       authorization: { scope: 'current_project', operations: ['query','start','retry','catalog','history','call'],
         dangerous_operations: 'latest_device_permissions', permission_changes: 'exact_user_confirmation',
@@ -440,6 +466,7 @@ export default {
     this.store.transaction(() => {
       state.last_execution = { ...state.pending_signal, status: skipped ? 'skipped' : 'succeeded',
         finished_at: managementTime(this), actions: state.receipts, control_calls: state.control_calls ?? [] };
+      if (state.pending_signal.origin === 'append') state.enabled = state.enabled && state.pending_signal.restore_enabled;
       state.pending_signal = null;
       state.consumed = state.mode === 'once';
       if (state.consumed) state.enabled = false;

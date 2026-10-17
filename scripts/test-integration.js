@@ -16,6 +16,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
+    'test/web/dom-valet-append-api.test.js', // settled Valet detail -> authenticated HTTP/RPC -> fresh serial occurrence; busy rejection retains input
     'test/web/force-acceptance-page.test.js', // shared control -> authenticated HTTP -> exact terminal-receipt confirmation/reclamation
     'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
     'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
@@ -36,7 +37,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/execution-retired-freeze.test.js', // retired intent releases local parents, unknown Git landing does not
     'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
-    'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
+    'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC, including user-authorized fresh Valet rounds
+    'test/project/management-append.test.js', // settled Valet -> user RPC append, serial admission, failure protection and recovery
+    'test/project/management-append-size.test.js', // full-size immutable Message bodies and missing-instruction fail-closed
     'test/project/management-query.test.js', // typed CLI/manager queries -> real bridge, scope separation and safe rejection
     'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
@@ -49,6 +52,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
     'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
+    'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation
     'test/web/dom-transcript-view.test.js', // bulk folding across paging and live steps

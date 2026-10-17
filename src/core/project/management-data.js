@@ -8,6 +8,29 @@ export const MANAGEMENT_LIMITS = Object.freeze({ signals: 64, active: 64, action
 export const MANAGEMENT_READ_ITEMS = 100;
 export const managementState = task => task.management ? JSON.parse(task.management) : null;
 export const managementTime = project => new Date(project.hookClock()).toISOString();
+// New user input authorizes only this occurrence, not the original instruction's device scope.
+export function managementInstruction(project, task, state = managementState(task)) {
+  if (state?.pending_signal?.origin !== 'append') return task.goal;
+  const message = project.store.get('SELECT body FROM messages WHERE id=? AND task_id=? AND sender_id IS NULL',
+    state.pending_signal.message_id, task.id);
+  check(message, 'management append instruction is missing; do not replay the original instruction');
+  return message.body;
+}
+export function managementAppendReason(project, task, state = managementState(task)) {
+  if (task.role !== 'manager' || task.task_kind !== 'management' || !state) return '不是有效的管家身份。';
+  if (project.store.executionRetired(task.id)) return '执行环境已退役，历史只读。';
+  if (!['completed','waiting'].includes(task.status) || !['succeeded','skipped'].includes(state.last_execution?.status)
+    || !state.last_execution?.started_at
+    || ['failed','unknown'].includes(state.state) || state.pending_signal || managementUnsettled(project, task, state)) return '管家尚未正常结束并安全收口；失败、取消或未知操作不能通过追加恢复。';
+  if (project.stopping || project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying
+    || project.taskSyncBusy?.has(task.id) || project.workspaces.busy.has(task.id)) return '项目或管家正在停止、清理或迁移，请稍后提交。';
+  if (project.questionPending(task.id) || project.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id))
+    return '管家仍有待决或未处理输入，请先核对记录。';
+  if (project.managementOccupant()) return '当前项目已有管家排队、运行或尚未安全收口；请等待后再追加，输入尚未提交。';
+  if (!state.enabled && project.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management' AND json_extract(management,'$.enabled')=1").n >= MANAGEMENT_LIMITS.active)
+    return '已达到活动管理绑定上限。';
+  return null;
+}
 export const managementRevision = (task, state = managementState(task)) => hookRevision({ id: task.id, revision: state?.config_revision ?? 0 });
 export function saveManagement(project, taskId, state) {
   const encoded = JSON.stringify(state);
@@ -35,7 +58,7 @@ export function managementModel(project, task) {
 export function managementEnableReason(project, task, state = managementState(task)) {
   if (!state || task.role !== 'manager' || task.task_kind !== 'management') return '不是 Valet。';
   if (TERMINAL.has(task.status) || state.consumed || ['failed','unknown'].includes(state.state))
-    return '一次性已消费或管理调用已中断；请另建管理指令，不重放旧授权。';
+    return '一次性绑定已消费或管理调用已中断，不能重新启用旧授权；正常收口后可追加新一轮，失败或未知结果须另建管理指令。';
   if (!state.enabled && (project.running.has(task.id) || state.pending_signal)) return '当前管理调用或操作尚未收口，等待实际退出后再启用。';
   if (project.stopping || project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying
     || project.workspaces.busy.has(task.id)) return '项目或 Worker 正在停止、清理或迁移，等待安全点后再启用。';
@@ -63,7 +86,9 @@ export function managementView(task, project) {
       status: call.status, notice_id: call.notice_id ?? null, notice_kind: noticeKinds.get(call.notice_id) ?? null,
       ...(call.reason ? { reason: call.reason } : {}) })) } : null;
   const enableReason = managementEnableReason(project, task, state);
+  const appendReason = managementAppendReason(project, task, state);
   return { version: 1, revision: managementRevision(task, state), signal_id: state.signal_id, mode: state.mode,
+    can_append: appendReason === null, append_reason: appendReason,
     origin: state.origin ?? 'signal',
     enabled: state.enabled, can_enable: enableReason === null, state: state.state,
     reason: ['failed','unknown'].includes(state.state) ? state.reason ?? enableReason

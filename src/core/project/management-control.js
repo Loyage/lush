@@ -3,7 +3,7 @@ import { hookRevision } from '../hooks.js';
 import { questionnaire } from '../questionnaire.js';
 import { workerLabel } from '../worker-number.js';
 import { assertManager } from './management-auth.js';
-import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime } from './management-data.js';
+import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime, managementInstruction } from './management-data.js';
 import { managementCatalog, effectiveManagementPolicy, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { hookInstallationOutcome, hookRegistrationOutcome } from './hook-install.js';
@@ -19,7 +19,7 @@ function executionAuthorization(project, task, call) {
   if (policy.access === 'unavailable') throw new ManagementPermissionError('最新管家权限禁止此未开始操作；请调整权限后新建请求，不自动重放。');
   if (policy.access === 'confirmation' && !hasManagementConfirmation(project, task.id, call))
     throw new ManagementPermissionError('最新管家权限要求重新精确确认；此操作未开始，请新建请求。');
-  validateManagementCall(call.method, call.params, task.goal, authorization);
+  validateManagementCall(call.method, call.params, managementInstruction(project, task), authorization);
   return { ...authorization, permissions: { [call.method]: policy.access } };
 }
 function closePolicyNotice(project, taskId, call) {
@@ -170,7 +170,7 @@ export default {
     this.assertWritable('request a management capability');
     const { task } = assertManager(this, actorId);
     requestKey(requestId);
-    let policy = validateManagementCall(method, params, task.goal, this.managementPermissionsSnapshot());
+    let policy = validateManagementCall(method, params, managementInstruction(this, task), this.managementPermissionsSnapshot());
     if (method === 'worker.hook_attach' || (method === 'worker.hook_update' && params.hook !== undefined))
       resolveRegisteredMount(this, params.hook); // Registration must already be complete before asking to authorize a mount.
     if (method === 'worker.spawn') {
@@ -195,7 +195,7 @@ export default {
       'confirmation parameters exceed readable preview limit');
     if (policy.access === 'read') {
       // Do not ask the user-facing status handler for private full configuration.
-      this.withManagementPermissionAdmission(() => validateManagementCall(method, copied, task.goal, this.managementPermissionsSnapshot()));
+      this.withManagementPermissionAdmission(() => validateManagementCall(method, copied, managementInstruction(this, task), this.managementPermissionsSnapshot()));
       const result = method === 'system.status' ? this.status(false)
         : method === 'manager.catalog' ? this.managementCapabilityCatalog(actorId)
         : method === 'manager.query' ? this.managementQuery(actorId, copied.id)
@@ -221,9 +221,9 @@ export default {
     }
     let preflight = policy.access === 'confirmation' ? await resourcePreflight(this, method, copied) : null;
     // Delete/resource preflight can yield across a project permission update.
-    policy = validateManagementCall(method, copied, task.goal, this.managementPermissionsSnapshot());
+    policy = validateManagementCall(method, copied, managementInstruction(this, task), this.managementPermissionsSnapshot());
     if (policy.access === 'confirmation' && !preflight) preflight = await resourcePreflight(this, method, copied);
-    policy = validateManagementCall(method, copied, task.goal, this.managementPermissionsSnapshot());
+    policy = validateManagementCall(method, copied, managementInstruction(this, task), this.managementPermissionsSnapshot());
     check(policy.access !== 'confirmation' || JSON.stringify(copied, null, 2).length <= 6500,
       'confirmation parameters exceed readable preview limit');
     const snapshot = targetSnapshot(this, method, copied);

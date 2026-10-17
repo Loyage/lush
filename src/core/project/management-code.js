@@ -1,7 +1,7 @@
 import { check, id, isPlainObject } from '../types.js';
 import { hookRevision } from '../hooks.js';
 import { assertManager } from './management-auth.js';
-import { MANAGEMENT_READ_ITEMS, managementState } from './management-data.js';
+import { MANAGEMENT_READ_ITEMS, managementState, managementInstruction } from './management-data.js';
 import { LUSHW_METHODS, managementDispatchParams, validateManagementCall } from '../../rpc/management-policy.js';
 
 const canonical = value => Array.isArray(value) ? value.map(canonical)
@@ -24,7 +24,7 @@ export function assertManagementCapabilityExecution(project, actorId, receiptId,
   check(actor.role === 'manager' && actor.task_kind === 'management' && state?.enabled
     && state.pending_signal && project.managementOccupant()?.id === actor.id, 'management execution authorization is not active');
   if (receiptId === null || receiptId === undefined) {
-    const policy = validateManagementCall(method, params, actor.goal, project.managementPermissionsSnapshot());
+    const policy = validateManagementCall(method, params, managementInstruction(project, actor, state), project.managementPermissionsSnapshot());
     check(policy.access === 'read', 'management writes require a durable capability receipt');
     assertManager(project, actor.id);
     return { actor, state };
@@ -34,7 +34,7 @@ export function assertManagementCapabilityExecution(project, actorId, receiptId,
     'management execution must match the running fixed capability receipt');
   // A new receipt fixes authorization only at its actual start, not at submission.
   // Already-running historical receipts retain their original authorization; never migrate them.
-  const policy = validateManagementCall(method, call.params, actor.goal, call.execution_authorization ?? state.permissions_snapshot);
+  const policy = validateManagementCall(method, call.params, managementInstruction(project, actor, state), call.execution_authorization ?? state.permissions_snapshot);
   check(call.fingerprint === hookRevision({ method, params: canonical(call.params) })
     && hookRevision({ method, params: canonical(params) })
       === hookRevision({ method, params: canonical(managementDispatchParams(method, call.params)) }),
@@ -49,7 +49,7 @@ export function assertManagementCodeExecution(project, actorId, receiptId, metho
   return assertManagementCapabilityExecution(project, actorId, receiptId, method, params);
 }
 
-/** Lushc query support intentionally does not expose raw provider/tool material.
+/** Development CLI query support intentionally does not expose raw provider/tool material.
  * Metadata is projected before the generic bounded management response exit. */
 export function managementCodeReadResult(method, value, project, params) {
   // Inspect and a legacy tree fallback can otherwise smuggle raw provider/run,

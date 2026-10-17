@@ -49,6 +49,10 @@ export default {
   // Runtime-generated Hook/legacy plan messages explicitly opt out of user append numbering.
   message(taskId, body, sender = null, userAppend = true, managementReceipt = null) {
     const target = this.store.task(taskId); text(body, 'message');
+    if (target.role === 'manager' || target.task_kind === 'management') {
+      check(sender === null && userAppend && managementReceipt === null, 'only the user may append a management instruction');
+      return this.appendManagementInstruction(target.id, body);
+    }
     check(!this.acceptanceBusy?.has(target.id), '验收正在回收开发资源；请等待结果后再处理输入');
     // A parent batch receipt owns the entire participant set. Partial reclamation must
     // not let an intact child restart inside a delegation tree whose parent ref is gone.

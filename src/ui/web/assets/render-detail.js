@@ -109,7 +109,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const readOnly = management || isHistoricalDelivery(task) || task.execution_retired === true;
   if (management) {
     panel.append(el('p', task.role === 'manager' && task.task_kind === 'management'
-      ? 'Valet 的目标、结果、调用与执行记录共用工作阅读器；可停止、停用授权并预检删除，不提供开发动作或连续追加对话。'
+      ? 'Valet 正常结束并安全收口后可追加输入，授权新一轮而不重放旧操作；仍可停止、停用授权并预检删除，不提供开发或 Git 动作。'
       : 'Valet 身份不一致，仅提供只读记录；请核对持久身份，不开放开发或管理写操作。', 'hint management-readonly'));
   }
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);

@@ -100,7 +100,7 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 ## 追加消息的准入与失败处理
 
-`worker.message {id,body}` 是追加工作入口，不是冻结期间的只读通知通道。Agent 仅可给直接父子 Worker 发送消息；main/owner 不接收普通消息，即使是直接父 Worker。指令 Agent 的完成报告写本轮结果，交付由 runtime 按已有协议处理。
+`worker.message {id,body}` 是追加工作入口，不是冻结期间的只读通知通道。Agent 仅可给直接父子 Worker 发送消息；main/owner 不接收普通消息，即使是直接父 Worker。指令 Agent 的完成报告写本轮结果，交付由 runtime 按已有协议处理。用户向已正常结束且安全收口的 Valet 调用此接口会授权新一轮管理事项，不复活失败／取消记录；其他管家占位时拒绝而不入箱，详情 `management.can_append/append_reason` 提供准入快照。此例外不开放给 Agent，详见[管家追加边界](../../engineering/hook-signals-management.md#数据与时间)。
 
 发送前可用 `worker.inspect` 核对目标的 `task_kind`、`status`、`reservation` 及归档/同步状态，但读取只是快照，实际准入仍以发送时检查为准：
 
