@@ -27,15 +27,15 @@ function fold(label, content, className = '') {
   return node;
 }
 
-function prose(text, className = 'message-prose') {
+function prose(text, copyCode = false, className = 'message-prose') {
   const root = el('div', undefined, className);
   const preview = text.split('\n').slice(0, 12).join('\n').slice(0, 1800);
-  const body = agentText(preview, { className: 'message-prose' });
+  const body = agentText(preview, { className: 'message-prose', copyCode });
   root.append(body);
   if (preview.length < text.length) {
     const toggle = button('展开完整正文', () => {
       const expanded = toggle.getAttribute('aria-expanded') !== 'true';
-      root.replaceChildren(agentText(expanded ? text : preview, { className: 'message-prose' }), toggle);
+      root.replaceChildren(agentText(expanded ? text : preview, { className: 'message-prose', copyCode }), toggle);
       toggle.textContent = expanded ? '收起正文' : '展开完整正文';
       toggle.setAttribute('aria-expanded', String(expanded));
     }, 'ghost');
@@ -58,13 +58,13 @@ function signalView(parsed) {
   return null;
 }
 
-function renderPayload(root, payload) {
+function renderPayload(root, payload, copyCode) {
   const handled = new Set();
   for (const [key, label] of [['result', '结果'], ['error', '错误'], ['instruction', '处理说明']]) {
     if (typeof payload[key] !== 'string' || !payload[key]) continue;
     handled.add(key);
     const section = el('div', undefined, `message-section${key === 'error' ? ' message-error' : ''}`);
-    section.append(el('h4', label), prose(payload[key])); root.append(section);
+    section.append(el('h4', label), prose(payload[key], copyCode)); root.append(section);
   }
   if (payload.result_truncated === true) {
     handled.add('result_truncated');
@@ -81,21 +81,21 @@ function renderPayload(root, payload) {
   if (Object.keys(rest).length) root.append(fold('更多消息字段', () => structuredValue(JSON.stringify(rest), { openRoot: true }), 'message-extra'));
 }
 
-function renderDecision(root, parsed) {
+function renderDecision(root, parsed, copyCode) {
   root.append(el('h3', parsed.dismissed ? '未做决定' : '已答复决策', 'message-title'));
   if (parsed.title) root.append(el('p', parsed.title, 'message-decision-title'));
   root.append(linkWorkerNumbers(el('p', `事项 ${noticeNumber({ id: parsed.notice_id, kind: parsed.notice_kind })}`, 'hint')));
   if (parsed.dismissed) { root.append(el('p', '这次没有选择任何方案，不代表接受推荐项。', 'hint')); return; }
   const answer = parsed.answer;
-  if (typeof answer === 'string' && answer) root.append(prose(answer));
+  if (typeof answer === 'string' && answer) root.append(prose(answer, copyCode));
   else if (answer?.version === 1 && Array.isArray(answer.answers)) {
     for (const item of answer.answers.slice(0, 100)) {
       if (!record(item)) continue;
       const row = el('div', undefined, 'message-section');
       row.append(el('h4', String(item.question || item.header || '答复')));
       const labels = Array.isArray(item.labels) ? item.labels.filter(label => typeof label === 'string') : [];
-      if (labels.length) row.append(prose(labels.join('、')));
-      if (typeof item.custom === 'string' && item.custom) row.append(prose(item.custom));
+      if (labels.length) row.append(prose(labels.join('、'), copyCode));
+      if (typeof item.custom === 'string' && item.custom) row.append(prose(item.custom, copyCode));
       if (!labels.length && !item.custom) row.append(el('p', '未选择选项', 'hint'));
       root.append(row);
     }
@@ -125,7 +125,7 @@ export function renderTaskMessage(message, taskId, previous = null) {
 }
 
 /** Shared semantic body without sender/time chrome; the original message remains authoritative. */
-export function renderTaskMessageBody(message) {
+export function renderTaskMessageBody(message, { original = true, copyCode = false } = {}) {
   const text = String(message.body ?? '');
   const root = el('div', undefined, 'task-message-content');
   let parsed;
@@ -133,17 +133,17 @@ export function renderTaskMessageBody(message) {
   const signal = message.trustEnvelope === false ? null : signalView(parsed);
   if (message.decision) {
     root.classList.add('message-system');
-    renderDecision(root, { ...message.decision, answer: parsed ?? text });
+    renderDecision(root, { ...message.decision, answer: parsed ?? text }, copyCode);
   } else if (signal) {
     root.classList.add('message-system');
     if (signal.failed) root.classList.add('message-failed');
-    root.append(el('h3', signal.title, 'message-title')); renderPayload(root, signal.payload);
+    root.append(el('h3', signal.title, 'message-title')); renderPayload(root, signal.payload, copyCode);
   } else if (message.trustEnvelope !== false && record(parsed) && Number.isSafeInteger(parsed.notice_id) && typeof parsed.dismissed === 'boolean' && own(parsed, 'answer')) {
-    root.classList.add('message-system'); renderDecision(root, parsed);
+    root.classList.add('message-system'); renderDecision(root, parsed, copyCode);
   } else if (record(parsed) || Array.isArray(parsed)) {
     root.append(el('h3', '结构化消息', 'message-title'), structuredValue(text, { openRoot: true }));
-  } else if (text) root.append(prose(text));
+  } else if (text) root.append(prose(text, copyCode));
   else root.append(el('p', '（空消息）', 'hint'));
-  root.append(fold(message.originalLabel || '查看完整原文', () => el('pre', text, 'raw-value'), 'message-original'));
+  if (original) root.append(fold(message.originalLabel || '查看完整原文', () => el('pre', text, 'raw-value'), 'message-original'));
   return root;
 }

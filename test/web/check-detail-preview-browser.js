@@ -9,6 +9,7 @@ const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
 const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
+import { renderConversation } from '/render-conversation.js';
 import { revealDetailPreview } from '/detail-preview.js';
 import { ui } from '/state.js';
 import { noticePanel } from '/render-notices.js';
@@ -58,6 +59,14 @@ window.makeNoticeModule=(kind,scope)=>{
   const tail=el('div');tail.style.height='1400px';host.append(tail);
   panel.scrollTop=0;window.scrollTo(0,0);window.noticeFixture={panel,section,head:section.querySelector('.notice-head'),
     listHead:null};
+};
+window.makeCopyFixture=()=>{
+  disposeModules(document.querySelector('#detail'));const fence=String.fromCharCode(96).repeat(3);
+  window.copySource='# 原始输入\\n\\n'+fence+'shell\\n  echo "<raw>"  \\n\\nprintf W313\\n'+fence+'\\n';
+  window.copyOutput='**原始回复**\\n\\n'+fence+'\\n输出代码\\n'+fence;
+  window.copied=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.copied.push(text)}});
+  const root=renderConversation({id:99,worker_number:'W313',goal:window.copySource,result:window.copyOutput});
+  document.querySelector('#detail').replaceChildren(root);
 };
 window.paint(); window.ready=true;
 </script></body>`);
@@ -308,6 +317,32 @@ try {
     const after=[...root.querySelector('.conversation-list').children];window.paint();
     return root.dataset.order==='asc'&&before.every((n,i)=>after[after.length-1-i]===n)&&document.querySelector('.conversation-panel').dataset.order==='asc';`), 'order change replaced messages or refresh lost selection');
   console.log('PASS height-only resize, bubbles, message/module sticky headers, sorting, expand/collapse, refresh, focus, reference reveal, lazy growth and Worker isolation');
+  const copyClick = async selector => {
+    await execute(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'});`);
+    await click(selector);
+  };
+  for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
+    await viewport(width,height);
+    await execute(`document.documentElement.dataset.theme='${theme}';window.makeCopyFixture();`);
+    await copyClick('.conversation-input .conversation-copy');
+    assert(await wait(`window.copied.length===1`), 'input copy failed');
+    assert(await execute(`return window.copied[0]===window.copySource;`), 'input copy lost raw Markdown');
+    await copyClick('.conversation-input .code-copy');
+    assert(await wait(`window.copied.length===2`), 'code copy failed');
+    assert(await execute(`return window.copied[1]==='  echo "<raw>"  \\n\\nprintf W313';`), 'code copy included labels or changed whitespace');
+    await copyClick('.conversation-output .conversation-copy');
+    assert(await wait(`window.copied.length===3`), 'output copy failed');
+    assert(await execute(`return window.copied[2]===window.copyOutput;`), 'output copy lost raw Markdown');
+    await copyClick('.conversation-output .code-copy');
+    assert(await wait(`window.copied.length===4`), 'unlabelled code copy failed');
+    assert(await execute(`return window.copied[3]==='输出代码'&&!document.querySelector('.conversation-panel .message-original')&&
+      !document.querySelector('.conversation-panel').textContent.includes('查看完整原文')&&
+      [...document.querySelectorAll('.conversation-copy,.code-copy')].every(button=>{
+        const box=button.getBoundingClientRect(),parent=button.closest('.conversation-message').getBoundingClientRect();
+        return box.width>0&&box.left>=parent.left&&box.right<=parent.right+1&&(${width}>760||box.height>=44);
+      })&&document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'copy controls overflow or raw-view entry retained');
+    console.log('PASS exact raw/code clipboard payloads and responsive copy controls',width,height,theme);
+  }
   for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
     await viewport(width,height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.makeSharedModules();`);

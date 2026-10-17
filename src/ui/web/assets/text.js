@@ -5,15 +5,17 @@ import { detail } from './navigate.js';
 import { show } from './messages.js';
 import { onPrefChange, readPref } from './prefs.js';
 import { ui } from './state.js';
+import { copyButton } from './clipboard.js';
 
 /* ---------- markdown 渲染偏好（只在设置页管理，键 lush.markdown） ---------- */
 export function markdownEnabled() { return readPref('markdown'); }
 
 /** 受开关影响的 agent 输出：开启时返回 markdown 容器，关闭时保持与原来一致的纯文本节点。 */
-export function agentText(value, { className = '', plain = 'div' } = {}) {
+export function agentText(value, { className = '', plain = 'div', copyCode = false } = {}) {
   const text = value == null ? '' : String(value);
   if (!markdownEnabled()) return linkWorkerNumbers(el(plain, text, className || undefined));
-  const node = renderMarkdown(text, document);
+  const node = renderMarkdown(text, document, { codeActions: copyCode
+    ? source => copyButton(source, { label: '复制代码', className: 'code-copy' }) : null });
   if (className) node.className = `${node.className} ${className}`;
   return linkWorkerNumbers(node);
 }

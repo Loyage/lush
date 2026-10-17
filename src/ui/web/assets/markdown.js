@@ -239,10 +239,13 @@ function renderBlock(block, doc, options) {
     case 'code': {
       const box = doc.createElement('div'); box.setAttribute('class', 'md-code');
       const lang = String(block.lang || '').replace(/[^A-Za-z0-9+#._-]/g, '').slice(0, 32);
+      const head = options.codeActions ? doc.createElement('div') : box;
+      if (head !== box) { head.setAttribute('class', 'md-code-head'); box.append(head); }
       if (lang) {
         const label = doc.createElement('span'); label.setAttribute('class', 'md-lang');
-        label.append(doc.createTextNode(lang)); box.append(label);
+        label.append(doc.createTextNode(lang)); head.append(label);
       }
+      if (options.codeActions) head.append(options.codeActions(block.text));
       const pre = doc.createElement('pre');
       const code = doc.createElement('code');
       if (lang) code.setAttribute('class', `language-${lang}`);

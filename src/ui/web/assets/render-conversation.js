@@ -10,6 +10,7 @@ import { workTypeLabel } from './work-type.js';
 import { workerLabel } from './worker-label.js';
 import { renderTaskMessageBody } from './render-task-message.js';
 import { previewHistoryEvent } from './reading-projection.js';
+import { copyButton } from './clipboard.js';
 
 const CONTENT_CATEGORIES = [
   ['input', '我的输入', true, 'var(--green)'],
@@ -83,7 +84,9 @@ export function renderConversation(task, history = {}, previous = null) {
     help: '显式分批遍历此 Worker 全部历史，只显示输入、回复、决策及来源不明内容；生命周期与通信请到时间线阅读，可取消，不调用 Agent。',
   });
   const cancel = button('取消查找', () => {
-    cancelRead(); status.textContent = `查找已取消，范围未完成：已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息；已读取的内容保留。`; paint();
+    const copying = cancel.textContent === '取消复制';
+    cancelRead(); status.textContent = copying ? '原文读取已取消，未复制不完整内容。'
+      : `查找已取消，范围未完成：已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息；已读取的内容保留。`; paint();
   }, 'ghost'); cancel.hidden = true;
   const findHost = el('span', undefined, 'help-host'); findHost.setAttribute('data-help', '正在读取时可取消查找；取消只停止本页读取，不删除已加载记录。'); findHost.append(findAll);
   search.append(searchControl.root, findHost, cancel);
@@ -134,7 +137,9 @@ export function renderConversation(task, history = {}, previous = null) {
         if (!node.expanded) toggle.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
       }, 'ghost conversation-expand', { help: '就地展开或收起这条消息的已加载正文，只改变阅读长度，不删除内容，也不调用 Agent。' });
       body.id = `conversation-${current.id}-${entry.key.replace(/[^a-z0-9-]/gi, '-')}`; toggle.setAttribute('aria-controls', body.id);
-      meta.append(toggle); node.append(meta, body); node.expanded = false;
+      const copy = copyButton(() => originalText(node.entry), { className: 'conversation-copy',
+        help: '复制这条记录的原始正文（含 Markdown 标记）；长正文会按需分段读取，失败或取消时不会复制不完整内容，不调用 Agent。' });
+      meta.append(copy, toggle); node.append(meta, body); node.expanded = false;
       function setExpanded(value) {
         node.expanded = Boolean(value); node.classList.toggle('conversation-expanded', node.expanded);
         toggle.textContent = node.expanded ? '收起消息' : '展开消息';
@@ -152,10 +157,9 @@ export function renderConversation(task, history = {}, previous = null) {
     }
     node.entry = entry;
     if (node.bodySignature !== signature) {
-      const originalOpen = node.querySelector('.message-original')?.open === true;
       const decisionOpen = node.querySelector('.conversation-decision-details')?.open === true;
       const content = entry.side === 'other' ? el('div', undefined, 'conversation-prose')
-        : agentText(entry.text, { className: 'conversation-prose', plain: 'div' });
+        : agentText(entry.text, { className: 'conversation-prose', plain: 'div', copyCode: true });
       if (entry.category === 'decision') {
         const title = decision?.title || '标题未知';
         const identity = noticeNumber({ id: decision?.notice_id, kind: decision?.notice_kind });
@@ -168,19 +172,14 @@ export function renderConversation(task, history = {}, previous = null) {
           if (details.open && !details.readingLoaded) {
             details.readingLoaded = true;
             details.append(renderTaskMessageBody({ body: entry.text, trustEnvelope: false,
-              originalLabel: entry.truncated ? '查看已加载原文（尚未完整）' : '查看完整原文', decision: decision?.opened ? null : decision }));
+              decision: decision?.opened ? null : decision }, { original: false, copyCode: true }));
           }
         };
         details.addEventListener('toggle', readDecision);
         if (decisionOpen) { details.open = true; readDecision(); }
         content.append(details);
-      } else if (entry.side === 'other') content.append(renderTaskMessageBody({ body: entry.text, trustEnvelope: false,
-        originalLabel: entry.truncated ? '查看已加载原文（尚未完整）' : '查看完整原文' }));
-      else {
-        const original = el('details', undefined, 'message-original'); original.append(el('summary', entry.truncated ? '查看已加载原文（尚未完整）' : '查看完整原文'));
-        original.addEventListener('toggle', () => { if (original.open && !original.querySelector('pre')) original.append(el('pre', entry.text, 'raw-value')); });
-        content.append(original);
-      }
+      } else if (entry.side === 'other') content.append(renderTaskMessageBody({ body: entry.text, trustEnvelope: false },
+        { original: false, copyCode: true }));
       if (entry.unreadable) content.append(el('p', `正文不可读：${entry.unreadable}；此记录不能判为无命中。`, 'hint conversation-incomplete'));
       if (entry.limitations?.length) content.append(el('p', `附属字段采用有界预览或来源证据不完整：${entry.limitations.join('、')}；正文完整性另行标注。`, 'hint conversation-limitations'));
       if (entry.truncated) {
@@ -201,10 +200,6 @@ export function renderConversation(task, history = {}, previous = null) {
         }, 'ghost conversation-read-more'); content.append(readMore, recordStatus);
       }
       node.classList.toggle('conversation-failed', Boolean(content.querySelector('.message-failed')));
-      if (originalOpen) {
-        const original = content.querySelector('.message-original');
-        if (original) { original.open = true; if (!original.querySelector('pre')) original.append(el('pre', entry.text, 'raw-value')); }
-      }
       node.querySelector('.conversation-body').replaceChildren(content); node.bodySignature = signature;
       const long = entry.category !== 'decision' && (entry.truncated || entry.text.length > 1200 || entry.text.split('\n').length > 12);
       node.classList.toggle('conversation-long', long); node.querySelector('.conversation-expand').hidden = !long; node.updateExpansion();
@@ -238,6 +233,31 @@ export function renderConversation(task, history = {}, previous = null) {
     if (entry.messageId != null) refs.push({ kind: 'message', target: { task_id: current.id, message_id: entry.messageId },
       label: `${workTypeLabel(current)} ${workerLabel(current)} 的消息 · ${entry.kind}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'messages' } });
     referenceable(node, refs); return node;
+  }
+
+  function originalText(entry) {
+    if (entry.unreadable) throw new Error(`正文不可读：${entry.unreadable}`);
+    if (!entry.truncated) return entry.text;
+    return readOriginal(entry);
+  }
+  async function readOriginal(entry) {
+    const read = beginRead();
+    cancel.textContent = '取消复制'; cancel.hidden = false; more.disabled = true; findAll.disabled = true;
+    status.textContent = '正在读取完整原文以复制…';
+    let text = entry.text, hasMore = true;
+    try {
+      while (hasMore && read.valid()) {
+        const page = await loadReadingRecord(current.id, entry.recordKind, entry.recordId, text.length, { signal: read.signal });
+        if (!read.valid()) return null;
+        if (typeof page.text !== 'string' || page.offset !== text.length || page.next_offset !== page.offset + page.text.length
+          || page.has_more && !page.text.length) throw new Error('正文游标未前进或不连续');
+        if (text.length + page.text.length > MAX_LOADED_CHARS) throw new Error('原文超过 8 MiB 阅读预算，未复制不完整内容');
+        text += page.text; hasMore = Boolean(page.has_more);
+      }
+      if (!read.valid()) return null;
+      status.textContent = '原文已完整读取。'; return text;
+    } catch (error) { if (read.valid()) { status.textContent = `原文读取失败：${error.message}；未复制不完整内容，可重试。`; throw error; } return null; }
+    finally { finishRead(read); }
   }
 
   function entries() {
@@ -473,7 +493,7 @@ export function renderConversation(task, history = {}, previous = null) {
     finally { finishRead(read); }
   }
   async function scanAll() {
-    const read = beginRead(); findAll.disabled = true; more.disabled = true; cancel.hidden = false;
+    const read = beginRead(); findAll.disabled = true; more.disabled = true; cancel.textContent = '取消查找'; cancel.hidden = false;
     const requested = query; remoteQuery = requested; remoteHits.clear(); scannedEvents = 0; scannedMessages = 0;
     let beforeEvent = null, beforeMessage = null, finished = false;
     try {

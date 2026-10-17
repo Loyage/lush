@@ -12,6 +12,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-built-loading-assets.test.js', // compiled app boots with shared state
     'test/web/dom-loading-assets.test.js', // lazy page boot
     'test/web/dom-detail.test.js', // Worker detail -> independent reader, without a Worker-return action
+    'test/web/reading-conversation-integration.test.js', // input/output -> HTTP segmented raw copy
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
@@ -31,6 +32,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation main flow
     'test/web/dom-detail-layout-preferences.test.js', // confirmed detail hierarchy
+    'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation

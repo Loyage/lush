@@ -5,20 +5,7 @@ import { ui } from './state.js';
 import { show } from './messages.js';
 import { executionLink } from './execution-route.js';
 
-/** 把文本写进剪贴板；优先用 async clipboard，非安全上下文回退到临时 textarea。 */
-async function copyText(text) {
-  const clipboard = globalThis.navigator?.clipboard;
-  if (clipboard?.writeText) { await clipboard.writeText(text); return true; }
-  try {
-    const area = document.createElement('textarea');
-    area.value = text; area.setAttribute('readonly', '');
-    area.style.position = 'fixed'; area.style.top = '-1000px';
-    document.body.append(area); area.select();
-    const ok = document.execCommand?.('copy') ?? false;
-    area.remove();
-    return ok;
-  } catch { return false; }
-}
+import { copyText } from './clipboard.js';
 
 /** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title；有 tokens 时并排一个同口径 chip。 */
 function lastStepRow(last) {
