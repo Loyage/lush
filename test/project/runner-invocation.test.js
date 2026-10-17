@@ -19,6 +19,8 @@ test('RPC creation/resume -> Project -> restricted Bridge -> independent Runner 
   const f = await runnerProject({ async run(ctx) {
     const client = new RemoteBridgeClient(ctx.remote_workspace, ctx.token);
     expect(ctx.cwd).not.toBe(ctx.remote_workspace.path); expect(fs.existsSync(path.join(ctx.cwd, '.git'))).toBe(false);
+    // Production control cwd must already be canonical: Bridge control validation compares real paths.
+    expect(ctx.cwd).toBe(fs.realpathSync(ctx.cwd));
     expect(ctx.task.workspace).toBeNull();
     expect((await client.call('hello')).tools).toEqual(expect.arrayContaining(['bash', 'read', 'write', 'lushc', 'control']));
     await expect(client.call('tool', { name: 'lushc', args: { argv: ['worker', 'cancel', String(ctx.task.id)] } })).rejects.toThrow('Restricted operation');

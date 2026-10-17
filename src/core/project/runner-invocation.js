@@ -42,6 +42,21 @@ function checkpoint(project, task, run, commit) {
   } finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
+/** Owner-only invocation cwd. The path must already be canonical because Bridge control validation
+ * compares the real path exactly: macOS os.tmpdir() is /var/folders/... while its real path is
+ * /private/var/.... Socket, cwd and cleanup must all use this same canonical directory. */
+export function createControlDirectory(tmpdir = os.tmpdir()) {
+  const created = fs.mkdtempSync(path.join(tmpdir, 'lush-remote-control-'));
+  try {
+    const directory = fs.realpathSync(created);
+    fs.chmodSync(directory, 0o700);
+    return directory;
+  } catch (error) {
+    fs.rmSync(created, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 /** Called before startRun: preparation has no Run authority and never allocates a local checkout. */
 export async function prepareRunnerInvocation(project, task, run, agent) {
   const initial = project.store.runnerBinding(task.id);
@@ -73,8 +88,7 @@ export async function prepareRunnerInvocation(project, task, run, agent) {
     // The control cwd contains no checkout, credentials or model configuration. It is central-only
     // and uses a short private path so Unix socket length does not depend on the repository path.
     const baseline = await runnerDirtyManifest(connection.client, task.branch, observed.head_commit, options.guard);
-    controlDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-remote-control-'));
-    fs.chmodSync(controlDirectory, 0o700);
+    controlDirectory = createControlDirectory();
     return new RunnerInvocation(project, task, run, connection, identity, workspace.directory, controlDirectory, baseline);
   } catch (error) {
     markUnknown(project, run, task.id);
