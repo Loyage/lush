@@ -239,6 +239,51 @@ export const methods = {
     });
   },
 
+  /** Deletion-only preparation recovery; ordinary NOT_FOUND is not absence evidence. */
+  async inspectUnpreparedRemoteWorkspace(options) {
+    request(options);
+    const { binding } = await this.exclusive(() => current(this, options, guarded(this, options).base_commit));
+    const receipt = this.store.runnerReceipt(options.request_id);
+    this.store.assertRunnerUnprepared(binding.worker_id, receipt ? options.request_id : null);
+    check(['workspace.preparation.inspect', 'workspace.preparation.close'].every(method => options.client.capabilities?.includes(method)),
+      'Runner does not support verified preparation closure');
+    const evidence = await options.client.call('workspace.preparation.inspect');
+    guarded(this, options);
+    check(evidence?.absent === true && Object.keys(evidence).every(key =>
+      ['identity', 'absent', 'closed', 'request_id', 'operation_id', 'request_fingerprint'].includes(key))
+      && evidence.identity && identityKeys.every(key => evidence.identity[key] === options.identity[key])
+      && Object.keys(evidence.identity).length === identityKeys.length, 'Runner preparation absence proof is incomplete or changed');
+    if (evidence.closed !== undefined) check(evidence.closed === true && receipt?.data.unprepared === true
+      && evidence.request_id === receipt.request_id && evidence.operation_id === receipt.operation_id
+      && evidence.request_fingerprint === receipt.params_hash, 'Runner preparation closure does not match its fixed receipt');
+    else check(evidence.request_id === undefined && evidence.operation_id === undefined && evidence.request_fingerprint === undefined,
+      'Runner preparation absence evidence has an incomplete closure');
+    await this.exclusive(() => current(this, options, binding.base_commit));
+    return evidence;
+  },
+
+  async closeUnpreparedRemoteWorkspace(options) {
+    check(options.agent_exited === true, 'unprepared cleanup requires Agent exit');
+    const own = this.store.runnerReceipt(options.request_id);
+    const before = this.store.assertRunnerUnprepared(options.identity.worker_id, own ? options.request_id : null);
+    const value = { ...receiptIdentity(options), authorization_version: options.authorization_version };
+    // Inspect before recording a new intent. Unknown accepted closes are never blindly replayed.
+    let evidence = await this.inspectUnpreparedRemoteWorkspace(options);
+    await this.exclusive(async () => {
+      await current(this, options, before.base_commit);
+      this.store.prepareUnpreparedRunnerCleanup(value, before.revision);
+    });
+    if (!evidence.closed) {
+      guarded(this, options);
+      evidence = await options.client.call('workspace.preparation.close', {}, { request_id: options.request_id });
+      guarded(this, options);
+    }
+    return this.exclusive(async () => {
+      await current(this, options, before.base_commit);
+      return this.store.closeUnpreparedRunnerWorkspace(value, evidence, before.revision);
+    });
+  },
+
   async cleanupRemoteWorkspace(options) {
     request(options); oid(options.head_commit);
     const { task } = await this.exclusive(() => current(this, options, options.head_commit));

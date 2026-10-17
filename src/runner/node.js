@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { RunnerStore } from './store.js';
+import { inspectUnpreparedWorkspace, closeUnpreparedWorkspace } from './preparation.js';
 import { OPERATIONS, CAPABILITIES, IMPLEMENTATION_VERSION, LIMITS, PROTOCOL_VERSION, check, fail, hash, identifier, integer,
   publicError, redact, requestSecrets, tokenMatches, validToken, validateRequest, workspaceKey } from './protocol.js';
 
@@ -105,6 +106,7 @@ export class RunnerNode {
       check(observation && request.method !== 'hello' || !lease.revoked && lease.expires_at > Date.now() && lease.session_id === session_id,
         'UNAUTHORIZED', 'Invocation lease is revoked, expired or belongs to another connection');
     }
+    if (request.method === 'workspace.register') this.store.assertPreparationOpen(identity);
     const workspace = spec.workspace ? this.store.workspace(identity) : null;
     if (spec.workspace) {
       check(workspace, 'NOT_FOUND', 'Workspace identity is not registered');
@@ -196,6 +198,8 @@ export class RunnerNode {
       return this.workspaceView(this.store.workspace(ctx.identity));
     },
     'workspace.inspect': ctx => this.workspaceView(this.store.workspace(ctx.identity)),
+    'workspace.preparation.inspect': inspectUnpreparedWorkspace,
+    'workspace.preparation.close': closeUnpreparedWorkspace,
     'lease.grant': (ctx, params) => {
       integer(params.run_id, 'run_id');
       check(validToken(params.run_token), 'INVALID_REQUEST', 'Invalid run token');

@@ -51,7 +51,7 @@ function databasePlan(project, rootId) {
       if (managementUnsettled(project, task, state)) blockers.push(`${workerLabel(task)}: management occurrence, confirmation or controlled effect is unfinished/unknown; stop unstarted authorizations and wait for actual exit`);
     } else if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
     if (store.runnerBinding(task.id)) {
-      try { assertRunnerIdle(project, task.id, { allow_removed: true, allow_receipts: [runnerCleanupReceipt(project, task.id)?.request_id].filter(Boolean) }); }
+      try { assertRunnerIdle(project, task.id, { allow_removed: true, allow_unprepared: true, allow_receipts: [runnerCleanupReceipt(project, task.id)?.request_id].filter(Boolean) }); }
       catch (error) { blockers.push(`${workerLabel(task)}: ${error.message}`); }
     }
     if (project.running.has(task.id)) blockers.push(`${workerLabel(task)}: invocation is still exiting; wait before deletion`);
@@ -187,7 +187,7 @@ export default {
       try {
         await reclaimRunnerWorkspaces(this, plan.db.tasks, () => {
           check(deletionHash(databasePlan(this, rootId).data) === deletionHash(plan.db.data), 'Worker changed during deletion preview');
-        }, { preflight_only: true });
+        }, { preflight_only: true, allow_unprepared: true });
       } catch (error) {
         plan.preview.can_delete = false; plan.preview.blockers.push(error.message);
       }
@@ -226,7 +226,7 @@ export default {
         return { plan, guard };
       });
       const { plan, guard } = prepared;
-      await reclaimRunnerWorkspaces(this, plan.db.tasks, guard);
+      await reclaimRunnerWorkspaces(this, plan.db.tasks, guard, { allow_unprepared: true });
       return await this.workspaces.exclusive(async () => {
         guard();
         await this.workspaces.deleteWorkerResourcesUnsafe(plan.git,guard);

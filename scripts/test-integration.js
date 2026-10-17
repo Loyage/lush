@@ -60,6 +60,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/runner-parent-sync.test.js', // sync RPC -> fixed candidate -> remote ACK -> Project settlement and recovery barriers
     'test/project/runner-connection-guards.test.js', // live connection configuration guards across delivery and reclamation
     'test/project/runner-lifecycle-reclamation.test.js', // Project delivery/cancel -> checked remote batch acceptance/cleanup/delete
+    'test/project/runner-unprepared-deletion.test.js', // user RPC preview/confirmation -> original-node absence/fence -> checked history deletion
     'test/project/hook-install-chain.test.js', // install CLI/HTTP and real management bridge -> exact confirmation -> atomic config -> real merges
     'test/project/management-live-permissions.test.js', // existing Valet, queued/confirmed requests, write-admission races and persisted policy
     'test/project/management-code-provider-chain.test.js', // registered tools -> real Bun bridge -> device policy and exact confirmation

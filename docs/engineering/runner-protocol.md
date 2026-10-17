@@ -30,6 +30,8 @@
 
 `workspace.code.read({kind,branch,base_commit,iteration_base_commit?,expected_commit,options})` 是 control-only 只读操作；kind 为 state/tree/file，options 沿用[代码阅读器](code-reader.md)既有参数。固定分支／提交由中央 Worker 事实提供，节点仅从身份登记的独立仓库读取、核对已接收 tip 及比较基线的祖先关系，不接收路径根、任意 ref 或 Shell。它属于禁用后的观察通道，但拒绝活动／未知写入；采样不持突变锁、不写请求收据，前后复核身份和忙状态，不承诺原子快照。复用阅读器的隔离 Git、FD 路径安全、分页和响应预算，读取不可用不会触发中央提交回退。
 
+`workspace.preparation.inspect` 是 control-only、无参数的只读观察能力，不要求工作区已登记。它在短事务中核对同项目 Worker／workspace 的全部登记与请求、所属资源，以及 canonical 根身份和推导目录（含 dangling link）；仅全部不存在时返回 `{identity:{project_id,node_id,runner_id,worker_id,workspace_id,generation},absent:true}`。不创建目录、收据或封口，不把普通 `NOT_FOUND` 当证明；旧节点缺少能力时拒绝。`workspace.preparation.close` 使用同样的 control-only 身份与空参数、固定请求 journal，在节点短事务中核验空现场后记录专属 `workspace_closures`，不创建工作区目录；登记准入和落请求事务均检查此持久封口，迟到请求不能再准备该 Worker／workspace。只允许忽略自己的封口请求，其他已接受／未知准备仍阻塞。封口后 inspect 额外返回 `{closed:true,request_id,operation_id,request_fingerprint}`，中央只认原专属清理请求和指纹；ACK 丢失不重发封口，未知请求无封口时仍拒绝。中央仅在[确认删除的准备前失败收口](cleanup.md#远端-runner-回收)使用此证据，预检与最终确认均重新读取，不赋予重试或执行权限。
+
 `workspace.register` 用标识推导专属目录，不接受自选路径；工作区已有但未登记或身份变化则拒绝。同一项目 Worker 只有一个登记现场，不能用另一个 workspace_id 创建竞争代码副本。当前不允许盲目更换已有工作区代次。`lease.grant({run_id,run_token,ttl_ms?})` 创建绑定当前连接的租约；Run ID 单调增加，旧代不复活。续期／撤销／释放独立于命令退出事实。失效 Run 仅保留自己请求的状态／输出／停止读取权限，不能读写新代码。
 
 ## 私有配置与撤销

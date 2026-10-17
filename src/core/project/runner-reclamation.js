@@ -14,7 +14,7 @@ export function runnerCleanupReceipt(project, workerId) {
  * Caller owns its ordinary acceptance/archive/deletion admission for the whole duration. No guessed
  * directory ownership, no local fallback, and no unknown mutation is retried with a different ID.
  */
-export async function reclaimRunnerWorkspaces(project, tasks, guard = () => {}, { preflight_only = false } = {}) {
+export async function reclaimRunnerWorkspaces(project, tasks, guard = () => {}, { preflight_only = false, allow_unprepared = false } = {}) {
   const plans = [], connections = [];
   try {
     for (const task of tasks) {
@@ -28,7 +28,7 @@ export async function reclaimRunnerWorkspaces(project, tasks, guard = () => {}, 
       const recheck = () => {
         check(!guard()?.then, 'Runner reclamation guard must be synchronous');
         admission();
-        const current = assertRunnerIdle(project, task.id, { allow_removed: true, allow_receipts: receipt ? [receipt.request_id] : [] });
+        const current = assertRunnerIdle(project, task.id, { allow_removed: true, allow_unprepared, allow_receipts: receipt ? [receipt.request_id] : [] });
         check(RUNNER_BINDING_KEYS.every(key => current[key] === binding[key]) && current.head_commit === binding.head_commit,
           'Runner reclamation identity or fixed HEAD changed');
         check(project.store.task(task.id).branch === task.branch && project.store.task(task.id).workspace === null,
@@ -52,12 +52,17 @@ export async function reclaimRunnerWorkspaces(project, tasks, guard = () => {}, 
           const own = project.store.runnerReceipt(options.request_id);
           check(!guard()?.then, 'Runner reclamation guard must be synchronous');
           admission();
-          const live = assertRunnerIdle(project, task.id, { allow_removed: true, allow_receipts: own ? [own.request_id] : [] });
+          const live = assertRunnerIdle(project, task.id, { allow_removed: true, allow_unprepared, allow_receipts: own ? [own.request_id] : [] });
           check(RUNNER_BINDING_KEYS.every(key => live[key] === binding[key]) && live.head_commit === binding.head_commit,
             'Runner reclamation identity or fixed HEAD changed');
           check(project.store.task(task.id).branch === task.branch && project.store.task(task.id).workspace === null, 'Runner reclamation branch changed');
           project.runners.assertBinding(identity, { observation: true });
         } };
+      if (binding.state === 'preparing') {
+        await project.workspaces.inspectUnpreparedRemoteWorkspace(options);
+        plans.push({ options, task, unprepared: true });
+        continue;
+      }
       // A previous request may have removed the node resources before losing its ACK. Only the
       // fixed request can establish this; never infer it from a missing directory or an offline node.
       const previous = project.store.get("SELECT data FROM events WHERE task_id=? AND type='runner.cleanup_attempt' ORDER BY id DESC LIMIT 1", task.id);
@@ -99,7 +104,8 @@ export async function reclaimRunnerWorkspaces(project, tasks, guard = () => {}, 
       if (plan.retryPartial) plan.options.cleanup_attempt = randomUUID();
       project.store.event(plan.task.id, 'runner.cleanup_attempt', { request_id: plan.options.request_id,
         operation_id: plan.options.identity.operation_id, cleanup_attempt: plan.options.cleanup_attempt ?? null });
-      const result = await project.workspaces.cleanupRemoteWorkspace(plan.options);
+      const result = await (plan.unprepared ? project.workspaces.closeUnpreparedRemoteWorkspace(plan.options)
+        : project.workspaces.cleanupRemoteWorkspace(plan.options));
       check(result.state === 'removed', 'Runner reclamation incomplete; preserve resources and explicitly retry after inspection');
       removed.push(plan.task.id);
     }

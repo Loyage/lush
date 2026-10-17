@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { check, isPlainObject } from '../../core/types.js';
-import { OPERATIONS } from '../../runner/protocol.js';
+import { OPERATIONS, hash } from '../../runner/protocol.js';
 
 const KEY = 'runner_project_v1';
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -215,6 +215,80 @@ export const runner = {
     });
   },
 
+  /** Candidate only: central history is not a substitute for original-node absence evidence.
+   * The only allowed receipt is this deletion's fixed, not-yet-settled preparation closure.
+   */
+  assertRunnerUnprepared(worker_id, cleanup_request_id = null) {
+    const row = this.runnerBinding(worker_id), task = this.task(worker_id);
+    check(row?.state === 'preparing' && row.generation === 1 && row.revision === 1
+      && row.head_commit === row.base_commit && task.base_commit === row.base_commit
+      && task.workspace === null && task.head_commit === null && task.calls === 0
+      && ['failed', 'cancelled'].includes(task.status) && task.integration === 'none',
+    'Runner binding is not an untouched failed preparation');
+    if (cleanup_request_id !== null) {
+      const own = this.runnerReceipt(cleanup_request_id);
+      check(own?.kind === 'cleanup' && own.worker_id === worker_id && own.run_id === null
+        && ID_KEYS.every(key => own[key] === row[key]) && own.state === 'prepared' && !own.terminal
+        && own.data.unprepared === true && own.data.head_commit === row.head_commit,
+      'Runner preparation cleanup receipt changed');
+    }
+    check(!this.get('SELECT id FROM agent_runs WHERE task_id=? LIMIT 1', worker_id)
+      && !this.get('SELECT run_id FROM runner_runs WHERE worker_id=? LIMIT 1', worker_id)
+      && !this.get('SELECT request_id FROM runner_receipts WHERE worker_id=? AND request_id!=? LIMIT 1', worker_id, cleanup_request_id ?? '')
+      && !this.pendingRunnerTaskSyncs(worker_id).length, 'Runner preparation has retained invocation or operation history');
+    return row;
+  },
+
+  /** Fixed intent is durable before sending the node-side fence. No general preparing cleanup. */
+  prepareUnpreparedRunnerCleanup(value, expected_revision) {
+    object(value, [...ID_KEYS, 'operation_id', 'request_id', 'authorization_version'], 'unprepared cleanup');
+    identity(value, true); opaque(value.request_id, 'request identity'); revision(expected_revision);
+    positive(value.authorization_version, 'authorization version');
+    return this.transaction(() => {
+      const row = binding(this, value), old = this.runnerReceipt(value.request_id);
+      check(row.revision === expected_revision, 'Runner preparation revision changed');
+      this.assertRunnerUnprepared(row.worker_id, old ? value.request_id : null);
+      if (old) {
+        check(contextEqual(old, value) && old.authorization_version === value.authorization_version,
+          'Runner preparation cleanup identity changed');
+        return old;
+      }
+      check(this.runnerProject().authorization_version === value.authorization_version
+        && !this.get('SELECT request_id FROM runner_receipts WHERE operation_id=? LIMIT 1', value.operation_id),
+      'Runner preparation cleanup authorization or identity changed');
+      this.run(`INSERT INTO runner_receipts(request_id,worker_id,project_id,node_id,runner_id,workspace_id,generation,operation_id,
+        authorization_version,kind,params_hash,data) VALUES (?,?,?,?,?,?,?,?,?,'cleanup',?,?)`,
+      value.request_id, row.worker_id, row.project_id, row.node_id, row.runner_id, row.workspace_id, row.generation,
+      value.operation_id, value.authorization_version,
+      hash(json({ method: 'workspace.preparation.close', identity: pick(value, [...ID_KEYS, 'operation_id']), params: {} })),
+      json({ head_commit: row.head_commit, unprepared: true }));
+      return this.runnerReceipt(value.request_id);
+    });
+  },
+
+  /** Atomically close only after the original node has permanently fenced preparation. */
+  closeUnpreparedRunnerWorkspace(value, evidence, expected_revision) {
+    object(value, [...ID_KEYS, 'operation_id', 'request_id', 'authorization_version'], 'unprepared cleanup');
+    identity(value, true); opaque(value.request_id, 'request identity'); revision(expected_revision);
+    object(evidence, ['identity', 'absent', 'closed', 'request_id', 'operation_id', 'request_fingerprint'], 'preparation evidence');
+    object(evidence.identity, ID_KEYS, 'preparation evidence identity');
+    return this.transaction(() => {
+      const row = binding(this, value), receipt = this.runnerReceipt(value.request_id);
+      this.assertRunnerUnprepared(row.worker_id, value.request_id);
+      check(row.revision === expected_revision && contextEqual(receipt, value)
+        && receipt.authorization_version === value.authorization_version, 'Runner preparation cleanup identity or revision changed');
+      check(evidence.absent === true && evidence.closed === true && ID_KEYS.every(key => evidence.identity[key] === value[key])
+        && evidence.request_id === value.request_id && evidence.operation_id === value.operation_id
+        && evidence.request_fingerprint === receipt.params_hash, 'Runner preparation closure proof is incomplete or changed');
+      const proof = { head_commit: row.head_commit, verified: true, clean: true, stopped: true, removed: true,
+        unprepared: true, digest: receipt.params_hash };
+      this.run(`UPDATE runner_receipts SET state='removed',last_known_state='removed',terminal=1,revision=revision+1,evidence=?
+        WHERE request_id=? AND revision=?`, json(proof), receipt.request_id, receipt.revision);
+      this.run("UPDATE runner_bindings SET state='removed',revision=revision+1 WHERE worker_id=? AND revision=?", row.worker_id, expected_revision);
+      return this.runnerReceipt(value.request_id);
+    });
+  },
+
   confirmRunnerWorkspace(value, head_commit, expected_revision, { sync_request_id = null } = {}) {
     object(value, ID_KEYS, 'workspace identity'); oid(head_commit); revision(expected_revision);
     return this.transaction(() => {
@@ -375,6 +449,7 @@ export const runner = {
       const workspace = binding(this, value), row = this.runnerReceipt(value.request_id);
       check(row && contextEqual(row, value) && row.revision === expected_revision, 'Runner receipt identity or revision changed');
       check(!row.terminal, 'Runner receipt is already terminal');
+      check(!(row.kind === 'cleanup' && row.data.unprepared), 'Runner preparation cleanup requires its exact node closure proof');
       const previous = row.state === 'unknown' ? row.last_known_state : row.state;
       check(patch.state === 'unknown' || TRANSITIONS[row.kind][previous]?.includes(patch.state)
         || row.state === 'unknown' && patch.state === previous, 'invalid Runner receipt transition');

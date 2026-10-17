@@ -39,7 +39,7 @@ export async function runnerProjectFixture() {
     settings = await service.saveNodes({ nodes: settings.nodes.map(item => item.id === node.id ? { ...item, expected_runner_id: hello.runner_id } : item) }, settings.revision);
   }
   const main = await f.project.ensureMainTask();
-  async function worker({ parent_id = main.id, node_index = 0, name = 'remote' } = {}) {
+  async function worker({ parent_id = main.id, node_index = 0, name = 'remote', prepare = true } = {}) {
     const parent = f.store.task(parent_id), node = settings.nodes[node_index];
     const task = f.store.create({ parent_id, role: 'agent', task_kind: parent_id === main.id ? 'order' : 'child', goal: name, name });
     const base_commit = await git(f.root, 'rev-parse', `refs/heads/${parent.branch}`);
@@ -49,8 +49,10 @@ export async function runnerProjectFixture() {
     const connection = await service.connect(identity); clients.add(connection);
     const options = { client: connection.client, identity, request_id: randomUUID(), authorization_version: policy.authorization_version,
       guard() { service.assertBinding(identity); } };
-    await f.project.workspaces.prepareRemoteWorkspace(options);
-    f.store.update(task.id, { status: 'waiting', head_commit: base_commit, result: 'fixture result' });
+    if (prepare) {
+      await f.project.workspaces.prepareRemoteWorkspace(options);
+      f.store.update(task.id, { status: 'waiting', head_commit: base_commit, result: 'fixture result' });
+    }
     return { id: task.id, client: connection.client, options, task: f.store.task(task.id), connection };
   }
   async function commit(worker, file = 'remote.txt', content = 'remote') {

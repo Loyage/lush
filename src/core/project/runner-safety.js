@@ -3,10 +3,12 @@ import { check } from '../types.js';
 import { runnerIdentity, RUNNER_BINDING_KEYS } from '../runner-service.js';
 
 /** Durable facts, never a substitute for the node's actual stopped/clean observation. */
-export function assertRunnerIdle(project, workerId, { allow_receipts = [], allow_removed = false } = {}) {
+export function assertRunnerIdle(project, workerId, { allow_receipts = [], allow_removed = false, allow_unprepared = false } = {}) {
   const binding = project.store.runnerBinding(workerId);
   if (!binding) return null;
-  check(binding.state === 'ready' || allow_removed && binding.state === 'removed', 'Runner workspace is not confirmed ready');
+  if (allow_unprepared && binding.state === 'preparing') project.store.assertRunnerUnprepared(workerId,
+    allow_receipts.find(requestId => project.store.runnerReceipt(requestId)?.data.unprepared) ?? null);
+  else check(binding.state === 'ready' || allow_removed && binding.state === 'removed', 'Runner workspace is not confirmed ready');
   check(!project.running.has(workerId) && project.store.task(workerId).status !== 'running'
     && !project.commandHookRunning?.has(workerId), 'Runner Worker invocation or command has not exited');
   const barriers = project.store.runnerBarriers(workerId);

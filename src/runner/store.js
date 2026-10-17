@@ -14,6 +14,7 @@ export class RunnerStore {
     check(fs.realpathSync(root) === root && fs.lstatSync(root).isDirectory(), 'UNAUTHORIZED', 'Runner root must not contain symlinks');
     fs.chmodSync(root, 0o700);
     this.root = root;
+    this.rootIdentity = fs.lstatSync(root, { bigint: true });
     const database = path.join(root, 'runner.db');
     if (fs.existsSync(database)) check(fs.lstatSync(database).isFile() && !fs.lstatSync(database).isSymbolicLink(), 'UNAUTHORIZED', 'Invalid Runner database');
     withInitializationLock(root, () => {
@@ -30,6 +31,10 @@ export class RunnerStore {
         state TEXT NOT NULL DEFAULT 'ready', busy_request TEXT, last_run_id INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL, UNIQUE(project_id, workspace_id, generation));
       CREATE UNIQUE INDEX IF NOT EXISTS workspace_owner ON workspaces(project_id,worker_id);
+      CREATE TABLE IF NOT EXISTS workspace_closures (
+        project_id TEXT NOT NULL, worker_id INTEGER NOT NULL, workspace_id TEXT NOT NULL, workspace_key TEXT NOT NULL,
+        identity_json TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        PRIMARY KEY(project_id,worker_id), UNIQUE(project_id,workspace_id));
       CREATE TABLE IF NOT EXISTS leases (
         lease_id TEXT PRIMARY KEY, workspace_key TEXT NOT NULL, run_id INTEGER NOT NULL, token_hash TEXT NOT NULL,
         session_id TEXT NOT NULL, expires_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
@@ -70,12 +75,20 @@ export class RunnerStore {
   }
   transaction(fn) { return this.db.transaction(fn).immediate(); }
   workspace(identity) { return this.db.query('SELECT * FROM workspaces WHERE workspace_key=?').get(workspaceKey(identity)); }
+  preparationClosure(identity) {
+    return this.db.query('SELECT * FROM workspace_closures WHERE project_id=? AND (worker_id=? OR workspace_id=?) LIMIT 1')
+      .get(identity.project_id, identity.worker_id, identity.workspace_id);
+  }
+  assertPreparationOpen(identity) {
+    check(!this.preparationClosure(identity), 'STALE', 'Workspace preparation was permanently closed');
+  }
   request(project_id, request_id) { return this.db.query('SELECT * FROM requests WHERE project_id=? AND request_id=?').get(project_id, request_id); }
   lease(identity) { return this.db.query('SELECT * FROM leases WHERE workspace_key=? AND run_id=?').get(workspaceKey(identity), identity.run_id); }
   beginRequest(request, session_id, { lock = false } = {}) {
     const key = workspaceKey(request.identity);
     const fingerprint = hash(stable({ method: request.method, identity: request.identity, params: request.params }));
     return this.transaction(() => {
+      if (request.method === 'workspace.register') this.assertPreparationOpen(request.identity);
       const old = this.request(request.identity.project_id, request.request_id);
       if (old) { check(old.fingerprint === fingerprint, 'CONFLICT', 'Request ID reused with different parameters'); return { fresh: false, row: old }; }
       if (lock) {

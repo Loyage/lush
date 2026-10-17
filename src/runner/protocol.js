@@ -22,6 +22,8 @@ export const OPERATIONS = Object.freeze(Object.fromEntries(Object.entries({
   hello: { authority: 'either' },
   'workspace.register': { authority: 'control', workspace: false, mutation: true },
   'workspace.inspect': { authority: 'either', workspace: true },
+  'workspace.preparation.inspect': { authority: 'control', workspace: false, observation: true },
+  'workspace.preparation.close': { authority: 'control', workspace: false, mutation: true, observation: true },
   'lease.grant': { authority: 'control', workspace: true, mutation: true },
   'lease.renew': { authority: 'run', workspace: true, mutation: true },
   'lease.revoke': { authority: 'control', workspace: true, mutation: true, concurrent: true },
