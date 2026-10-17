@@ -53,6 +53,8 @@ test('smoke groups contain existing unique test paths and selections deduplicate
   expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-tool-chain.test.js');
   expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-inputs.test.js');
   expect(INTEGRATION_GROUPS.cli).toContain('test/integration/pi.test.js');
+  expect(INTEGRATION_GROUPS.cli).toContain('test/cli-entrypoints.test.js');
+  expect(INTEGRATION_GROUPS.cli).toContain('test/agent/capabilities.test.js');
   // Explicit CI selections must not silently point at a deleted regression.
   const workflow = fs.readFileSync(new URL('../.github/workflows/code-reader-posix.yml', import.meta.url), 'utf8');
   const ciFiles = workflow.match(/test\/[\w/.-]+\.test\.js/g);

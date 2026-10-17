@@ -6,6 +6,8 @@ import { AgentProvider } from '../../src/agent/provider.js';
 import { MANAGEMENT_TOOL_NAMES, registerManagementTools } from '../../src/agent/pi-management.js';
 import { MANAGEMENT_RPC_METHODS } from '../../src/agent/management-rpc.js';
 import { Dispatcher, HANDLERS } from '../../src/rpc/dispatcher.js';
+import { LUSHW_METHODS } from '../../src/cli/catalog.js';
+import { managementPolicy } from '../../src/rpc/management-policy.js';
 import { PARAMS, MANAGER_METHODS, AGENT_ONLY } from '../../src/rpc/registry.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { createSignal } from '../../src/signal.js';
@@ -27,6 +29,8 @@ test('management tools, trusted bridge, RPC registrations and invocation allowli
   const tools = [];
   registerManagementTools({ registerTool: tool => tools.push(tool), on() {} });
   const description = tools.find(tool => tool.name === 'manager_call').description;
+  expect(description).toContain('lush/lushw');
+  expect(description).not.toContain('lushc');
   expect(description).toContain('默认自动执行');
   expect(description).toContain('修改接口权限始终须真实用户审核');
 });
@@ -125,6 +129,11 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
       const catalog = replies[0].response.details;
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(PARAMS)));
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(HANDLERS)));
+      // Renaming the CLI must preserve the actual Provider-visible development
+      // capabilities and their policy, including the user-only force preview.
+      for (const method of LUSHW_METHODS) {
+        expect(catalog.methods.find(item => item.method === method).access).toBe(managementPolicy(method).access);
+      }
       expect(catalog.methods.find(item => item.method === 'draft.add').access).toBe('automatic');
       expect(catalog.methods.find(item => item.method === 'worker.graph').schema.properties.scope.enum).toEqual(['all', 'tree']);
       expect(catalog.methods.find(item => item.method === 'worker.list').schema.properties.limit).toMatchObject({ type: 'integer', minimum: 1, maximum: 1000 });

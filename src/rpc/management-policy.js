@@ -2,12 +2,12 @@ import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
 import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
 import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-query.js';
-import { CLI_COMMANDS, LUSHC_PATHS, LUSHC_METHODS } from '../cli/catalog.js';
+import { CLI_COMMANDS, LUSHW_PATHS, LUSHW_METHODS } from '../cli/catalog.js';
 
-export { LUSHC_METHODS };
+export { LUSHW_METHODS };
 export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install']);
 // Classify the actual development catalogue, rather than copying its RPC names.
-const codeEntries = CLI_COMMANDS.filter(entry => LUSHC_PATHS.has(entry.path));
+const codeEntries = CLI_COMMANDS.filter(entry => LUSHW_PATHS.has(entry.path));
 const codeReads = new Set(codeEntries.filter(entry => entry.kind === 'read').flatMap(entry => entry.rpc));
 
 const reads = new Set([
@@ -64,7 +64,7 @@ export function managementPolicy(method) {
   if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
   if (method === 'hooks.install') return legacyManagementPolicy(method);
   if (method === 'hooks.register') return { access: 'automatic', reason: '只注册不挂载；完成后独立请求具体目标及固定版本，用户可逐项收紧权限。' };
-  if (LUSHC_METHODS.has(method)) {
+  if (LUSHW_METHODS.has(method)) {
     if (codeReads.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
       ? '管家只读安全元数据与续读游标，不返回原始提示词、工具参数、输出或事件正文。' : null };
     return { access: 'automatic', reason: '仅当前项目的受控代理；自身元数据／决策不冒充开发身份，跨树协作仍通过原安全引擎。' };

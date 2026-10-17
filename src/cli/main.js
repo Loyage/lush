@@ -4,7 +4,7 @@ import { codeIdentity } from '../identity.js';
 import { check } from '../core/types.js';
 import { option, print } from './args.js';
 import { HELP } from './help.js';
-import { COMMAND_MODULES, CLI_COMMANDS, cliHelp, commandExecutables, CLI_EXECUTABLES, LUSHC_PATHS } from './catalog.js';
+import { COMMAND_MODULES, CLI_COMMANDS, cliHelp, commandExecutables, CLI_EXECUTABLES, LUSHW_PATHS } from './catalog.js';
 import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
@@ -53,8 +53,8 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   if (entry && !commandExecutables(entry).includes(executable)) {
     throw new Error(`${executable} ${entry.path} is not available; use ${commandExecutables(entry)[0]} ${entry.path}`);
   }
-  if (entry && process.env.LUSH_AGENT_TOKEN && !LUSHC_PATHS.has(entry.path)) {
-    throw new Error(`${executable} ${entry.path} is a management command; development Agent invocations must use lushc`);
+  if (entry && process.env.LUSH_AGENT_TOKEN && !LUSHW_PATHS.has(entry.path)) {
+    throw new Error(`${executable} ${entry.path} is a management command; development Agent invocations must use lushw`);
   }
   const root = args[0];
   const rootAvailable = CLI_COMMANDS.some(item => !item.directory && item.path.split(' ')[0] === root && commandExecutables(item).includes(executable));

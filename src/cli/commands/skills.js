@@ -4,7 +4,7 @@ import { listCapabilityGuides, capabilityGuide } from '../../agent/capabilities.
 /** Code-owned public guides, not a device config read or Agent permission bypass. */
 export async function run(_command, args, { json = false } = {}) {
   const [verb = 'list', id, ...extra] = args;
-  check(extra.length === 0, 'invalid skills arguments; use lushc skills list|get ID');
+  check(extra.length === 0, 'invalid skills arguments; use lushw skills list|get ID');
   let value;
   if (verb === 'list') {
     check(id === undefined, 'skills list takes no arguments');
@@ -16,6 +16,6 @@ export async function run(_command, args, { json = false } = {}) {
     value = capabilityGuide(id);
     if (json) return value;
     console.log(value.content);
-  } else throw new Error('unknown skills command; use lushc skills list|get ID');
+  } else throw new Error('unknown skills command; use lushw skills list|get ID');
   return undefined;
 }

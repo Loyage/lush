@@ -19,7 +19,7 @@ fs.appendFileSync(path.join(home,'seen.jsonl'), JSON.stringify({pid:process.pid,
 if (context.task.calls === 1) {
  const file = path.join(home,'sessions','questions.json');
  fs.writeFileSync(file,JSON.stringify({questions:[{header:'Layout',question:'Which layout?',options:[{label:'Sidebar',description:'Categories'},{label:'Tabs',description:'Wider content'}]}]}));
- const child = Bun.spawn(['lushc','notice','post','Layout decision','--questions-file',file],{stdout:'pipe',stderr:'pipe'});
+ const child = Bun.spawn(['lushw','notice','post','Layout decision','--questions-file',file],{stdout:'pipe',stderr:'pipe'});
  await child.exited;
  setInterval(() => {},1000);
  await new Promise(() => {});

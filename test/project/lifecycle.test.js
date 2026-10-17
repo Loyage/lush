@@ -10,11 +10,11 @@ import { createSignal } from '../../src/signal.js';
 
 // Main development smoke: real Provider subprocesses and the pinned RPC CLI,
 // without a model/account call. Keep this chain when trimming isolated edge cases.
-test('real Provider order delegates a child through lushc and consumes its returned result on the next invocation', async () => {
+test('real Provider order delegates a child through lushw and consumes its returned result on the next invocation', async () => {
   const f = fixture(); let server;
   try {
     f.project.stopping = true; await repo(f.root);
-    const cli = fileURLToPath(new URL('../../bin/lushc', import.meta.url));
+    const cli = fileURLToPath(new URL('../../bin/lushw', import.meta.url));
     const executable = path.join(f.config.home, 'controlled-lifecycle-pi');
     fs.writeFileSync(executable, `#!/usr/bin/env bun
 import fs from 'node:fs';

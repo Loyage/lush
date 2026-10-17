@@ -49,7 +49,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const searchField = el('span', undefined, 'cli-search-field');
   const searchIcon = el('span', '⌕', 'cli-search-icon'); searchIcon.setAttribute('aria-hidden', 'true');
   searchField.append(searchIcon, search, clear);
-  const searchHint = el('p', '支持 lush / lushc 完整命令及关键词 · 实时匹配读写接口 · 空关键词显示顶层目录', 'hint'); searchHint.id = 'cli-search-hint';
+  const searchHint = el('p', '支持 lush / lushw 完整命令及关键词 · 实时匹配读写接口 · 空关键词显示顶层目录', 'hint'); searchHint.id = 'cli-search-hint';
   searchBox.append(searchLabel, searchField, searchHint);
   const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); };
   search.oninput = event => { if (!event?.isComposing) updateSearch(); };
@@ -157,7 +157,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
     const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-    const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushc'].includes(query)
+    const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushw'].includes(query)
       ? item.executable === query : `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query));
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
     results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));

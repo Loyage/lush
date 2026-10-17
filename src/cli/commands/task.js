@@ -21,7 +21,7 @@ export async function run(command, args, ctx) {
           display_title: display_title ?? null, auto_title: auto_title ?? null,
           goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
         value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
-          note: `短摘要；完整目标与结果用 ${ctx.executable ?? 'lushc'} worker inspect ID。` };
+          note: `短摘要；完整目标与结果用 ${ctx.executable ?? 'lushw'} worker inspect ID。` };
       }
     }
     else if (verb === 'auto-title') {

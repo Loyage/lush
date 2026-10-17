@@ -16,7 +16,7 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 | `notice dismiss ID` | `notice.dismiss` | `{id, expected_identity?:记录身份}` |
 | `notice read ID` | `notice.read` | `{id, expected_identity?:记录身份}`（用户专属，只将 `info/sent` 标记已读） |
 
-在源码仓库中，发布／本地问卷辅助使用 `bun run lushc notice …`，答复／消除使用 `bun run lush notice …`（或 `bun run answer …`）。Agent 子进程通过注入的 CLI 与 `LUSH_PROJECT` 连接原项目，即使 cwd 是独立 worktree，也不会把问题发到另一个项目。
+在源码仓库中，发布／本地问卷辅助使用 `bun run lushw notice …`，答复／消除使用 `bun run lush notice …`（或 `bun run answer …`）。Agent 子进程通过注入的 CLI 与 `LUSH_PROJECT` 连接原项目，即使 cwd 是独立 worktree，也不会把问题发到另一个项目。
 
 Valet 自身决策问题通过受控 `manager.call` 发布；问题答复只恢复同一管理 occurrence，串行占位、授权快照与未知不重放边界见[Valet 契约](../../engineering/hook-signals-management.md#开发能力的受控代理)。这不允许模型答复自己的危险操作授权。
 
@@ -51,11 +51,11 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 `questions` 含 1–4 题，每题 2–4 项，结构借鉴 rpiv-ask-user-question，但调用与暂停完全由 Lush 管理，不加载交互式 pi 插件：
 
 ```bash
-bun run lushc notice example > questions.json
+bun run lushw notice example > questions.json
 # 修改示例中的问题与选项，再使用发布时相同的背景正文预检：
-bun run lushc notice check --questions-file questions.json --body '背景、影响和建议'
+bun run lushw notice check --questions-file questions.json --body '背景、影响和建议'
 # 确认后才发布；Agent 发布必须是本轮最后一个动作：
-bun run lushc notice post '决策标题' --questions-file questions.json --body '背景、影响和建议'
+bun run lushw notice post '决策标题' --questions-file questions.json --body '背景、影响和建议'
 ```
 
 `example` 始终输出 JSON，`check` 支持 `--json`；两者无需项目／daemon，不读取设备配置、不创建 Notice、不暂停 Worker。预检只读取指定的普通 JSON 文件，失败非零退出并提示错误原因及示例入口。CLI 预检和发布前检查均复用 `src/core/questionnaire.js` 的服务端契约；预检通过不证明目标 Worker 的权限／状态、开放问卷数量或预览渲染可用，发布时仍由服务端重新校验。题目字段为 `header/question/options/multiSelect?`，选项字段为 `label/description/preview?/previewHtml?`。示例由 CLI 维护，不在文档另存一份 JSON。

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { main } from '../src/cli/main.js';
 import { HELP } from '../src/cli/help.js';
 import { cliHelp } from '../src/cli/catalog.js';
-const CODE_HELP = cliHelp('lushc');
+const CODE_HELP = cliHelp('lushw');
 import { run as worker } from '../src/cli/commands/task.js';
 import { run as notice } from '../src/cli/commands/notice.js';
 import { print } from '../src/cli/args.js';
@@ -33,7 +33,7 @@ test('worker main command dispatches and retains LUSH_TASK_ID as the default par
     const script = `import { main } from ${JSON.stringify(path.join(root, 'src/cli/main.js'))};
 import { UIClient } from ${JSON.stringify(path.join(root, 'src/ui/client.js'))};
 UIClient.prototype.request = async function(method, params) { return { method, params }; };
-await main(['worker', 'spawn', 'goal', '--name', 'child-worker', '--json'], { executable: 'lushc' });`;
+await main(['worker', 'spawn', 'goal', '--name', 'child-worker', '--json'], { executable: 'lushw' });`;
     const proc = Bun.spawn(['bun', '-e', script], { cwd: f.root,
       env: env({ LUSH_PROJECT: f.root, LUSH_TASK_ID: '7' }), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);

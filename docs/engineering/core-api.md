@@ -8,7 +8,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 这是**破坏性的公开接口命名变更**，旧入口不保留别名：
 
-- CLI 开发协作使用 `lushc worker …`，管理使用 `lush worker …`，共享查询可双入口；Notice 发布使用 `lushc notice post … --worker ID`；开发专属旧 lush 调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
+- CLI 开发协作使用 `lushw worker …`，管理使用 `lush worker …`，共享查询可双入口；Notice 发布使用 `lushw notice post … --worker ID`；开发专属旧 lush 调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
 - RPC 使用 `worker.*`，旧公开 `task.*` 方法一律拒绝；`notice.post` 的参数仍叫 `task`，`system.configure` 的设置键仍为 `task_call_limit`。
 - HTTP 使用 `/api/worker/<id>` 及其读取后缀、`/api/workers`、`/api/worker-graph`；旧 `/api/task/<id>`、`/api/tasks`、`/api/task-graph` 返回 404。Web 写动作同样使用 `worker.*`。
 - 浏览器使用 `#worker-ID`、`#workers`、`#worker-graph`；Worker 详情的执行与代码入口显式在新标签页打开，使用 `#worker-ID-execution`／`#worker-ID-execution-code` 独立 hash；旧 Task hash 不作为兼容入口。全局模式的项目路由前缀 `/p/<project-id>/` 不变。
@@ -51,7 +51,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 ## 内置 Agent 能力指南（W217／D509）
 
-公开只读 CLI `lushc skills list` / `lushc skills get progress|delegation|auto-title|context`（可加 `--json`）读取固定随代码指南，不需项目／daemon，不读设备私密配置或实际开启状态，不增加 RPC。未知 ID、路径及多余参数拒绝。设备 `system.settings/configure` 沿用用户专属规则，新增布尔键 worker_delegation、worker_auto_title、context_retrieval，progress_reporting 继续兼容；均默认 true，null 恢复默认。开关只改变后续 Agent 注入及主动使用，不关闭底层权限、真实调度或已有 child 交付。完整契约见[Agent 能力模块](agent-capabilities.md)。
+公开只读 CLI `lushw skills list` / `lushw skills get progress|delegation|auto-title|context`（可加 `--json`）读取固定随代码指南，不需项目／daemon，不读设备私密配置或实际开启状态，不增加 RPC。未知 ID、路径及多余参数拒绝。设备 `system.settings/configure` 沿用用户专属规则，新增布尔键 worker_delegation、worker_auto_title、context_retrieval，progress_reporting 继续兼容；均默认 true，null 恢复默认。开关只改变后续 Agent 注入及主动使用，不关闭底层权限、真实调度或已有 child 交付。完整契约见[Agent 能力模块](agent-capabilities.md)。
 
 ## 核心工作流
 

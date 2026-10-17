@@ -10,7 +10,7 @@ import { tokenHash } from '../../src/core/project/internal.js';
 import { managementPolicy } from '../../src/rpc/management-policy.js';
 import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';
 
-const bin = path.resolve(import.meta.dir, '../../bin/lushc');
+const bin = path.resolve(import.meta.dir, '../../bin/lushw');
 const preview = (f, id) => f.project.acceptTask(id, null, { forcePreview: true });
 const force = (f, id, revision) => f.project.acceptTask(id, null, { force: true, revision, confirm: true });
 

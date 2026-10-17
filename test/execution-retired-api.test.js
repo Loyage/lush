@@ -61,7 +61,7 @@ test('real CLI and authenticated RPC reject retired nodes and all explicit selec
       await expect(client.request(method, { runner_node_id: selection })).rejects.toThrow('runner_node_id is retired');
       await expect(client.request(method, { runner_node_id: selection, _token: token })).rejects.toThrow('runner_node_id is retired');
     }
-    for (const executable of ['lush','lushc']) for (const auth of [null, token]) {
+    for (const executable of ['lush','lushw']) for (const auth of [null, token]) {
       for (const args of [['runner','ssh','test','unreachable'], ['runner','deployments','apply','--file','/not-read','--scope','device'],
         ['order','goal','--runner-node','local'], ['worker','spawn','goal','--parent',String(actor.id),'--runner-node=' + node]]) {
         const result = await cli(f, executable, args, auth);

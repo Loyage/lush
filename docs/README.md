@@ -1,4 +1,4 @@
-# Lush 文档
+# LushCode 文档
 
 这里是随代码发布的 Markdown 文档入口，按你要解决的问题选择章节，不要求顺序或递归通读。当前公开能力与旧数据兼容统一见[核心 API](engineering/core-api.md)。
 

@@ -5,7 +5,7 @@ export function validateCliCatalog(value) {
   if (value?.version !== 1 || value.source !== 'builtin-cli' || !Array.isArray(value.commands)
     || value.commands.length > 1000 || !value.commands.length
     || new Set(value.commands.map(item => item.path)).size !== value.commands.length
-    || value.commands.some(item => !['lush', 'lushc'].includes(item.executable) || typeof item.command_path !== 'string'
+    || value.commands.some(item => !['lush', 'lushw'].includes(item.executable) || typeof item.command_path !== 'string'
       || item.path !== `${item.executable} ${item.command_path}` || typeof item.description !== 'string'
       || typeof item.usage !== 'string' || typeof item.format !== 'string' || typeof item.risk !== 'string' || !Array.isArray(item.rpc)
       || !Array.isArray(item.operations) || !item.operations.length || new Set(item.operations).size !== item.operations.length

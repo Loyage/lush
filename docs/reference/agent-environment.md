@@ -6,7 +6,7 @@
 |---|---|---|
 | `lush status` | `system.status` | `{}` |
 | `lush agent show` | `agent.config` | `{}` |
-| `lushc skills list/get ID` | 本地只读命令 | 读取内置公开指南，不读设备私密设置，不需 daemon |
+| `lushw skills list/get ID` | 本地只读命令 | 读取内置公开指南，不读设备私密设置，不需 daemon |
 | `lush agent models pi|codex` | `agent.models` | `{agent}` |
 | `lush agent set/reset …` | `agent.configure` | `{config}`（用户专属） |
 | `lush agent prompt ROLE` | 本地命令 | 按片段查看最终 Prompt 与来源 |
@@ -18,9 +18,9 @@
 | `lush config set call-timeout|worker-call-limit|max-depth N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
 | `lush config reset [call-timeout|worker-call-limit|max-depth|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
 | `lush daemon stop` | `system.stop` | `{}` |
-| `lushc worker auto-title '标题'` | `worker.auto_title` | `{title}`（Agent-only，当前 order/child 首次生成自身自动标题） |
-| `lushc progress plan KEY[:LABEL]...` | `progress.plan` | `{steps:[{key,label}]}`（agent-only） |
-| `lushc progress complete KEY` | `progress.complete` | `{step}`（agent-only） |
+| `lushw worker auto-title '标题'` | `worker.auto_title` | `{title}`（Agent-only，当前 order/child 首次生成自身自动标题） |
+| `lushw progress plan KEY[:LABEL]...` | `progress.plan` | `{steps:[{key,label}]}`（agent-only） |
+| `lushw progress complete KEY` | `progress.complete` | `{step}`（agent-only） |
 
 设备运行设置存在 `<deviceHome>/settings.json`（version 1，权限 `600`）：环境变量 `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只是各自的默认值，被文件里显式覆盖的键取代，范围分别是 1..86400、1..1000、1..64；写盘后同步内存并重新准入，下一次调度 / 调用 / 拆解立即生效，不需要重启 daemon。命令面用连字符（`call-timeout` / `worker-call-limit` / `max-depth`），设置文件与 RPC 里是下划线（`call_timeout` / `task_call_limit` / `max_depth`）；`worker-call-limit` 特别映射到保留的 `task_call_limit`，并非 `worker_call_limit`，旧 CLI 名不留别名。见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
 
@@ -41,7 +41,7 @@ CLI agent env 只显示变量名，Web 授权编辑默认遮罩；保存排序�
 
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 Worker，并要求该 Worker 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。开发调用的 `worker.spawn` 的 `parent` / `notice.post` 的 `task` 缺省为自己的 Worker，不能伪造其他父Worker；message 只能沿直接父子边。Valet 的已审核跨树操作须经可信管理代理，不把其身份或目录作为开发父分支，见[Valet 契约](../engineering/hook-signals-management.md)。CLI progress 默认只输出短确认，`--json` 保留完整进度对象；RPC 返回不变。进度接口不接受 Worker ID，始终写 token 所属 Worker：`progress plan` 同一次工作整表替换时保留同 key 的完成态与既有计时，`progress complete` 只完成当前计划中已存在的 key。runtime 自动记录当前步骤的 `started_at`，顺序完成时写入 `completed_at` / `duration_ms`，并开始下一条待办的计时。
 
-开启自动标题能力后，内置开发 Agent 短入口要求按需读取命名指南，在理解目标后、结束本轮或提问／派工前，若自身 order/child 的 auto_title 为空，调用 `lushc worker auto-title '标题'`，简短概括实际主题，不照抄输入首行。标题为非空单行最多 60 字符；接口不接受 ID、仅首次成功写入，此后返回已有标题，不允许覆盖或清空；用户手动 display_title 始终优先，用户 rename 权限不变。不为标题额外派工或调用模型；analysis 不含此命名片段；Valet 通过专用管理提示词使用已授权的自身标题能力，不加载开发 Skill，自定义替代 Prompt 及模型漏读指南可能影响执行。关闭该能力不清除已有标题；未生成时使用目标兜底，旧记录不批量回填。
+开启自动标题能力后，内置开发 Agent 短入口要求按需读取命名指南，在理解目标后、结束本轮或提问／派工前，若自身 order/child 的 auto_title 为空，调用 `lushw worker auto-title '标题'`，简短概括实际主题，不照抄输入首行。标题为非空单行最多 60 字符；接口不接受 ID、仅首次成功写入，此后返回已有标题，不允许覆盖或清空；用户手动 display_title 始终优先，用户 rename 权限不变。不为标题额外派工或调用模型；analysis 不含此命名片段；Valet 通过专用管理提示词使用已授权的自身标题能力，不加载开发 Skill，自定义替代 Prompt 及模型漏读指南可能影响执行。关闭该能力不清除已有标题；未生成时使用目标兜底，旧记录不批量回填。
 
 步骤实际增删、改名、换序时，Runtime 自动把被替换计划完整状态及冻结计时保存为 `progress.archived` Event。当前调用实际收到普通用户追加输入后首次 plan 会归档旧计划并重置同 key 的完成态与计时（即使步骤同形）；随后同形重复 plan 不增加历史。Notice 答案、Agent/子 Worker 消息、等待后继续调用和本轮尚未收到的新输入不重置。不要为历史额外汇报步骤或把旧步骤重复塞入新计划；历史只在详情和 `worker.progress_history {id,before?,limit?}` 只读分页出现，列表、图和调用启动进度只有当前计划。关闭进度汇报时历史也隐藏，但不删除。完整字段见[Worker 规划历史](rpc/tasks.md#规划历史)。
 

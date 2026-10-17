@@ -29,6 +29,12 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     expect(button('保存全局管家权限').disabled).toBe(true);
     expect(writes).toEqual([]);
     const search = dom.node('detail').querySelector('input');
+    expect(deepText(dom.node('detail'))).toContain('支持 lush / lushw 完整命令');
+    search.value = 'lushc'; search.oninput({});
+    expect(dom.node('detail').querySelectorAll('.cli-command-link')).toHaveLength(0);
+    search.value = 'lushw'; search.oninput({});
+    expect(dom.node('detail').querySelectorAll('.cli-command-link').length).toBeGreaterThan(0);
+    expect(dom.node('detail').querySelectorAll('.cli-command-link').every(node => node.dataset.command.startsWith('lushw '))).toBe(true);
     search.value = 'order'; search.oninput({});
     dom.node('detail').querySelector('[data-command="lush order"]').onclick();
     // The minimal DOM fixture does not parse descendant selectors or dotted
@@ -54,7 +60,7 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     // existing advanced section; browsing never executes the examples.
     await button('返回搜索结果').onclick();
     search.value = 'worker list'; search.oninput({});
-    dom.node('detail').querySelector('[data-command="lushc worker list"]').onclick();
+    dom.node('detail').querySelector('[data-command="lushw worker list"]').onclick();
     const advanced = dom.node('detail').querySelector('details');
     expect(advanced.open).toBe(false);
     expect(deepText(advanced)).toContain('RPC 参数契约（类型、必填、默认值与枚举）');

@@ -64,7 +64,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
   cli: Object.freeze([
     'test/cli-surfaces.test.js', // executable catalogue
     'test/cli-catalog.test.js', // parser/catalogue agreement
-    'test/cli-entrypoints.test.js', // fixed CLI -> real RPC
+    'test/cli-entrypoints.test.js', // published bins/source scripts -> real CLI/RPC and unchanged authority
+    'test/agent/capabilities.test.js', // shipped Skills/guides and invocation prompt agree on the fixed development CLI
     'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
     'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount
     'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge

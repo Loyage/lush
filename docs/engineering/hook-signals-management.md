@@ -10,7 +10,7 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
-管理 Agent 可发现全部当前 RPC 能力；`lushc` 集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生。W316／D677、D678：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作，以及自动化注册、挂载。自动化仍必须[先注册再单独挂载](../reference/rpc/hooks.md#先注册再单独挂载)：hooks.register 只注册指令及项目功能，成功后才可用明确登记版本独立请求 worker.hook_attach；注册不挂载、不执行。旧 hooks.install／Project／CLI 原子捷径全部拒绝，管家目录标 unavailable，不能借旧权限快照恢复。注册 schema／示例由同一纯协议源提供，事务收据可证明注册完成；挂载仅接受登记引用，无内联动作或运行参数旁路。
+管理 Agent 可发现全部当前 RPC 能力；`lushw` 集合从 `src/cli/catalog.js` 的 `LUSHW_METHODS` 派生。W316／D677、D678：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作，以及自动化注册、挂载。自动化仍必须[先注册再单独挂载](../reference/rpc/hooks.md#先注册再单独挂载)：hooks.register 只注册指令及项目功能，成功后才可用明确登记版本独立请求 worker.hook_attach；注册不挂载、不执行。旧 hooks.install／Project／CLI 原子捷径全部拒绝，管家目录标 unavailable，不能借旧权限快照恢复。注册 schema／示例由同一纯协议源提供，事务收据可证明注册完成；挂载仅接受登记引用，无内联动作或运行参数旁路。
 
 执行权限统一来自 `src/rpc/management-policy.js`；用户可分别收紧为 confirmation／unavailable，需要确认时由真实用户批准各个精确请求，权限修改能力本身始终须真实用户精确批准。不扩大固有不可用的私有材料、交互认证、原始会话、自复制或任意文件／Shell 工具边界。自动执行不绕过预检、revision、目标、Git、冻结或生命周期安全门，不复活终态、已归档或祖先关闭的工作。快捷指令不恢复独立预授权或已删除的 command_authorize，普通开发 Agent 不因此扩权。
 
@@ -38,7 +38,7 @@ capability 仅在真正进入执行回调、完成最新权限及精确确认校
 
 ### 开发能力的受控代理
 
-`lushc` 是开发协作入口，`lush` 是管理入口，二者共用命令目录与业务实现。Valet 继续仅通过可信 `manager.call`／真实 bridge 调用开发能力，不获得 Shell、本地文件工具、开发 Skill 或任意 RPC 直通；本地 help、指南和问卷示例不是 RPC，不构成文件或命令执行授权。CLI 分区与迁移见[双入口](../reference/api.md#开发与管理双入口)。
+`lushw` 是开发协作入口，`lush` 是管理入口，二者共用命令目录与业务实现。Valet 继续仅通过可信 `manager.call`／真实 bridge 调用开发能力，不获得 Shell、本地文件工具、开发 Skill 或任意 RPC 直通；本地 help、指南和问卷示例不是 RPC，不构成文件或命令执行授权。CLI 分区与迁移见[双入口](../reference/api.md#开发与管理双入口)。
 
 Valet 可向当前项目任意合法开发目标发消息，保存真实 Valet sender；可在指定活动 order/child 下派生 child，child 的分支基线、父子编号与交付目标仍属于该开发 parent，不挂在无 Git 分支的 Valet 下。进度、自动标题与决策 Notice 只作用于 Valet 自身。`worker.accept` 按最新权限经原统一验收入口执行；设为 confirmation 时须真实用户批准精确目标，默认 automatic 时无需逐次确认，但仍复核干净现场、交付、消息、后代、冻结及资源归属；接口默认开放不提高 Worker 的自动链最高级别。普通开发 invocation 的直接父子约束不变。
 
@@ -62,7 +62,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 管家 Pi 扩展只导入 Node 可加载的纯协议定义，不从 daemon 总注册表间接引入 Bun 实现；RPC 传输只在固定 Bun bridge 中按需加载。失败时 `Run.error`、`Worker.error` 与管理执行原因保留固定白名单诊断及处理建议（扩展加载、模型／来源、进程启动、输出上限、超时／中断、未分类失败），不持久化原始 stderr、凭证或异常正文。UI 在详情顶部完整显示安全原因，旧记录缺少诊断时明确不可还原，不从通用“调用中断”倒推根因；失败后不提供自动重试，不改变 unknown 收据与禁止重放规则。
 
-这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，拒绝直接调用普通 Agent 的 notice/progress/message 等方法；已审核 `lushc` 能力须通过 `manager.call` 检查真实管理身份、最新项目权限（已开始操作使用固定开始授权）、作用域与目标后代理执行。
+这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，拒绝直接调用普通 Agent 的 notice/progress/message 等方法；已审核 `lushw` 能力须通过 `manager.call` 检查真实管理身份、最新项目权限（已开始操作使用固定开始授权）、作用域与目标后代理执行。
 
 ## 数据与时间
 

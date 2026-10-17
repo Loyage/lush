@@ -2,7 +2,7 @@ import { check, id, isPlainObject } from '../types.js';
 import { hookRevision } from '../hooks.js';
 import { assertManager } from './management-auth.js';
 import { MANAGEMENT_READ_ITEMS, managementState } from './management-data.js';
-import { LUSHC_METHODS, managementDispatchParams, validateManagementCall } from '../../rpc/management-policy.js';
+import { LUSHW_METHODS, managementDispatchParams, validateManagementCall } from '../../rpc/management-policy.js';
 
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : isPlainObject(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -45,7 +45,7 @@ export function assertManagementCapabilityExecution(project, actorId, receiptId,
 }
 
 export function assertManagementCodeExecution(project, actorId, receiptId, method, params) {
-  check(LUSHC_METHODS.has(method), 'not a development CLI capability');
+  check(LUSHW_METHODS.has(method), 'not a development CLI capability');
   return assertManagementCapabilityExecution(project, actorId, receiptId, method, params);
 }
 

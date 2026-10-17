@@ -11,6 +11,6 @@ const aliases = {
 };
 // Source shortcuts select the same fixed public entry as the corresponding bin.
 // Management remains lush; progress/message are development operations, not aliases there.
-const executable = ['progress', 'message'].includes(command) ? 'lushc' : 'lush';
+const executable = ['progress', 'message'].includes(command) ? 'lushw' : 'lush';
 try { await main([...(aliases[command] || [command]), ...args], { executable }); }
 catch (error) { console.error(`${executable}: ${error.message}`); process.exitCode = 1; }

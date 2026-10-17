@@ -19,7 +19,7 @@
 
 - `src/agent/capabilities.js` 维护四项固定注册表、设置解析、角色／task_kind 适用范围、薄入口及内置 Skill 路径；不读凭证，不创建文件，不执行插件代码。导出 `AGENT_CAPABILITIES`、`resolveAgentCapabilities(config,role,taskKind?,settings?)`、`capabilityPromptPart(entries)`、`listCapabilityGuides()` 与 `capabilityGuide(id)`；后两者仅提供固定公开指南，不返回实际启用状态。
 - `src/agent/skills/lush-<ID>/SKILL.md` 为标准 Skill 入口，frontmatter 声明名称与使用时机；详细指南作为该目录的固定随代码资源，CLI 从白名单 ID 读取。具体目录以注册表为准，auto-title 可使用 `lush-auto-title`。
-- `lushc skills list` 列出随当前 CLI 发布的四项指南；`lushc skills get ID` 输出该模块指南。支持 `--json`、严格参数和未知 ID 拒绝，不接受文件路径，不读取设备私密配置或返回实际启用状态，不联网／安装／写盘／执行模型，无项目及 daemon 离线可用。
+- `lushw skills list` 列出随当前 CLI 发布的四项指南；`lushw skills get ID` 输出该模块指南。支持 `--json`、严格参数和未知 ID 拒绝，不接受文件路径，不读取设备私密配置或返回实际启用状态，不联网／安装／写盘／执行模型，无项目及 daemon 离线可用。
 - `agentPrompt` 注入适用模块的短入口与明确关闭状态，而非整篇指南。避免在 agent、common_cli 等剩余段落继续重复要求关闭模块的主动操作；安全、生命周期、最低验证责任与结构化决策保留。替代／追加 Prompt 与旧会话不自动重写，明确关闭不是权限隔离。
 - Pi 显式加载本 invocation 已启用的内置 Skill 路径，包含 Lush 与 Pi 默认模式，不动用户 Pi 配置。内置模块与显式第三方 resources 区分；manager、explainer、butler 不加载开发插件。Codex 使用相同入口及 CLI 指南，不声称支持 Pi 扩展。
 - 同一 invocation 的入口和资源参数来自同一设置快照，避免两次读取跨设置更新造成不一致。`agentPrompt` 返回 `capabilities` 安全状态及 `builtin_skills` 路径快照，provider 不再重读开关。`builtInPrompt(role,{progressReporting?,capabilities?,taskKind?})` 为配置预览使用同一注册表。原 `PROMPT_PARTS` 为兼容保留导出，实际注入不使用长进度／标题片段。

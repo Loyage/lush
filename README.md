@@ -1,7 +1,9 @@
-# Lush
+# LushCode
 
 **一丁点儿时间不浪费。**
 **Not a single moment wasted.**
+
+LushCode 是项目名，软件名称为 Lush，以代码开发为中心。管理命令为 `lush`，Worker 协作命令为 `lushw`，后台服务为 `lushd`；`.lush`、`LUSH_*` 及既有数据命名保持不变。
 
 Lush 是项目级的多 agent 开发应用。你描述目标，一个 Worker 在独立 Git 分支与 worktree 中理解、实现和验证；需要时再派并行子 Worker。你审阅成果，决定合并与验收。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
 
@@ -15,7 +17,7 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 ### 输入与 Worker 相连：围绕目标，而不是工作清单
 
-原话、引用、各轮输入与结果关联保存，便于回看目标，不必从分支名猜测。管理 CLI 使用 `lush order '目标'`，源码快捷入口为 `bun run order`；开发协作使用 `lushc`，例如 `bun run lushc worker message W5 '补充说明'`。两个入口共用底层接口，入口名称不替代身份授权，见[CLI 分区](docs/reference/api.md#开发与管理双入口)。
+原话、引用、各轮输入与结果关联保存，便于回看目标，不必从分支名猜测。管理 CLI 使用 `lush order '目标'`，源码快捷入口为 `bun run order`；开发协作使用 `lushw`，例如 `bun run lushw worker message W5 '补充说明'`。两个入口共用底层接口，入口名称不替代身份授权，见[CLI 分区](docs/reference/api.md#开发与管理双入口)。
 
 ### 精确的 commit，而不是笼统的“完成了”
 
@@ -45,7 +47,7 @@ worktree 隔离并行开发，源侧修复保留固定提交与现场，不在�
 
 ## 部署方式
 
-在 Lush 源码目录执行 `bun run lush host start`，浏览器打开工作台，再登记／打开项目。Host 本机也必须登录；缺少对应 `web.json` 时拒绝启动，无默认账号。v2 默认回环，公网需显式授权与项目白名单。
+在 LushCode 源码目录执行 `bun run lush host start`，浏览器打开工作台，再登记／打开项目。Host 本机也必须登录；缺少对应 `web.json` 时拒绝启动，无默认账号。v2 默认回环，公网需显式授权与项目白名单。
 
 远程 Host、SSH 转发、域名、证书和防火墙由用户配置，Lush 不管理隧道。HTTP 会暴露明文传输风险，推荐 HTTPS 或用户自建 SSH 隧道。安装、认证与验证步骤见[部署索引](docs/deployment/README.md)。
 
