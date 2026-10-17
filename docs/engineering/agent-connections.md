@@ -91,7 +91,7 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 文件 0600，凭证目录 0700；沿用实际存储根校验、跨进程配置/缓存锁、原子替换、无 symlink/foreign owner/硬链接和有限大小（2 MiB、60 个命名空间，超限淘汰最旧条目）。不保存原始响应、headers、凭证、Worker、消费者或历史曲线。损坏或不安全缓存明确失败，不回退其它项目值或偷偷修复。既有项目数据库样本不自动导入设备缓存；首次使用新缓存需在任一入口刷新一次，之后各项目复用同一观测。
 
-历史仍只由实际产生观测的项目记入自己的 SQLite，读取共享最新值不补造本项目历史；实际消费者只来自当前项目冻结运行绑定，无项目 Host 仍无历史和消费者。设备观测专项见 `test/agent/connections-observations.test.js`；项目查询与迟到身份变化代表路径见 `test/project/agent-connections.test.js`。不再保留独立的项目观测组合矩阵。
+历史仍只由实际产生观测的项目记入自己的 SQLite，读取共享最新值不补造本项目历史；实际消费者只来自当前项目冻结运行绑定，无项目 Host 仍无历史和消费者。连接配置主流程见 `test/agent/connections.test.js`；设备观测、项目查询与迟到身份变化组合不再保留独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 
 ## Web
 

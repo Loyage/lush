@@ -56,11 +56,10 @@ Web 执行详情、搜索、引用与代码阅读器保持独立，不新增 Web
 
 ## 开发验证
 
-常规回归覆盖独立的分页、配对、安全净化、安装定位、权限及客户端取消测试，不要求全局 Pi 可用。安装兼容 Pi 且具备 POSIX／python3 的开发环境可显式运行：
+原生查看器的独立分页、净化、安装、取消及 PTY 冒烟回归已删除，当前只保留部分共享执行记录读取测试；覆盖取舍见[贡献指南](contributing/README.md#覆盖取舍)。安装兼容 Pi 且具备 POSIX／python3 的开发环境仍可显式检查：
 
 ```bash
 bun run scripts/check-native-viewer.js
-LUSH_NATIVE_PI_SMOKE=1 bun run test ./test/native-watch-smoke.test.js
 ```
 
-PTY 专项使用临时项目、受控 Unix RPC 与真实 CLI／原生组件，检查滚轮／键盘翻页、工具展开、代码和输出背景、晚到浅色配色、窄屏 resize、在途读取 q／Ctrl+C 退出及 raw mode／主屏／鼠标与配色通知恢复；不启动项目 daemon 或模型，输出完整日志路径。它不是远端／macOS 实测，也不替代最终全量。
+该脚本不等于已删除的真实 PTY 操作回归，也不是远端／macOS 实测；修改交互时须另做键盘／鼠标、resize、取消与终端状态恢复验证，不启动用户项目 daemon 或模型。

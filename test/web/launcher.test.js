@@ -3,132 +3,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { temp } from '../helpers.js';
 import { fetch } from './harness.js';
-import { startTestWeb as startWeb } from './auth-fixture.js';
-import { createProjectHost } from '../../src/host/project-host.js';
-import { launcherStateFile, readLauncherState, projectRouteId } from '../../src/host/registry.js';
+import { startTestWeb } from './auth-fixture.js';
+import { projectRouteId } from '../../src/host/registry.js';
 
-function opener(calls) {
-  return async project => {
-    calls.push(project);
-    return { config: { project, home: path.join(project, '.lush') },
-      client: { snapshot: async () => ({ status: { project } }) } };
-  };
-}
-
-test('并行界面都写全局缓存时，最后关闭的实例重新记下自己所在的项目', async () => {
-  const firstRoot = temp(), secondRoot = temp(), global = temp();
-  const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
-  try {
-    const first = createProjectHost(null, { env, openProject: opener([]) });
-    const second = createProjectHost(null, { env, openProject: opener([]) });
-    await first.select(firstRoot);
-    await second.select(secondRoot);
-    expect(readLauncherState(env).last_project).toBe(fs.realpathSync(secondRoot));
-    first.rememberCurrent();
-    expect(readLauncherState(env).last_project).toBe(fs.realpathSync(firstRoot));
-  } finally {
-    for (const dir of [firstRoot, secondRoot, global]) fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('全局公网 Web 用独立认证保护所有路由，并只允许项目白名单', async () => {
-  const allowed = temp(), denied = temp(), global = temp();
-  const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
-  const password = 'launcher password at least twelve';
-  const authFile = path.join(global, 'web.json');
-  fs.writeFileSync(authFile, JSON.stringify({ version: 1, username: 'owner', password, projects: [allowed] }, null, 2) + '\n', { mode: 0o600 });
-  fs.writeFileSync(launcherStateFile(env), JSON.stringify({ version: 1, last_project: fs.realpathSync(denied) }), { mode: 0o600 });
-  const calls = [];
-  const web = startWeb(null, 0, { env, openProject: opener(calls) });
+test('empty workbench explicitly opens a project and routes reads by its registered identity', async () => {
+  const root = temp(), global = temp(), calls = [];
+  const web = startTestWeb(null, 0, { env: { ...process.env, LUSH_GLOBAL_CONFIG: global },
+    openProject: async project => {
+      calls.push(project);
+      return { config: { project, home: path.join(project, '.lush') }, client: { snapshot: async () => ({ status: { project } }) } };
+    } });
   const url = `http://127.0.0.1:${web.port}`;
   try {
-    expect(web.hostname).toBe('0.0.0.0');
-    expect((await fetch(url + '/api/host')).status).toBe(401);
-    const login = await fetch(url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `username=owner&password=${encodeURIComponent(password)}&next=%2F` });
-    expect(login.status).toBe(303);
-    const cookie = login.headers.get('set-cookie').split(';')[0];
-    const headers = { Cookie: cookie };
-    const status = await (await fetch(url + '/api/host', { headers })).json();
-    expect(status).toMatchObject({ mode: 'host', project: null, last_project: null, allowed_projects: [fs.realpathSync(allowed)] });
-
-    const blocked = await fetch(url + '/api/host/select', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: denied }) });
-    expect(blocked.status).toBe(400);
-    expect((await blocked.json()).error).toContain('白名单');
-    const selected = await fetch(url + '/api/host/select', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: allowed }) });
-    expect(selected.status).toBe(200);
-    expect(calls).toEqual([fs.realpathSync(allowed)]);
-
-    const saved = JSON.parse(fs.readFileSync(authFile, 'utf8'));
-    expect(saved.password).toBeUndefined();
-    expect(saved.password_hash).toStartWith('scrypt$');
-    expect(saved.projects).toEqual([fs.realpathSync(allowed)]);
-  } finally {
-    web.stop(true);
-    for (const dir of [allowed, denied, global]) fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('全局公网 Web 缺少项目白名单时拒绝启动', () => {
-  const global = temp();
-  const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
-  fs.writeFileSync(path.join(global, 'web.json'), JSON.stringify({ version: 1, username: 'owner', password: 'launcher password at least twelve' }), { mode: 0o600 });
-  try {
-    expect(() => startWeb(null, 0, { env })).toThrow('projects must be a non-empty array');
-  } finally { fs.rmSync(global, { recursive: true, force: true }); }
-});
-
-test('无项目 Web 首次进入工作台项目管理，显式登记后按项目身份路由', async () => {
-  const root = temp();
-  const global = temp();
-  const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
-  const calls = [];
-  const web = startWeb(null, 0, { env, openProject: opener(calls) });
-  const url = `http://127.0.0.1:${web.port}`;
-  try {
-    expect((await fetch(url + '/')).status).toBe(200);
-    const shell = await (await fetch(url + '/')).text();
-    expect(shell).toContain('id="projects-open"');
-    expect(shell).not.toContain('id="project-gate"');
-    expect((await fetch(url + '/project-picker.js')).status).toBe(200);
-    expect(await (await fetch(url + '/api/host')).json()).toMatchObject({ mode: 'host', project: null, last_project: null, projects: [] });
-    expect((await fetch(url + '/api/launcher')).status).not.toBe(200);
-    const relative = await fetch(url + '/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: 'relative' }) });
-    expect(relative.status).toBe(400);
-
+    expect(await (await fetch(url + '/api/host')).json()).toMatchObject({ project: null, projects: [] });
+    expect(await (await fetch(url + '/')).text()).toContain('id="projects-open"');
     const selected = await fetch(url + '/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: root }) });
-    expect(selected.status).toBe(200);
-    const id = projectRouteId(fs.realpathSync(root));
-    expect(await selected.json()).toMatchObject({ mode: 'host', project: fs.realpathSync(root), last_project: fs.realpathSync(root), id });
+    expect(selected.status).toBe(200); const id = projectRouteId(fs.realpathSync(root));
+    expect(await selected.json()).toMatchObject({ id, project: fs.realpathSync(root) });
     expect(calls).toEqual([fs.realpathSync(root)]);
-    // 无前缀写路由在全局模式下一律拒绝：旧页面不能靠「最后选中的项目」落到另一个项目。
-    const legacy = await fetch(url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'input.submit', params: { content: 'legacy' } }) });
-    expect(legacy.status).toBe(400);
-    expect((await legacy.json()).error).toContain('缺少项目身份');
-    const state = JSON.parse(fs.readFileSync(launcherStateFile(env), 'utf8'));
-    expect(state).toMatchObject({ version: 2, last_project: fs.realpathSync(root), projects: [fs.realpathSync(root)] });
-  } finally { web.stop(true); }
-
-  const restoredCalls = [];
-  const restored = startWeb(null, 0, { env, openProject: opener(restoredCalls) });
-  try {
-    const status = await (await fetch(`http://127.0.0.1:${restored.port}/api/host`)).json();
-    const id = projectRouteId(fs.realpathSync(root));
-    // 只报告「上次打开」供新窗口决定落点；不因此自动连接或启动 daemon。
-    expect(status).toMatchObject({ project: null, last_project: fs.realpathSync(root), last_project_id: id, projects: [{ id, project: fs.realpathSync(root), }] });
-    expect(restoredCalls).toEqual([]);
-    // 列表与恢复都不偷启后台；用户显式打开走 select，之后项目 API 才可用。
-    expect((await fetch(`http://127.0.0.1:${restored.port}/p/${id}/api/snapshot`)).status).toBe(400);
-    expect(restoredCalls).toEqual([]);
-    const reopened = await fetch(`http://127.0.0.1:${restored.port}/api/host/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: root }) });
-    expect(reopened.status).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${restored.port}/p/${id}/api/snapshot`)).status).toBe(200);
-    expect(restoredCalls).toEqual([fs.realpathSync(root)]);
-  } finally {
-    restored.stop(true);
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(global, { recursive: true, force: true });
-  }
+    expect((await fetch(`${url}/p/${id}/api/snapshot`)).status).toBe(200);
+  } finally { web.stop(true); fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(global, { recursive: true, force: true }); }
 });

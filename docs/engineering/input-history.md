@@ -77,11 +77,7 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 
 ## 验证入口与边界
 
-- `test/project/input-history.test.js`：父身份、引用及暂存指令发射的代表路径。
-- `test/web/input-history.test.js`：HTTP 路由、JSON 模式数组与参数白名单。
-- `test/web/dom-automation-emission.test.js`：条件输入编辑、收据与页面身份保护；不再保留独立的 Runtime 三模式／条件历史组合矩阵。
-- `test/web/dom-input-buffer.test.js` / `dom-inputs.test.js`：键盘、输入法、单飞、编辑与迟到响应保护。
-- `test/web/dom-inputs-api.test.js`：真实临时 HTTP/RPC/SQLite/Git 串联暂存、搜索、修订保存、挂载后实际创建及原始引用回看，不连接用户项目。
+当前保留 `test/project/input-history.test.js`、Web 输入历史 API 与编辑／发送主流程，以及 `test/web/dom-inputs-api.test.js` 的真实临时 HTTP／RPC／SQLite／Git 链；不连接用户项目。键盘模式、条件历史、迟到响应和冻结等组合不再逐项回归；精确 Web 入口用 `bun run test:integration --list` 查询，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 - `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。
 - `bun run scripts/check-input-history-ui.js`：Firefox/geckodriver 真实 app shell 与 fixture API，用 iframe 浏览上下文实际验证双主题 1440/900/390px 的独立导航、发送边界、暂存分类／摘要、原文只读、条件默认展开与高级项收起、窄屏无溢出，以及后退、Ctrl+S、提交收据和历史原文往返；不连接 daemon／模型，不代替手机真机验收。
 - `bun run scripts/check-composer-layout.js`：实际 `/p/<id>/` 项目页和 fixture API；Firefox 验证只有 textarea 区分新建实线／追加虚线，表单／图标／目标条无外框，整个输入区域统一项目色染色、聚焦不叠加描边且保留线型、常驻加粗目标、两种模式均沿用六种项目配色、双主题、聚焦／失焦、长标题、冻结／阻塞目标保留、Enter 真实投递、追加 ACK 自动恢复新建及导航退出。用真实 iframe 浏览上下文绕过 Firefox 顶层最小窗口限制，实际测试 1440/900/390px 视口；不连接 daemon 或模型，运行后清理服务与浏览器进程。

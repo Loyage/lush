@@ -82,7 +82,7 @@ D672 修正首版的计划阶段视角：性能页签只分析当前 Worker 实�
 
 `analyzeShellCommands` 复用同会话唯一调用与结果的配对及计时规则。配对结果须 `error_known:true` 才分类明确成功或失败，再按 `is_error` 布尔值区分；缺结果、重复身份或多结果保持未知。失败事实与计时独立：明确失败但缺时间仍计失败次数，不补零时长。完整命令／参数按精确指纹归组，命令空白、路径、timeout等变化均不自动视为同一问题。累计为已知单次记录间隔之和，不是并行墙钟时间，不包含尝试间隙中的思考／编辑／等待；失败累计只是返工线索，不宣称已证实全部返工时间。
 
-验证：`test/web/performance-model.test.js`、`performance-data.test.js`、`dom-performance-view.test.js` 和 `performance-api.test.js`；最后一项通过实际页签、认证 HTTP／RPC、SQLite 与会话记录验证统计及原始步骤定位，不调用真实模型。`test/web/check-navigation-links-browser.js` 验证新标签页及真实窄屏布局。
+性能排行只保留代表性主流程，不再保留完整模型／数据／DOM／API 独立组合；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。`test/web/check-navigation-links-browser.js` 仍可验证新标签页及真实窄屏布局。
 
 ### Worker 详情渐进加载
 
@@ -90,7 +90,7 @@ D672 修正首版的计划阶段视角：性能页签只分析当前 Worker 实�
 
 `renderDetail` 的可选渐进控制器按区补齐，不重画整页。目标/结果原文、手动折叠、表单与阅读位置保留；详情内焦点或选区期间暂缓补丁，失去焦点/取消选区后再应用。最多保留四类待补丁，新请求、导航、项目切换或 Worker 删除使旧补丁失效并释放监听。过往计划首屏随 Worker 主体展示，更早版本仍显式按需分页；补充数据不替换历史节点、已加载页面或展开版本，同 Worker 主体请求在途时也保留用户最新阅读位置及历史锚点。执行记录仍只在显式打开时读取，已打开记录的终态尾读独立运行，不拖住主体或告知 ACK。慢用量不阻塞正文；游标竞争响应不得标记尾读完成，仍有后页时继续读取。
 
-验证：`test/web/dom-detail-progressive.test.js` 覆盖慢补充、真实 detail→notice ACK、失败、迟到响应、阅读/编辑保护与终态尾读；`scripts/check-input-history-ui.js` 用隔离 HTTP fixture 与 Firefox 验证真实应用输入/详情/告知的组合等待边界。
+渐进加载异常与迟到响应组合不再专用回归；`scripts/check-input-history-ui.js` 仍可用隔离 HTTP fixture 与 Firefox 验证真实应用输入/详情/告知的组合等待边界。
 
 ### Worker 详情模块预览
 
@@ -179,10 +179,8 @@ GET 路由：`/api/worker/<id>/transcript-latest`、`/api/worker/<id>/transcript
 
 ## 验证入口
 
-`test/transcript-reader.test.js` 覆盖全量范围、截断后命中、配对、分页与文件边界；`test/transcript-latest.test.js` 覆盖最新窗口、`before` 往回翻页、`after` 只看新增、token／裁剪与 head 读面一致、超过 8 MiB 仍取到尾部、坏行跳过与超长行标记；`test/project/explanations.test.js` 覆盖快照、无分支和权限；`test/explainer-provider.test.js` 使用可控子进程检查禁用工具的参数与凭证。
+`test/transcript-reader.test.js` 及阅读器的 Web 主流程保留少量读取／搜索与定位冒烟；最新窗口、超大／坏行输入、解释 Provider、降级、单飞及迟到响应矩阵不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。精确 Web 入口通过 `bun run test:integration --list` 查询，不把保留文件当作原有全部断言仍在的证明。
 
-代码阅读器前端回归在 `test/web/dom-code-view.test.js`：按需进入、全部文件/懒目录、路径筛选和分页、逐行差异/正文/版本、单飞与前台刷新、采样失效、归档/超限/删除降级、安全文本、页签状态与路径搜索。后端读面不由 DOM mock 证明，需另跑 Git/RPC 集成用例。
-
-Web 路由与 DOM 交互见 `test/web/transcript-reader.test.js`、`test/web/dom-transcript-reader.test.js`、`test/web/dom-transcript-view.test.js`、`test/web/dom-results.test.js`；代码着色与搜索定位见 `test/web/dom-code-highlight.test.js`、`test/web/dom-transcript-reader.test.js`。测试只使用临时项目和 Mock／可控进程，不发送真实项目内容给模型。
+测试只使用临时项目和 Mock／可控进程，不发送真实项目内容给模型。DOM mock 不能证明后端读面，修改 Git／RPC 路径仍须相应集成验证。
 
 安装了 Firefox 与 geckodriver 的环境可运行 `bun run scripts/check-transcript-layout.js`，检查真实 CSS 下 1440／900px 双栏与 390／320px 手机、600×400 矮屏布局、默认正文空间、搜索展开／收起、Enter／按钮提交、命中后焦点／定位与独立滚动，以及深浅主题下的失败输出与步骤元信息。使用明确尺寸的 iframe 浏览上下文核验实际 viewport，避免 Firefox 桌面最小窗口宽度掩盖手机问题。脚本仅起本机临时 HTTP fixture 与受控浏览器，不启动 daemon；失败保留 geckodriver 日志，成功清理临时目录并输出截图路径。

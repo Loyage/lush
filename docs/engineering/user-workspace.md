@@ -107,4 +107,4 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 用户决定 #410：Web 首屏资源保留原绝对预算（冷 JS 最多24个，含CSS最多25个），扩展用户工作台采用至少四倍源码静态模块数对照；仍核验共享状态、懒执行、HTTP/CSP 与真实浏览器，不以提高绝对上限或删断言达标。
 
-跨项目组合入口为 `test/integration/user-workspace.test.js`，真实浏览器入口 `bun run check:workbench`；临时双 daemon／Host 验证来源动作、设备同步、离线不偷启和草稿保留，不操作真实凭证、配置或服务。mock／DOM 不能证明真实模型或浏览器表现，验证与交付责任见[贡献指南](../contributing/README.md#分层测试与交付)。
+跨项目双 daemon／Host 的独立组合回归已删除；真实浏览器入口仍为 `bun run check:workbench`，使用临时项目验证，不操作真实凭证、配置或服务。mock／DOM 不能证明真实模型或浏览器表现，验证与交付责任见[贡献指南](../contributing/README.md#分层测试与交付)。

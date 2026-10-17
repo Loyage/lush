@@ -47,9 +47,7 @@
 
 ## 验证与模块
 
-- 软件诊断：`test/agent/status.test.js`，假 Pi/Codex 命令，检查路径、版本、安全错误、单飞及显式重查，不触碰真实认证。
-- 退役服务与存档：`test/web/agent-usage-api.test.js` 保留旧存档读面及拒绝旧查询入口的回归；不再保留独立 Runtime 旧配置／重启矩阵。
-- 页面：`test/web/dom-agent-status.test.js`、`test/web/dom-agent-usage.test.js`，诊断无账号，旧存档按需本地读、离页响应隔离，正式连接历史保持可用。
-- 原内部查询/认证适配的独立 mock 测试仍保留，不据此宣称旧产品功能仍开放。
+软件诊断、退役用量存档及其页面不再保留专用自动回归；当前套件优先正常连接配置主流程。覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)，修改这些读面时须另做针对性验证，不触碰真实认证。
+- 原内部查询／认证适配的独立 mock 回归已删除，不据旧通过记录宣称当前覆盖或旧产品功能仍开放。
 
 细表见[Runtime](modules-runtime.md)、[Web](modules-web.md)、[CLI / RPC / 测试](modules-interfaces.md)；操作入口见[Agent 配置与模型来源](../reference/rpc/agents.md)。

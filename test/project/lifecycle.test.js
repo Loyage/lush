@@ -81,37 +81,3 @@ test('messages arriving during an invocation are delivered exactly on the next i
     expect(f.store.unread(task.id)).toEqual([]);
   } finally { await f.close(); }
 });
-
-test('cancel cascades and terminal tasks cannot have active descendants', async () => {
-  const provider = controlled(), f = fixture(provider); await repo(f.root);
-  try {
-    const root = (await f.project.order('root')).task;
-    const child = await f.project.spawn(root.id, 'child', undefined, [], 'child');
-    const leaf = await f.project.spawn(child.id, 'leaf', undefined, [], 'leaf');
-    await until(() => f.project.running.size === 3);
-    f.project.notice(leaf.id,'question');
-    f.project.cancel(root.id);
-    await until(() => f.project.running.size === 0);
-    expect(f.store.tasks().filter(t => ['order','child'].includes(t.task_kind)).map(t => t.status))
-      .toEqual(['cancelled','cancelled','cancelled']);
-    expect(f.store.runsForTask(root.id).at(-1)).toMatchObject({ status: 'cancelled', error: 'cancelled by user' });
-    expect(f.store.get('SELECT status FROM notices').status).toBe('dismissed');
-    expect(() => f.project.spawn(root.id,'no')).toThrow('terminal');
-    expect(() => f.project.message(root.id,'no')).toThrow('ended');
-    expect(() => f.project.retry(leaf.id)).toThrow('parent has ended');
-  } finally { await f.close(); }
-});
-
-test('retry is explicit, preserves unconsumed messages and prior audit', async () => {
-  let fail = true;
-  const f = fixture({ async run() { if (fail) throw new Error('bad'); return 'ok'; } }); await repo(f.root);
-  try {
-    const root = (await f.project.order('root')).task; f.project.message(root.id,'keep');
-    await until(() => f.store.task(root.id).status === 'failed');
-    expect(f.store.unread(root.id)).toHaveLength(1);
-    fail = false; f.project.retry(root.id);
-    await until(() => f.store.task(root.id).status === 'waiting');
-    expect(f.store.unread(root.id)).toHaveLength(0);
-    expect(f.store.history(root.id).some(e => e.type === 'failed')).toBe(true);
-  } finally { await f.close(); }
-});

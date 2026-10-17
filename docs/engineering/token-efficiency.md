@@ -81,4 +81,4 @@ Codex 没有等价 hook，启用时明确拒绝。explainer 不继承默认预�
 
 `worker list --brief` 默认 30 条、最多 200 条摘要，按 Worker ID 升序，返回 `has_more / next_after`；继续读取用 `--after`。普通列表与 RPC 返回不变。`progress` 默认短确认，`--json` 保留完整对象。`doctor` 默认身份摘要，`--verbose` 保留完整 daemon 状态。
 
-回归入口：`test/soft-budget.test.js`、`test/usage-attribution.test.js`、`test/token-cli.test.js`、`test/web/dom-token-efficiency.test.js`。测试只操作临时项目及受控进程，不启动真实模型。改动生效仍需重启所选项目 daemon 和已运行的 Web；不要在有活动Worker时为了测试重启用户项目。
+token 归因与效率界面不再保留专用回归；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。修改时须以临时项目与受控进程专项验证，不启动真实模型。改动生效仍需重启所选项目 daemon 和已运行的 Web；不要在有活动Worker时为了测试重启用户项目。

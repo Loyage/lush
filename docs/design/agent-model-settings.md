@@ -63,6 +63,6 @@ Pi 支持 Lush 托管连接；Codex CLI 仍沿用自身认证，托管 Codex OAu
 
 能否独立找到两页？选择来源是否只显示其模型？额度是否用进度条突出已用比例与窗口、仍保留失败 / 未知 / 旧值 / 时间？默认模型是否仅在已有 Worker 主动切换来源时自动填入，未设默认时保留并提示，其他入口与读取操作仍保护模型草稿？思考深度是否不随换源自动改写？看得出当前使用与下次配置的区别吗？打开页面是否不额外联网查询账号？Worker 只换来源或模型时是否保留折叠高级设置中的其他覆盖？窄屏、键盘与双主题是否能用？诊断失败是否仍可编辑配置？旧凭证与历史是否没有被迁移或删除？不支持的后端是否如实禁用并解释？
 
-模型分组回归见 `test/web/dom-model-choice-layout.test.js`；`bun run check:model-choice` 用隔离 HTTP fixture 与 Firefox 检查五类入口的 320–1440px、双主题、显式标签、名称/候选同步和键盘 Tab，不连接用户项目后台或调用真实模型。
+模型分组的独立自动布局回归已删除；`bun run check:model-choice` 用隔离 HTTP fixture 与 Firefox 检查五类入口的 320–1440px、双主题、显式标签、名称/候选同步和键盘 Tab，不连接用户项目后台或调用真实模型。
 
 接口与分工见[模块地图](../engineering/modules.md)，连接安全边界见[账号资源理念](account-resources.md)，运行时兼容见[共享模型选择](../engineering/managed-model-selection.md)。

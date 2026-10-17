@@ -38,7 +38,7 @@ W176／决定 #434：全局后台总览各项目行挂载「重启项目后台�
 ## 验证入口
 
 - `bun run check:workbench`：真实 Firefox/WebDriver（需系统 Firefox 与 geckodriver），独立临时 Host/profile 和可控项目替身；验证空主体、全局导航、独立项目页、输入保留、双主题/响应式布局与离线状态。另用两个独立 Firefox profile 验证项目标题、持久外观与跨浏览器同步，六种配色 × 深浅主题 × 1440/900/390px 的布局、对比度与业务状态／Agent 色不变，首次分配与重开保留。使用系统浏览器，不依赖已删除的 Electron Chromium；不连接用户项目。
-- `test/project-appearance.test.js`、`test/web/project-appearance-api.test.js`：临时目录的私有存储／权限／别名／TOCTOU／损坏文件／锁／并发配色分配与 revision 冲突，真实 Host HTTP 与前端控制器联调、认证／Origin／白名单保护及离线不启动 daemon。`project-appearance-client.test.js` 与 `dom-project-appearance*.test.js` 覆盖读取／保存／迟到响应／设置／项目切换／标签页身份／默认恢复不清项目外观／禁用帮助宿主。`project-colors-contrast.test.js` 按实际 CSS 调色与混合比例验证六种配色在染色侧栏／选中项上的 WCAG 文本对比度；浏览器测量在侧栏过渡动画真正结束后进行。
-- `test/web/project-control.test.js` / `test/integration/project-control.test.js`：显式启停、空闲停止及旧标签不偷启 daemon；只使用临时项目与 mock Agent。
+- 自动套件只保留少量启动与页面主流程；项目外观、并发配色、对比度及显式启停／旧标签组合不再专用回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
+- 修改相关行为时用临时项目和受控 Agent 专项验证；浏览器几何检查应等待侧栏过渡真正结束，不操作用户 daemon。
 
 [返回工程索引](README.md) · [Web 路由](../reference/web-routes.md)

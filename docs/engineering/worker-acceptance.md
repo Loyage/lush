@@ -47,7 +47,7 @@ child 的配置仍锁定、默认自动合并，由直接父 Agent 检查成果�
 
 ## W169 验证记录
 
-保留此历史入口。当前回归入口为 `test/web/unified-acceptance-runtime-integration.test.js` 及 Runtime 验收／恢复、DOM 迭代测试；历史通过数与失败日志留在 Worker／提交记录，不证明当前树。运行历史保留不承诺备份、安全擦除或 Git 对象永久保留。
+保留此历史入口。当前仅在 `test/project/merge-queue.test.js` 保留正常交付后的批量验收冒烟，不再保留独立 HTTP／DOM、恢复与回收失败组合；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。历史通过数与失败日志留在 Worker／提交记录，不证明当前树。运行历史保留不承诺备份、安全擦除或 Git 对象永久保留。
 
 ### 固定父基线修复（交付 15152／尝试 15155）
 

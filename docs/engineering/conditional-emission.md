@@ -41,4 +41,4 @@
 
 先提交挂载收据，再异步准入；跨 Git 等待后重新核验父空闲、冻结、基线、草稿占用和独占门。挂载中拒绝编辑与删除。取消未开始的意图可恢复可编辑草稿；已经开始却无确定结果的发射标记 `unknown`，重启不重放。只释放未知独占仍保留未知收据。已挂载追加阻止目标验收、归档或删除吞掉需求，实际投递仍沿用消息收件箱门禁。
 
-实现入口为 `src/core/project/input-emissions.js`、`input-emission-safety.js` 与 `input-emission-data.js`；公共适配为 RPC 输入 handler、Web action 与 CLI `order`。专项覆盖在 `test/project/input-emissions*.test.js`；真实临时 HTTP/RPC/SQLite/Git、管理授权和 main 交付链联调在 `test/web/conditional-emission-runtime-integration.test.js`，只用可控 Provider，不代表真实模型或物理浏览器验证。
+实现入口为 `src/core/project/input-emissions.js`、`input-emission-safety.js` 与 `input-emission-data.js`；公共适配为 RPC 输入 handler、Web action 与 CLI `order`。`test/project/input-emissions.test.js` 保留代表性条件发射主流程；管理授权、远端安静条件及完整 HTTP／main 交付组合不再独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。受控 Provider 不代表真实模型或物理浏览器验证。

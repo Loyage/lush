@@ -35,7 +35,7 @@ W263／D611 将页面展示名统一为「工作树」；内部 Worker 实体及
 
 累计用量使用项目 `.lush/usage-index.sqlite` 中可重建的每会话文件紧凑摘要，不保存正文、凭证或请求行，不改历史事实。索引版本与项目身份严格隔离；旧版本、损坏记录或缓存文件可由原会话重建，不能冒充完整统计。daemon 启动自动后台补齐全部旧会话，单飞逐文件流式处理，每 8 个来源让出事件循环；此后每 5 秒检查来源签名，仅解析新增／变化文件、清除删除文件的摘要。后台与图中的本批读取共享每文件单飞；关闭停止新文件准入，排空在途读取后关闭缓存库，单文件错误隔离，不新增用户配置、模型或外网调用。签名包含 dev/ino/size/mtime/ctime，解析后复核签名；变化文件目前仍完整流式解析，不声称字节级尾部增量。内存紧凑缓存仍有界 4096 项、与统计页面的 128 文件正文行缓存分离；重启的有效持久摘要不重解析所有旧会话。
 
-验证入口：`test/web/graph-pages-api.test.js`（真实 RPC socket）、`test/web/dom-graph-loading.test.js`、`test/web/dom-graph-pagination.test.js`、`test/web/dom-graph-rpc-pagination.test.js`（DOM→HTTP→真实 RPC）、`test/worker-resource-cache.test.js`。
+图分页、迟到响应和资源缓存组合不再保留专用回归；当前只保留代表性页面主流程，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。修改这些行为时须补做受影响的真实 RPC／HTTP 与 DOM 验证。
 
 ## 展示模式
 

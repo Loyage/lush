@@ -53,6 +53,6 @@ CLI `hooks command list/save/export/remove/import/history`；save／import 用�
 
 ## 验证入口
 
-当前专项定位 `test/project/shortcut-commands.test.js`、`test/project/shortcut-command-runs.test.js`、`test/shortcut-command-api.test.js` 与对应 Web API／DOM／集成，保留定义版本、真实执行目录、安全收据与历史投影等代表路径；使用临时项目、受控命令与本地 bare remote，不接用户账号或服务。真实推送冒烟见 `test/project/hooks-command.test.js`，不再保留完整互斥、异常与兼容矩阵。
+当前只保留少量快捷提示与命令 Hook 主流程冒烟，不再保留独立的定义版本、手动运行、历史投影及互斥／异常／兼容矩阵；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。测试使用临时项目与受控命令，不接用户账号或服务。
 
 快捷指令定义与 Hook 收据保持项目归属，不因设备连接／余额共享而全局化；历史修复记录不替代当前树的回归证据。

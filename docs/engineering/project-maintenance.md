@@ -70,8 +70,7 @@ paused 是维护门而非所有 Worker 状态；affected_count 不含原个人�
 ## 实现与验证入口
 
 - `src/core/project/maintenance.js` 保存门与参与者，调度在真实 provider 启动前复核；`system.stop_if_idle` 与同源动态就绪门一致。
-- Runtime 专项：`test/project/project-maintenance.test.js`；授权／HTTP：`test/project-maintenance-api.test.js`、`test/web/project-maintenance-api.test.js`；交互：`test/web/dom-project-maintenance.test.js`。
-- `test/web/project-maintenance-runtime-integration.test.js` 覆盖真实 HTTP／RPC／SQLite／Git 与受控 provider；`test/integration/project-maintenance.test.js`、`global-maintenance.test.js` 覆盖临时真实进程替换、持久门、来源隔离与显式继续。退出回收临时服务，不将 mock／DOM 当真实模型或浏览器验收。
+维护与重启的 Runtime／HTTP／DOM 及真实进程替换组合不再保留专用自动回归；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。修改这些行为须另做针对性验证，使用临时项目和受控进程、退出回收临时服务，不将 mock／DOM 当真实模型或浏览器验收。
 
 ### 项目概览内入口调整
 

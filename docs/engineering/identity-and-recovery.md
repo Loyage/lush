@@ -16,7 +16,7 @@ W173／决定 #422 的项目维护门持久保存在 `meta.project_maintenance`�
 
 ## agent 父死亡监护与 Run 记账
 
-`src/agent/provider.js` 以 detached 进程组启动内部 `bin/lush-agent-guard`，daemon 持有其 stdin 管道；guard 在同组运行真实 pi/codex 并转发 stdout、stderr 与退出码。daemon 任意退出（含 SIGKILL）导致 stdin EOF 后，guard 终止自己的进程组；正常取消 / 收尾仍由 provider 的 abort / finally 清理。该机制用于 macOS/Linux，只清理本次启动的进程组，不按历史 PID 或进程名杀进程，也不保证清理自行脱离该组的外部进程。回归入口为 `test/agent/guard.test.js`。
+`src/agent/provider.js` 以 detached 进程组启动内部 `bin/lush-agent-guard`，daemon 持有其 stdin 管道；guard 在同组运行真实 pi/codex 并转发 stdout、stderr 与退出码。daemon 任意退出（含 SIGKILL）导致 stdin EOF 后，guard 终止自己的进程组；正常取消 / 收尾仍由 provider 的 abort / finally 清理。该机制用于 macOS/Linux，只清理本次启动的进程组，不按历史 PID 或进程名杀进程，也不保证清理自行脱离该组的外部进程。进程组异常退出不再保留专用回归；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 
 `scheduling.invoke()` 在同一 SQLite 事务内建立 Run 并更新 Worker 的 running / 调用计数。`lifecycle.recover()` 事务性清除凭证、将所有遗留 running Run 标为 failed，并结算中断的新式 Worker；已完成 Run 与历史 Artifact 不重写。Run 的 `ended_at` 是恢复观察时间，不是实际子进程退出时刻，`invocation.recovered` 记录 `{observed_at,actual_exit_at:null}`。当前不再保留专用崩溃恢复组合矩阵；这一覆盖损失不改变恢复契约，见[测试覆盖取舍](../contributing/README.md#覆盖取舍)。
 

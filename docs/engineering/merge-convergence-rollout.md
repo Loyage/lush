@@ -8,15 +8,9 @@
 
 新增能力先验证真实入口 → 单一 RPC 注册 → 权限 → 受控 Provider／真实 bridge → 结果与 Git 落地，再覆盖模块专项。mock 不得冒充 Provider 调用链；不要求为测试调用付费模型。
 
-| 范围 | 主要入口与核验点 |
-|---|---|
-| 一次性核心 | test/project/one-shot-integration.test.js：三来源真实落地、无冲突也调用 Agent、单次 Squash、源身份不变；不再覆盖超过旧八来源边界及摘要截断 |
-| 迭代 | 同文件：多轮精确增量、目标前进后重新适配与验证；不再保留完整准入、取消、重试及中断矩阵 |
-| 公开适配 | test/branch-integrate-api.test.js、test/web/branch-integrate-api.test.js：RPC／CLI／HTTP、严格参数、revision、用户专属、来源与操作读面 |
-| 权限／Provider | test/integration-rpc-permissions.test.js、test/agent/convergence-provider.test.js；核心专项另覆盖受控 Pi 子进程与真实 lushc bridge |
-| 普通串行 | test/project/merge-queue.test.js、test/integration/automation-mount-runtime.test.js：普通交付与挂载的代表链路 |
-| Git／历史兼容 | test/workspaces/convergence-publish.test.js：一次真实批量发布与精确收据恢复；其余旧 v3 专项矩阵已删除，不表示产品兼容被移除 |
-| 前端最终组合 | 工作树／Worker 详情的新操作、ACK 与刷新失败、取消／重试、真实状态、Agent 紫色标识／帮助、窄屏与异常；必须在最终前后端树实际验证 |
+当前完整套件只保留少量普通串行交付主链，不再保留一次性整合、其迭代、独立公开适配／Provider、批量 Git 发布及历史兼容矩阵。正常合并冒烟不能证明这些路径正确；覆盖取舍以[贡献指南](../contributing/README.md#覆盖取舍)为准，不表示产品能力或兼容被移除。
+
+修改一次性整合时须补做受影响专项：真实多来源落地与单次 Squash、源身份、多轮增量、公开入口与 Provider bridge；涉及前端则增加实际操作、结果刷新及布局验证。不默认恢复所有旧异常组合。
 
 使用临时项目、隔离设备设置、可控进程及真实 HTTP／RPC／SQLite／Git，不操作用户运行中的队列或服务。选定范围必须完整跑完；日志、命令、被测树、结果与未覆盖风险进入实际交付记录，不在本文长期保存某次测试计数。
 

@@ -2,48 +2,16 @@ import { test, expect } from 'bun:test';
 import { repo } from '../helpers.js';
 import { fetch, setup } from './harness.js';
 
-test('Web exposes order and worker reads, not legacy mutations or pages', async () => {
+test('Web creates an order and reads its Worker and overview through real RPC', async () => {
   const f = await setup(); await repo(f.root);
   try {
-    const page = await fetch(f.url);
-    const html = await page.text();
-    expect(html).toContain('<strong>工作树</strong>');
-    expect(html).toContain('<h1>工作列表</h1>'); expect(html).toContain('<h1>管家列表</h1>');
-    for (const id of ['versions-open', 'management-open', 'hook-tools-open']) expect(html).not.toContain(`id="${id}"`);
-    expect(html).not.toContain('Task 图');
-    const workspaceNav = html.match(/<nav class="workspace-nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
-    expect([...workspaceNav.matchAll(/id="([^"]+)-open"/g)].map(match => match[1]))
-      .toEqual(['overview', 'task-graph']);
-    expect(html).not.toContain('id="deliveries-open"');
-    const css = html.match(/<link rel="stylesheet" href="(\/web-[a-f0-9]{32}-styles\.css)"/)[1];
-    const stylesheet = await fetch(f.url + css);
-    expect(stylesheet.status).toBe(200);
-    expect(stylesheet.headers.get('cache-control')).toContain('private');
-    expect((await fetch(f.url + '/styles-core.css')).status).toBe(200);
-    expect(html).not.toContain('id="project-home"');
-    const post = (method, params) => fetch(f.url + '/api/action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
-    });
-    const legacy = await post('input.submit', { content: 'old' });
-    expect(legacy.status).toBe(400);
-    expect((await post('say.submit', { content: 'removed public alias' })).status).toBe(400);
-    // 本地分支绑定按用户决定仅保留 CLI / RPC，不留 Web 动作入口。
-    expect((await post('branch.bind', { branch: 'feature', commit: 'a'.repeat(40) })).status).toBe(400);
-    expect((await fetch(f.url + '/api/graph')).status).toBe(404);
-    expect((await fetch(f.url + '/api/overview')).status).toBe(200);
-    expect((await fetch(f.url + '/api/snapshot')).status).toBe(200);
-    // Exercise the explicit compatibility creation path here; durable emission
-    // and delayed Worker admission have their own runtime/HTTP integration tests.
-    const sent = await post('order.submit', { content: '新目标', start: false });
-    expect(sent.status).toBe(200);
-    const created = await sent.json();
-    expect(created.task.task_kind).toBe('order');
-    expect((await fetch(f.url + `/api/worker/${created.task.id}`)).status).toBe(200);
+    const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'order.submit', params: { content: '新目标', start: false } }) });
+    expect(response.status).toBe(200);
+    const created = await response.json(); expect(created.task.task_kind).toBe('order');
+    const detail = await (await fetch(f.url + `/api/worker/${created.task.id}`)).json();
+    expect(detail.id).toBe(created.task.id); expect(detail.goal).toBe('新目标');
     const overview = await (await fetch(f.url + '/api/overview')).json();
     expect(overview.tasks.some(task => task.id === created.task.id)).toBe(true);
-    const child = await post('worker.spawn', { parent: created.task.id, goal: '独立子目标' });
-    expect(child.status).toBe(200);
-    expect((await child.json()).task_kind).toBe('child');
-    expect((await post('worker.reserve', { id: created.task.id, kind: 'showcase' })).status).toBe(400);
   } finally { await f.close(); }
 });

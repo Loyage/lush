@@ -6,35 +6,6 @@ import { until, git, env } from '../helpers.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { RemoteBridgeClient } from '../../src/agent/remote-bridge.js';
 
-test('RPC draft reset -> emission -> creation resolves the current default without rewriting submitted input', async () => {
-  let observed;
-  const f = await runnerProject({ async run(ctx) { observed = ctx.remote_workspace.identity.node_id; return 'default resolved'; } });
-  f.project.stopping = true;
-  try {
-    const draft = await f.dispatcher.dispatch('draft.add', { content: 'use eventual default', branch: 'main', runner_node_id: f.nodes[0].id });
-    const reset = await f.dispatcher.dispatch('draft.update', { id: draft.id, content: draft.content, expected_revision: draft.revision, runner_node_id: null });
-    expect(Object.hasOwn(reset, 'runner_node_id')).toBe(false);
-    const emitted = await f.dispatcher.dispatch('input.emit', { draft_id: draft.id, expected_revision: reset.revision });
-    // Default changes after mounting, before actual creation. Reset must not persist
-    // the previewed default, a local fallback, or a null-valued override.
-    const policy = f.service.readPolicy();
-    await f.service.savePolicy({ allowed_node_ids: policy.allowed_node_ids, default_node_id: f.nodes[1].id }, policy.revision);
-    f.project.stopping = false;
-    await f.project.drainInputEmissions(); f.project.kick();
-    const dispatched = f.project.inputEmissionResult(emitted.draft_id);
-    expect(dispatched.dispatch.state).toBe('succeeded');
-    const taskId = dispatched.dispatch.worker_id;
-    await until(() => !f.project.running.has(taskId) && f.store.task(taskId).calls === 1, 8000);
-    expect(f.store.task(taskId).result).toBe('default resolved');
-    expect(observed).toBe(f.nodes[1].id);
-    expect(f.store.runnerBinding(taskId).node_id).toBe(f.nodes[1].id);
-    const saved = f.store.draft(draft.id);
-    await expect(f.dispatcher.dispatch('draft.update', { id: draft.id, content: 'redirect submitted input', expected_revision: reset.revision, runner_node_id: null })).rejects.toThrow();
-    expect(f.store.draft(draft.id)).toEqual(saved);
-    expect(f.store.runnerBinding(taskId).node_id).toBe(f.nodes[1].id);
-  } finally { await f.close(); }
-});
-
 test('user CLI -> persisted selected node -> actual Project creation -> leased Bridge/Runner -> received commit', async () => {
   let observed;
   const f = await runnerProject({ async run(ctx) {

@@ -79,7 +79,7 @@
 
 节点仅提供 control-only 的 `workspace.code.read`，不授予 Run 工具／Agent。禁用节点或撤销开发授权后仍可经原控制身份只读观察；有活动／未知写入立即返回忙，采样期间漂移返回 stale／不可用，不无限等待或绕过写门。复用同一文件模型、FD 安全读取、隔离 Git、分页和字节预算；独立仓库不加载项目 Git 配置，拒绝链接化 Git 元数据、外部对象来源和任意 ref／宿主路径。
 
-离线、安装身份变化、preparing／unknown 绑定明确不可用，**不得用中央旧提交冒充现场**。只有绑定已确认为 `removed` 才按中央记录的原始 `task.head_commit` 归档读取；working 不可用，不连节点、不保留未提交内容。旧 Worker 无绑定时保持本地行为。真实链路专项为 `test/workspaces/remote-code-reader.test.js` 和 `test/web/remote-code-reader-api.test.js`，使用独立 stdio Runner／仓库；不等于 SSH／真实 cgroup 实机验收。
+离线、安装身份变化、preparing／unknown 绑定明确不可用，**不得用中央旧提交冒充现场**。只有绑定已确认为 `removed` 才按中央记录的原始 `task.head_commit` 归档读取；working 不可用，不连节点、不保留未提交内容。旧 Worker 无绑定时保持本地行为。远端代码读取只保留代表性主流程冒烟，不再逐项回归身份变化、离线与归档组合；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)，独立 stdio Runner／仓库也不等于 SSH／真实 cgroup 实机验收。
 
 ## 生命周期与安全
 
@@ -108,6 +108,6 @@
 
 真实浏览器验证入口 `bun run scripts/check-code-reader-layout.js [截图目录]`：Firefox / geckodriver 驱动真实前端，在明确尺寸的 iframe 中检查实际 1440／900／390／320px viewport（不受桌面最小窗口宽度影响），与临时 Git 项目的 Workspaces 读面通过临时本机 HTTP fixture 对接；覆盖实际文件正文/diff、并排/统一与窄屏布局、路径搜索往返、刷新不抢正文、关闭停止探测。脚本自行清理临时项目/服务/浏览器，失败保留日志；不启动用户 daemon，不冒充生产 Host 鉴权测试（后者由 HTTP/RPC 单测覆盖）。
 
-聚焦自动测试：`bun run test test/workspaces/code-posix.test.js test/workspaces/code-reader.test.js test/web/code-reader-api.test.js test/web/dom-code-view.test.js`。工作区/内核接口用真实临时 Git 与文件系统；HTTP/RPC 与 DOM 用受控 fixture，不调用模型。默认 `bun run test` 运行全部现有 Web/core 套件，不忽略测试目录。
+聚焦自动测试：`bun run test test/workspaces/code-posix.test.js test/workspaces/code-reader.test.js test/workspaces/remote-code-lifecycle.test.js test/web/code-reader-api.test.js`。工作区／内核接口用真实临时 Git 与文件系统；HTTP 只保留 state／tree／content／diff 主流程，独立 DOM 专项已删除，修改相关行为须另做针对性验证，不调用模型。默认 `bun run test` 运行全部现有 Web/core 套件，不忽略测试目录。
 
 改变本契约时必须同步后端与前端，不能单侧改变字段口径。

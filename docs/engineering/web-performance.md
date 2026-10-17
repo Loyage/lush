@@ -51,11 +51,7 @@ bun run docs:check
 
 测试使用临时项目、受控进程或本地 fixture，不重启用户 Host/daemon，不连接真实账号或调用模型。
 
-- `loading-assets.test.js`：源码/产物静态依赖闭包、拆包与 modulepreload、CSS 次序、gzip/ETag、登录与项目路由、旧代/淘汰、缓存权限与路径拒绝。
-- `build-assets-state.test.js`：编译产物入口 namespace、跨入口／懒页面 live 状态单例、懒副作用顺序与重复 import；`dom-built-loading-assets.test.js`：实际 Bun 浏览器产物的共享状态、懒页面和重复 boot；`dom-loading-assets.test.js`：导航/boot 竞态。
-- `dom-refresh-performance.test.js` / `live-performance.test.js`：节点复用、隐藏/恢复、退避/ACK、分页/尾读/慢统计竞争。
-- `detail-request-cache.test.js` / `dom-detail-requests.test.js` / `dom-detail-tail.test.js` / `detail-requests-api.test.js`：核心优先、渐进 diff、标签失效/隔离、只读取消、终态尾部与真实 HTTP 请求组合。
-- `dom-web-performance-integration.test.js`：真实 boot 与轮询/详情生命周期组合。
+- 自动套件仅保留资源启动及页面主流程的少量代表性冒烟；轮询、缓存、分页竞争、渐进加载和迟到响应不再逐项回归。精确路径见 `bun run test:integration --list`，实际断言以测试源码为准；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)，删测不放宽现有性能预算。
 - `check:workbench`：实际 Host + Firefox，记录首屏静态传输、普通再次访问的缓存收益和 WebDriver 主动刷新是否发送验证器，检查拆包、全局导航、独立项目标签及双主题响应式。
 - 输入与规划历史浏览器脚本：真实键盘/原生展开/焦点、慢读取下 ACK、分页和阅读位置保护；这些是本机回环测试，不是远端链路测速。
 

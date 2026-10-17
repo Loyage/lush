@@ -29,10 +29,7 @@
 
 ## 验证
 
-- `test/workspaces/ref-guard.test.js`：独立基线、在途收据、失败副作用、数量上限与所有权丢失。
-- `test/workspaces/task-squash.test.js`：检出／未检出目标的精确 Squash 收据及固定 refs 漂移拒绝。
-- `test/project/completion.test.js`、`test/project/interrupt.test.js`：自动链与安全暂停／继续的代表路径。
-- `test/web/event-labels.test.js`：新观测与未归因名称、旧事件兼容。
+当前仅保留正常合并／交付主流程；refs 漂移、在途收据、失败副作用、自动链中断及旧事件兼容不再保留独立回归。覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)，删测不放宽上述运行时保护。
 
 测试只使用临时项目，不重启用户 daemon、修改其它 Worker 或恢复旧失败状态。修复合入后须在无活动调用时由用户更新 daemon，已失败 Worker仍由用户显式重试。
 

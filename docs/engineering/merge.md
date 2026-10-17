@@ -37,7 +37,7 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 `reservation.blocked_reason` 可能是 pending 意图上一次安全点留下的诊断；当前准入原因应结合 `merge_readiness.reason`、`input_queue.reason` 与直接子的持久预约核对。单次快照只能证明当时的状态，不能证明未来一定成功。
 
-隔离回归 `test/project/merge-queue.test.js` 保留普通队列、无代码交付、脏父拒绝及原源 Agent 修复分歧的代表路径；不操作用户项目或调用付费模型。完整嵌套／冻结组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
+隔离回归 `test/project/merge-queue.test.js` 保留 child 自动交付、parent 显式 Squash 到 main 及批量验收主链；不操作用户项目或调用付费模型。无代码、脏父拒绝、分歧修复及嵌套／冻结组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 
 ### 远端普通交付
 
@@ -47,7 +47,7 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 源侧分歧先通过 Workspaces 下发当前尝试的固定父对象，不推进源 HEAD，再通知原 Worker 修复；仍要求保留两端祖先与语义迁移检查。历史直接合并及集中整合的 Git 写入口拒绝远端分支，不静默绕过上述协议。
 
-`test/project/runner-delivery*.test.js` 覆盖真实 Project 队列、用户专属 RPC、独立 Runner/仓库、跨节点串行修复、ACK 丢失后重建 Project/Store 对账与漂移阻塞。测试显式准备绑定、控制调用调度，不证明完整创建/Provider 调用链或 SSH/cgroup 实机部署；后者由顶层集成验收负责。
+远端自动回归只保留代表性交付主链，不再逐项覆盖跨节点修复、ACK 丢失后的重建对账和漂移组合；实际入口与覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。受控 Runner／仓库测试不证明真实模型或 SSH/cgroup 实机部署；后者须单独验收。
 
 ### Agent 的语义迁移检查
 

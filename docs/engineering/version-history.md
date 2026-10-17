@@ -29,7 +29,7 @@
 
 `render-versions.js` 保留模块入口及 main 图，`render-version-lineage.js` 负责来源图生命周期，`version-lineage-layout.js` 区分节点／映射身份，`version-lineage-mappings.js` 测量真实父边与交付线；专用拓扑样式在 `styles-versions.css`。`version-module.js` 通过既有 `shared-module.js` 接入预览与标题，详情页面统一观察共享模块的几何；节点详情异步更新保持在共享 content 内。详情重绘／导航清理由既有详情入口负责。
 
-- `bun run test test/web/dom-versions.test.js test/web/version-lineage-layout.test.js test/web/version-graph-layout.test.js`：图语义、重复／共享／多落点映射、真实父边与外部边界、未交付／无开发／缺证据、签名分页与三页缓存、按需安全详情、取消／迟到保护、紧凑三类节点、共享超高预览／短内容不裁切、同 Worker 重绘及资源释放；共享模块回归另覆盖异步摘要保留与焦点显露。
+- 版本图、共享／多落点映射及取消／迟到响应等专用自动回归已删除，正常交付冒烟不证明这些界面组合；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 - `bun run scripts/check-versions-layout.js [截图目录]`：隔离临时项目的真实 Web → RPC → Project → SQLite/Git → Firefox，验证两次交付加当前未交付 commit、分页／缓存／刷新、来源／origin 详情、同步第二父边、原生子链接和 main、无交付／无开发及回收历史；额外 fixture 覆盖同源多落点、跨源共享落点、origin 目标、重复 Event 和不可核验落点的线条定位、展开后的重新测量，以及默认超高收起／展开／同 Worker 重绘、桌面与窄屏标题吸顶、裁切目标的键盘显露、72px 窄图与右侧介绍对齐。保留截图与证据，清理自有服务及临时项目，不操作用户服务或调用模型。
 
 浏览器专项覆盖深浅主题及 1440／900／500px 顶层页面；390px 使用真实 iframe 内的生产 DOM/CSS 克隆检查几何（不是独立交互链路）。专项不替代最终集成与全量，未验证浏览器不宣称覆盖。
