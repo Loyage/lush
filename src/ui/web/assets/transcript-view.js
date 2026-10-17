@@ -28,7 +28,7 @@ export function closeTranscriptView() {
 }
 
 /** Fullscreen rich reader; the existing bounded transcript projection remains authoritative. */
-export async function openTranscriptView(taskId, seq, { mode = 'transcript', task = null, returnHash = null } = {}) {
+export async function openTranscriptView(taskId, seq, { mode = 'transcript', task = null, standalone = ui.transcriptView?.standalone === true } = {}) {
   closeTranscriptView();
   const knownTask = task || (ui.composerTask?.id === taskId ? ui.composerTask : null) || ui.lastSnapshot?.tasks?.find(item => item.id === taskId);
   const valet = isValet(knownTask) || workerLabel(taskId).startsWith('V');
@@ -36,17 +36,15 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const panel = el('dialog', undefined, 'transcript-dialog');
   panel.setAttribute('aria-label', `${type} ${workerLabel(knownTask || taskId)} 执行详情`);
   const holder = el('div', undefined, 'transcript');
-  const state = { panel, holder, taskId, returnTarget: document.activeElement,
+  const state = { panel, holder, taskId, standalone, returnTarget: document.activeElement,
     returnScroll: $('detail').scrollTop, wasInert: $('project-app').inert,
     menu: $('context-menu'), menuParent: $('context-menu')?.parentNode };
   state.mode = 'transcript';
   current = state; ui.transcriptView = state; transcriptOpen.add(taskId);
   const toolbar = el('header', undefined, 'transcript-toolbar');
-  const returnToWorker = () => {
-    closeTranscriptView();
-    if (returnHash) location.hash = returnHash;
-  };
-  const back = button(`返回 ${type}`, returnToWorker, 'ghost transcript-back');
+  // A dedicated reader tab has no underlying Worker page to return to.
+  const leaveReader = () => { if (!standalone) closeTranscriptView(); };
+  const back = standalone ? null : button(`返回 ${type}`, leaveReader, 'ghost transcript-back');
   const order = el('div', undefined, 'transcript-order');
   order.setAttribute('role', 'group'); order.setAttribute('aria-label', '执行过程排序');
   const orderButtons = new Map();
@@ -86,7 +84,9 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   state.paintStatus(knownTask);
   const identity = el('div', undefined, 'transcript-identity');
   identity.append(heading, el('span', '执行详情', 'transcript-view-label'), taskStatus);
-  toolbar.append(back, identity);
+  if (standalone) heading.tabIndex = -1;
+  if (back) toolbar.append(back);
+  toolbar.append(identity);
   const tabs = el('div', undefined, 'execution-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '执行详情视图');
   const recordsTab = button('执行记录', () => switchMode('transcript'), 'ghost');
   const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');
@@ -245,7 +245,7 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   sidebar.append(el('h2', '搜索'), reader);
   viewport.append(notice, holder); layout.append(sidebar, viewport); panel.append(toolbar, navigation, layout);
   state.onNavigate = () => { if (current === state) closeTranscriptView(); }; addEventListener('hashchange', state.onNavigate);
-  panel.oncancel = event => { event.preventDefault(); returnToWorker(); };
+  panel.oncancel = event => { event.preventDefault(); leaveReader(); };
   panel.onkeydown = event => {
     if (event.defaultPrevented) return;
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
@@ -254,12 +254,12 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
     } else if (event.key === 'Escape') {
       event.preventDefault();
       if (mobile() && state.searchOpen && state.mode === 'transcript') setSearchOpen(false, true);
-      else returnToWorker();
+      else leaveReader();
     }
   };
   if (state.menu) { state.menu.hidden = true; panel.append(state.menu); }
   document.body.append(panel); panel.showModal?.(); $('project-app').inert = true;
-  back.focus?.({ preventScroll: true });
+  (back || heading).focus?.({ preventScroll: true });
   holder.replaceChildren(...transcriptContent(taskId));
   if (['code', 'performance'].includes(mode) && !valet) { await switchMode(mode); return; }
   try {

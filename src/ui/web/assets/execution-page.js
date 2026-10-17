@@ -9,15 +9,14 @@ export async function openExecutionPage({ taskId, mode }) {
   const view = activateDetailView({ view: 'execution', key: `execution-${taskId}-${mode}`, title: '执行详情', push: false });
   const owner = document, path = location.pathname, hash = location.hash;
   const current = () => document === owner && ui.view === view && location.pathname === path && location.hash === hash;
-  const back = el('a', '返回工作详情', 'nav-link nav-back'); back.href = `#worker-${taskId}`;
-  $('detail').replaceChildren(back);
+  $('detail').replaceChildren(el('p', '正在读取执行详情…', 'hint'));
   try {
     const task = await api(`/api/worker/${taskId}`);
     if (!current()) return;
     // Existing live polling follows the selected Worker, without loading its detail page.
     ui.selected = taskId;
-    await openTranscriptView(taskId, undefined, { mode, task, returnHash: `#worker-${taskId}` });
+    await openTranscriptView(taskId, undefined, { mode, task, standalone: true });
   } catch (error) {
-    if (current()) $('detail').append(el('p', `无法打开执行详情：${error.message}`, 'error'));
+    if (current()) $('detail').replaceChildren(el('p', `无法打开执行详情：${error.message}`, 'error'));
   }
 }

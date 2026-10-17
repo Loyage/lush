@@ -22,5 +22,7 @@ test('Worker detail links its original Input and opens the execution reader on d
   expect([...panel().querySelector('.steps').children].map(node => node.dataset.seq)).toEqual(['5', '4', '3', '2', '1']);
   const list = panel().querySelector('.steps'); await dom.intervalFor(1500)();
   expect(panel().querySelector('.steps')).toBe(list);
-  await findByText(panel(), '返回 Worker').onclick(); expect(panel()).toBeNull();
+  expect(findByText(panel(), '返回 Worker')).toBeNull();
+  const reader = panel(); reader.onkeydown({ key: 'Escape', preventDefault() {} }); expect(panel()).toBe(reader);
+  dom.location.hash = '#workers'; await dom.fire('hashchange'); expect(panel()).toBeNull();
 });

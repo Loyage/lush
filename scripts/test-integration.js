@@ -11,6 +11,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/assets.test.js', // startup graph and existing cold-loading budgets
     'test/web/dom-built-loading-assets.test.js', // compiled app boots with shared state
     'test/web/dom-loading-assets.test.js', // lazy page boot
+    'test/web/dom-detail.test.js', // Worker detail -> independent reader, without a Worker-return action
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy

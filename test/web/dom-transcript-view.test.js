@@ -25,6 +25,7 @@ test('execution reader switches order, pairs live results and returns to Worker 
     expect(requests).toHaveLength(0); await refreshDevicePreferences();
     const trigger = findByText(agent, '打开执行详情'); trigger.focus(); dom.node('detail').scrollTop = 420;
     await openTranscriptView(taskId); const panel = ui.transcriptView.panel;
+    expect(panel.querySelector('.transcript-back').textContent).toBe('返回 Worker');
     const list = panel.querySelector('.steps');
     expect([...list.children].map(node => node.dataset.seq)).toEqual(['2', '1']);
     const tool = list.children[0], output = { seq: 3, kind: 'result', file: 'a', call_id: 'x', body: 'done' };

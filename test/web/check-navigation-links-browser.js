@@ -123,7 +123,7 @@ try {
   }
   await click('.agent-status-head .agent-sources-link');
   await wait(`location.hash==='#model-sources'&&document.querySelector('.model-sources-page')`);
-  // Real Worker -> native new tab -> project-scoped reader, including reload and return.
+  // Real Worker -> native new tab -> independent project-scoped reader, including reload and Escape.
   await repo(f.root); await f.project.bootstrapMain();
   const worker = (await f.project.order('Reader navigation browser fixture', 'main', [], null, false)).task;
   for (let index = 0; index < 105; index++) {
@@ -175,8 +175,9 @@ try {
     assert(await execute(`return window.opener===null`), 'reader exposed opener');
     await rpc(`/session/${session}/refresh`, {});
     await wait(`location.hash==='${hash}'&&document.querySelector('${active}')`);
-    await click('.transcript-back');
-    await wait(`location.hash==='#worker-${worker.id}'&&document.querySelector('.agent-panel')&&!document.querySelector('.transcript-dialog')`);
+    assert(await execute(`return !document.querySelector('.transcript-back')&&!document.querySelector('#detail a[href="#worker-${worker.id}"]')`), 'standalone reader offers a Worker return entry');
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'reader-keyboard', actions: [{ type: 'keyDown', value: '\uE00C' }, { type: 'keyUp', value: '\uE00C' }] }] });
+    assert(await execute(`return location.hash==='${hash}'&&!!document.querySelector('${active}')&&!document.querySelector('.transcript-back')`), 'Escape left the standalone reader');
     await rpc(`/session/${session}/window`, undefined, 'DELETE');
     await rpc(`/session/${session}/window`, { handle: original }); await frame();
     const after = await execute(`return {hash:location.hash,input:document.querySelector('#input').value,scroll:document.querySelector('#detail').scrollTop,page:scrollY,reader:!!document.querySelector('.transcript-dialog')}`);
@@ -204,10 +205,10 @@ try {
   await execute(`document.querySelector('.performance-retries .performance-attempts').open=true`);
   await click('.performance-retries .performance-source');
   await wait(`document.querySelector('[role="tab"][aria-selected="true"]').textContent==='执行记录'&&document.querySelector('.step-located')`);
-  assert(await execute(`return document.querySelector('.step-located').textContent.includes('performance-browser')&&document.querySelector('.step-located').textContent.includes('recorded failed attempt')`), 'command analysis did not locate its failed attempt/output');
+  assert(await execute(`return !document.querySelector('.transcript-back')&&document.querySelector('.step-located').textContent.includes('performance-browser')&&document.querySelector('.step-located').textContent.includes('recorded failed attempt')`), 'command analysis did not locate its failed attempt/output');
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify(layouts, null, 2));
   success = true;
-  console.log('PASS navigation: light/dark × 1440/768/390/320px, native new tab/noopener, Worker transcript/code new tabs + reload/return + preserved source draft/scroll, Shell longest/cumulative + exact-parameter repeated-failure rankings/full-scan/source + exact narrow layouts, callback route/back, keyboard focus/Enter, hover, hidden/long labels and reference/prose exclusions');
+  console.log('PASS navigation: light/dark × 1440/768/390/320px, native new tab/noopener, Worker transcript/code new tabs + reload/no-Worker-return + preserved source draft/scroll, Shell longest/cumulative + exact-parameter repeated-failure rankings/full-scan/source + exact narrow layouts, callback route/back, keyboard focus/Enter, hover, hidden/long labels and reference/prose exclusions');
 } catch (error) {
   if (session) { try { await screenshot('failure'); fs.writeFileSync(path.join(evidence, 'failure-page.json'), JSON.stringify(await execute('return {url:location.href,html:document.documentElement.outerHTML}')));
   } catch {} }
