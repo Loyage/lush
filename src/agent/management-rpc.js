@@ -1,8 +1,7 @@
 /** Trusted Bun-only bridge for Pi's Node extension. Never a user-identity RPC client. */
 import path from 'node:path';
-import { RPCClient } from '../rpc/client.js';
 import { isWorkerNumber } from '../core/worker-number.js';
-import { MANAGER_METHODS } from '../rpc/registry.js';
+import { MANAGER_METHODS } from '../rpc/management-methods.js';
 
 export const MANAGEMENT_RPC_METHODS = Object.freeze([...MANAGER_METHODS]);
 
@@ -48,6 +47,8 @@ export function validateManagementRPC(method, params) {
 export async function runManagementRPC(method, params, env = process.env) {
   const invocation = managementInvocation(env);
   validateManagementRPC(method, params);
+  // The Node extension only imports protocol validation; transport runs in the fixed Bun child.
+  const { RPCClient } = await import('../rpc/client.js');
   return new RPCClient(invocation.socket, 25).request(method, { ...params, _token: invocation.token });
 }
 

@@ -23,13 +23,15 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/input-history.test.js', // persisted input history API
     'test/web/agent-connections-api.test.js', // connection configuration API
     'test/web/runner-management-api.test.js', // Runner management HTTP entry
-    'test/project/management-tool-chain.test.js', // controlled Provider -> real tools/bridge/RPC
+    'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC
+    'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
     'test/project/merge-queue.test.js', // local child -> parent -> main Squash and acceptance
     'test/project/runner-delivery-chain.test.js', // cross-node delivery and acceptance
   ]),
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation main flow
     'test/web/dom-detail-layout-preferences.test.js', // confirmed detail hierarchy
+    'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation
     'test/web/dom-model-sources.test.js', // model settings main flow

@@ -1,7 +1,7 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { workerKind } from './worker-kind.js';
 import { isValet, workTypeLabel } from './work-type.js';
-import { renderManagementState } from './management-state.js';
+import { renderManagementState, renderManagementFailure } from './management-state.js';
 import { action, withReadSignal } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { appendToWorker } from './composer.js';
@@ -132,7 +132,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (!readOnly) actions.append(workerRenameControl(task, { refresh: () => detail(task.id) }));
   const queueText = inputQueueText(task);
   if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
-  for (const [label, text] of [['错误', task.error], ['合并错误', task.integration_error]]) {
+  const managementFailure = management ? renderManagementFailure(task) : null;
+  if (managementFailure) panel.append(managementFailure);
+  for (const [label, text] of [['错误', management ? null : task.error], ['合并错误', task.integration_error]]) {
     if (!text) continue;
     const value = String(text), snippet = value.slice(0, 240);
     panel.append(el('p', `${label}：${snippet}${value.length > snippet.length ? '…' : ''}（完整诊断见页末）`, 'error task-error-summary'));
@@ -307,7 +309,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (progress) panel.append(progress);
   if (conversation) panel.append(conversation);
   panel.append(timeline);
-  if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
+  if (task.error && !management) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
 
   if (management) panel.append(renderManagementState(task));

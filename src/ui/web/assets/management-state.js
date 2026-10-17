@@ -26,6 +26,23 @@ export function managementReceipts(binding) {
   }
   return area;
 }
+/** Failure diagnostics stay above reading previews; never add a replay/retry action. */
+export function renderManagementFailure(task) {
+  const binding = task.management;
+  if (!task.error && task.status !== 'failed' && !['failed','unknown'].includes(binding?.state)) return null;
+  const unknown = binding?.state === 'unknown';
+  const section = block(unknown ? '管家操作结果未知' : '管家调用未完成');
+  section.classList.add('error-panel', 'management-failure');
+  const reason = task.error || binding?.last_execution?.reason || binding?.reason;
+  if (reason) section.append(el('p', String(reason), 'error management-failure-reason'));
+  const legacy = !reason || ['管理调用未完成；绑定已停用，请检查执行记录后另建管理指令。',
+    'management invocation interrupted; no automatic replay',
+    '一次性已消费或管理调用已中断；请另建管理指令，不重放旧授权。'].includes(reason);
+  if (legacy) section.append(el('p', '这条记录未保存可用的具体诊断，无法从现有记录还原失败原因。', 'hint management-diagnostic-unavailable'));
+  section.append(el('p', '不会自动重试或重放。请先核对执行记录与受控操作收据；已开始的操作不会因调用失败而撤回，修复并确认安全后才能另建管理指令。', 'hint'));
+  return section;
+}
+
 export function renderManagementState(task) {
   const section = block('Valet 管理状态'); section.classList.add('management-state');
   const binding = task.management;
@@ -35,7 +52,9 @@ export function renderManagementState(task) {
   section.append(el('p', `${stateLabel(binding.state)} · ${binding.enabled ? '授权启用' : '授权停用'} · ${binding.mode === 'persistent' ? '持续绑定' : '一次性'}`));
   section.append(el('p', binding.origin === 'input' ? '来源：即时 Valet 输入，不等待时间信号。' : `绑定信号：${binding.signal_id || '未知'}；Web 绑定设置入口已移除，已有授权保留。`, 'hint'));
   if (binding.reason) section.append(el('p', binding.reason, ['failed', 'unknown'].includes(binding.state) ? 'error' : 'hint'));
-  if (binding.pending_signal) section.append(el('p', `已提交待处理：${absolute(binding.pending_signal.due_at)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
+  if (binding.pending_signal) section.append(el('p', ['failed','unknown'].includes(binding.state)
+    ? `原事项：${absolute(binding.pending_signal.due_at)}；仅保留诊断身份，不会再次排队。`
+    : `已提交待处理：${absolute(binding.pending_signal.due_at)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
   const last = binding.last_execution;
   if (last) section.append(el('p', `最近处理：${stateLabel(last.status)} · ${absolute(last.finished_at || last.started_at || last.submitted_at || last.created_at || last.due_at)}`, 'hint'));
   section.append(managementReceipts(binding));

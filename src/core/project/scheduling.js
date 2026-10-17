@@ -5,6 +5,7 @@ import { check, TERMINAL, LushError, isSettled, isPlainObject } from '../types.j
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, resumeTaskDelivery, taskDeliveryState, taskSyncDeliveryPaused } from './iteration.js';
 import { tokenHash, workerRunProfile, workerModelSelection, profileEvent } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
+import { AgentInvocationError, safeInvocationMessage } from '../../agent/invocation-error.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 import { MISSING_PI_SOURCE_MESSAGE } from '../../agent/settings.js';
 import { workerLabel } from '../worker-number.js';
@@ -517,9 +518,16 @@ export default {
       const { retry_profile: _retryProfile, management: _privateManagement, ...providerTask } = this.progressView(task);
       const forkPointer = task.task_kind !== 'integration' && task.base_commit ? this.store.get(
         'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
-      const connectionRuntime = agent.connection_id ? await this.agentConnections.prepareRuntime(agent.connection_id) : null;
+      let connectionRuntime;
+      try {
+        connectionRuntime = agent.connection_id ? await this.agentConnections.prepareRuntime(agent.connection_id) : null;
+        if (connectionRuntime) validateRuntimeConnection(agent, connectionRuntime);
+      } catch (error) {
+        if (task.task_kind === 'management' && !run.controller.signal.aborted)
+          throw new AgentInvocationError('pi_model_connection_failed');
+        throw error;
+      }
       if (connectionRuntime) {
-        validateRuntimeConnection(agent, connectionRuntime);
         run.connectionBinding = { id: agent.connection_id, account_key: connectionRuntime.account_key, source_key: connectionRuntime.source_key };
         this.store.event(taskId, 'invocation.connection', { run_id: run.recordId, connection_id: agent.connection_id,
           account_key: connectionRuntime.account_key, model: agent.model });
@@ -730,9 +738,12 @@ export default {
           this.store.event(taskId, 'invocation.preempted', { run_id: run.recordId, ...error.details });
           return;
         }
+        if (run.controller.signal.aborted)
+          error = new AgentInvocationError(timedOut ? 'invocation_timeout' : 'invocation_interrupted');
         if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running')
-          this.store.finishRun(run.recordId, 'failed', { error: 'management invocation interrupted; no automatic replay' });
-        this.failManagementOccurrence(taskId, 'failed');
+          this.store.finishRun(run.recordId, 'failed', { error: safeInvocationMessage(error)
+            ?? '管理调用异常结束，未记录可用的具体原因；不自动重放。' });
+        this.failManagementOccurrence(taskId, 'failed', error);
         return;
       }
       if (error instanceof AgentPreempted) {

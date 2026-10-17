@@ -32,7 +32,7 @@ rg -n 'questionnaire|questions-file' src/cli src/core test/notice-cli.test.js -g
 ```bash
 bun run test 路径...     # 子 Worker 的专项／受影响回归
 bun run docs:check      # 修改文档时
-bun run test            # 顶层开发指令交付前的全量 Web/core 套件；只需 Bun / Git
+bun run test            # 顶层开发指令交付前的全量 Web/core 套件；Bun / Git，管家扩展兼容回归另需 Node
 ```
 
 已有全量通过结果仅在被测代码树（含测试）、命令／范围及关键环境一致，且证据完整可追溯时复用；仅 Squash 改变提交号不要求重测，无法确认一致则不得复用。代码／测试变化后不得沿用旧树的通过结论。全量失败先定位并修复本次回归、重跑失败专项，最终再完整跑全量；区分既有失败与环境问题，不扩大为无关修复，也不得把仍失败的全量报成通过。

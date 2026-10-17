@@ -15,6 +15,7 @@ import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
 import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
 import { MANAGEMENT_TOOL_NAMES } from './pi-management.js';
 import { runRemotePi } from './remote-provider.js';
+import { AgentInvocationError, piProcessFailure } from './invocation-error.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const GUARD = path.join(BIN, 'lush-agent-guard');
@@ -102,7 +103,7 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   return { sessions, promptFile, systemFile, builtinSkills: prompt.builtin_skills, environment: { ...environment, values } };
 }
 
-async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onInputDelivered = null, onPreempt = null, onStdout = null, extraEnv = {} }) {
+async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onInputDelivered = null, onPreempt = null, onStdout = null, extraEnv = {}, safeErrors = false }) {
   // The daemon never starts pi/codex directly: it starts the internal guard detached and owns
   // its stdin pipe. The guard runs the real command in the same process group, forwards
   // stdout/stderr and the exit code, and kills that group if the daemon dies (stdin EOF) —
@@ -141,17 +142,25 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
   const paths = preemptPaths(config);
   const preempt = paths ? { ...paths, taskId: config.taskId, runId: config.runId ?? null } : null;
   try {
-    const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
+    const code = await new Promise((resolve, reject) => {
+      child.on('error', error => reject(safeErrors ? new AgentInvocationError('pi_launch_failed') : error));
+      child.on('close', resolve);
+    });
     if (signal.aborted) {
       const reason = signal.reason;
+      if (safeErrors && !(reason instanceof AgentPreempted)) throw new AgentInvocationError('invocation_interrupted');
       throw reason instanceof Error ? reason
         : new Error(typeof reason === 'string' && reason ? reason : 'agent invocation interrupted');
     }
     // 进程自己退出了，而且这一轮在声明的安全边界（本轮工具都结束后）留了标记：按抢占而不是完成/失败处理。
     const mark = takePreemptMark(preempt);
     if (mark) { onPreempt?.(mark); throw new AgentPreempted(mark); }
-    if (overflow) throw new Error(`agent output exceeded ${MAX_RESULT} characters`);
-    if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderrOverflow ? 'diagnostic output exceeded limit' : redactNetworkText(networkEnv, stderr)}`);
+    if (overflow) throw safeErrors ? new AgentInvocationError('invocation_output_limit')
+      : new Error(`agent output exceeded ${MAX_RESULT} characters`);
+    if (code !== 0) {
+      if (safeErrors) throw piProcessFailure(code, stderr, stderrOverflow);
+      throw new Error(`${path.basename(command)} exited ${code}: ${stderrOverflow ? 'diagnostic output exceeded limit' : redactNetworkText(networkEnv, stderr)}`);
+    }
     return redactNetworkText(networkEnv, output.trim());
   } finally {
     signal.removeEventListener('abort', kill);
@@ -226,7 +235,12 @@ export class PiProvider {
       if (agent.thinking) args.unshift('--thinking', agent.thinking);
       if (agent.model) args.unshift('--model', agent.model);
     }
-    const managed = piMode ? null : createRuntimeConnection(config, agent, connectionRuntime);
+    let managed;
+    try { managed = piMode ? null : createRuntimeConnection(config, agent, connectionRuntime); }
+    catch (error) {
+      if (manager) throw new AgentInvocationError('pi_model_connection_failed');
+      throw error;
+    }
     // Pi-default mode still applies the project outbound network policy; it only skips the private
     // credential snapshot and the Lush Agent env files (already absent from the Pi-mode values).
     const values = piMode ? defaultPiEnvironment(config, files.environment.values)
@@ -236,6 +250,7 @@ export class PiProvider {
         config: { ...config, env: piMode ? defaultPiEnvironment(config, config.env)
           : isolatedPiEnvironment(config, config.env, managed.dir),
           taskId: task.id, runId: context.invocation?.run_id ?? null }, cwd, token: isolated ? '' : token, signal, onSpawn, onInputDelivered, onPreempt,
+        safeErrors: manager || Boolean(managed),
         extraEnv: { ...values, ...(manager ? { LUSH_MANAGER_RPC_SOCKET: config.socket, LUSH_MANAGER_BUN: process.execPath } : {}),
           LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
             task_id: task.id, role: task.role, task_kind: task.task_kind ?? null, config_mode: piMode ? 'pi' : 'lush',
@@ -246,7 +261,9 @@ export class PiProvider {
       return secret ? result.replaceAll(secret, '[redacted]') : result;
     } catch (error) {
       // A managed CLI may echo auth in stderr. Never persist its raw diagnostic text.
-      if (managed && !(error instanceof AgentPreempted) && !signal.aborted) throw new Error('managed Pi invocation failed; check model and connection configuration');
+      if (error instanceof AgentInvocationError) throw error;
+      if ((manager || managed) && !(error instanceof AgentPreempted) && !signal.aborted)
+        throw new AgentInvocationError('pi_invocation_failed');
       throw error;
     } finally {
       if (managed) {

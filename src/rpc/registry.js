@@ -123,7 +123,7 @@ export const AGENT_ONLY = new Set([
   'manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call',
 ]);
 /** Management invocations have a narrower capability than ordinary development Agents. */
-export const MANAGER_METHODS = new Set(['manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call','worker.lookup']);
+export { MANAGER_METHODS } from './management-methods.js';
 /** Integration invocations can inspect fixed work and ask/report for themselves, never deliver or spawn. */
 export const INTEGRATION_METHODS = new Set([
   'notice.post','progress.plan','progress.complete',

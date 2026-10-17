@@ -6,12 +6,14 @@ import { assertManager } from './management-auth.js';
 import controlMethods, { managementControlPending, trackControlJob } from './management-control.js';
 import permissionMethods from './management-permissions.js';
 import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
+import { safeInvocationMessage } from '../../agent/invocation-error.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
   managementView, managementWorkers, managementEnableReason, managementUnsettled } from './management-data.js';
 
 const unknownReason = '管理调用或操作曾中断，副作用未知；绑定已停用，不自动重放。';
-const failedReason = '管理调用未完成；绑定已停用，请检查执行记录后另建管理指令。';
+const failureAction = '管理授权已停用，不自动重放。请先核对执行记录与受控操作收据，确认安全并修复原因后再另建管理指令。';
+const failedReason = `管理调用未完成，未记录可用的具体原因。\n${failureAction}`;
 function revokeOwnQuestion(project, taskId, state) {
   if (state.pending_signal?.phase !== 'question') return;
   project.store.run("UPDATE notices SET status='dismissed',answer='management authorization stopped' WHERE id=? AND task_id=? AND status='open'",
@@ -476,13 +478,15 @@ export default {
     this.kick();
   },
 
-  failManagementOccurrence(taskId, outcome = 'failed') {
+  failManagementOccurrence(taskId, outcome = 'failed', error = null) {
     const task = this.store.task(taskId), state = managementState(task);
     // A later Provider exception must not downgrade an already durable unknown effect to failed,
     // replace its receipt diagnostics, or emit a second occurrence-failure decision.
     if (!state || (!state.enabled && ['failed','unknown'].includes(state.state))) return;
     this.store.transaction(() => {
-      state.enabled = false; state.state = outcome; state.reason = outcome === 'unknown' ? unknownReason : failedReason;
+      const diagnostic = safeInvocationMessage(error);
+      state.enabled = false; state.state = outcome;
+      state.reason = outcome === 'unknown' ? unknownReason : diagnostic ? `${diagnostic}\n${failureAction}` : failedReason;
       this.revokeManagementCapabilities(task.id, state);
       for (const receipt of state.receipts) if (receipt.status === 'waiting') { receipt.status = 'skipped'; receipt.reason = '管理授权已停止。'; }
       state.last_execution = state.pending_signal ? { ...state.pending_signal, status: outcome,

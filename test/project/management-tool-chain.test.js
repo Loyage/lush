@@ -26,7 +26,8 @@ test('management tools, trusted bridge, RPC registrations and invocation allowli
   }
 });
 
-for (const runtime of ['bun']) for (const mode of ['pi']) {
+// Node/Lush covers the production Pi extension import graph; Bun/Pi preserves the other config path.
+for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
   test(`${runtime}/${mode}: Provider -> active real tools -> Bun bridge -> invocation-authorized RPC -> persisted effects/public results`, async () => {
     const f = fixture(); let rpc;
     try {

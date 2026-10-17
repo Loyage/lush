@@ -66,7 +66,8 @@ export function managementView(task, project) {
   return { version: 1, revision: managementRevision(task, state), signal_id: state.signal_id, mode: state.mode,
     origin: state.origin ?? 'signal',
     enabled: state.enabled, can_enable: enableReason === null, state: state.state,
-    reason: !state.enabled && enableReason ? enableReason : state.reason ?? null,
+    reason: ['failed','unknown'].includes(state.state) ? state.reason ?? enableReason
+      : !state.enabled && enableReason ? enableReason : state.reason ?? null,
     pending_signal: execution(state.pending_signal ? { ...state.pending_signal, actions: state.receipts, control_calls: state.control_calls ?? [] } : null),
     last_execution: execution(state.last_execution) };
 }
