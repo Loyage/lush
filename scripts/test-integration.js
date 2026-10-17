@@ -17,6 +17,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-task-graph-clutter.test.js', // inline merge status beside usage, diagnostics and action placement
     'test/web/core-api.test.js', // rendered navigation allowlist and real HTTP action/read routes
     'test/web/dom-loading-assets.test.js', // lazy routes and root deep-link boot
+    'test/web/performance-api.test.js', // performance tab -> real authenticated evidence -> ranking and original-step navigation
     'test/web/settings.test.js', // old device Runner entry navigates to the independent global page without project polling
     'test/web/cli-catalog-api.test.js', // actual Runner command names are public, credential payloads are not
     'test/web/cli-catalog-cache.test.js', // authenticated static Runner catalogue without project startup
@@ -34,6 +35,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/runner-deployment-api.test.js', // user HTTP -> real deployment service -> controlled SSH blocked; no install or fabricated production readiness
     'test/project/lifecycle-evidence.test.js', // controlled Provider -> durable phases/input provenance -> existing authenticated history APIs
     'test/web/worker-lifecycle-integration.test.js', // real Project/HTTP facts -> two independent readers and exact source navigation
+    'test/web/performance-api.test.js', // authenticated project HTTP/RPC -> bounded timing evidence without results/configuration
     'test/project/runner-emission-chain.test.js', // actual user CLI -> persisted selection -> Project/leased Bridge -> independent Runner commit
     'test/project/runner-tool-reconcile.test.js', // lost Bridge ACK -> central restart -> actual user CLI/HTTP verification; no replay or automatic retry
     'test/project/runner-command-reconcile.test.js', // command admission ACK is not stop proof; original execution and unknown stop
@@ -78,6 +80,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-inputs.test.js', // separate history/drafts, conditional editor, dirty navigation, single-flight and late-result guards
     'test/web/dom-worker-lifecycle.test.js', // phase intervals, causal evidence, retained reader state and exact reference routing
     'test/web/worker-lifecycle-model.test.js', // honest legacy/gap/partial-history projection
+    'test/web/performance-data.test.js', // explicit full scan, bounded metadata, cancellation and strict pagination
+    'test/web/performance-model.test.js', // interval unions, unknown/partial evidence, net milestones and unique tool pairing
+    'test/web/dom-performance-view.test.js', // lazy tab, cancelled/late scans, ranked source navigation and retained samples
     'test/web/dom-detail-layout-preferences.test.js', // confirmed input-output / lifecycle module hierarchy
     'test/web/dom-detail-progressive.test.js', // cached history/loading state, selection deferral and lifecycle listener cleanup
     'test/web/dom-task-message.test.js', // communication/raw references now belong to the lifecycle reader

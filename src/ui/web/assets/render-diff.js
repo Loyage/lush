@@ -1,5 +1,5 @@
-import { block, button, el, kv } from './dom.js';
-import { openTranscriptView } from './transcript-view.js';
+import { block, el, kv } from './dom.js';
+import { executionLink } from './execution-route.js';
 import { CHANGE, short } from './format.js';
 import { referenceable } from './context-references.js';
 import { workerLabel } from './worker-label.js';
@@ -37,8 +37,8 @@ export function renderDiff(diff, taskId = null, task = null, { loading = false, 
   if (task) {
     const context = el('div', undefined, 'code-context');
     context.append(kv(task.task_kind === 'management' || task.role === 'manager' ? '目录路径（管理工作目录）' : '目录路径', task.workspace || '无专属工作区', 'mono'),
-      button('打开代码阅读器', () => openTranscriptView(taskId, undefined, { mode: 'code' }), 'ghost code-reader-open',
-        { help: '只读打开完整目录树（含未改文件）、文件正文与差异；点击才加载，不运行代码、不调用 Agent。归档后按现有提交可用性降级。' }));
+      executionLink(taskId, { mode: 'code', className: 'code-reader-open',
+        help: '在新标签页只读打开完整目录树（含未改文件）、文件正文与差异；点击才加载，不运行代码、不调用 Agent。归档后按现有提交可用性降级。' }));
     section.append(context);
   }
   const body = el('div', undefined, 'detail-diff-body'); section.append(body);

@@ -143,7 +143,9 @@ test('Valet core detail reuses goal/result/Agent and record reader without Git o
   expect(panel.querySelector('a[href="#notices-82"]')).toBeTruthy();
   expect(requests.some(path => /\/diff|\/relations|\/code-|\/transcript/.test(path))).toBe(false);
   expect(actions).toHaveLength(0);
-  const entry = panel.querySelectorAll('button').find(node => node.textContent === '打开执行详情'); await entry.onclick();
+  const entry = panel.querySelectorAll('a').find(node => node.textContent === '打开执行详情');
+  expect(entry.target).toBe('_blank');
+  await openTranscriptView(valet.id, undefined, { task: valet });
   expect(ui.transcriptView.panel.querySelectorAll('[role="tab"]').map(node => node.textContent)).toEqual(['执行记录']);
   expect(deepText(ui.transcriptView.panel)).toContain('Valet V12');
   expect(requests.some(path => path.includes('/transcript'))).toBe(true);

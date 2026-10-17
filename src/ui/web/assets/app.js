@@ -30,6 +30,7 @@ import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
 import { projectRoute, projectBase, workspaceHref } from './route.js';
 import { configureWorkspaceShell, renderGlobalInboxSummary, workspaceLink } from './workspace-shell.js';
 import { RUNNERS_PAGE, runnersHash, runnersTarget } from './runner-page-route.js';
+import { executionTarget } from './execution-route.js';
 import { requestPageLeave, resetPageLeaveGuard, registerPageLeaveGuard } from './page-leave-guard.js';
 import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
 
@@ -169,6 +170,9 @@ function openHashTarget(hash, project, doc, generation) {
   if (hash === '#drafts') return openInputs({ section: 'drafts', push: false });
   const input = /^#input-(draft|input|message|management)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
+  const execution = executionTarget(hash);
+  if (execution) return openPage(() => import('./execution-page.js'), module => module.openExecutionPage(execution), 'execution',
+    { key: `execution-${execution.taskId}-${execution.mode}`, push: false, hash });
   const delivery = deliveryTarget(hash);
   if (delivery) return openDeliveryView({ ...delivery, push: false }).catch(report);
   const graphWorker = /^#worker-graph(?:-worker-([1-9]\d*))?$/.exec(hash);
@@ -192,7 +196,7 @@ function openHashTarget(hash, project, doc, generation) {
   }
   const next = linked(hash);
   if (!next) return overview().catch(report);
-  return next === ui.selected ? undefined : detail(next).catch(report);
+  return next === ui.selected && ui.view?.id === 'task' ? undefined : detail(next).catch(report);
 }
 let refreshTimer = null, liveTimer = null, hashListener = null, disposeRefreshPolling = null;
 let disposePreferences = null, disposeAutomation = null, disposeAutomationView = null, disposeInbox = null, disposeInboxReady = null;

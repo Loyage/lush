@@ -25,13 +25,14 @@ const { openManagement } = await import('../../src/ui/web/assets/render-manageme
 const { ui, transcriptCache } = await import('../../src/ui/web/assets/state.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
-const { closeTranscriptView } = await import('../../src/ui/web/assets/transcript-view.js');
+const { openTranscriptView, closeTranscriptView } = await import('../../src/ui/web/assets/transcript-view.js');
 const { appendTranscriptSteps, paintTranscript } = await import('../../src/ui/web/assets/render-transcript.js');
 const { setPref, writePref } = await import('../../src/ui/web/assets/prefs.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: id => details.push(id) });
 const root = () => dom.node('detail');
 const btn = label => root().querySelectorAll('button').find(item => item.textContent === label);
+const readerLink = () => root().querySelectorAll('a').find(item => item.textContent === '打开执行详情');
 const render = row => { activateDetailView({ view: 'task', key: 'task-900' }); ui.selected = 900; renderDetail(row, null, null, null); };
 beforeEach(() => {
   closeTranscriptView(); catalogue = structuredClone(base); reads = []; actions = []; details = []; intercept = null;
@@ -67,7 +68,8 @@ test('management detail retains safe receipts and real record reader, without bi
   expect(text).toContain('待用户确认（尚未执行）'); expect(root().querySelector('a[href="#notices-99"]').textContent).toBe('N99');
   expect(text).not.toContain('NEVER_SHOW'); expect(text).toContain('副作用未知，不自动重放');
   await btn('刷新详情').onclick(); expect(details).toEqual([900]);
-  await btn('打开执行详情').onclick(); expect(ui.transcriptView.taskId).toBe(900);
+  expect(readerLink().target).toBe('_blank');
+  await openTranscriptView(900, undefined, { task: manager }); expect(ui.transcriptView.taskId).toBe(900);
   expect(reads.some(path => path.includes('/api/worker/900/transcript'))).toBe(true);
   for (const label of ['启用管理绑定', '停用管理绑定', '合并', '验收', '归档', '重试']) expect(btn(label)).toBeUndefined();
   expect(actions).toEqual([]);
@@ -75,7 +77,8 @@ test('management detail retains safe receipts and real record reader, without bi
 
 test('full Valet detail retains explicit V identity or legacy #id with one execution-only tab', async () => {
   for (const number of [null, 'V9']) {
-    render({ ...manager, worker_number: number }); await btn('打开执行详情').onclick();
+    const task = { ...manager, worker_number: number }; render(task);
+    await openTranscriptView(900, undefined, { task });
     expect(deepText(ui.transcriptView.panel)).toContain(`Valet ${number || '#900'}`);
     expect(ui.transcriptView.panel.querySelectorAll('[role="tab"]').map(node => node.textContent)).toEqual(['执行记录']);
     closeTranscriptView(); transcriptCache.delete(900);
@@ -93,8 +96,8 @@ test('management execution reader renders timing, paging and sorting independent
     : { steps: [...all], files: ['manager'], oldest: 3, next: all.at(-1).seq, has_older: true, has_more: false }) : null;
   try {
     render(manager); ui.selected = null;
-    const trigger = btn('打开执行详情'); trigger.focus();
-    await trigger.onclick();
+    const trigger = readerLink(); trigger.focus();
+    await openTranscriptView(900, undefined, { task: manager });
     const holder = ui.transcriptView.holder, item = holder.querySelector('.step');
     expect(ui.selected).toBeNull();
     expect(item.querySelector('.step-model-duration')).toBeNull();
@@ -120,12 +123,12 @@ test('management execution reader renders timing, paging and sorting independent
 test('missing binding stays read-only and does not invent authorization', async () => {
   const row = { ...manager }; delete row.management; render(row);
   expect(deepText(root())).toContain('绑定状态暂不可用'); expect(btn('启用管理绑定')).toBeUndefined();
-  await btn('刷新详情').onclick(); expect(details).toEqual([900]); expect(btn('打开执行详情')).toBeTruthy(); expect(actions).toEqual([]);
+  await btn('刷新详情').onclick(); expect(details).toEqual([900]); expect(readerLink().target).toBe('_blank'); expect(actions).toEqual([]);
 });
 
 test('late Valet execution response cannot repaint a newer view or leave an active reader', async () => {
   const pending = gate(); intercept = path => path.includes('/api/worker/900/transcript') ? pending.promise : null;
-  render(manager); const opening = btn('打开执行详情').onclick(); await until(() => reads.some(path => path.includes('/transcript')));
+  render(manager); const opening = openTranscriptView(900, undefined, { task: manager }); await until(() => reads.some(path => path.includes('/transcript')));
   closeTranscriptView(); activateDetailView({ view: 'overview' }); root().replaceChildren(document.createTextNode('新页面'));
   pending.resolve(json({ steps: [{ seq: 1, kind: 'text', body: 'OLD MANAGEMENT' }], files: [], next: 1, has_more: false })); await opening;
   expect(ui.transcriptView).toBeNull(); expect(deepText(root())).toBe('新页面'); expect(actions).toEqual([]);

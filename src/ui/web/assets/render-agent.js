@@ -3,7 +3,7 @@ import { lastView, money, relative, tokens } from './format.js';
 import { tokensChip } from './render-transcript.js';
 import { ui } from './state.js';
 import { show } from './messages.js';
-import { openTranscriptView } from './transcript-view.js';
+import { executionLink } from './execution-route.js';
 
 /** 把文本写进剪贴板；优先用 async clipboard，非安全上下文回退到临时 textarea。 */
 async function copyText(text) {
@@ -78,8 +78,8 @@ export function renderAgent(task, usage) {
   }
   const process = block('执行过程');
   const controls = el('div', undefined, 'actions');
-  controls.append(button('打开执行详情', () => openTranscriptView(task.id, undefined, { task }), 'ghost',
-    { help: '全屏阅读执行记录，可切换正序和倒序、搜索完整历史；只读，不执行命令，也不调用 Agent' }));
+  controls.append(executionLink(task.id,
+    { help: '在新标签页全屏阅读执行记录，可切换正序和倒序、搜索完整历史；只读，不执行命令，也不调用 Agent。' }));
   process.append(controls);
   // 只复制终端内观看命令；项目来自本页固定来源，单引号避免路径成为 Shell 代码。
   const project = ui.lastSnapshot?.status?.project;

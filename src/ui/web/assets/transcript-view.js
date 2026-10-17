@@ -2,8 +2,9 @@ import { $, el, button } from './dom.js';
 import { ui, transcriptCache, transcriptOpen } from './state.js';
 import { loadTranscript, paintTranscript, transcriptContent, transcriptMatch, locateTranscriptStep, transcriptOrder } from './render-transcript.js';
 import { api } from './api.js';
-import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep } from './transcript-reader.js';
+import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep, clearTranscriptSearch } from './transcript-reader.js';
 import { createCodeView } from './code-view.js';
+import { createPerformanceView } from './performance-view.js';
 import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange } from './prefs.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';
@@ -15,7 +16,7 @@ export function closeTranscriptView() {
   const state = current;
   if (!state) return;
   current = null;
-  state.code?.dispose(); state.disposePreference?.();
+  state.code?.dispose(); state.performance?.dispose(); state.disposePreference?.();
   releaseTranscriptReader(state.taskId);
   removeEventListener('hashchange', state.onNavigate);
   if (state.menu) { state.menu.hidden = true; (state.menuParent || document.body).append(state.menu); }
@@ -27,7 +28,7 @@ export function closeTranscriptView() {
 }
 
 /** Fullscreen rich reader; the existing bounded transcript projection remains authoritative. */
-export async function openTranscriptView(taskId, seq, { mode = 'transcript', task = null } = {}) {
+export async function openTranscriptView(taskId, seq, { mode = 'transcript', task = null, returnHash = null } = {}) {
   closeTranscriptView();
   const knownTask = task || (ui.composerTask?.id === taskId ? ui.composerTask : null) || ui.lastSnapshot?.tasks?.find(item => item.id === taskId);
   const valet = isValet(knownTask) || workerLabel(taskId).startsWith('V');
@@ -41,7 +42,11 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   state.mode = 'transcript';
   current = state; ui.transcriptView = state; transcriptOpen.add(taskId);
   const toolbar = el('header', undefined, 'transcript-toolbar');
-  const back = button(`返回 ${type}`, closeTranscriptView, 'ghost transcript-back');
+  const returnToWorker = () => {
+    closeTranscriptView();
+    if (returnHash) location.hash = returnHash;
+  };
+  const back = button(`返回 ${type}`, returnToWorker, 'ghost transcript-back');
   const order = el('div', undefined, 'transcript-order');
   order.setAttribute('role', 'group'); order.setAttribute('aria-label', '执行过程排序');
   const orderButtons = new Map();
@@ -85,7 +90,9 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const tabs = el('div', undefined, 'execution-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '执行详情视图');
   const recordsTab = button('执行记录', () => switchMode('transcript'), 'ghost');
   const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');
-  for (const [tab, name] of [[recordsTab, 'transcript'], [codeTab, 'code']]) {
+  const performanceTab = button('性能分析', () => switchMode('performance'), 'ghost');
+  const viewTabs = valet ? [[recordsTab, 'transcript']] : [[recordsTab, 'transcript'], [codeTab, 'code'], [performanceTab, 'performance']];
+  for (const [tab, name] of viewTabs) {
     tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(name === state.mode));
     tab.setAttribute('aria-controls', `execution-${name}-${taskId}`);
     tab.id = `execution-tab-${name}-${taskId}`;
@@ -93,12 +100,14 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
     tab.onkeydown = event => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const mode = valet || event.key === 'Home' ? 'transcript' : event.key === 'End' ? 'code' : state.mode === 'code' ? 'transcript' : 'code';
-      void switchMode(mode); (mode === 'code' ? codeTab : recordsTab).focus();
+      const index = viewTabs.findIndex(([, name]) => name === state.mode);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? viewTabs.length - 1
+        : (index + (event.key === 'ArrowLeft' ? -1 : 1) + viewTabs.length) % viewTabs.length;
+      void switchMode(viewTabs[next][1]); viewTabs[next][0].focus();
     };
   }
   codeTab.hidden = valet;
-  tabs.append(recordsTab, ...(valet ? [] : [codeTab]));
+  tabs.append(...viewTabs.map(([tab]) => tab));
   const navigation = el('div', undefined, 'execution-navigation');
   const readingTools = el('div', undefined, 'transcript-reading-tools');
   const toggleSearch = button('搜索', () => setSearchOpen(!state.searchOpen, true), 'ghost transcript-search-toggle',
@@ -116,14 +125,17 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   toggleSearch.setAttribute('aria-expanded', 'false');
   readingTools.append(orderHost, toggleSearch); navigation.append(tabs, readingTools);
   async function switchMode(mode) {
-    if (current !== state || mode === state.mode || (valet && mode === 'code')) return;
+    if (current !== state || mode === state.mode || !viewTabs.some(([, value]) => value === mode)) return;
     state.mode = mode;
     layout.hidden = mode !== 'transcript'; readingTools.hidden = mode !== 'transcript';
-    for (const [tab, value] of [[recordsTab, 'transcript'], [codeTab, 'code']]) {
+    for (const [tab, value] of viewTabs) {
       tab.setAttribute('aria-selected', String(mode === value)); tab.tabIndex = mode === value ? 0 : -1;
     }
+    if (state.code && mode !== 'code') { state.code.root.hidden = true; await state.code.setActive(false); }
+    if (state.performance && mode !== 'performance') { state.performance.root.hidden = true; await state.performance.setActive(false); }
+    if (current !== state || state.mode !== mode) return;
+    if (mode !== 'transcript') { pauseTranscriptReader(taskId); transcriptOpen.delete(taskId); }
     if (mode === 'code') {
-      pauseTranscriptReader(taskId); transcriptOpen.delete(taskId);
       if (!state.code) {
         state.code = createCodeView(taskId, { onSearch: async path => {
           await switchMode('transcript');
@@ -136,9 +148,20 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
         panel.append(state.code.root);
       }
       state.code.root.hidden = false; await state.code.setActive(true);
+    } else if (mode === 'performance') {
+      if (!state.performance) {
+        state.performance = createPerformanceView(taskId, { onStep: async seq => {
+          await switchMode('transcript');
+          if (current !== state || state.mode !== 'transcript') return;
+          await clearTranscriptSearch(taskId); setSearchOpen(false);
+          await locateTranscriptStep(taskId, seq);
+        } });
+        state.performance.root.id = `execution-performance-${taskId}`;
+        state.performance.root.setAttribute('role', 'tabpanel'); state.performance.root.setAttribute('aria-labelledby', performanceTab.id);
+        panel.append(state.performance.root);
+      }
+      state.performance.root.hidden = false; await state.performance.setActive(true);
     } else {
-      if (state.code) { state.code.root.hidden = true; await state.code.setActive(false); }
-      if (current !== state || state.mode !== 'transcript') return;
       transcriptOpen.add(taskId);
       if (!state.filtered && (!transcriptCache.has(taskId) || (transcriptCache.get(taskId)?.order && transcriptCache.get(taskId).order !== transcriptOrder()))) await loadTranscript(taskId);
     }
@@ -221,8 +244,8 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   });
   sidebar.append(el('h2', '搜索'), reader);
   viewport.append(notice, holder); layout.append(sidebar, viewport); panel.append(toolbar, navigation, layout);
-  state.onNavigate = closeTranscriptView; addEventListener('hashchange', state.onNavigate);
-  panel.oncancel = event => { event.preventDefault(); closeTranscriptView(); };
+  state.onNavigate = () => { if (current === state) closeTranscriptView(); }; addEventListener('hashchange', state.onNavigate);
+  panel.oncancel = event => { event.preventDefault(); returnToWorker(); };
   panel.onkeydown = event => {
     if (event.defaultPrevented) return;
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
@@ -231,14 +254,14 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
     } else if (event.key === 'Escape') {
       event.preventDefault();
       if (mobile() && state.searchOpen && state.mode === 'transcript') setSearchOpen(false, true);
-      else closeTranscriptView();
+      else returnToWorker();
     }
   };
   if (state.menu) { state.menu.hidden = true; panel.append(state.menu); }
   document.body.append(panel); panel.showModal?.(); $('project-app').inert = true;
   back.focus?.({ preventScroll: true });
   holder.replaceChildren(...transcriptContent(taskId));
-  if (mode === 'code' && !valet) { await switchMode('code'); return; }
+  if (['code', 'performance'].includes(mode) && !valet) { await switchMode(mode); return; }
   try {
     if (!transcriptCache.has(taskId)) await loadTranscript(taskId);
     if (current !== state) return;

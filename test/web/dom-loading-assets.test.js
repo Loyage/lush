@@ -41,6 +41,59 @@ test('replacement project boot cancels an old global chunk and owns one live nav
   } finally { project.restore(); dom.location.hash = '#projects'; await boot(); }
 });
 
+test('project execution bookmarks boot directly into either reader and return to the Worker in that tab', async () => {
+  const reads = [];
+  const project = installProjectDom({ fetch: (url, options) => {
+    reads.push(String(url));
+    if (String(url).endsWith('/code-state')) return Promise.resolve(new Response(JSON.stringify({ available: false, reason: 'archived' })));
+    return world.fetchImpl(url, options);
+  } });
+  try {
+    project.location.hash = '#worker-1-execution-code'; await boot();
+    expect(ui.view.id).toBe('execution'); expect(ui.transcriptView.mode).toBe('code');
+    expect(project.location.hash).toBe('#worker-1-execution-code');
+    expect(reads.some(path => path.includes('/code-state'))).toBe(true);
+    expect(reads.some(path => path.includes('/transcript'))).toBe(false);
+    await boot(); expect(ui.transcriptView.mode).toBe('code');
+    project.location.hash = '#worker-1-execution'; await project.fire('hashchange');
+    expect(ui.transcriptView.mode).toBe('transcript');
+    expect(ui.transcriptView.panel.querySelector('.steps')).toBeTruthy();
+    ui.transcriptView.panel.onkeydown({ key: 'Escape', preventDefault() {} });
+    expect(ui.transcriptView).toBeNull(); expect(project.location.hash).toBe('#worker-1');
+    await project.fire('hashchange'); expect(ui.view.id).toBe('task'); expect(ui.selected).toBe(1);
+  } finally { project.restore(); dom.location.hash = '#projects'; await boot(); }
+});
+
+test('execution readers close across the separate drafts/history pages and remain reopenable', async () => {
+  const project = installProjectDom({ fetch: world.fetchImpl });
+  try {
+    project.location.hash = '#worker-1-execution'; await boot();
+    expect(ui.transcriptView.taskId).toBe(1);
+    project.location.hash = '#drafts'; await project.fire('hashchange');
+    expect(ui.view.id).toBe('drafts'); expect(ui.transcriptView).toBeNull();
+    expect(project.document.body.querySelector('.transcript-dialog')).toBeNull();
+    expect(project.node('detail').querySelector('.inputs-page').dataset.inputSection).toBe('drafts');
+    project.location.hash = '#inputs'; await project.fire('hashchange');
+    expect(ui.view.id).toBe('inputs'); expect(project.node('detail').querySelector('.inputs-page').dataset.inputSection).toBe('history');
+    project.location.hash = '#worker-1-execution'; await project.fire('hashchange');
+    expect(ui.view.id).toBe('execution'); expect(ui.transcriptView.taskId).toBe(1);
+  } finally { project.restore(); dom.location.hash = '#projects'; await boot(); }
+});
+
+test('late project execution identity reads cannot open a reader after navigation', async () => {
+  let finish;
+  const project = installProjectDom({ fetch: (url, options) => String(url) === '/api/worker/1'
+    ? new Promise(resolve => { finish = () => resolve(new Response(JSON.stringify({ id: 1, worker_number: 'W1' }))); })
+    : world.fetchImpl(url, options) });
+  try {
+    project.location.hash = '#workers'; await boot();
+    project.location.hash = '#worker-1-execution'; const pending = project.fire('hashchange');
+    const { until } = await import('../helpers.js'); await until(() => Boolean(finish));
+    project.location.hash = '#workers'; await project.fire('hashchange');
+    finish(); await pending; expect(ui.view.id).toBe('tasks'); expect(ui.transcriptView).toBeNull();
+  } finally { finish?.(); project.restore(); dom.location.hash = '#projects'; await boot(); }
+});
+
 test('same-route global hash does not strand a pending chunk', async () => {
   await dom.node('projects-open').onclick(); const pending = dom.node('settings-open').onclick();
   await dom.fire('hashchange'); await pending;

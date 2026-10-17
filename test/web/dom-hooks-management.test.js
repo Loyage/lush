@@ -96,7 +96,8 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     }
     expect(btn('删除').disabled).toBe(['running', 'queued'].includes(state.status));
     for (const label of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(label)).toBeUndefined();
-    expect(root().querySelector('.worker-hooks')).toBeNull(); expect(btn('打开执行详情')).toBeTruthy();
+    expect(root().querySelector('.worker-hooks')).toBeNull();
+    expect(root().querySelectorAll('a').find(link => link.textContent === '打开执行详情')?.target).toBe('_blank');
     expect(dom.node('input').disabled).toBe(false); expect(dom.node('input-form').dataset.mode).toBe('create');
     await btn('刷新详情').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toEqual([]);
   });

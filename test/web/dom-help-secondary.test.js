@@ -49,8 +49,10 @@ test('「打开执行详情」打开只读全屏阅读器，带 data-help 且不
   dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  await until(() => buttonOf(detail, '打开执行详情'), 2000);
-  const reader = buttonOf(detail, '打开执行详情');
+  const entry = () => detail.querySelectorAll('a').find(node => node.textContent === '打开执行详情');
+  await until(entry, 2000);
+  const reader = entry();
+  expect(reader.target).toBe('_blank');
   expect(reader.getAttribute('data-help')).toContain('只读');
   expect(reader.classList.contains('agent-call')).toBe(false);
 });

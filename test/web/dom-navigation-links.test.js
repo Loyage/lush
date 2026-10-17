@@ -5,6 +5,10 @@ import { hookHelpLink } from '../../src/ui/web/assets/render-hooks.js';
 import { dashboardNavigation } from '../../src/ui/web/assets/dashboard-widget-aggregate-render.js';
 import { renderMarkdown } from '../../src/ui/web/assets/markdown.js';
 import { linkWorkerNumbers } from '../../src/ui/web/assets/worker-links.js';
+import { renderAgent } from '../../src/ui/web/assets/render-agent.js';
+import { renderDiff } from '../../src/ui/web/assets/render-diff.js';
+import { executionTarget } from '../../src/ui/web/assets/execution-route.js';
+import { ui } from '../../src/ui/web/assets/state.js';
 
 const dom = installDom();
 afterAll(() => dom.restore());
@@ -52,6 +56,26 @@ test('dashboard UI shortcuts share navigation chrome and preserve project identi
   }
   expect(links[0].href).toBe('/#docs');
   expect(links[1].href).toBe('/p/0123456789abcdef/#workers');
+});
+
+test('detail readers use project-scoped native new-tab links without disturbing the source page', () => {
+  const path = dom.location.pathname; dom.location.pathname = '/p/0123456789abcdef/';
+  const selected = ui.selected, reader = ui.transcriptView, task = { id: 42, workspace: '/tmp/worker' };
+  const detail = dom.node('detail'); detail.scrollTop = 321;
+  try {
+    const agent = renderAgent(task, null), diff = renderDiff(null, 42, task);
+    const links = [agent.querySelector('a'), diff.querySelector('.code-reader-open')];
+    for (const [index, link] of links.entries()) {
+      expect(link.tagName).toBe('A'); expect(link.target).toBe('_blank'); expect(link.rel).toBe('noopener');
+      expect(link.href).toBe(`/p/0123456789abcdef/#worker-42-execution${index ? '-code' : ''}`);
+      expect(link.onclick).toBeFalsy(); expect(link.classList.contains('nav-link')).toBe(true);
+      expect(link.classList.contains('agent-call')).toBe(false); expect(link.getAttribute('data-help')).toContain('新标签页');
+    }
+    expect(ui.selected).toBe(selected); expect(ui.transcriptView).toBe(reader); expect(detail.scrollTop).toBe(321);
+    expect(executionTarget('#worker-42-execution')).toEqual({ taskId: 42, mode: 'transcript' });
+    expect(executionTarget('#worker-42-execution-code')).toEqual({ taskId: 42, mode: 'code' });
+    for (const hash of ['#worker-0-execution', '#worker-9007199254740992-execution', '#worker-42-execution-other']) expect(executionTarget(hash)).toBeNull();
+  } finally { dom.location.pathname = path; }
 });
 
 test('automatic Worker references and Markdown prose never acquire UI navigation chrome', () => {

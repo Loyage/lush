@@ -14,7 +14,7 @@ const steps = [{ seq: 1, kind: 'text', file: 'a', body: '**first**' },
   { seq: 2, kind: 'tool', file: 'a', title: 'bash', body: '{"command":"echo safe"}', call_id: 'x' }];
 const page = { steps, files: ['a'], next: 2, oldest: 1, has_older: false, has_more: false };
 
-test('agent opens fullscreen rich details only on click, supports both orders, live pairing, and restores focus/scroll', async () => {
+test('reader supports both orders, live pairing, and restores focus/scroll', async () => {
   const requests = [];
   const world = makeWorld();
   const dom = installDom({ fetch: async (url, options) => {
@@ -28,7 +28,8 @@ test('agent opens fullscreen rich details only on click, supports both orders, l
     expect(findByText(agent, '终端模式')).toBeNull();
     await refreshDevicePreferences();
     const trigger = findByText(agent, '打开执行详情'); trigger.focus(); dom.node('detail').scrollTop = 420;
-    await trigger.onclick();
+    expect(trigger.tagName).toBe('A'); expect(trigger.target).toBe('_blank');
+    await openTranscriptView(taskId);
     const panel = dom.document.body.querySelector('.transcript-dialog');
     expect(ui.transcriptView.taskId).toBe(taskId); expect(transcriptOpen.has(taskId)).toBe(true);
     expect(dom.node('project-app').inert).toBe(true);

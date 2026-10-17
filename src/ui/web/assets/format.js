@@ -237,6 +237,10 @@ export function relative(iso) {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
   return `${Math.floor(seconds / 86400)} 天前`;
 }
+export const lifecycleDuration = value => value == null ? '时长未知' : value < 1000 ? '不足 1 秒'
+  : value < 60000 ? `${Math.floor(value / 1000)} 秒` : value < 3600000 ? `${Math.floor(value / 60000)} 分 ${Math.floor(value % 60000 / 1000)} 秒`
+    : `${Math.floor(value / 3600000)} 小时 ${Math.floor(value % 3600000 / 60000)} 分`;
+
 export function duration(from, to) {
   const start = Date.parse(from), end = Date.parse(to);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return '—';

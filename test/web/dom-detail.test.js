@@ -214,7 +214,9 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
   const detail = dom.node('detail');
   const panel = () => dom.document.body.querySelector('.transcript-dialog');
   const list = () => panel()?.querySelector('[data-live="transcript-steps"]');
-  await findByText(detail, '打开执行详情').onclick();
+  const entry = findByText(detail, '打开执行详情');
+  expect(entry.target).toBe('_blank');
+  dom.location.hash = '#worker-1-execution'; await dom.fire('hashchange');
   await until(() => list() && list().children.length === 5, 2000);
   expect(world.state.transcriptAfter.every(after => after === 0)).toBe(true);
   const initialReads = [...world.state.transcriptAfter];

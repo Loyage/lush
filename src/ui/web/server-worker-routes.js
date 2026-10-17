@@ -32,6 +32,19 @@ export async function workerRead({ url, headers, json }, binding) {
     // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
     return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
   }
+  const runsPage = /^\/api\/worker\/(\d+)\/runs-page$/.exec(url.pathname);
+  if (runsPage) {
+    const params = { id: id(runsPage[1]) };
+    for (const [key, value] of url.searchParams) {
+      check(PARAMS['worker.runs_page'].includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate run query parameter');
+      check(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)), 'invalid run numeric query parameter');
+      params[key] = Number(value);
+    }
+    const page = await client.request('worker.runs_page', params);
+    // Performance reads need clocks/identity, not results, errors, profiles or credentials.
+    return json({ cursor: page.cursor, has_more: page.has_more, limit: page.limit,
+      items: page.items.map(({ id, task_id, attempt, status, started_at, ended_at }) => ({ id, task_id, attempt, status, started_at, ended_at })) });
+  }
   const runSettings = /^\/api\/worker\/(\d+)\/run-settings$/.exec(url.pathname);
   if (runSettings) {
     check(!url.search, 'run settings accept no query parameters');

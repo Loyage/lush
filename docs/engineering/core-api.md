@@ -11,7 +11,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 - CLI 开发协作使用 `lushc worker …`，管理使用 `lush worker …`，共享查询可双入口；Notice 发布使用 `lushc notice post … --worker ID`；开发专属旧 lush 调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
 - RPC 使用 `worker.*`，旧公开 `task.*` 方法一律拒绝；`notice.post` 的参数仍叫 `task`，`system.configure` 的设置键仍为 `task_call_limit`。
 - HTTP 使用 `/api/worker/<id>` 及其读取后缀、`/api/workers`、`/api/worker-graph`；旧 `/api/task/<id>`、`/api/tasks`、`/api/task-graph` 返回 404。Web 写动作同样使用 `worker.*`。
-- 浏览器使用 `#worker-ID`、`#workers`、`#worker-graph`；执行详情仍在 Worker 详情中显式点击打开，没有独立 hash；旧 Task hash 不作为兼容入口。全局模式的项目路由前缀 `/p/<project-id>/` 不变。
+- 浏览器使用 `#worker-ID`、`#workers`、`#worker-graph`；Worker 详情的执行与代码入口显式在新标签页打开，使用 `#worker-ID-execution`／`#worker-ID-execution-code` 独立 hash；旧 Task hash 不作为兼容入口。全局模式的项目路由前缀 `/p/<project-id>/` 不变。
 
 此次更名**不迁移既有数据、不改已有分支/worktree/会话目录**。以下是有意保留的内部与数据契约，不是旧公开入口的别名：
 

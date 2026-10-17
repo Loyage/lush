@@ -367,7 +367,7 @@ test('a clean refresh clears obsolete dirty badges and special files remain meta
   } finally { code.dispose(); dom.restore(); }
 });
 
-test('detail code entry directly reuses the full reader, including unchanged files, without transcript or model reads', async () => {
+test('code destination reuses the full reader, including unchanged files, without transcript or model reads', async () => {
   const f = fixture(), dom = installDom({ fetch: f.fetch });
   const task = { id: 72, calls: 0, workspace: '/tmp/work/72', branch: 'lush/task-72', target_branch: 'main' };
   const section = renderDiff(null, task.id, task); dom.node('detail').append(section); ui.selected = task.id;
@@ -375,7 +375,8 @@ test('detail code entry directly reuses the full reader, including unchanged fil
     expect(f.calls).toHaveLength(0);
     expect(deepText(section)).toContain('/tmp/work/72');
     expect(section.querySelector('.agent-call')).toBeNull();
-    await section.querySelector('.code-reader-open').onclick();
+    expect(section.querySelector('.code-reader-open').target).toBe('_blank');
+    await openTranscriptView(task.id, undefined, { mode: 'code' });
     const panel = dom.document.body.querySelector('.transcript-dialog');
     expect(ui.transcriptView.mode).toBe('code'); expect(transcriptOpen.has(task.id)).toBe(false);
     expect(f.calls.some(url => /transcript|action/.test(url.pathname))).toBe(false);
@@ -398,7 +399,7 @@ for (const exit of ['close', 'navigate']) {
     f.override((url, options) => url.pathname.endsWith('/code-state') ? new Promise(resolve => {
       signal = options.signal; finish = () => resolve(response(f.state()));
     }) : undefined);
-    const opening = entry.onclick();
+    const opening = openTranscriptView(task.id, undefined, { mode: 'code' });
     try {
       await until(() => Boolean(finish));
       const panel = ui.transcriptView.panel, root = panel.querySelector('.code-view'), before = deepText(root);

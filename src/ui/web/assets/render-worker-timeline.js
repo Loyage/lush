@@ -1,5 +1,6 @@
 import { block, button, el, syncChildren } from './dom.js';
-import { absolute, eventLabel } from './format.js';
+import { absolute, eventLabel, lifecycleDuration } from './format.js';
+export { lifecycleDuration } from './format.js';
 import { ui } from './state.js';
 import { searchField } from './search-field.js';
 import { loadReadingPage, loadReadingRecord } from './api.js';
@@ -10,9 +11,6 @@ import { revealDetailPreview } from './detail-preview.js';
 
 const MAX_RECORDS = 5000, MAX_CHARS = 4 * 1024 * 1024;
 const timestamp = value => value && Number.isFinite(Date.parse(value)) ? absolute(value) : '时间未知';
-export const lifecycleDuration = value => value == null ? '时长未知' : value < 1000 ? '不足 1 秒'
-  : value < 60000 ? `${Math.floor(value / 1000)} 秒` : value < 3600000 ? `${Math.floor(value / 60000)} 分 ${Math.floor(value % 60000 / 1000)} 秒`
-    : `${Math.floor(value / 3600000)} 小时 ${Math.floor(value % 3600000 / 60000)} 分`;
 const RUN_STATUS = { completed: '本轮返回，不等于工作已交付', suspended: '暂停等待决定（非失败）', preempted: '安全收尾，等待下一轮',
   failed: '调用失败', cancelled: 'Run 记录为 cancelled（结束原因待核验）', running: '调用进行中', unknown: '结束原因未知' };
 const textOf = event => event.reading_text ?? (['body', 'result', 'answer'].filter(key => event.data?.[key] != null)

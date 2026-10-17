@@ -19,6 +19,8 @@ export function pauseTranscriptReader(taskId) {
 export function searchTranscriptPath(taskId, path) {
   return readerState(taskId).searchPath(String(path));
 }
+export function clearTranscriptSearch(taskId) { return readers.get(taskId)?.clear?.onclick?.(); }
+
 export function resetTranscriptReaders() {
   for (const state of readers.values()) state.version++;
   readers.clear();

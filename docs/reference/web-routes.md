@@ -125,6 +125,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id,force?}`，只读完整删除范围和资源清单，仅接受单个 `force=true` 查询参数以强制预检对应残留检出 |
 | `GET /api/worker/ID/history?after=N` | `worker.history` |
 | `GET /api/worker/ID/history-page?before=N&limit=N` | `worker.history_page` |
+| `GET /api/worker/ID/runs-page?before=N&limit=N` | 用户专属 `worker.runs_page` 的只读计时投影；返回调用 ID、Worker ID、轮次、状态与起止时间及分页游标，不含结果、错误或配置；默认 50、最多 200 条 |
 | `GET /api/worker/ID/reading-page?before_event=N&before_message=N&limit=N&query=` | 用户专属 `worker.reading_page`，完整 Event／收件箱分批扫描，实际扫描游标、完整正文匹配与明确错误；[字段协议](rpc/tasks.md#输入与结果完整历史读面) |
 | `GET /api/worker/ID/reading-record?kind=event\|message&record_id=N&offset=N` | 用户专属 `worker.reading_record`，核验 Worker 归属，每段最多 24,000 UTF-16 字符，next_offset 连读；拒绝未知／重复／token 查询字段 |
 | `GET /api/worker/ID/progress-history?before=N&limit=N` | `worker.progress_history`（倒序规划快照，默认10、最多100条） |

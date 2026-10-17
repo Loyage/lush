@@ -222,7 +222,8 @@ export function installDom({ fetch: fetchImpl } = {}) {
     pushed: () => pushed,
     setSelection: value => { selectionText = String(value); },
     node: id => document.getElementById(id),
-    fire: async (type, event = {}) => { for (const handler of listeners[type] || []) await handler(event); },
+    // Like the browser, listeners added during dispatch do not receive that same event.
+    fire: async (type, event = {}) => { for (const handler of [...(listeners[type] || [])]) await handler(event); },
     intervalFor: ms => intervals.find(entry => entry.ms === ms)?.handler,
     restore() {
       if (restored) return; restored = true;

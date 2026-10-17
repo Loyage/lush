@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { request } from 'node:http';
 import { setup, fetch } from './harness.js';
+import { repo } from '../helpers.js';
 
 const evidence = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-navigation-links-'));
 const f = await setup();
@@ -29,7 +30,13 @@ async function rpc(route, body, method = 'POST') {
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
 async function wait(condition) {
-  assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0],end=Date.now()+10000;const check=()=>{try{if(${condition})return done(true)}catch{}if(Date.now()>end)return done(false);setTimeout(check,50)};check();`, args: [] }), `UI did not settle: ${condition}`);
+  // Poll through document replacement: an async script in the old document is cancelled on navigation.
+  const end = Date.now() + 10000;
+  while (Date.now() < end) {
+    try { if (await execute(`return Boolean(${condition})`)) return; } catch {}
+    await Bun.sleep(50);
+  }
+  throw Error(`UI did not settle: ${condition}`);
 }
 const frame = () => rpc(`/session/${session}/frame`, { id: { 'element-6066-11e4-a52e-4f735466cecf': frameId } });
 let frameId;
@@ -116,11 +123,85 @@ try {
   }
   await click('.agent-status-head .agent-sources-link');
   await wait(`location.hash==='#model-sources'&&document.querySelector('.model-sources-page')`);
+  // Real Worker -> native new tab -> project-scoped reader, including reload and return.
+  await repo(f.root); await f.project.bootstrapMain();
+  const worker = (await f.project.order('Reader navigation browser fixture', 'main', [], null, false)).task;
+  for (let index = 0; index < 105; index++) {
+    f.store.update(worker.id, { calls: index });
+    const run = f.store.startRun(f.store.task(worker.id), { agent: 'mock' }); f.store.finishRun(run.id, 'completed');
+    const start = index === 0 ? '00' : index === 1 ? '25' : '30', end = index === 0 ? '20' : '30';
+    f.store.run('UPDATE agent_runs SET started_at=?,ended_at=? WHERE id=?', `2026-01-01T00:00:${start}.000Z`, `2026-01-01T00:00:${end}.000Z`, run.id);
+  }
+  f.store.update(worker.id, { calls: 105 });
+  f.store.setProgressPlan(worker.id, { version: 1, items: [
+    { key: 'build', label: '实现阶段瓶颈', status: 'completed', started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T00:00:20Z', duration_ms: 20000 },
+    { key: 'test', label: '测试阶段', status: 'completed', started_at: '2026-01-01T00:00:25Z', completed_at: '2026-01-01T00:00:30Z', duration_ms: 5000 },
+  ] }); // Recorded evidence fixture; no Provider is run.
+  fs.mkdirSync(path.join(f.config.home, 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(f.config.home, 'sessions', `001_lush-task-${worker.id}.jsonl`), [
+    { type: 'message', timestamp: '2026-01-01T00:00:01Z', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'browser-timing', name: 'bash', arguments: { command: 'echo performance-browser' } }] } },
+    { type: 'message', timestamp: '2026-01-01T00:00:08Z', message: { role: 'toolResult', toolCallId: 'browser-timing', toolName: 'bash', content: [{ type: 'text', text: 'recorded result' }] } },
+  ].map(record => JSON.stringify(record)).join('\n') + '\n');
+  const host = await (await fetch(f.url + '/api/host/projects')).json();
+  const projectId = host.projects.find(row => row.project === f.root)?.id;
+  assert(projectId, 'temporary project missing');
+  await rpc(`/session/${session}/frame`, { id: null });
+  await execute(`document.querySelector('#viewport').src='/p/${projectId}/'`);
+  await wait(`document.querySelector('#viewport').contentDocument?.querySelector('#tasks [data-id="${worker.id}"]')`); await frame();
+  await execute(`location.hash='#worker-${worker.id}'`);
+  await wait(`document.querySelector('.code-reader-open')&&document.querySelector('.agent-panel a.nav-link')`);
+  for (const width of [1440, 320]) for (const mode of ['transcript', 'code']) {
+    await rpc(`/session/${session}/frame`, { id: null });
+    await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    const selector = mode === 'code' ? '.code-reader-open' : '.agent-panel a.nav-link';
+    await execute(`document.querySelector('#input').value='preserve reader source draft';document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'});`);
+    await click(selector);
+    // Native focus may minimally reveal the anchor. Measure retained reading after that click settles.
+    await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done()));' });
+    const before = await execute(`return {scroll:document.querySelector('#detail').scrollTop,page:scrollY,hash:location.hash}`);
+    assert(before.hash === `#worker-${worker.id}`,  'reader click replaced the source route');
+    let tabs = [];
+    for (let i = 0; i < 30; i++) { tabs = await rpc(`/session/${session}/window/handles`, undefined, 'GET'); if (tabs.length > 1) break; await Bun.sleep(100); }
+    const tab = tabs.find(id => id !== original); assert(tab, `${mode}/${width} did not open a new tab`);
+    await rpc(`/session/${session}/window`, { handle: tab });
+    const hash = `#worker-${worker.id}-execution${mode === 'code' ? '-code' : ''}`;
+    const active = mode === 'code' ? '.code-view' : '.transcript-viewport';
+    await wait(`location.pathname==='/p/${projectId}/'&&location.hash==='${hash}'&&document.querySelector('${active}')`);
+    assert(await execute(`return window.opener===null`), 'reader exposed opener');
+    await rpc(`/session/${session}/refresh`, {});
+    await wait(`location.hash==='${hash}'&&document.querySelector('${active}')`);
+    await click('.transcript-back');
+    await wait(`location.hash==='#worker-${worker.id}'&&document.querySelector('.agent-panel')&&!document.querySelector('.transcript-dialog')`);
+    await rpc(`/session/${session}/window`, undefined, 'DELETE');
+    await rpc(`/session/${session}/window`, { handle: original }); await frame();
+    const after = await execute(`return {hash:location.hash,input:document.querySelector('#input').value,scroll:document.querySelector('#detail').scrollTop,page:scrollY,reader:!!document.querySelector('.transcript-dialog')}`);
+    assert(after.hash === before.hash && after.input === 'preserve reader source draft' && Math.abs(after.scroll - before.scroll) < 2 && Math.abs(after.page - before.page) < 2 && !after.reader, `reader replaced source state ${mode}/${width}: ${JSON.stringify({ before, after })}`);
+    layouts.push({ reader: mode, width, sourcePreserved: true, reload: true, noopener: true });
+  }
+  // A dedicated analysis bookmark in an exact-size iframe verifies the approved information hierarchy.
+  await execute(`location.hash='#worker-${worker.id}-execution-performance'`);
+  await wait(`document.querySelector('.performance-status')?.textContent.includes('调用未读全')&&!document.querySelector('.performance-controls button').disabled`);
+  assert(await execute(`return !document.querySelector('.performance-advanced').open&&document.querySelector('.performance-stages strong').textContent.includes('实现阶段瓶颈')`), 'analysis does not prioritize bottleneck stages or advanced tools are expanded');
+  await click('.performance-controls button:nth-child(2)');
+  await wait(`document.querySelector('.performance-status')?.textContent.includes('当前采样范围已扫描完')`);
+  for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}'`);
+    const layout = await execute(`const root=document.querySelector('.performance-view'),r=root.getBoundingClientRect(),rank=document.querySelector('.performance-ranks'),buttons=[...root.querySelectorAll('button')].filter(n=>n.getClientRects().length);return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth||root.scrollWidth>root.clientWidth,columns:getComputedStyle(rank).gridTemplateColumns.split(' ').length,height:r.height,inside:r.left>=0&&r.right<=innerWidth,buttons:buttons.every(n=>n.getBoundingClientRect().height>=${width <= 760 ? 44 : 30}),metrics:document.querySelector('.performance-summary').textContent,order:[...document.querySelectorAll('.performance-stages strong')].map(n=>n.textContent)};`);
+    assert(layout.width === width && !layout.overflow && layout.inside && layout.height > 150 && layout.buttons && layout.columns === (width <= 760 ? 1 : 2), `performance layout ${theme}/${width}: ${JSON.stringify(layout)}`);
+    assert(layout.metrics.includes('25 秒') && layout.order[0].includes('实现阶段瓶颈'), 'performance clocks/ranking missing'); layouts.push({ theme, performance: layout });
+    await screenshot(`performance-${theme}-${width}`);
+  }
+  await click('.performance-stages .performance-source'); await wait(`!document.querySelector('.performance-evidence').hidden&&document.querySelector('.performance-evidence-body').textContent.includes('work_ms')`);
+  await execute(`document.querySelector('.performance-advanced').open=true`); await click('.performance-tools .performance-source');
+  await wait(`document.querySelector('[role="tab"][aria-selected="true"]').textContent==='执行记录'&&document.querySelector('.step-located')`);
+  assert(await execute(`return document.querySelector('.step-located').textContent.includes('performance-browser')`), 'performance tool did not locate its source record');
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify(layouts, null, 2));
   success = true;
-  console.log('PASS navigation: light/dark × 1440/768/390/320px, native new tab/noopener, callback route/back, keyboard focus/Enter, hover, hidden/long labels and reference/prose exclusions');
+  console.log('PASS navigation: light/dark × 1440/768/390/320px, native new tab/noopener, Worker transcript/code new tabs + reload/return + preserved source draft/scroll, performance ranking/full-scan/source + exact narrow layouts, callback route/back, keyboard focus/Enter, hover, hidden/long labels and reference/prose exclusions');
 } catch (error) {
-  if (session) { try { await screenshot('failure'); fs.writeFileSync(path.join(evidence, 'failure-page.json'), JSON.stringify(await execute('return {url:location.href,html:document.documentElement.outerHTML}'))); } catch {} }
+  if (session) { try { await screenshot('failure'); fs.writeFileSync(path.join(evidence, 'failure-page.json'), JSON.stringify(await execute('return {url:location.href,html:document.documentElement.outerHTML}')));
+  } catch {} }
   throw error;
 } finally {
   if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} }
