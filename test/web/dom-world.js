@@ -85,6 +85,7 @@ export function makeWorld() {
       worker_delegation: { value: true, default: true, overridden: false },
       worker_auto_title: { value: true, default: true, overridden: false },
       context_retrieval: { value: true, default: true, overridden: false },
+      result_notice: { value: true, default: true, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false },
     },
@@ -299,7 +300,7 @@ export function makeWorld() {
         // 运行设置的热更新：null 清除覆盖（回退环境默认），数字/前缀表写为覆盖值；与核心同语义。
         const patch = body.params.settings || {};
         const next = { ...state.runtimeSettings };
-        for (const key of ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval']) {
+        for (const key of ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval', 'result_notice']) {
           if (!Object.hasOwn(patch, key)) continue;
           next[key] = patch[key] === null
             ? { ...next[key], value: next[key].default, overridden: false }

@@ -86,7 +86,7 @@ export const PARAMS = {
   'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile','model_selection'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'], 'notice.sync': ['cursor','limit'],
-  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer','expected_identity'],
+  'notice.post': ['task','title','body','questions','kind'], 'notice.answer': ['id','answer','expected_identity'],
   'notice.dismiss': ['id','expected_identity'], 'notice.read': ['id','expected_identity'],
   'branch.history': ['cursor','limit'], 'branch.version_graph': ['delivery','cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard','continue'],

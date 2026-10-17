@@ -84,6 +84,7 @@ const CAPABILITY_FIELDS = [
   { key: 'worker_delegation', label: '启用子 Worker 委派', note: '指导子 Worker 创建、分工与非阻塞协调；关闭不取消已有子 Worker。' },
   { key: 'worker_auto_title', label: '启用自动标题', note: '指导当前指令和子 Worker 生成一次性标题；关闭不修改已有标题。' },
   { key: 'context_retrieval', label: '启用上下文检索', note: '提供 Worker 摘要、历史与执行记录的按需检索指南；关闭不删除历史。' },
+  { key: 'result_notice', label: '启用结果告知', note: '任务仅分析或用户明确要求完成提醒时，指导 Agent 主动发布结果告知；与 runtime 自动提醒独立，可能收到两条。关闭不删除历史。' },
 ];
 
 function capabilityEditor(runtime, client, ownsPage, invalidate) {
@@ -102,7 +103,7 @@ function capabilityEditor(runtime, client, ownsPage, invalidate) {
     input.onchange = () => save({ [spec.key]: input.checked });
   }
   const reset = button('恢复能力默认', () => save(Object.fromEntries(CAPABILITY_FIELDS.map(spec => [spec.key, null]))), 'ghost',
-    { help: '清除四项能力开关的设备覆盖，恢复全部开启；保留历史，不中断当前调用或立即调用 Agent。' });
+    { help: '清除全部能力开关的设备覆盖，恢复全部开启；保留历史，不中断当前调用或立即调用 Agent。' });
   reset.dataset.capabilityReset = '';
   const resetHost = el('span', undefined, 'help-host'); resetHost.append(reset);
   box.append(resetHost, feedback);

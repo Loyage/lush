@@ -125,5 +125,14 @@ test('validated post still sends the original request, while check never posts o
     calls.length = 0;
     await run('notice', ['post', 'Text question', '--worker', '17'], { client, json: true });
     expect(calls).toEqual([{ method: 'notice.post', params: { task: 17, title: 'Text question', body: '' } }]);
+    calls.length = 0;
+    await run('notice', ['post', 'Result', '--worker', '17', '--kind', 'info', '--body', 'Conclusion'], { client, json: true });
+    expect(calls).toEqual([{ method: 'notice.post', params: { task: 17, title: 'Result', body: 'Conclusion', kind: 'info' } }]);
+    calls.length = 0;
+    for (const args of [
+      ['post', 'Bad', '--worker', '17', '--kind', 'plan'],
+      ['post', 'Bad', '--worker', '17', '--kind', 'info', '--questions-file', file],
+    ]) await expect(run('notice', args, { client, json: true })).rejects.toThrow();
+    expect(calls).toEqual([]);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

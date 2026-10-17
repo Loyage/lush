@@ -122,7 +122,7 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['defaults set','--mounted true|false --enabled true|false [--scope main|all|user|none] --revision REV','已退休：拒绝修改持续归并默认。','--mounted false --enabled false --revision REV','branch.convergence_defaults_set','write'],
 ]) add(`branch convergence ${verb}`,args,description,example,rpc.split(','),kind,'历史兼容只读面和旧在途重试仍可用；持续策略和默认写入口已退休并明确拒绝。新普通合并始终串行，多来源使用 branch integrate。不接受旧 command/version 参数；旧引用仅后端在途兼容。');
 for (const [verb,args,description,example,rpc,kind] of [
-  ['list','','读取当前通知。','','notice.list','read'], ['post',"'标题' [--worker ID|Wn] [--body TEXT] [--questions-file FILE]",'发布问题或告知。',"'方案确认' --worker W5 --body '背景'",'notice.post','write'],
+  ['list','','读取当前通知。','','notice.list','read'], ['post',"'标题' [--worker ID|Wn] [--body TEXT] [--kind question|info] [--questions-file FILE]",'发布问题或告知。',"'方案确认' --worker W5 --body '背景'",'notice.post','write'],
   ['answer','ID ANSWER | ID --answers-file FILE','答复固定通知，可能恢复 Agent。',"12 '答复'",'notice.answer','agent'],
   ['dismiss','ID','消除通知，不代表接受推荐方案。','12','notice.dismiss','write'], ['read','ID','标记告知已知，不执行动作。','13','notice.read','write'],
   ['example','','输出完整问卷 JSON，无需项目或后台。','','','local-read'],

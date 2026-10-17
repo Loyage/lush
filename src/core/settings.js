@@ -15,7 +15,7 @@ import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
  * 有效值 = 设备存储值 ?? 环境默认值（LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
  * Agent 能力开关默认 true；未被覆盖的键不写进文件，也不用假值填充。
  */
-const BOOLEAN_KEYS = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+const BOOLEAN_KEYS = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval', 'result_notice'];
 export const RUNTIME_SETTINGS_KEYS = ['call_timeout', 'task_call_limit', 'max_depth', ...BOOLEAN_KEYS, 'input_routes'];
 // Read compatibility only: preserve exact historical values on unrelated writes, never expose or apply them.
 const RETIRED_KEYS = ['concurrency', 'control_concurrency'];

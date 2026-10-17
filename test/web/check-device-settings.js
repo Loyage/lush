@@ -4,13 +4,14 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { makeWorld } from './dom-world.js';
+import { AGENT_CAPABILITIES } from '../../src/agent/capabilities.js';
 
 const logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-agent-layout-'));
 const output = path.resolve(process.argv[2] || path.join(logs, 'screenshots'));
 fs.mkdirSync(output, { recursive: true });
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const world = makeWorld(), calls = [], capabilityWrites = [];
-const capabilityKeys = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+const capabilityKeys = AGENT_CAPABILITIES.map(entry => entry.setting);
 const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
 world.state.agentConnections.connections = ids.map((id, index) => ({ id,
   label: index ? '自定义 API · 长名称用于检验布局 '.repeat(4) : '我的 DeepSeek 账号',
@@ -152,7 +153,7 @@ try {
     await execute('return window.openSystem()'); await waitFor('document.querySelector("[data-runtime-input=call_timeout]")');
     assert(await execute(`return [...document.querySelectorAll('.settings-scope-pane>.block')].every(n=>n.classList.contains('module-fold')&&!n.classList.contains('module-preview'));`), 'runtime forms are not explicit folds');
     assert(await execute(`return !document.querySelector('[data-runtime-input="concurrency"],[data-runtime-input="control_concurrency"]') && !document.querySelector('.settings-view').textContent.includes('并发额度')`), 'Removed concurrency settings remain visible');
-    assert(await execute(`return ${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n?.type==='checkbox'&&n.getAttribute('aria-label')?.startsWith('启用')}) && document.querySelector('.settings-view').textContent.includes('不是权限隔离')`), 'Four capability switches or their effect explanation are missing');
+    assert(await execute(`return ${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n?.type==='checkbox'&&n.getAttribute('aria-label')?.startsWith('启用')}) && document.querySelector('.settings-view').textContent.includes('不是权限隔离')`), 'Capability switches or their effect explanation are missing');
     const previous = await execute(`const n=document.querySelector('[data-runtime-input=progress_reporting]');n.focus();return n.checked`);
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: ' ' }, { type: 'keyUp', value: ' ' }] }] });
     await waitFor('document.querySelector("[data-capability-status]")?.textContent.includes("能力设置已保存") && !document.querySelector("[data-runtime-input=progress_reporting]").disabled');
@@ -162,9 +163,9 @@ try {
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE004' }, { type: 'keyUp', value: '\uE004' }] }] });
     assert(await execute(`return document.activeElement?.dataset.runtimeInput==='worker_delegation'`), 'Capability keyboard Tab order is broken');
     await click('[data-capability-reset]'); await waitFor(`${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n.checked&&!n.disabled})`);
-    assert(JSON.stringify(capabilityWrites.at(-1).params.settings)===JSON.stringify(Object.fromEntries(capabilityKeys.map(key=>[key,null]))), 'Capability restoration did not reset all four keys');
+    assert(JSON.stringify(capabilityWrites.at(-1).params.settings)===JSON.stringify(Object.fromEntries(capabilityKeys.map(key=>[key,null]))), 'Capability restoration did not reset all keys');
     await layout(`runtime-${theme}-${width}`,width);
-    console.log(`PASS device-only source/Agent/runtime and four capability switches with keyboard save/reset Firefox ${theme}/${width}`);
+    console.log(`PASS device-only source/Agent/runtime and all capability switches with keyboard save/reset Firefox ${theme}/${width}`);
   }
   await fetch(`http://127.0.0.1:${server.port}/test/mode?global=true`,{method:'POST'});
   calls.length=0; await execute('return window.ensureProject()');
@@ -175,7 +176,7 @@ try {
   }
   assert(calls.every(route=>route.startsWith('/api/host/settings/') || ['/api/host/projects','/api/host/preferences'].includes(route)),`No-project API leaked: ${calls.join(',')}`);
   assert(await execute('return window.browserErrors.length===0'),'Browser emitted errors');
-  passed=true;console.log(`PASS device-only Firefox drafts, four capability switches, keyboard save/reset, no concurrency controls, responsive light/dark views and no-project Host-only configuration. Screenshots: ${output}`);
+  passed=true;console.log(`PASS device-only Firefox drafts, all capability switches, keyboard save/reset, no concurrency controls, responsive light/dark views and no-project Host-only configuration. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Device settings browser failure; full logs: ${logs}`); throw error;

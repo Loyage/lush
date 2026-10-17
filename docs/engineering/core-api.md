@@ -51,7 +51,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 ## 内置 Agent 能力指南（W217／D509）
 
-公开只读 CLI `lushw skills list` / `lushw skills get progress|delegation|auto-title|context`（可加 `--json`）读取固定随代码指南，不需项目／daemon，不读设备私密配置或实际开启状态，不增加 RPC。未知 ID、路径及多余参数拒绝。设备 `system.settings/configure` 沿用用户专属规则，新增布尔键 worker_delegation、worker_auto_title、context_retrieval，progress_reporting 继续兼容；均默认 true，null 恢复默认。开关只改变后续 Agent 注入及主动使用，不关闭底层权限、真实调度或已有 child 交付。完整契约见[Agent 能力模块](agent-capabilities.md)。
+公开只读 CLI `lushw skills list` / `lushw skills get progress|delegation|auto-title|context|result-notice`（可加 `--json`）读取固定随代码指南，不需项目／daemon，不读设备私密配置或实际开启状态，不增加 RPC。未知 ID、路径及多余参数拒绝。设备 `system.settings/configure` 沿用用户专属规则，能力布尔键及触发范围由[能力契约](agent-capabilities.md)维护，progress_reporting 继续兼容；均默认 true，null 恢复默认。开关只改变后续 Agent 注入及主动使用，不关闭底层权限、真实调度或已有 child 交付。完整契约见[Agent 能力模块](agent-capabilities.md)。
 
 ## 核心工作流
 
@@ -63,7 +63,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 - branch.convergence*：历史配置／默认／运行只读兼容及旧在途重试；两个 setter 明确退休，新 Worker 不装持续归并，新普通手动／自动合并始终 serial。原 v1/v2/v3 不转换，不改源 parent_id／ref，不重放未知落地，见[实施接缝](merge-convergence-implementation.md)。
 - `worker.completion {id,level,expected_revision}`：用户专属的最高自动级别 off/merge/accept，旧 archive 兼容等价 accept；按合并 → 安全验收（含子树资源回收）串行推进；高级别不继承，派生 child 的流程 Hook 整体只读（含旧开关入口），默认自动合并、由直接父 Agent 检查成果并保留供追加需求，尽量随父级安全批量验收；用户指令交付后可显式提高补办。成功自动环节不告知，只提示下一人工环节；失败/unknown 不重放。见[自动链接缝](completion-hooks.md)。
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
-- `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期与直接父子权限限制，main/owner 不是普通收件箱；冻结期间合法消息由 Worker 持久暂存，整体解冻且 Agent 实际退出后投递；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
+- `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。`notice.post` 新增可选 kind=info 用于非阻塞结果告知，默认 question 与自身发布权限不变；参数及来源事件见 [Notice 契约](../reference/rpc/notices.md#agent-纯告知)。普通消息仍受目标生命周期与直接父子权限限制，main/owner 不是普通收件箱；冻结期间合法消息由 Worker 持久暂存，整体解冻且 Agent 实际退出后投递；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
 - 选择快照与重选已按 W138 停用；`notice.snapshot` / `notice.rechoose` 不在公开白名单中。历史资源兼容边界见[停用说明](choice-snapshots.md)。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
 - `branch.version_graph {delivery?,cursor?,limit?}`：用户专属只读完整 main 可达图或固定成功交付 Event 的源图；`delivery` 是成功 Event ID（不是 Worker ID／预约 delivery_id），Web `GET /api/version-graph`，没有 Git 写操作、Agent 调用或任意 ref／路径参数。返回范围绑定的签名分页与精确 Worker 关联；历史缺证据明确不可追溯，详见 [分支 RPC](../reference/rpc/branches.md#branchversion_graph)。

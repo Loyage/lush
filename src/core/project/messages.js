@@ -147,8 +147,17 @@ export default {
   notice(taskId, title, body = '', kind = 'question', questions = undefined) {
     const task = this.store.task(taskId); text(title, 'title');
     check(typeof body === 'string' && body.length <= 32000, 'invalid notice body');
-    check(['question','plan'].includes(kind), 'notice kind must be question or plan');
+    check(['question','plan','info'].includes(kind), 'notice kind must be question, plan or info');
     check(!TERMINAL.has(task.status), 'worker has ended');
+    if (kind === 'info') {
+      check(questions === undefined, 'an info notice cannot contain a questionnaire');
+      // A durable source makes user-requested reports visible in the existing unread inbox.
+      // This is not a lifecycle transition and must never park/abort or auto-answer the invocation.
+      return this.store.transaction(() => {
+        const source = this.store.event(task.id, 'notice.reported', { title, kind: 'info' });
+        return this.notify(task.id, title, body, source);
+      });
+    }
     if (questions !== undefined) {
       check(kind === 'question', 'a plan cannot contain a questionnaire');
       check(!this.questionPending(task.id), 'worker already has an open questionnaire');

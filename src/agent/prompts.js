@@ -93,7 +93,7 @@ export const PROMPT_PARTS = Object.freeze({
 把 JSON 写到 $LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json，然后执行：
 lushw notice post '决策标题' --body '背景、影响和建议' --questions-file "$LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json"
 
-发布 notice 必须是本轮最后一个动作：不要随后写文件、提交、派工或等待，也不要绕过 Lush 调交互式 ask 插件。下次 messages 会带答案；dismissed 不代表接受推荐项。普通状态与成果汇报写最终结果，不发 notice。
+发布决策问题／问卷必须是本轮最后一个动作：不要随后写文件、提交、派工或等待，也不要绕过 Lush 调交互式 ask 插件。下次 messages 会带答案；dismissed 不代表接受推荐项。普通进度与状态写最终结果，不为此发布待决问题；结果告知按本轮已开启的 result-notice 能力执行，使用非阻塞 info，不能用问题冒充告知。
 选择快照与重选功能已停用；新问卷不保存选择前代码或上下文，不得宣称选择可回退或提示用户使用快照／重选入口。若历史路线的启动上下文含 choice_reselection，仍按其中用户的新答案继续；历史会话的旧 Worker 身份与后代仅作资料，不得自行回退、复活或操作原 Worker。`,
   },
   common_cli: {

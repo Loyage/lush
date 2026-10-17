@@ -9,9 +9,15 @@ test('runtime settings save, reload and reset active values', () => {
   try {
     const config = new Config(options);
     expect(config.timeout).toBe(10800);
+    expect(config.runtimeSettings.get().result_notice).toMatchObject({ value: true, source: 'default' });
+    for (const value of ['false', 0, {}]) expect(() => config.configureRuntime({ result_notice: value })).toThrow('boolean');
+    config.configureRuntime({ result_notice: false });
     config.configureRuntime({ call_timeout: 60, task_call_limit: 8, max_depth: 5 });
     const restarted = new Config(options);
     expect(restarted.timeout).toBe(60);
+    expect(restarted.runtimeSettings.get().result_notice).toMatchObject({ value: false, source: 'device' });
+    restarted.configureRuntime({ result_notice: null });
+    expect(restarted.runtimeSettings.get().result_notice).toMatchObject({ value: true, source: 'default' });
     expect(restarted.runtimeSettings.get()).toMatchObject({
       task_call_limit: { value: 8, source: 'device' }, max_depth: { value: 5, source: 'device' },
     });

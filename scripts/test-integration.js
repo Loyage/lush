@@ -75,6 +75,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
     'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer
+    'test/integration/result-notice.test.js', // Skill snapshot -> pinned CLI -> own info -> unread inbox, without parking
     'test/execution-retired-api.test.js', // public CLI/Provider bridge cannot restore retired execution capabilities
   ]),
 });

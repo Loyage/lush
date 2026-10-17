@@ -46,7 +46,9 @@ export const handlers = {
   'notice.post'(p, params, actor) {
     const task = params.task ?? actor;
     check(actor === null || id(task) === actor, 'agents may post notices only for their own worker');
-    return p.notice(task, params.title, params.body, 'question', params.questions);
+    const kind = params.kind === undefined ? 'question' : params.kind;
+    check(['question','info'].includes(kind), 'notice kind must be question or info');
+    return p.notice(task, params.title, params.body, kind, params.questions);
   },
   'notice.answer'(p, params, actor) { return withNoticeIdentity(p, params, () => p.answer(params.id, params.answer)); },
   'notice.dismiss'(p, params, actor) { return withNoticeIdentity(p, params, () => p.answer(params.id, '', true)); },

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { RPCServer } from '../src/rpc/server.js';
 import { Dispatcher } from '../src/rpc/dispatcher.js';
 import { CLI_EXECUTABLES, cliHelp } from '../src/cli/catalog.js';
+import { AGENT_CAPABILITIES } from '../src/agent/capabilities.js';
 import { createSignal } from '../src/signal.js';
 import { tokenHash } from '../src/core/project/internal.js';
 import { fixture, env, temp } from './helpers.js';
@@ -32,7 +33,7 @@ test('published bins and source scripts expose executable lushw, not a lushc com
     // Execute the shipped shebang directly, without a project or daemon.
     const local = await invoke(bin, ['skills', 'list', '--json'], { cwd });
     expect(local.code, local.err).toBe(0);
-    expect(JSON.parse(local.out).map(entry => entry.id)).toEqual(['progress', 'delegation', 'auto-title', 'context']);
+    expect(JSON.parse(local.out).map(entry => entry.id)).toEqual(AGENT_CAPABILITIES.map(entry => entry.id));
     for (const script of ['lushw', 'progress', 'message']) {
       const result = await invoke(process.execPath, ['run', script, '--help'], { cwd: root });
       expect(result.code, result.err).toBe(0);

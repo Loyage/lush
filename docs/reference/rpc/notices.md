@@ -1,13 +1,13 @@
 # 待决问题与告知
 
-Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用户决断时发布问题；普通进度与完成汇报仍写 Worker result。用户直接创建 Worker 的待验收（开关开启时）或异常停止由 runtime 内置 hook 自动生成纯告知，不需要 Agent 自己发布，也不额外调用模型。
+Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用户决断时发布问题；普通进度与完整结果仍写 Worker result。开启 `result-notice` 能力时，任务仅分析或用户明确要求做好后告知，Agent 还须主动发布包含实际结论的 info；与 runtime 待验收／分析完成等状态告知独立，可能收到两条，不修改用户 Hook。能力触发和开关见 [Agent 能力契约](../../engineering/agent-capabilities.md)。
 
 | CLI | RPC | 参数 |
 |---|---|---|
 | `notice list` | `notice.list` | `{}` |
 | 项目历史分页 | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
 | Host 来源增量同步（用户专属） | `notice.sync` | `{cursor?: 不透明游标, limit?: 100}` |
-| `notice post 'title' --worker ID --body 'body'` | `notice.post` | `{task, title, body?: '', questions?}` |
+| `notice post 'title' --worker ID --body 'body' [--kind question\|info]` | `notice.post` | `{task?, title, body?: '', questions?, kind?: 'question'\|'info'}` |
 | `notice post 'title' --questions-file FILE` | `notice.post` | 文件为 `{questions:[…]}`，agent 可省略 `--worker` |
 | `notice example` | 无（本地） | 输出可直接保存的问卷 JSON |
 | `notice check --questions-file FILE [--body 'body']` | 无（本地） | 只读校验格式／限额，返回 `{valid:true,question_count}` |
@@ -21,6 +21,12 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 Valet 自身决策问题通过受控 `manager.call` 发布；问题答复只恢复同一管理 occurrence，串行占位、授权快照与未知不重放边界见[Valet 契约](../../engineering/hook-signals-management.md#开发能力的受控代理)。这不允许模型答复自己的危险操作授权。
 
 CLI 的 `--worker` 映射到保留的 RPC 参数 `task`，不接受旧 `--task` 别名；不要把 `notice.post {task,…}` 改成不存在的 `worker` 参数。见[更名边界](../../engineering/core-api.md#worker-更名与兼容边界)。
+
+## Agent 纯告知
+
+`bun run lushw notice post '结果已就绪' --kind info --body '实际结论、验证与限制'`（Agent 子进程使用固定的 `lushw`）。默认仍为 question，问卷语义不变；外部 kind 只接受 question/info，info 与 questions／--questions-file 互斥。Agent 省略 task／--worker 时绑定自身，显式目标仍只能为自己；有效 invocation、项目写门和既有权限不变。
+
+info 在同一事务保存 `notice.reported` 来源 Event 与 `kind=info / status=sent` Notice，进入现有未读告知与来源同步，不暂停／中止调用，不进入 open、不自动答复、不改变 Worker 状态、合并或验收。其 lifecycle_type 为 NULL（非 runtime 生命周期分类）；普通未知分类展示规则保持可见。可按既有 notice.read 标已读，不能 answer/dismiss。返回成功只证明已保存，不保证系统提醒送达；接口不提供强幂等，断连或未知结果不能盲目重发。
 
 ## 全局来源同步与记录身份
 

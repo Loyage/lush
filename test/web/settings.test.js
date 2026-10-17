@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom } from '../dom-stub.js';
+import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld(), dom = installDom({ fetch: world.fetchImpl });
@@ -19,5 +19,15 @@ test('root settings route changes theme and reading order through authoritative 
   const order = panel.querySelector('select.pref-select[data-pref="transcriptOrder"]');
   order.value = 'asc'; await order.listeners.change[0]();
   expect(world.state.devicePreferences.values.transcriptOrder).toBe('asc'); expect(prefs.readPref('transcriptOrder')).toBe('asc');
+  await panel.querySelector('[data-settings-tab="system"]').onclick();
+  const report = panel.querySelector('input[data-runtime-input="result_notice"]');
+  expect(report.checked).toBe(true);
+  report.checked = false; await report.onchange();
+  expect(world.state.runtimeSettings.result_notice.value).toBe(false);
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'system.configure', params: { settings: { result_notice: false } } });
+  expect(deepText(panel)).toContain('与 runtime 自动提醒独立');
+  await panel.querySelector('button[data-capability-reset=""]').onclick();
+  expect(world.state.runtimeSettings.result_notice.value).toBe(true);
+  expect(report.checked).toBe(true);
   dom.location.hash = ''; await dom.fire('hashchange'); expect(panel.dataset.view).toBe('projects');
 });

@@ -5,6 +5,7 @@ import { temp, repo, env } from '../helpers.js';
 import { cli } from './harness.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
+import { AGENT_CAPABILITIES } from '../../src/agent/capabilities.js';
 
 test('two real temporary daemons use device-only settings while daemons and project homes stay independent', async () => {
   const a = temp(), b = temp(), shared = temp(), settingsEnv = { LUSH_GLOBAL_CONFIG: shared };
@@ -13,7 +14,7 @@ test('two real temporary daemons use device-only settings while daemons and proj
     const [sa, sb] = await Promise.all([cli(a, ['start'], settingsEnv), cli(b, ['start'], settingsEnv)]);
     expect(sa.pid).not.toBe(sb.pid);
     const ca = new UIClient(Config.fromEnv(env(settingsEnv), a)), cb = new UIClient(Config.fromEnv(env(settingsEnv), b));
-    const capabilityKeys = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+    const capabilityKeys = AGENT_CAPABILITIES.map(entry => entry.setting);
     await ca.request('system.configure', { settings: { call_timeout: 50, ...Object.fromEntries(capabilityKeys.map(key => [key, false])) }, scope: 'device' });
     const capabilityModel = await cb.request('system.settings');
     expect(capabilityModel.call_timeout).toMatchObject({ value: 50, source: 'device', overridden: true });
