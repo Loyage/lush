@@ -135,6 +135,7 @@ export function setComposerReferences(values) {
 export const composerReferences = () => [...ui.composerReferences];
 export function addComposerReference(value) {
   if (!value) return;
+  if (ui.composerManagement || ui.composerAppendTarget) throw new Error('管理与追加输入暂不支持引用附件；请显式切换到新建工作后再引用，未改变原文或目标。');
   if (ui.composerReferences.some(existing => referenceKey(existing) === referenceKey(value))) return;
   if (ui.composerReferences.length >= MAX_REFERENCES) throw new Error(`一条输入最多引用 ${MAX_REFERENCES} 项`);
   const next = [...ui.composerReferences, value];
@@ -143,6 +144,7 @@ export function addComposerReference(value) {
   ui.composerReferenceRevision = (ui.composerReferenceRevision ?? 0) + 1;
   ui.composerReferences.push(value);
   renderComposerReferences();
+  ui.openComposer?.();
   $('input')?.focus?.();
 }
 export function renderComposerReferences() {

@@ -15,8 +15,9 @@ export function attachComposerViewport(input, shell, win = window) {
   const viewport = win.visualViewport;
   let frame = null, disposed = false;
   const active = () => !disposed && win.matchMedia('(max-width: 760px)').matches
-    && (document.activeElement === input || shell.contains(document.activeElement)) && !shell.hidden;
+    && (document.activeElement === input || shell.contains(document.activeElement)) && !shell.hidden && shell.dataset.open !== 'false';
   const clear = () => {
+    shell.dataset.keyboard = 'false';
     shell.style.removeProperty('--composer-keyboard-inset');
     shell.style.removeProperty('--composer-visible-height');
     document.body.style.removeProperty('--composer-keyboard-inset');
@@ -28,14 +29,14 @@ export function attachComposerViewport(input, shell, win = window) {
     if (viewport && Math.abs(viewport.scale - 1) > 0.01) { clear(); return; }
     const height = viewport?.height ?? win.innerHeight, top = viewport?.offsetTop ?? 0;
     const inset = Math.max(0, win.innerHeight - height - top);
+    shell.dataset.keyboard = String(inset > 100);
     shell.style.setProperty('--composer-keyboard-inset', `${inset}px`);
     shell.style.setProperty('--composer-visible-height', `${height}px`);
     // Extra scroll runway lets the document's last field clear an overlay keyboard.
     document.body.style.setProperty('--composer-keyboard-inset', `${inset}px`);
-    const shellRect = shell.getBoundingClientRect();
-    const rect = shellRect.height <= height - 16 ? shellRect : input.getBoundingClientRect();
+    const rect = input.getBoundingClientRect();
     const delta = viewportScrollDelta(rect, { top, height });
-    if (Math.abs(delta) > 1) win.scrollBy({ top: delta, behavior: 'instant' });
+    if (Math.abs(delta) > 1) shell.scrollTop += delta;
   }
   function schedule() {
     if (!disposed && frame === null) frame = win.requestAnimationFrame(update);

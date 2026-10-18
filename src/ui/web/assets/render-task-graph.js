@@ -261,7 +261,7 @@ function appendTaskActions(row, node, inputWorkers) {
   if (deletion) row.append(deletion);
   if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
     row.append(guardedAction(button('追加输入', () => appendToWorker(node), 'ghost', {
-      help: '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。冻结期间提交的追加指令可靠入箱，不打断在途合并或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
+      help: '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间提交的追加指令可靠入箱，不打断在途合并或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
     }), appendInputBlocker(node, inputWorkers)));
   }
 }

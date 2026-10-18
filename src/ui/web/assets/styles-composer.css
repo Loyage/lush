@@ -1,0 +1,57 @@
+/* Non-modal dock: its grid row reserves reading space. Collapsed means zero form footprint. */
+#composer-shell { position:relative; display:block; min-width:0; padding:8px 16px max(8px,env(safe-area-inset-bottom)); max-height:60dvh; overflow:auto; }
+#composer-shell[data-open="false"] { height:0; min-height:0; padding:0; border:0; overflow:visible; }
+html[data-lush-space="project"] body:has(#detail) #composer-shell { display:block; }
+#composer-shell[hidden], #composer-shell [hidden] { display:none !important; }
+#composer-shell[data-large="true"] { max-height:78dvh; }
+#composer-shell #input-form { max-width:1100px; }
+#composer-shell .composer-launcher { position:fixed; right:max(16px,env(safe-area-inset-right)); bottom:max(16px,env(safe-area-inset-bottom)); width:52px; height:52px; min-height:52px; border-radius:50%; background:var(--accent); color:var(--bg); border:1px solid var(--accent); box-shadow:0 3px 14px #0003; font-size:28px; padding:0; z-index:8; }
+#composer-shell[data-open="true"] .composer-launcher { position:absolute; top:8px; right:12px; bottom:auto; width:44px; height:44px; min-height:44px; font-size:24px; }
+.composer-launcher[data-pending="true"]::after { content:''; position:absolute; top:2px; right:2px; width:10px; height:10px; border-radius:50%; background:var(--waiting); border:2px solid var(--bg); }
+#composer-shell .composer-menu { position:fixed; bottom:max(80px,calc(env(safe-area-inset-bottom) + 72px)); right:16px; z-index:9; width:min(320px,calc(100vw - 32px)); padding:8px; border:1px solid var(--line); border-radius:14px; background:var(--panel); box-shadow:0 6px 24px #0003; display:flex; flex-direction:column; gap:6px; max-height:55dvh; overflow:auto; }
+#composer-shell .composer-menu button { min-height:44px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+#composer-shell .composer-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-right:48px; margin-bottom:4px; }
+#composer-shell .composer-toolbar button { min-height:44px; }
+#composer-project { overflow-wrap:anywhere; min-width:0; }
+#composer-shell .composer-mode { margin:2px 0 6px; }
+#composer-shell .composer-mode-target { font-weight:650; font-size:12px; flex:1 1 200px; max-height:4.5em; overflow:auto; }
+#composer-shell .composer-target-status { margin:4px 0 6px; font-size:12px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere; }
+#composer-shell #input-form[data-blocked="true"] .composer-target-status { color:var(--failed); }
+#composer-shell .composer-mode-behavior { display:none; }
+#composer-shell #input-form[data-expanded="true"] .composer-mode-behavior { display:block; flex-basis:100%; }
+#composer-shell textarea, #composer-shell textarea:focus { height:64px; min-height:64px; max-height:none; font-size:16px; }
+#composer-shell[data-large="true"] textarea { height:28dvh; }
+#composer-shell .composer-recovery { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0; }
+#composer-shell .composer-recovery button { font-size:12px; min-height:44px; }
+#composer-shell .composer-draft-list { display:grid; gap:6px; max-height:160px; overflow:auto; margin:6px 0; }
+#composer-shell .composer-draft-list button { min-height:44px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
+#composer-shell #composer-draft-status, #composer-shell #composer-condition-summary { margin:4px 0; font-size:11px; overflow-wrap:anywhere; }
+#composer-shell .composer-actions { width:100%; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+#composer-shell .composer-actions button, #composer-shell .text-editor-controls button { min-height:44px; max-width:100%; font-size:12px; padding:6px 10px; white-space:normal; overflow:visible; }
+#composer-shell #input-form .composer-expand { max-width:none; margin-right:auto; white-space:nowrap; }
+#composer-shell #input-form[data-expanded="false"] :is(#input-history,#input-drafts,.composer-run-settings,#composer-reset,.composer-management-result) { display:none; }
+#composer-shell .composer-target select { min-height:44px; font-size:13px; }
+#composer-shell #input-form[data-mode="management"] #input { border-style:double; }
+html[data-lush-space="global"] #composer-shell { display:none; }
+@media(max-width:760px) {
+  html[data-lush-space="project"] .app { display:grid; height:calc(100dvh - var(--composer-keyboard-inset,0px)); min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr) auto; grid-template-areas:"sidebar" "content" "composer"; }
+  html[data-lush-space="project"] .content-shell { min-height:0; overflow:hidden; }
+  html[data-lush-space="project"] #detail { min-height:0; overflow:auto; }
+  html[data-lush-space="project"] body { padding-bottom:0; }
+  #composer-shell { bottom:auto; padding:6px 10px max(6px,env(safe-area-inset-bottom)); max-height:calc(var(--composer-visible-height,100dvh) * .65); }
+  #composer-shell[data-large="true"] { max-height:calc(var(--composer-visible-height,100dvh) * .8); }
+  #composer-shell[data-large="true"] textarea { height:calc(var(--composer-visible-height,100dvh) * .3); }
+  #composer-shell .composer-toolbar { gap:4px; }
+  #composer-shell .composer-toolbar button { font-size:12px; padding:6px 8px; }
+  #composer-project { flex-basis:100%; font-size:11px; }
+  #composer-shell .composer-mode-target { flex-basis:100%; }
+  #composer-shell .composer-recovery button { flex:1 1 auto; }
+  #composer-shell .composer-actions button { padding:6px 8px; }
+  /* While typing over an overlay keyboard, keep the target, body and primary actions together.
+     Advanced controls reappear on leaving the text field; their values/expanded state are untouched. */
+  #composer-shell[data-keyboard="true"]:has(#input:focus) { max-height:calc(var(--composer-visible-height) * .8); }
+  #composer-shell[data-keyboard="true"]:has(#input:focus) :is(#composer-details,#composer-shortcuts,#composer-editor-tools,.composer-recovery,#composer-draft-status,.composer-mode-behavior,#input-history,#input-drafts,.composer-run-settings,#composer-reset,.composer-management-result) { display:none !important; }
+  #composer-shell[data-keyboard="true"]:has(#input:focus) textarea { height:64px; }
+  #composer-shell[data-keyboard="true"]:has(#input:focus) .composer-mode { max-height:60px; overflow:auto; }
+  #composer-shell[data-keyboard="true"]:has(#input:focus) :is(.composer-references,#composer-condition-summary) { max-height:36px; overflow:auto; }
+}

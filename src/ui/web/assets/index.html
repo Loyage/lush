@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/styles-agent-status.css">
 <link rel="stylesheet" href="/styles-versions.css">
 <link rel="stylesheet" href="/styles-inputs.css">
+<link rel="stylesheet" href="/styles-composer.css">
 <link rel="stylesheet" href="/styles-hooks.css">
 <link rel="stylesheet" href="/styles-worker-cli.css">
 <link rel="stylesheet" href="/styles-agent-usage.css">
@@ -135,23 +136,43 @@
   </section>
 </div>
 </main>
-<div class="composer" id="composer-shell"><form id="input-form" data-mode="create" data-expanded="false">
+<div class="composer" id="composer-shell" data-open="false">
+  <button type="button" id="composer-launcher" class="composer-launcher" aria-label="选择输入方式" aria-expanded="false" aria-controls="input-form composer-menu" data-help="选择输入方式；有未完成编辑时一次恢复，不提交或调用 Agent。">＋</button>
+  <div id="composer-menu" class="composer-menu" role="group" aria-label="输入方式" hidden>
+    <button type="button" id="composer-menu-append" hidden>追加当前 Worker</button>
+    <button type="button" id="composer-menu-order">新建工作 · 默认 main</button>
+    <button type="button" id="composer-menu-management">管理 Lush · 当前项目</button>
+  </div>
+  <form id="input-form" data-mode="create" data-expanded="false" hidden>
+  <div class="composer-toolbar">
+    <button type="button" id="composer-switch" class="ghost" aria-controls="composer-menu" data-help="切换输入方式；不同模式与目标独立保留本页编辑，不携带文字改投。">切换方式</button>
+    <button type="button" id="composer-large" class="ghost" aria-expanded="false" data-help="扩大或缩小长文编辑空间；保持阅读区可滚动，不提交或丢弃编辑。">扩大编辑</button>
+    <span id="composer-project" class="hint"></span>
+  </div>
   <div id="composer-mode" class="composer-mode" role="status" aria-live="polite" aria-atomic="true">
     <span id="composer-mode-icon" class="composer-mode-icon" aria-hidden="true">＋</span>
     <strong id="composer-mode-title">新建工作</strong>
     <span id="composer-mode-target" class="composer-mode-target">去向：新 Worker · 基于 main</span>
     <span id="composer-mode-behavior" class="composer-mode-behavior">Enter 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker</span>
   </div>
+  <p id="composer-target-status" class="composer-target-status" role="status" hidden></p>
   <div id="composer-details" class="composer-details" hidden>
     <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">先暂存为草稿，准备好再提交</span></div>
     <div class="composer-target"><label for="input-parent">父 Worker</label><select id="input-parent" aria-describedby="input-parent-help"><option value="">main（默认父 Worker）</option></select><span id="input-parent-help" class="hint">新 Worker 从所选父 Worker 的分支创建独立 worktree</span></div>
   </div>
+  <div class="composer-recovery">
+    <button type="button" id="composer-resume" class="ghost">继续最近暂存</button>
+    <button type="button" id="composer-choose-draft" class="ghost" data-help="选择本项目同模式与同目标的可编辑暂存；当前编辑保留在本页，不自动授权提交。">选择其他暂存</button>
+  </div>
+  <div id="composer-draft-list" class="composer-draft-list" hidden></div>
+  <p id="composer-condition-summary" class="hint" hidden></p>
+  <p id="composer-draft-status" class="hint" hidden></p>
   <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
   <div class="draft-panel" id="draft-panel">
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
   </div>
   <div class="composer-input">
-    <textarea id="input" rows="1" maxlength="32000" aria-describedby="composer-mode-title composer-mode-target composer-mode-behavior" aria-label="工作指令正文" placeholder="描述你希望新 Worker 完成的工作…"></textarea>
+    <textarea id="input" rows="1" maxlength="32000" aria-describedby="composer-mode-title composer-mode-target composer-target-status composer-mode-behavior" aria-label="工作指令正文" placeholder="描述你希望新 Worker 完成的工作…"></textarea>
   </div>
   <div id="composer-editor-tools" class="composer-editor-tools" aria-label="正文编辑操作" hidden></div>
   <div class="composer-foot">
@@ -160,7 +181,7 @@
 
       <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开正文编辑、草稿、历史输入、运行设置、父 Worker 与快捷键">⌃ 更多</button>
 
-      <button type="button" id="composer-reset" class="ghost" data-help="回到新建工作模式，保留正文与引用；追加模式中输入空白且没有引用时也可按 Esc 返回。" hidden>回到新建工作</button>
+      <button type="button" id="composer-reset" class="ghost" data-help="恢复新建工作的独立编辑；当前追加或管理内容留在原去向，不带入新建。" hidden>回到新建工作</button>
       <button type="button" id="input-drafts" class="ghost">草稿</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>
       <span class="help-host" id="input-buffer-help" data-help="保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行；不创建 Worker 或工作区，不调用 Agent。"><button type="button" id="input-buffer" data-help="保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行；不创建 Worker 或工作区，不调用 Agent。">暂存</button></span>

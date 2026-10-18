@@ -1,4 +1,5 @@
 import { $, el, button } from './dom.js';
+import { editableDraft, draftOptions, updateDraft, emitDraft } from './draft-editor.js';
 import { api, action, projectApi } from './api.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -16,7 +17,7 @@ import { searchField } from './search-field.js';
 import { listEntry, listSurface } from './list-surface.js';
 import { registerPageLeaveGuard } from './page-leave-guard.js';
 import { inputPreviewText } from './entity-preview.js';
-import { createEmissionConditions, createEmissionWorkerPicker, dispatchText, emissionAcknowledgement, emissionRequestId } from './emission-form.js';
+import { createEmissionConditions, createEmissionWorkerPicker, dispatchText, emissionAcknowledgement } from './emission-form.js';
 
 export const INPUT_STATUS = {
   draft: '草稿', created: '已创建·待开始', queued: '排队中', running: '执行中', waiting: '等待中',
@@ -471,9 +472,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       }).catch(error => { if (current()) stateLine.textContent = `核验失败：${error.message}；取消入口保持禁用，请查看父 Worker 的 Hooks。`; });
       return;
     }
-    if (editable && ((record.revision !== null && (!Number.isSafeInteger(record.revision) || record.revision <= 0)) ||
-        (record.status && !['draft', 'cancelled'].includes(record.status)) ||
-        (record.mode && !['order', 'append'].includes(record.mode)))) {
+    if (editable && !editableDraft(record)) {
       panel.replaceChildren(el('h2', `草稿 #${record.id} · 只读待核验`), el('pre', record.content, 'input-original'),
         el('p', '草稿版本、模式或提交状态不完整，不能确认仍可编辑。请返回列表重新读取或检查服务版本；不会重复提交、修改、取消或改投目标。', 'hint'));
       for (const reference of references) panel.append(el('p', reference.label || '引用', 'hint'), el('pre', reference.quote || '', 'input-quote'));
@@ -545,7 +544,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     }
     const initialParent = () => !saved.parent_id ? '' : parents.some(task => task.id === saved.parent_id && task.branch === saved.branch)
       ? String(saved.parent_id) : `missing:${saved.parent_id}`;
-    const savedOptions = () => ({ conditions: (saved.conditions || []).map(({ kind, worker_id }) => ({ kind, ...(worker_id == null ? {} : { worker_id }) })), exclusive: Boolean(saved.exclusive) });
+    const savedOptions = () => draftOptions(saved);
     editor.editKey = () => JSON.stringify([saved.revision, content.value, parent.value, appendTarget?.value()?.id, references, runProfile, conditionsForm?.collect()]);
     const contentDirty = () => editable && (content.value !== saved.content || (!append && parent.value !== initialParent())
       || (append && appendTarget?.value()?.id !== saved.target_id) || JSON.stringify(conditionsForm?.collect()) !== JSON.stringify(savedOptions())
@@ -618,9 +617,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       if (append && references.length) throw new Error('追加指令暂不支持引用附件，原文和引用已保留；请显式移除引用再提交。');
       if (saved.revision !== null && !Number.isInteger(saved.revision)) throw new Error('草稿缺少版本号，请先复制编辑内容再刷新页面。');
       if (!contentDirty()) return;
-      const updated = await action('draft.update', { id: saved.id, content: content.value, references,
+      const updated = await updateDraft(saved, { content: content.value, references,
         ...(append ? { mode: 'append', target_id: target.id } : target.id !== saved.parent_id || target.branch !== saved.branch ? { branch: target.branch } : {}),
-        ...conditionsForm.collect(), expected_revision: saved.revision }, { refresh: false });
+        ...conditionsForm.collect() });
       // Update the captured revision even if navigation happened; never repaint a different page.
       saved = updated;
       if (current()) {
@@ -646,12 +645,8 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
             message.textContent = runProfile ? '草稿已保存，尚未提交；运行参数仍只保留在本页，提交时才写入。' : '已保存。'; state.items.set(keyOf(saved), saved); paintList(); return;
           }
           // Keep this exact retry identity while the revision/definition remains unchanged.
-          const definition = JSON.stringify([saved.id, saved.revision, runProfile]);
-          if (editor.requestDefinition !== definition) { editor.requestDefinition = definition; editor.requestId = emissionRequestId(); }
-          const result = await action('input.emit', { draft_id: saved.id, expected_revision: saved.revision,
-            client_request_id: editor.requestId, ...(runProfile ? { profile: runProfile } : {}) }, { refresh: false });
+          const result = await emitDraft(saved, runProfile, editor);
           if (!current()) return;
-          if (result.emitted !== true || result.draft_id !== saved.id) throw new Error('提交响应缺少可靠草稿收据，请核验历史输入与服务版本，不会自动重试。');
           editor.textEditor.dispose();
           const acknowledged = { ...saved, revision: Number.isSafeInteger(result.revision) && result.revision > 0 ? result.revision : undefined,
             dispatch: result.dispatch || { state: 'unknown', reason: '返回中缺少提交状态，请核验服务版本。' } };

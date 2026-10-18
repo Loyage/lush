@@ -57,6 +57,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
     'test/web/dom-inputs.test.js', // draft editor
+    'test/web/dom-floating-composer.test.js', // isolated destinations, inline recovery, versions and late responses
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation
     'test/web/dom-transcript-view.test.js', // bulk folding across paging and live steps
     'test/web/dom-model-sources.test.js', // model settings main flow

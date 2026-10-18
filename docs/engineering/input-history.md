@@ -63,7 +63,8 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 - `src/core/project/input-emissions.js`：持久授权、条件信号、独占及异步准入；`order.js` 保留实际创建原语。
 - `src/ui/web/assets/render-inputs.js` / `styles-inputs.css`：`#inputs` 已发送历史与 `#drafts` 暂缓输入的独立页面、显式查询分页、暂存编辑及原文详情；`createInputBrowser` 提供同一编辑器的嵌入模式，不修改全局页面、地址或详情根。
 - `src/ui/web/assets/automation-emission.js`：`renderEmissionAutomation({ownsPage,catalogue})` 返回功能正文 DOM，`ready` 为初始读取 Promise，`setSubpage('settings'|'history')` 切换正文（默认设置），`dispose()` 释放编辑器并使迟到响应失效；父页面负责标题、返回与标签。标签往返保留未保存编辑，写入沿用单条草稿版本、请求去重与独立授权。
-- `src/ui/web/assets/composer.js`：主输入框快捷键、暂存与直接发送，独立完整父候选读面。
+- `src/ui/web/assets/composer.js` / `composer-workspace.js`：主输入快捷键与授权、浮动入口、按模式／目标隔离的本页编辑及原位暂存恢复；父候选使用独立完整读面。
+- `src/ui/web/assets/draft-editor.js`：主输入与草稿页共用的可编辑性、版本更新及精确版本授权接缝，不新增 RPC 或持久化实体。
 
 前端显式查询与刷新历史，不随 overview 重画编辑内容；所有异步响应核对页面身份，失败保留编辑，发射按钮单飞。CLI 不恢复旧 draft 命令，也不新增批量提交。
 
@@ -71,7 +72,9 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 
 `openInputs({section?:'history'|'drafts',item?:{kind,id},push?:boolean})` 复用编辑器但不混合页面身份：`#inputs` 属于 `ui.view.id='inputs'`，`#drafts` 和 `#input-draft-<id>` 属于 `drafts`；Input／Message／management 原文深链接归历史。旧条件提交 hash 转至草稿。同页往返保留查询、分页、滚动和本地编辑；追加深链接同步分类，分类变化使旧查询和分页失效；离页未保存编辑须确认，迟到读响应不能重开旧详情。版本冲突仍须先保留本地修改，再刷新读取。
 
-主输入框不提供条件设置入口，Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 同样提交执行授权（内部仍为发射）。独立草稿详情默认展开执行条件，静息／独占高级项及运行参数按需展开；条件输入功能的嵌入编辑器仍默认收起条件表单。通过「执行条件设置」收起或展开，均保留本地设置；入口简要标注已有条件／独占，唯一发射动作按当前配置显示「提交指令／提交追加」或「按条件提交」，调用 `input.emit`，不以 ACK 冒充创建完成。保存按钮比较正文、目标、引用、条件和独占，恢复原值、保存成功后变灰；仅运行参数变动不启用保存。Ctrl/⌘+S 在活动可编辑详情内调用同一保存路径，IME、请求单飞、干净状态和页面身份均受保护；正文撤销／重做也同步保存状态，不新增发射快捷键。
+主输入面板默认收起，导航只收起、不取消绑定的追加目标；详情页读取只可刷新同一目标，不能用另一 Worker 的状态替换编辑归属。模式、目标及恢复草稿的身份分别隔离本页内容，收起不是服务器暂存。续写通过既有 `input.history {view:'drafts'}` 查完所有分页，按模式与目标匹配可编辑记录，再读取完整详情核验；等待、结果未知、已发送或旧 Hook 占用记录不开放续写。恢复保留原 `id/revision`、去向、引用、条件与独占，保存调用 `draft.update`，授权调用 `input.emit {draft_id,expected_revision}`；版本冲突保留本地内容，不自动覆盖。迟到读取校验编辑身份、请求代次、正文与引用版本；在途新编辑不被旧提交清空，也不继续绑定已授权草稿。
+
+主输入框不提供条件配置入口，但恢复已有条件草稿时保留条件摘要与「按条件提交」；Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 同样提交执行授权（内部仍为发射）。独立草稿详情默认展开执行条件，静息／独占高级项及运行参数按需展开；条件输入功能的嵌入编辑器仍默认收起条件表单。通过「执行条件设置」收起或展开，均保留本地设置；入口简要标注已有条件／独占，唯一发射动作按当前配置显示「提交指令／提交追加」或「按条件提交」，调用 `input.emit`，不以 ACK 冒充创建完成。保存按钮比较正文、目标、引用、条件和独占，恢复原值、保存成功后变灰；仅运行参数变动不启用保存。Ctrl/⌘+S 在活动可编辑详情内调用同一保存路径，IME、请求单飞、干净状态和页面身份均受保护；正文撤销／重做也同步保存状态，不新增发射快捷键。
 
 挂载 ACK 后消费编辑器并呈现只读发射收据，不等待全局刷新。实际获得 `input_id` 后才可转到历史 Order 原文；追加收据通过「查看已入箱追加原文」打开真实 Message/A 原文，不造 O。历史 Input／Message 用明确 `source_draft_id` 提供条件／独占收据入口，服务端显式 null 不得被前端旧缓存推翻；独占草稿保留合法释放入口，成功源草稿从列表移除但仍可寻址。后读失败不恢复已消费编辑器、不猜测 Input 关联或扫描全库。返回列表刷新草稿版本；所有迟到响应服从页面身份保护，不伪造 O 编号。
 
@@ -80,8 +83,9 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 当前保留 `test/project/input-history.test.js`、Web 输入历史 API 与编辑／发送主流程，以及 `test/web/dom-inputs-api.test.js` 的真实临时 HTTP／RPC／SQLite／Git 链；不连接用户项目。键盘模式、条件历史、迟到响应和冻结等组合不再逐项回归；精确 Web 入口用 `bun run test:integration --list` 查询，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 - `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。
 - `bun run scripts/check-input-history-ui.js`：Firefox/geckodriver 真实 app shell 与 fixture API，用 iframe 浏览上下文实际验证双主题 1440/900/390px 的独立导航、发送边界、暂存分类／摘要、原文只读、条件默认展开与高级项收起、窄屏无溢出，以及后退、Ctrl+S、提交收据和历史原文往返；不连接 daemon／模型，不代替手机真机验收。
-- `bun run scripts/check-composer-layout.js`：实际 `/p/<id>/` 项目页和 fixture API；Firefox 验证只有 textarea 区分新建实线／追加虚线，表单／图标／目标条无外框，整个输入区域统一项目色染色、聚焦不叠加描边且保留线型、常驻加粗目标、两种模式均沿用六种项目配色、双主题、聚焦／失焦、长标题、冻结／阻塞目标保留、Enter 真实投递、追加 ACK 自动恢复新建及导航退出。用真实 iframe 浏览上下文绕过 Firefox 顶层最小窗口限制，实际测试 1440/900/390px 视口；不连接 daemon 或模型，运行后清理服务与浏览器进程。
+- `bun run scripts/check-composer-layout.js`：真实 `/p/<id>/` 项目页与 fixture API；Firefox iframe 验证三模式的字段线型与项目配色、双主题、1440/760/390/320px、长标题、冻结／阻塞目标、Enter 投递、追加 ACK 恢复新建，以及导航收起而不改投。不连接 daemon 或模型，运行后清理服务与浏览器进程。
 
-- `bun run test/web/check-mobile-composer-browser.js`：隔离 Firefox fixture，以真实 iframe 验证 320/390/760px 手机与 1440px 桌面、双主题、项目配色下的常驻单行页头、两列 44px 等高导航、事项／Worker 跳转后收起、矮屏全局菜单独立滚动、默认常用按钮单行且无条件发射入口、冻结发射按钮不溢出、展开次要入口及手机回车／撤销／追加／创建语义。软键盘通过 VisualViewport 模拟，不等同于 iOS／Android 真机验收。
+- `bun run test/web/check-mobile-composer-browser.js`：隔离 Firefox iframe 验证 320/390/760/1440px、双主题、默认零表单占位、文字菜单、停靠不遮挡阅读、44px 控件、扩大／收起与一次恢复、阅读位置、原位草稿更新及版本授权，保留页头／导航和回车／撤销／追加／创建回归。软键盘通过 VisualViewport 模拟，不等同于 iOS／Android 真机验收。
+- `test/web/dom-floating-composer.test.js` 与 `test/web/dom-inputs-api.test.js`：覆盖独立目标、本页编辑、全分页恢复、条件／版本、迟到响应与单飞；真实临时 HTTP／RPC／SQLite／Git 链验证新建与追加续写更新原草稿、重复授权不重复投递及权限拒绝，不调用模型。
 
 缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、任意 Worker 消息的全局全文检索或原始 Input 改写；普通用户追加仅在来源有持久证明时纳入历史检索；不将其它 Worker 消息或信号变成用户输入。

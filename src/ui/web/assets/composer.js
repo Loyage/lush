@@ -15,6 +15,7 @@ import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerLabel } from './worker-label.js';
 import { appendInputBlocker, inputQueueText, inputWaitReason } from './worker-input.js';
 import { emissionAcknowledgement, emissionRequestId } from './emission-form.js';
+import { initComposerWorkspace, currentEdit, selectComposerMode, paintComposerWorkspace, finishComposerEdit, collapseComposer } from './composer-workspace.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
 export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
@@ -41,8 +42,8 @@ export function paintRunSettings() {
  * 随下一次 input.emit 一起发送；取消或「恢复项目默认」不改变已有输入。
  */
 export async function openComposerRunSettings() {
-  const view = ui.view, managementMode = Boolean(ui.composerManagement);
-  const ownsPage = () => ui.view === view && Boolean(ui.composerManagement) === managementMode;
+  const view = ui.view, editing = currentEdit(), managementMode = Boolean(ui.composerManagement);
+  const ownsPage = () => ui.view === view && currentEdit() === editing && Boolean(ui.composerManagement) === managementMode;
   if (!ownsPage()) return;
   let settings = ui.lastSnapshot?.status?.agent_config;
   if (!settings) {
@@ -85,7 +86,7 @@ export async function openComposerRunSettings() {
       ui.composerProfile = null; paintRunSettings();
       show('本条指令将沿用项目默认运行配置。'); return;
     }
-    if (!confirmed || ui.view !== view) return;
+    if (!confirmed || !ownsPage()) return;
     const error = form.validate();
     if (error) { show(error, 'error'); continue; }
     break;
@@ -130,13 +131,15 @@ function creationTarget(branch, task = null) {
     || (ui.lastSnapshot?.status?.branch_freeze || []).find(item => item.branch === branch) || null;
   // A frozen root remains a valid identity for a deferred creation; missing/archived roots do not.
   const blocker = selected?.execution_retired === true ? '远端执行已退役，仅保留只读历史。' : task ? iterationBlocker(task) : null;
-  return { branch, task, freeze, reason: blocker && !/冻结/.test(blocker) ? blocker : null };
+  return { branch, task: selected || task, freeze, reason: blocker && !/冻结/.test(blocker) ? blocker : null };
 }
 /** New work is the default on every page; only an explicit action selects an inbox. */
 function destination() {
   if (!ui.composerAppendTarget) return creationTarget($('input-parent')?.value.trim() || 'main');
   const { id } = ui.composerAppendTarget;
-  const task = ui.composerTask?.id === id ? ui.composerTask : null;
+  // Page detail is only a freshness hint, never the owner of the pinned editor target.
+  const task = ui.composerTask?.id === id ? ui.composerTask : ui.composerAppendTarget.task;
+  if (task) ui.composerAppendTarget.task = task;
   if (!task) return { id, reason: ui.composerError || '正在读取 Worker；加载成功后才能输入。' };
   return { id, task, reason: appendInputBlocker(task), wait: inputWaitReason(task), queueText: inputQueueText(task) };
 }
@@ -151,17 +154,10 @@ export function appendToWorker(task) {
   const inDetail = ui.view?.id === 'task' && ui.selected === task.id;
   const inGraph = ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id);
   if (!inDetail && !inGraph) return;
-  ui.composerManagement = false;
-  ui.composerTask = task;
-  ui.composerAppendTarget = { id: task.id };
-  syncComposer();
-  $('input').focus();
+  selectComposerMode('append', task);
 }
 export function resetComposerMode() {
-  ui.composerManagement = false;
-  ui.composerAppendTarget = null;
-  syncComposer();
-  $('input').focus();
+  selectComposerMode('order');
 }
 export function paintComposerDetails() {
   const open = Boolean(ui.composerExpanded), followup = Boolean(ui.composerAppendTarget);
@@ -176,7 +172,7 @@ export function paintComposerDetails() {
   toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
     ? '展开：显示正文的撤销与重做按钮、草稿、历史输入；不改变追加目标。'
     : `展开：显示正文的撤销与重做按钮、草稿、历史输入、运行设置，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
-  toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Worker：${parent}` : '⌃ 更多');
+  toggle.textContent = open ? '收起高级' : '高级设置';
 }
 export function renderParentOptions() {
   const select = $('input-parent');
@@ -230,13 +226,18 @@ export function syncComposer() {
     ? `Worker ${workerLabel(target.task)} · ${target.branch}` : selectedParentLabel() || 'main';
   $('input-form').dataset.mode = management ? 'management' : followup ? 'append' : 'create';
   $('input-form').dataset.blocked = String(Boolean(target.reason));
+  // Admission facts must remain readable without opening shortcuts/settings, including over a keyboard.
+  const targetStatus = target.reason || [target.queueText || target.wait || (target.freeze ? target.freeze.reason || '父分支冻结，等待安全边界' : ''),
+    followup && target.task?.status === 'paused' ? '暂停中，需开始 / 继续后处理' : ''].filter(Boolean).join(' · ');
+  $('composer-target-status').hidden = !targetStatus;
   const modeText = {
+    'composer-target-status': targetStatus,
     'composer-mode-icon': management ? '⚙' : followup ? '↳' : '＋',
     'composer-mode-title': management ? '管理 Lush' : followup ? '追加输入' : '新建工作',
-    'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}`,
+    'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}`,
     'composer-mode-behavior': target.reason || (management
       ? '由管家处理 · 受控接口默认自动执行，可逐项限制 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
-      : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，确认后回到新建工作${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+      : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，导航不改变目标${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
         : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
   // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
@@ -252,17 +253,18 @@ export function syncComposer() {
   const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
   $('draft-commit').classList.add('agent-call');
-  $('draft-commit').textContent = management ? '提交管理指令' : followup ? '提交追加' : '提交指令';
+  const saved = currentEdit()?.saved, conditions = saved || currentEdit()?.localOptions, conditional = Boolean(conditions?.conditions?.length || conditions?.exclusive);
+  $('draft-commit').textContent = conditional ? '按条件提交' : management ? '提交管理指令' : followup ? '提交追加' : '提交新工作';
   $('draft-commit').classList.toggle('hook-button', Boolean(!management && target.freeze));
   const description = target.reason || (management
     ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；受控接口默认自动执行，可在全局 CLI 接口页面限制。管家修改接口权限始终须用户审核，不提供文件或 Shell 工具。'
     : followup ? `提交追加指令给 ${label}，可靠保存后等待安全准入；不代表 Agent 已收到，冻结不打断交付或源侧修复，暂停中仍需显式继续。`
       : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在工作树。`);
-  const help = agentHelp(description);
+  const help = agentHelp(conditional ? `保存此草稿并授权按原条件提交；等待全部条件与安全准入，不保证立即执行。${description}` : description);
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
   textEditor?.sync();
-  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; }
+  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; $('input-buffer').textContent = saved ? '保存暂存' : '暂存'; }
   if ($('input-buffer-help')) {
     $('input-buffer-help').hidden = management;
     const bufferHelp = followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在草稿页编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
@@ -274,7 +276,7 @@ export function syncComposer() {
   $('composer-reset').hidden = !followup && !management;
   if (management) { $('composer-details').hidden = true; $('composer-shortcuts').hidden = true; }
   if (managementResultButton) managementResultButton.hidden = !management || !Number.isSafeInteger(ui.composerManagementResult?.id);
-  paintRunSettings();
+  paintRunSettings(); paintComposerWorkspace();
 }
 
 /** Reads are not part of submission: release the composer before starting them. */
@@ -309,6 +311,7 @@ async function submitInput(mode) {
   const input = $('input'), value = input.value, content = value.trim();
   if (ui.composerSubmitting || !content) return;
   const identity = ui.composerIdentity, editRevision = ui.composerEditRevision, view = ui.view;
+  const editing = currentEdit(), saved = editing?.saved;
   const appendTarget = ui.composerAppendTarget;
   const referenceRevision = ui.composerReferenceRevision;
   const management = Boolean(ui.composerManagement);
@@ -317,21 +320,38 @@ async function submitInput(mode) {
   const target = management ? {} : destination(), branch = target.branch;
   if (target.reason) { show(target.reason, 'error'); return; }
   if (management && mode === 'buffer') return;
-  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile]);
-  if (identity.requestDefinition !== requestDefinition) { identity.requestDefinition = requestDefinition; identity.requestId = emissionRequestId(); }
+  const request = editing?.request || identity;
+  const localOptions = editing?.localOptions || {};
+  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile, localOptions]);
+  if (!saved && request.requestDefinition !== requestDefinition) { request.requestDefinition = requestDefinition; request.requestId = emissionRequestId(); }
   const submission = {}; identity.submission = submission;
-  let update = null;
+  let update = null, retainedOptions = null;
   ui.composerSubmitting = true; syncComposer();
   try {
     if ((target.id != null || management) && references.length) throw new Error(`${management ? '管理指令' : '追加指令'}暂不支持引用附件；原文与引用已保留，请先移除引用或回到新建工作模式。`);
     if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
-    const params = { content, references, ...(branch ? { branch } : {}),
+    const params = { content, references, ...localOptions, ...(branch ? { branch } : {}),
       ...(target.id != null ? { mode: 'append', target_id: target.id } : {}) };
-    const result = management
-      ? await action('management.submit', { instruction: content, client_request_id: identity.requestId, ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false })
+    let result;
+    if (saved) {
+      const { draftOptions, updateDraft, emitDraft } = await import('./draft-editor.js');
+      if (ui.composerIdentity !== identity) return;
+      // The recovered identity owns its exact version, conditions and destination. Never draft.add it again.
+      const parent = ui.composerParents?.find(parent => parent.id === saved.parent_id && parent.branch === saved.branch);
+      if (target.id == null && !parent) throw new Error('草稿原父 Worker 已不可用，请到草稿页显式重选；本地内容保留，不会改投 main。');
+      retainedOptions = draftOptions(saved);
+      if (saved.content !== value || JSON.stringify(saved.references) !== signature) {
+        editing.saved = await updateDraft(saved, { content: value, references, ...retainedOptions });
+      }
+      if (ui.composerIdentity !== identity) return;
+      result = mode === 'buffer' ? editing.saved : await emitDraft(editing.saved, target.id == null ? creationProfile : null, editing.request);
+    } else result = management
+      ? await action('management.submit', { instruction: content, client_request_id: request.requestId, ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false })
       : await action(mode === 'buffer' ? 'draft.add' : 'input.emit', mode === 'buffer' ? params
-        : { ...params, client_request_id: identity.requestId, ...(creationProfile && target.id == null ? { profile: creationProfile } : {}) }, { refresh: false });
+        : { ...params, client_request_id: request.requestId, ...(creationProfile && target.id == null ? { profile: creationProfile } : {}) }, { refresh: false });
     if (ui.composerIdentity !== identity) return;
+    if (!management && mode === 'buffer' && (!Number.isSafeInteger(result.id) || result.id <= 0))
+      throw new Error('暂存响应缺少可靠草稿身份；本地内容保留，请核验草稿列表，不会自动重试。');
     if (management && (result.management !== true || !Number.isSafeInteger(result.task?.id)))
       throw new Error('管理响应缺少可靠记录身份；请核对服务版本与管理历史，不会自动重试。');
     if (!management && mode !== 'buffer' && (result.emitted !== true || !Number.isSafeInteger(result.draft_id)))
@@ -339,31 +359,38 @@ async function submitInput(mode) {
     // The composer survives page navigation: consume unchanged submitted content even after a page switch.
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
     const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
+      && (management ? ui.composerManagementProfile : ui.composerProfile) === creationProfile
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
-    if (untouched) {
-      input.value = ''; textEditor?.reset(); setComposerReferences([]); identity.requestDefinition = null;
+    const keepSaved = saved && mode === 'buffer';
+    if (untouched && !keepSaved) {
+      input.value = ''; textEditor?.reset(); setComposerReferences([]); request.requestDefinition = null;
+      finishComposerEdit({ consume: true });
+    } else if (saved && mode !== 'buffer') {
+      // New typing while an authorization was in flight is a new local input, not an editable authorized draft.
+      finishComposerEdit({ detached: true, options: retainedOptions });
+    } else if (!saved && mode === 'buffer' && !untouched) {
+      // Saving the earlier snapshot must not create a duplicate on the next save.
+      if (result.kind === 'draft') finishComposerEdit({ saved: result });
     }
     if (management) {
-      if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
+      if (untouched && ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
       ui.composerManagementResult = result.task || null;
       show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，接口按最新权限执行。`);
     } else if (mode === 'buffer') {
-      if (target.id != null && untouched) ui.composerAppendTarget = null;
-      show(`已暂存为草稿 #${result.id}，尚未提交；可到「草稿」编辑或设定条件，未创建 Worker、未调用 Agent。`);
+      show(`已${saved ? '更新' : '暂存为'}草稿 #${result.id}，尚未提交；可在这里继续编辑或到「草稿」设定条件，未创建 Worker、未调用 Agent。`);
       ui.draftsPage?.added?.();
     } else {
-      if (target.id != null && untouched) ui.composerAppendTarget = null;
-      if (target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;
+      if (untouched && target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;
       paintRunSettings(); show(emissionAcknowledgement(result, target.id != null));
       ui.draftsPage?.added?.();
       ui.inputsPage?.added?.();
     }
-    update = { identity, submission, view, appendTarget: ui.composerAppendTarget,
+    update = { identity, submission, view, appendTarget: ui.composerAppendTarget, resetMode: target.id != null && untouched && !keepSaved,
       // The just-sent inbox may refresh its detail after returning to creation, never re-enter append.
       detailId: view?.id === 'task' ? target.id ?? null : null,
       editRevision: ui.composerEditRevision, referenceRevision: ui.composerReferenceRevision, canNavigate: untouched };
   } catch (error) { if (ui.composerIdentity === identity) show(error.message, 'error'); }
-  finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }
+  finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; if (update?.resetMode) selectComposerMode('order', null, 'main', { open: Boolean(ui.composerWorkspace?.open) }); syncComposer(); } }
   if (update) void updateAfterSubmit(update);
 }
 export function buffer() { return submitInput('buffer'); }
@@ -385,22 +412,19 @@ export function initComposer() {
   if (anchor?.parentNode) anchor.parentNode.insertBefore(runSettingsButton, anchor);
   else host?.append(runSettingsButton);
   host?.querySelector?.('.composer-management')?.remove?.();
-  const managementButton = button('管理 Lush', () => {
-    ui.composerManagement = !ui.composerManagement; ui.composerAppendTarget = null; ui.composerEditRevision++; syncComposer(); $('input').focus();
-  }, 'ghost composer-management', { help: '切换为向当前项目管家提交管理指令；切换不调用 Agent，保留文字与引用。暂不支持暂存或引用附件，受控接口默认自动执行，可在全局 CLI 接口页面限制。' });
-  managementButton.id = 'composer-management'; host?.append(managementButton);
   host?.querySelector?.('.composer-management-result')?.remove?.();
   managementResultButton = button('查看最近管理记录', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');
   managementResultButton.hidden = true; host?.append(managementResultButton);
   const sendHelp = agentHelp('提交工作指令并可靠保存执行授权，安全准入后创建并开始新 Worker；不保证立即创建。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);
+  initComposerWorkspace({ resetEditor: () => textEditor?.reset() });
   renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
   $('composer-reset').onclick = resetComposerMode;
   if ($('input-buffer')) $('input-buffer').onclick = buffer;
   renderParentOptions();
-  $('input-parent').onchange = syncComposer;
+  $('input-parent').onchange = () => selectComposerMode('order', null, $('input-parent').value || 'main');
   $('input-form').onsubmit = event => { event.preventDefault(); return submitInput('create'); };
   $('input').oninput = () => { ui.composerEditRevision++; syncComposer(); };
   let composing = false;
@@ -408,11 +432,9 @@ export function initComposer() {
   $('input').oncompositionend = () => { composing = false; };
   $('input').onkeydown = event => {
     if (composing || event.isComposing || event.keyCode === 229) return;
-    if (event.key === 'Escape') {
-      if (ui.composerAppendTarget && !event.repeat && !$('input').value.trim() && !composerReferences().length) {
-        event.preventDefault(); resetComposerMode();
-      }
-      return;
+    if (event.key === 'Escape') { event.preventDefault(); collapseComposer(); return; }
+    if ((event.ctrlKey || event.metaKey) && event.key?.toLowerCase() === 's' && !event.altKey && !event.shiftKey && currentEdit()?.saved) {
+      event.preventDefault(); if (!event.repeat) return buffer(); return;
     }
     if (event.key !== 'Enter') return;
     if (event.altKey) return;

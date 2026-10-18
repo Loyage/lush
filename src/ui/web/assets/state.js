@@ -35,6 +35,7 @@ export const ui = {
   automationPage: null, disposeProjectAutomation: null,
   valetSettingsPage: null, disposeValetSettings: null,
   composerManagement: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
+  composerWorkspace: null, openComposer: null, collapseComposer: null,
   composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
   transcriptView: null,
   draftSignature: null,
@@ -96,6 +97,7 @@ export function resetUiState() {
   ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.valetSettingsPage = null;
   ui.view = null; ui.inputsPage = null; ui.draftsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerManagement = false; ui.composerManagementProfile = null; ui.composerManagementResult = null; ui.composerConditions = []; ui.composerExclusive = false;
+  ui.composerWorkspace = null; ui.openComposer = null; ui.collapseComposer = null;
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null; ui.versionsPage = null;

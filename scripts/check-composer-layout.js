@@ -85,18 +85,18 @@ async function checkLayout(mode, theme, color, focused) {
       outerBorderless:[form,icon,target,document.querySelector('.composer-input')].every(n=>['Top','Right','Bottom','Left'].every(edge=>getComputedStyle(n)['border'+edge+'Width']==='0px')),
       regionTint:shell.backgroundColor,fieldBackground:getComputedStyle(document.querySelector('.composer-input')).backgroundColor,targetWeight:targetStyle.fontWeight,targetOwnRow:tr.top>=document.querySelector('#composer-mode-title').getBoundingClientRect().bottom,
       fits:r.width>0 && r.top>=0 && r.bottom<=innerHeight && fr.left>=0 && fr.right<=innerWidth && form.scrollWidth<=form.clientWidth+1
-        && document.documentElement.scrollWidth<=innerWidth+1 && [...band.children].every(n=>{const cr=n.getBoundingClientRect();return cr.left>=r.left && cr.right<=r.right+1 && cr.bottom<=r.bottom+1;}),
+        && document.documentElement.scrollWidth<=innerWidth+1 && [...band.children].filter(n=>n.getClientRects().length).every(n=>{const cr=n.getBoundingClientRect();return cr.left>=r.left && cr.right<=r.right+1 && cr.bottom<=r.bottom+1;}),
       described:box.getAttribute('aria-describedby').includes('composer-mode-target'),
       fieldColor:field.borderTopColor,iconColor:getComputedStyle(icon).color,accent:getComputedStyle(document.querySelector('#sidebar')).borderTopColor};`);
   assert(layout.mode === mode && layout.fits && layout.described, `clipped/inaccessible ${theme}/${color}/${mode}/${focused}: ${JSON.stringify(layout)}`);
   assert(layout.outerBorderless && layout.fieldWidth === (focused ? '3px' : '2px') && (!focused || layout.outlineStyle === 'none')
     && layout.regionTint !== layout.fieldBackground, `extra frame or missing regional tint/focus: ${JSON.stringify(layout)}`);
   assert(mode === 'create' ? layout.fieldStyle === 'solid' && layout.title === '新建工作' && layout.target.includes('去向：新 Worker · 基于') && layout.behavior.includes('Enter 暂存')
-    : mode === 'append' ? layout.fieldStyle === 'dashed' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
+    : mode === 'append' ? layout.fieldStyle === 'dashed' && Number(layout.targetWeight) >= 650
       && layout.title === '追加输入' && layout.target.includes('W179') && layout.behavior.includes('Enter 提交追加') && !layout.behavior.includes('Enter 暂存')
       : layout.fieldStyle === 'double' && layout.title === '管理 Lush' && layout.target === '去向：管家 · 当前项目'
         && layout.bufferHidden && layout.behavior.includes('暂不支持暂存'), `wrong structure/target: ${JSON.stringify(layout)}`);
-  const copy = mode === 'create' ? ['描述你希望新 Worker 完成的工作…', '工作指令正文', '提交指令']
+  const copy = mode === 'create' ? ['描述你希望新 Worker 完成的工作…', '工作指令正文', '提交新工作']
     : mode === 'append' ? ['补充要求、提供反馈，或说明需要调整的地方…', '追加指令正文', '提交追加']
       : ['描述你希望管家查询、调整或安排的事项…', '管理指令正文', '提交管理指令'];
   assert(layout.placeholder === copy[0] && layout.contentLabel === copy[1] && layout.submit === copy[2], `wrong input copy: ${JSON.stringify(layout)}`);
@@ -125,16 +125,16 @@ try {
   for (const mode of ['append', 'create', 'management']) {
     if (mode === 'management') {
       await execute(`document.querySelector('#input').blur();`);
-      await click('#composer-management');
+      await click('#composer-switch'); await click('#composer-menu-management');
       assert(await waitFor('document.querySelector("#input-form").dataset.mode==="management"'), 'management mode missing');
     }
     if (mode === 'create') {
       // Settle the existing focus-height collapse before WebDriver computes a click coordinate.
       await execute(`document.querySelector('#input').blur();`);
-      await click('#composer-reset');
+      await click('#composer-switch'); await click('#composer-menu-order');
       assert(await waitFor('document.querySelector("#input-form").dataset.mode==="create"'), 'reset button did not restore creation');
     }
-    for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
+    for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [760, 700], [390, 844], [320, 700]]) {
       await setViewport(width, height);
       let viewport;
       for (const focused of [false, true]) {
@@ -150,16 +150,19 @@ try {
     }
   }
   await setViewport(390, 844);
-  const checks = await execute(`const original=window.ui.composerTask,results=[];const title='很长的追加目标标题'.repeat(20)+' <img src=x onerror=alert(1)>';
+  const checks = await execute(`window.composer.toggleComposerDetails(false);const original=window.ui.composerTask,results=[];const title='很长的追加目标标题'.repeat(20)+' <img src=x onerror=alert(1)>';
     for(const change of [{},{freeze:{reason:'固定交付'},input_queue:{buffered:2,reason:'等待交付结束'}},{status:'completed'}]){
       window.ui.composerTask={...original,worker_number:'W179-1',display_title:title,...change};window.composer.appendToWorker(window.ui.composerTask);
       const target=document.querySelector('#composer-mode-target'),form=document.querySelector('#input-form'),r=target.getBoundingClientRect();
+      const status=document.querySelector('#composer-target-status'),sr=status.getBoundingClientRect(),shell=document.querySelector('#composer-shell').getBoundingClientRect();
       results.push({mode:form.dataset.mode,target:target.textContent,disabled:document.querySelector('#input').disabled,behavior:document.querySelector('#composer-mode-behavior').textContent,
+        compact:form.dataset.expanded==='false',summary:status.textContent,statusVisible:!status.hidden&&getComputedStyle(status).display!=='none'&&sr.width>0&&sr.top>=shell.top&&sr.bottom<=shell.bottom,
         fits:target.scrollWidth<=target.clientWidth+1 && r.left>=0 && r.right<=innerWidth,unsafe:target.querySelectorAll('img').length});
     }window.ui.composerTask=original;window.composer.syncComposer();return results;`);
   assert(checks.every(row => row.mode === 'append' && row.target.includes('W179-1') && row.target.includes('<img') && row.fits && !row.unsafe)
-    && !checks[1].disabled && checks[1].behavior.includes('已入箱 2 条追加指令') && checks[2].disabled, `long/frozen/blocked target lost: ${JSON.stringify(checks)}`);
-  console.log('PASS long numbered/text-safe targets, frozen wait reason and blocked target retention');
+    && checks.every(row=>row.compact) && !checks[1].disabled && checks[1].statusVisible && checks[1].summary.includes('已入箱 2 条追加指令')
+    && checks[2].disabled && checks[2].statusVisible && checks[2].summary.includes('Worker 已完成'), `long/frozen/blocked target lost: ${JSON.stringify(checks)}`);
+  console.log('PASS long numbered/text-safe targets, compact visible frozen/blocked reasons and legal frozen append');
   await setViewport(1440, 900);
   await execute(`const box=document.querySelector('#input');box.value='确认追加给目标';box.dispatchEvent(new Event('input'));box.focus();`);
   await enter();
@@ -169,9 +172,13 @@ try {
   await enter();
   assert(await waitFor('window.calls.some(c=>c.method==="draft.add" && c.params.content==="新建模式只暂存") && !window.ui.composerSubmitting'), 'Enter did not buffer in create mode');
   assert(await execute(`return !window.calls.some(c=>c.method==='order.submit');`), 'mode reset unexpectedly created Worker');
-  await execute(`window.composer.appendToWorker(window.ui.composerTask);location.hash='#workers';`);
-  assert(await waitFor('document.querySelector("#input-form").dataset.mode==="create"'), 'navigation retained stale append destination');
-  console.log(`PASS Enter emits selected append target, ACK restores new-work mode; manual reset and navigation restore creation. Screenshots: ${output}-*.png`);
+  await execute(`window.composer.appendToWorker(window.ui.composerTask);const box=document.querySelector('#input');box.value='仍然只给原目标';box.dispatchEvent(new Event('input'));location.hash='#workers';`);
+  assert(await waitFor('document.querySelector("#input-form").hidden && window.ui.composerAppendTarget?.id===1'), 'navigation changed the pinned append destination or left the form open');
+  await execute(`document.querySelector('#composer-launcher').click();`);
+  assert(await execute(`return window.ui.composerAppendTarget?.id===1&&document.querySelector('#input').value==='仍然只给原目标'&&!document.querySelector('#input-form').hidden;`), 'launcher changed destination or lost the retained body');
+  await execute(`window.ui.composerTask={id:999,worker_number:'W999',goal:'不同页面目标'};window.composer.syncComposer();`);
+  assert(await execute(`return document.querySelector('#composer-mode-target').textContent.includes('W179')&&!document.querySelector('#composer-mode-target').textContent.includes('W999');`), 'unrelated detail replaced pinned target metadata');
+  console.log(`PASS Enter emits selected append target, ACK restores new-work mode; navigation collapses without retargeting. Screenshots: ${output}-*.png`);
   passed = true;
 } catch (error) {
   if (session) console.error('Browser diagnostic:', await execute(`return {url:location.href,ready:window.ready,error:document.querySelector('#error')?.textContent,detail:document.querySelector('#detail')?.textContent?.slice(0,1000)};`).catch(() => null));

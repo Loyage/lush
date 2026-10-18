@@ -9,6 +9,9 @@ const composerOnly = process.argv.includes('--composer-only');
 const script = `<script type="module">
 import {initComposer,appendToWorker,syncComposer} from '/composer.js';
 import {ui} from '/state.js';
+import {openComposer,resumeComposerDraft,selectComposerMode} from '/composer-workspace.js';
+window.openComposer=openComposer;window.resumeDraft=resumeComposerDraft;window.selectComposer=selectComposerMode;
+window.compact=()=>{ui.composerExpanded=false;syncComposer();};
 import {registerNavigation} from '/navigate.js';
 import {initSidebar} from '/sidebar-init.js';
 import {toggleMobileNavigation,activateDetailView,setNavCount} from '/sidebar-ui.js';
@@ -17,10 +20,14 @@ window.matchMedia=q=>q==='(pointer: coarse)'?{matches:window.touch}:nativeMatch(
 const viewport=new EventTarget();Object.assign(viewport,{height:innerHeight,offsetTop:0,scale:1});
 Object.defineProperty(window,'visualViewport',{value:viewport,configurable:true});
 window.keyboard=h=>{viewport.height=h;viewport.dispatchEvent(new Event('resize'));};
-window.calls=[];window.fail=false;window.defer=false;
+window.calls=[];window.fail=false;window.defer=false;window.fixtureDraft={kind:'draft',id:40,mode:'order',parent_id:1,branch:'main',content:'可续写暂存',references:[],revision:3,status:'draft',conditions:[{kind:'parent_quiet'}],exclusive:true};
 window.fetch=async(url,options)=>{if(String(url).endsWith('/api/input-parents'))return Response.json({items:[{id:1,branch:'main'}]});
+if(String(url).includes('/api/inputs?'))return Response.json({items:[window.fixtureDraft],next_cursor:null});
+if(String(url).endsWith('/api/input/draft/40'))return Response.json(window.fixtureDraft);
 const body=JSON.parse(options.body);window.calls.push(body);if(window.defer)await new Promise(r=>window.release=r);
-if(window.fail)return Response.json({error:'fixture failure'},{status:500});return Response.json(body.method==='draft.add'?{id:4}:{emitted:true,draft_id:4,dispatch:{state:'queued'}});};
+if(window.fail)return Response.json({error:'fixture failure'},{status:500});
+if(body.method==='draft.update'){Object.assign(window.fixtureDraft,body.params,{revision:window.fixtureDraft.revision+1});return Response.json(window.fixtureDraft);}
+return Response.json(body.method==='draft.add'?{id:4}:{emitted:true,draft_id:body.params.draft_id||4,dispatch:{state:'queued'}});};
 registerNavigation({refresh:async()=>{},detail:async()=>{}});ui.view={id:'overview'};
 document.documentElement.dataset.lushSpace='project';
 document.querySelector('#project').textContent='手机体验项目';
@@ -31,7 +38,7 @@ window.menu=()=>toggleMobileNavigation(true);
 window.space=value=>{document.documentElement.dataset.lushSpace=value;document.querySelector('#composer-shell').hidden=value==='global';};
 for(const id of ['notices','tasks'])document.querySelector('#side-'+id+'-body').innerHTML='<div style="height:1800px">Scrollable resource content</div>';
 document.querySelector('#detail').innerHTML='<h1>Long content</h1><div style="height:1800px">Scrollable content</div>';
-window.append=()=>{ui.view={id:'task'};ui.selected=8;appendToWorker({id:8,worker_number:'W8',task_kind:'order',status:'waiting',branch:'feature',workspace:'/tmp/fixture',goal:'追加目标'});};
+window.append=(change={})=>{ui.view={id:'task'};ui.selected=8;appendToWorker({id:8,worker_number:'W8',task_kind:'order',status:'waiting',branch:'feature',workspace:'/tmp/fixture',goal:'追加目标',...change});};
 window.frozen=value=>{ui.composerParents=[{id:1,branch:'main',...(value?{freeze:{reason:'fixture freeze'}}:{})}];syncComposer();};
 await initComposer();window.ready=true;
 </script>`;
@@ -65,21 +72,37 @@ try{
   session=(await rpc('/session',{capabilities:{alwaysMatch:{browserName:'firefox','moz:firefoxOptions':{args:['-headless']}}}})).sessionId;
   await rpc(`/session/${session}/window/rect`,{width:1600,height:1100});await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});
   await resize(390,844);assert(await wait('window.ready'),'fixture load failed');
+  assert(await execute(`return document.querySelector('#input-form').hidden&&document.querySelector('#composer-shell').getBoundingClientRect().height===0;`),'form is not collapsed by default');
+  await click('#composer-launcher');
+  assert(await execute(`return !document.querySelector('#composer-menu').hidden&&document.querySelector('#composer-menu-append').hidden&&window.calls.length===0;`),'first click did not open explicit menu or offered targetless append');
+  await click('#composer-menu-order');
+  assert(await execute(`return !document.querySelector('#input-form').hidden&&!document.querySelector('#composer-launcher').classList.contains('agent-call');`),'second click did not open non-authorizing editor');
   for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
-    await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.projectColor='blue';window.touch=${width<=760};document.querySelector('#input').focus();`);
+    await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.projectColor='blue';window.touch=${width<=760};window.openComposer();document.querySelector('#input').focus();`);
     assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=innerHeight+1`),'focus did not expose input');
     assert(await execute(`return document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length===0;`),`editor controls visible by default ${width} ${theme}`);
-    assert(await execute(`const visible=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length);const r=visible.map(b=>b.getBoundingClientRect());return innerWidth>760||visible.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.height===36&&b.left>=0&&b.right<=innerWidth);`),`default actions not one compact row ${width} ${theme}`);
+    assert(await execute(`const visible=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length);const r=visible.map(b=>b.getBoundingClientRect());return visible.length===3&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth);`),`default actions not one compact row ${width} ${theme}`);
     assert(await execute(`return !document.querySelector('#composer-runner-choice,.runner-input-choice');`),`retired environment present before More ${width} ${theme}`);
     await click('#composer-expand');
     assert(await execute(`return !document.querySelector('#composer-runner-choice,.runner-input-choice');`),`retired environment present after More ${width} ${theme}`);
     assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length>0&&document.querySelector('#input-history').getClientRects().length>0&&document.querySelector('#input-drafts').getClientRects().length>0&&!document.querySelector('#composer-chat-open,#composer-chat-controls,#quick-chat-open');`),`editor controls not expanded or retired chat entry present ${width} ${theme}`);
-    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=36)});`),`clipped/small controls ${width} ${theme}`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&r.height>=44});`),`clipped/small controls ${width} ${theme}`);
     await click('#composer-expand');
-    console.log(`PASS focus, compact default/expanded controls, themes ${theme} ${width}x${height}`);
+    const dock=await execute(`const s=document.querySelector('#composer-shell').getBoundingClientRect(),c=document.querySelector('.content-shell').getBoundingClientRect();return {top:s.top,bottom:c.bottom,reading:c.height};`);
+    assert(dock.bottom<=dock.top+1&&dock.reading>80,`dock overlays reading pane ${width}: ${JSON.stringify(dock)}`);
+    await click('#composer-switch');
+    assert(await execute(`return Array.from(document.querySelectorAll('#composer-menu button')).filter(n=>n.getClientRects().length).every(n=>{const r=n.getBoundingClientRect();return r.height>=44&&r.left>=0&&r.right<=innerWidth});`),`menu clips on ${width}`);
+    await click('#composer-menu-order');
+    await click('#composer-large');assert(await execute(`return document.querySelector('#composer-shell').dataset.large==='true'&&document.querySelector('.content-shell').getBoundingClientRect().height>0;`),'large edit removed reading pane');await click('#composer-large');
+    await execute(`const d=document.querySelector('#detail');d.scrollTop=150;window.readingTop=d.scrollTop;const i=document.querySelector('#input');i.value='保留编辑';i.dispatchEvent(new Event('input'));i.scrollTop=12;`);
+    await click('#composer-launcher');
+    assert(await execute(`return document.querySelector('#input-form').hidden&&document.querySelector('#composer-shell').getBoundingClientRect().height===0&&document.querySelector('#detail').scrollTop===window.readingTop&&document.activeElement===document.querySelector('#composer-launcher');`),`collapse lost reading position ${width}`);
+    await click('#composer-launcher');assert(await execute(`return document.querySelector('#input').value==='保留编辑'&&!document.querySelector('#input-form').hidden;`),`one click resume failed ${width}`);
+    await execute(`const i=document.querySelector('#input');i.value='';i.dispatchEvent(new Event('input'));`);
+    console.log(`PASS focus, dock reservation, menu, enlarge, collapse/resume, themes ${theme} ${width}x${height}`);
     if(width<=760){
       await execute('window.frozen(true);');
-      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.left>=0&&b.right<=innerWidth);`),`frozen buttons wrap/overflow ${width}`);
+      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===3&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth);`),`frozen buttons wrap/overflow ${width}`);
       await execute('window.frozen(false);');
     }
     if(width<=760 && !composerOnly){
@@ -104,14 +127,16 @@ try{
       console.log(`PASS pinned header, equal navigation cards, resource jumps, global scrollable menu ${theme} ${width}`);
     }
   }
-  await resize(390,844);await execute(`window.touch=true;document.querySelector('#input').focus();`);
+  await resize(390,844);await execute(`window.touch=true;window.openComposer();document.querySelector('#input').focus();`);
   await keys(['a','b','\uE007','c']);
   assert(await execute(`return document.querySelector('#input').value==='ab\\nc'&&window.calls.length===0`),'touch Enter did not insert native newline');
   await click('#composer-expand');
   await click('.text-editor-undo');assert(await execute(`return document.querySelector('#input').value==='ab\\n'&&window.calls.length===0`),'undo submitted or restored wrong text');
   await click('.text-editor-redo');assert(await execute(`return document.querySelector('#input').value==='ab\\nc'`),'redo failed');
   await execute(`window.keyboard(420);document.querySelector('#input').focus();`);
-  assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=420&&document.querySelector('#draft-commit').getBoundingClientRect().bottom<=420`),'overlay keyboard hides input/actions');
+  const keyboardFits=await wait(`document.querySelector('#composer-mode-target').getBoundingClientRect().top>=0&&document.querySelector('#composer-mode-target').getBoundingClientRect().bottom<=document.querySelector('#input').getBoundingClientRect().top&&document.querySelector('#input').getBoundingClientRect().top>=0&&document.querySelector('#input').getBoundingClientRect().bottom<=420&&document.querySelector('#draft-commit').getBoundingClientRect().bottom<=420`);
+  if(!keyboardFits)console.error('Keyboard layout:',await execute(`return Object.fromEntries(['.app','#composer-shell','#input','#draft-commit','#composer-mode-target'].map(s=>{const n=document.querySelector(s);return [s,{rect:n.getBoundingClientRect().toJSON(),scroll:n.scrollTop,height:n.scrollHeight,style:n.style.cssText}]}));`));
+  assert(keyboardFits,'overlay keyboard hides input/actions');
   console.log('PASS touch native newline, undo/redo, simulated overlay keyboard');
   assert(await execute(`return !document.querySelector('#input-start,.emission-conditions')`),'composer contains conditional controls');
   await click('#draft-commit');assert(await wait(`document.querySelector('#input').value===''`),'emit did not release text');
@@ -134,6 +159,29 @@ try{
     assert(await execute(`return window.calls.at(-1).method==='input.emit'&&Boolean(window.calls.at(-1).params.mode==='append')===${appendMode}&&!window.calls.at(-1).params.conditions&&!document.querySelector('.emission-conditions');`),'shifted shortcut opened conditions or changed destination');
   }
   console.log('PASS native Ctrl+Shift+Enter directly emits both new and append inputs');
+  await resize(390,844);await execute(`window.selectComposer('order');window.touch=true;`);
+  await click('#composer-resume');assert(await wait(`document.querySelector('#input').value==='可续写暂存'`),'inline latest draft did not restore');
+  assert(await execute(`return document.querySelector('#draft-commit').textContent==='按条件提交'&&document.querySelector('#composer-condition-summary').textContent.includes('独占');`),'draft lost conditions');
+  await execute(`document.querySelector('#input').focus();`);await keys(['续','写']);
+  await click('#composer-launcher');
+  assert(await execute(`return document.querySelector('#input-form').hidden&&document.activeElement===document.querySelector('#composer-launcher')&&document.querySelector('#composer-launcher').dataset.pending==='true';`),'collapse did not blur/preserve pending edit');
+  await click('#composer-launcher');assert(await execute(`return !document.querySelector('#input-form').hidden&&document.querySelector('#input').value.includes('续写');`),'one click did not restore draft');
+  await click('#input-buffer');assert(await wait(`window.calls.at(-1).method==='draft.update'`),'resumed draft duplicated instead of update');
+  await click('#draft-commit');assert(await wait(`window.calls.at(-1).method==='input.emit'&&window.calls.at(-1).params.draft_id===40&&window.calls.at(-1).params.expected_revision===4`),'resumed draft did not emit exact saved revision');
+  console.log('PASS inline continuation, saved revision/condition identity, collapse and one-click resume');
+  for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
+    await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';window.append({archived:true});window.compact();`);
+    assert(await execute(`const n=document.querySelector('#composer-target-status'),r=n.getBoundingClientRect(),s=document.querySelector('#composer-shell').getBoundingClientRect();return document.querySelector('#input-form').dataset.expanded==='false'&&document.querySelector('#input').disabled&&!n.hidden&&getComputedStyle(n).display!=='none'&&n.textContent.includes('分支已归档')&&r.height>0&&r.top>=s.top&&r.bottom<=s.bottom&&r.right<=innerWidth;`),`compact blocked reason hidden ${theme}/${width}`);
+    await execute(`window.append({freeze:{reason:'固定交付中'}});const i=document.querySelector('#input');i.value='合法冻结追加';i.dispatchEvent(new Event('input'));i.focus();${width<=760?'window.keyboard(420);':''}`);
+    assert(await wait(`document.querySelector('#composer-target-status').getBoundingClientRect().bottom<=${width<=760?420:height}`),`keyboard obscures waiting reason ${theme}/${width}`);
+    assert(await execute(`const n=document.querySelector('#composer-target-status'),r=n.getBoundingClientRect(),s=document.querySelector('#composer-shell').getBoundingClientRect();return !document.querySelector('#input').disabled&&!document.querySelector('#draft-commit').disabled&&!n.hidden&&getComputedStyle(n).display!=='none'&&n.textContent.includes('冻结中：固定交付中')&&r.height>0&&r.top>=s.top&&r.bottom<=s.bottom&&!n.textContent.includes('Ctrl');`),`legal frozen append lost waiting fact or was disabled ${theme}/${width}`);
+    // A subsequent blocker must still be visible with the keyboard geometry active, not hidden as advanced help.
+    await execute(`window.append({archived:true});`);
+    assert(await execute(`const n=document.querySelector('#composer-target-status'),r=n.getBoundingClientRect();return document.querySelector('#input').disabled&&getComputedStyle(n).display!=='none'&&r.height>0&&r.top>=0&&r.bottom<=${width<=760?420:height}&&n.textContent.includes('分支已归档');`),`keyboard hides new blocker ${theme}/${width}`);
+    await execute(`window.keyboard(innerHeight);window.append();document.querySelector('#input').focus();`);await keys(['\uE00C']);
+    assert(await execute(`return document.querySelector('#input-form').hidden&&document.activeElement===document.querySelector('#composer-launcher')&&document.querySelector('#input').value==='合法冻结追加';`),`Escape did not restore launcher focus ${theme}/${width}`);
+    console.log(`PASS compact admission facts, keyboard blocker visibility, legal freeze and Escape focus ${theme} ${width}`);
+  }
   passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});driver.kill();await driver.exited;server.stop(true);
