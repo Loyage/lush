@@ -24,6 +24,14 @@ test('production startup and complete lazy module graph are served within the co
       }
     };
     await collect(); const cold = new Set(seen.keys());
+    // Keep the shared project-pane sticky edge in the compiled CSS too. Actual geometry
+    // (including the global/document fallback) is checked by check-detail-preview-browser.js.
+    const css = seen.get(styles[0]);
+    expect(css).toContain('--module-mobile-sticky-top:-14px');
+    expect(css).toContain('html[data-lush-space="project"] .project-banners { position:static; }');
+    expect(css).toContain('top:var(--module-mobile-sticky-top,var(--mobile-header-height))');
+    expect(css).toContain('top:calc(var(--module-mobile-sticky-top,var(--mobile-header-height)) + var(--detail-heading-height,48px))');
+    expect(css).toContain('top:var(--module-mobile-sticky-top,calc(var(--mobile-header-height,53px) + var(--versions-banner-height,0px)))');
     expect(cold.size).toBeLessThan(26);
     const coldJs = [...cold].filter(file => file.endsWith('.js'));
     const native = new Set(), nativePending = ['/app.js', '/appearance.js'];

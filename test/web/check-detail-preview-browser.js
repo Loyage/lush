@@ -16,6 +16,8 @@ import { noticePanel } from '/render-notices.js';
 import { activateDetailView } from '/sidebar-ui.js';
 import { block, el } from '/dom.js';
 import { enhanceModule, observeModules, disposeModules, revealModule } from '/shared-module.js';
+import { enhanceVersionModule } from '/version-module.js';
+window.enhanceVersions=enhanceVersionModule;
 const at='2026-10-08T10:00:00Z';
 const long=Array.from({length:50},(_,i)=>'段落 '+i+'：这是一段较长的正文，预览应保留格式，后续内容仍然完整存在。').join('\\n\\n');
 window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'waiting',calls:1,
@@ -449,6 +451,48 @@ try {
       }
     }
   console.log('PASS Notice tinted sticky headings, metadata/title wrapping and fold controls: desktop/mobile, light/dark, records/detail, decision/info');
+  // Project mobile pages use an inner #detail scrollport (the global fixture above uses
+  // document scrolling). Compare with the real scrollport edge, not the CSS top value.
+  for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark'])
+    for (const colored of [false,true]) for (const kind of ['ordinary','worker','versions','conversation','notice']) {
+      await viewport(width,height);
+      await execute(`document.documentElement.dataset.lushSpace='project';
+        document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.reducedMotion='true';
+        if(${colored})document.documentElement.dataset.projectColor='blue';else delete document.documentElement.dataset.projectColor;
+        const panel=document.querySelector('#detail'),banner=document.querySelector('#notice-banner');
+        banner.hidden='${kind}'!=='versions';banner.style.height='60px';
+        if('${kind}'==='conversation'){
+          window.paint();window.projectSection=panel.querySelector('.conversation-panel');
+          window.projectReply=window.projectSection.querySelector('.conversation-output');window.reveal(window.projectReply);
+        }else if('${kind}'==='notice'){
+          window.makeNoticeModule('info','records');window.projectSection=window.noticeFixture.section;
+        }else{
+          window.makeSharedModules();const {section}=window.sharedReading;
+          panel.replaceChildren(section,window.sharedForm.section);
+          if('${kind}'!=='ordinary')panel.dataset.view='task';
+          if('${kind}'==='versions'){
+            section.classList.add('worker-versions');window.enhanceVersions(section,document.createElement('p'));
+          }
+          window.projectSection=section;window.sharedReading.setExpanded(true);
+        }
+        window.projectHead=window.projectSection.querySelector('.section-title');
+        window.scrollTo(0,0);panel.scrollTop=0;
+        const target='${kind}'==='conversation'?window.projectReply:window.projectHead;
+        panel.scrollTop=target.getBoundingClientRect().top-panel.getBoundingClientRect().top+300;`);
+      await rpc(`/session/${session}/execute/async`,{script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[]});
+      const geometry=await execute(`const panel=document.querySelector('#detail'),head=window.projectHead;
+        return {edge:panel.getBoundingClientRect().top,top:head.getBoundingClientRect().top,
+          scroll:panel.scrollTop,pageScroll:window.scrollY,headerBottom:document.querySelector('#sidebar').getBoundingClientRect().bottom,
+          bannersBottom:document.querySelector('.project-banners').getBoundingClientRect().bottom,
+          meta:'${kind}'==='conversation'?window.projectReply.querySelector('.conversation-meta').getBoundingClientRect().top:null,
+          headBottom:head.getBoundingClientRect().bottom};`);
+      assert(geometry.scroll>0&&geometry.pageScroll===0&&Math.abs(geometry.top-geometry.edge)<2,
+        `project scrollport sticky edge ${width}/${theme}/${colored}/${kind}: ${JSON.stringify(geometry)}`);
+      assert(geometry.top>=geometry.bannersBottom-1,`project banners overlap module: ${JSON.stringify(geometry)}`);
+      if(width<=760)assert(geometry.top>=geometry.headerBottom-1,'module overlaps mobile navigation');
+      if(kind==='conversation')assert(Math.abs(geometry.meta-geometry.headBottom)<2,'project message header separated from module');
+    }
+  console.log('PASS project scrollport sticky headings: ordinary/Worker/version/conversation/Notice, desktop/mobile, themes and project colors');
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});

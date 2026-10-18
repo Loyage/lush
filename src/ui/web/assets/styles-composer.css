@@ -45,7 +45,11 @@ html[data-lush-space="global"] #composer-shell { display:none; }
 @media(max-width:760px) {
   html[data-lush-space="project"] .app { display:grid; height:calc(100dvh - var(--composer-keyboard-inset,0px)); min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr) auto; grid-template-areas:"sidebar" "content" "composer"; }
   html[data-lush-space="project"] .content-shell { min-height:0; overflow:hidden; }
-  html[data-lush-space="project"] #detail { min-height:0; overflow:auto; }
+  /* Banners already occupy a fixed row outside the scrolling detail pane. */
+  html[data-lush-space="project"] .project-banners { position:static; }
+  /* #detail scrolls below navigation/toolbars: cancel its 14px top padding,
+     rather than reserving the mobile header a second time inside the pane. */
+  html[data-lush-space="project"] #detail { min-height:0; overflow:auto; --module-mobile-sticky-top:-14px; }
   html[data-lush-space="project"] body { padding-bottom:0; }
   #composer-shell { bottom:auto; padding:6px 10px max(6px,env(safe-area-inset-bottom)); max-height:calc(var(--composer-visible-height,100dvh) * .8); }
   #composer-shell textarea, #composer-shell textarea:focus { height:calc(var(--composer-visible-height,100dvh) * .3); }

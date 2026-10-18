@@ -607,8 +607,9 @@ button.notice-banner-info{border-color:var(--accent)}
   #sidebar .nav-description,#sidebar .workspace-link small,#sidebar .nav-arrow,#sidebar .nav-fold{display:none}
   #sidebar .nav-divider{display:flex;margin:10px 4px 6px}
   .view-toolbar{position:static}
-  .project-banners,#detail[data-view="task"]>.block>.section-title{top:var(--mobile-header-height)}
-  .conversation-meta{top:calc(var(--mobile-header-height) + var(--detail-heading-height,48px))}
+  .project-banners{top:var(--mobile-header-height)}
+  #detail[data-view="task"]>.block>.section-title{top:var(--module-mobile-sticky-top,var(--mobile-header-height))}
+  .conversation-meta{top:calc(var(--module-mobile-sticky-top,var(--mobile-header-height)) + var(--detail-heading-height,48px))}
 }
 
 /* Touch editing: compact primary actions; secondary controls expand on demand and follow the keyboard. */
