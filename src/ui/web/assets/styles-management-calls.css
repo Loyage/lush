@@ -1,0 +1,12 @@
+.management-calls { min-width: 0; }
+.management-calls-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.management-calls-list { list-style: none; padding: 0; margin: 0; }
+.management-call { min-width: 0; padding-block: 12px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.management-call-head { display: grid; grid-template-columns: minmax(0,.7fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,.7fr) minmax(0,1.5fr); gap: 8px; align-items: start; }
+.management-call-head > * { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.management-call details { margin-top: 8px; }
+.management-call pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; max-height: none; }
+@media (max-width: 760px) {
+  .management-call-head { grid-template-columns: minmax(0,1fr); gap: 4px; }
+  .management-calls button, .management-call summary { min-height: 44px; }
+}

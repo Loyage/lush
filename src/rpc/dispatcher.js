@@ -1,4 +1,5 @@
 import { check, isPlainObject } from '../core/types.js';
+import { beginManagementCall, finishManagementCall } from '../core/project/management-calls.js';
 import { dispatchWorkerCLI } from '../core/worker-cli.js';
 import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { publicResult } from './public-result.js';
@@ -51,7 +52,42 @@ export class Dispatcher {
     // The private CLI correlation is stripped before public registry validation; it never grants an Agent identity.
     params = publicParams;
     // 身份解析交给 registry：只有白名单与未知参数都过了才去查 token（actor() 会写 agent_last_seen_at）。
-    const actor = assertAllowed(method, params, () => this.project.actor(params._token));
+    const p = this.project;
+    let actor;
+    try {
+      actor = assertAllowed(method, params, () => p.actor(params._token));
+    } catch (error) {
+      // Registry rejects malformed parameters before resolving identity. Authenticate
+      // only for the audit of an actual manager transport; never trust caller roles
+      // or create events for invalid/expired credentials or user/developer requests.
+      if (MANAGER_METHODS.has(method) && isPlainObject(params)) {
+        try { actor ??= p.actor(params._token); } catch { /* original rejection wins */ }
+        const task = actor == null ? null : p.store.task(actor);
+        if (task?.role === 'manager' && task.task_kind === 'management') {
+          const info = this.beginManagementAudit(task, method, params);
+          finishManagementCall(p, actor, info, null, error, true);
+        }
+      }
+      throw error;
+    }
+    const task = actor == null ? null : p.store.task(actor);
+    if (task?.role === 'manager' && task.task_kind === 'management' && MANAGER_METHODS.has(method)) {
+      const info = this.beginManagementAudit(task, method, params);
+      let result;
+      try { result = await this.execute(method, params, actor, _cli_trial); }
+      catch (error) { finishManagementCall(p, actor, info, null, error); throw error; }
+      finishManagementCall(p, actor, info, result, null);
+      return result;
+    }
+    return this.execute(method, params, actor, _cli_trial);
+  }
+  beginManagementAudit(task, transport, params) {
+    const method = transport === 'manager.call'
+      ? (typeof params.method === 'string' && Object.hasOwn(PARAMS, params.method) ? params.method : null)
+      : transport === 'manager.start' ? 'worker.resume' : transport === 'manager.retry' ? 'worker.retry' : transport;
+    return beginManagementCall(this.project, task, transport, method, transport === 'manager.call' ? params.params : params);
+  }
+  async execute(method, params, actor, cliTrial) {
     const p = this.project;
     // actor() still returns an invocation-bound integer. Do not grant a manager the
     // ordinary Agent surface (e.g. notice.post/progress/message) merely for having a token.
@@ -66,7 +102,7 @@ export class Dispatcher {
       'integration agents can only inspect work and post notices or report progress for themselves');
     check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
       '项目后台正在停止，请稍后再试');
-    return dispatchWorkerCLI(p, method, { ...params, _cli_trial }, actor,
+    return dispatchWorkerCLI(p, method, { ...params, _cli_trial: cliTrial }, actor,
       async () => publicResult(await HANDLERS[method].call(this, p, params, actor), method));
   }
 }

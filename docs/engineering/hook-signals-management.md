@@ -109,6 +109,18 @@ W323／D686：用户可通过 `worker.message {id,body}` 向正常返回且安�
 
 普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；Valet 自身仅支持上述受控用户追加，不提供开发暂存／条件发射、运行配置编辑、合并、开发验收或 Git 分支，不假装有分支可合并；代理开发目标的能力遵循上文受控契约。删除复用用户专属 `worker.delete_preview`／`worker.delete` 的精确 revision、confirm 与原安全门。启用绑定、模型未实际退出、未收口 occurrence、危险确认、受控动作 waiting／running／unknown 都阻止删除；用户可先停用或停止，安全撤销尚未开始授权，实际退出且无未知在途副作用后再预检删除。已停用且安全收口的 waiting Valet 无须开发验收即可删除。只清理该身份专属非 Git management 目录、会话／日志及历史，不删除其管理操作创建的独立开发 Worker 或项目时间信号库；共享、符号链接、未知归属及资源变化仍拒绝。Web 时间信号与绑定设置入口已移除；管家列表和详情不提供旧操作重放入口；用户追加明确授权新一轮。保留 API／CLI 的 revision、去重与失败语义：成功 mutation 不依赖概览刷新，不因刷新失败重做创建，配置 revision 不因时钟 tick 变化而变更。列表分页和执行阅读器继续以页面、项目与 document 身份守卫迟到响应；仍可见的延迟安排 Agent 按钮使用 agent-call 与 agentHelp。
 
+### 管家接口调用事件流
+
+W325：真实 Dispatcher 在验证当前 invocation 的管理身份后，为全部管理工具传输与 `worker.lookup` 写入 `management.call_started`／`management.call_finished` Event，包括只读、写入、精确请求去重返回、权限和参数拒绝。不从模型会话或 Shell 文本推断调用，不改变原工具权限、执行、去重或恢复语义；不记录无效／已过期 token、用户或普通开发 Agent 的调用。外层未知参数原本先于身份解析拒绝，此路径仅补做身份核验用于记录，仍抛原拒绝。固定 Bun bridge／Provider 在 RPC 前拒绝的请求不在该覆盖范围。
+
+用户专属 `worker.management_calls {id,before?,after?,limit?}` 与 `GET /api/worker/ID/management-calls` 提供只读、有界事件流。id 必须属于当前项目的管理 Worker；RPC 使用整数，HTTP 严格解析十进制 query，拒绝未知／重复项。before 是正 Event ID，after 是非负 Event ID，二者互斥；limit 默认 50、范围 1..100。无游标读取最新尾部窗口，before 向旧、after 向新，均排除游标本身；响应同页按 Event ID 升序。返回 `{items,next_cursor,latest_cursor,has_more,coverage:'trusted_management_rpc_events_only',history_complete:false}`：next_cursor 是同方向继续读取的实际边界（向旧取最小，向新取最大），latest_cursor 仅是**该页实际返回的最高 Event ID**，空页两者 null；has_more 来自额外读取一条，不按 limit 推算、不跳过尚未返回事件。翻旧不得覆盖客户端已读最高水位，增量追新须从实际已读水位继续。接口对普通 Agent 与管家均不可用，manager.call 目录也固定 unavailable。
+
+每项含 `seq`（Event ID）、`phase:'started'|'finished'`、`call_id`（开始 Event ID）、`method`、`transport_method`、`run_id`、`occurrence_id`、`started_at`、目标 ID／真实编号和脱敏 params；完成项独立复制全部开始信息，并含 `finished_at,duration_ms,status,result,reason` 与可选 `receipt_id,action`。`manager.call` 的 method 为已注册内层方法；未知方法为 null，不保存调用方任意字符串；专用 start/retry 分别映射 worker.resume/retry。并行和重复调用只按 call_id 配对，不按相邻位置或方法名猜测。成功 lookup 的完成项补充真实目标。
+
+事件只保存明确白名单的非负整数、布尔及固定枚举参数；字符串正文、指令、路径、配置、模型 request_id、token、凭证、嵌套任意对象与原始输出默认省略。结果仅保留整数身份、固定状态及动作收据链接；错误仅使用 `invalid_parameters` 或 `request_failed_or_denied`，不写异常正文。RPC 正常返回的顶层 status=succeeded **只表示请求返回**，result.status／action 是当时已有收据状态，等待确认或延迟副作用不冒充完成，也不主动重放；收据后续变化继续由既有管理收据读面表达。
+
+开始项表示开始时的 running 事实；若尚无配对完成 Event，且原 Run 不再活跃，则只读投影为 unknown／completion_not_observed，不伪造完成或修改历史。历史未采集区不补写，history_complete 始终 false，空页不证明旧管家从未调用接口。专项 `test/project/management-calls.test.js` 覆盖真实 Provider→工具→固定 bridge→权限／执行／拒绝→Event→鉴权 HTTP，以及分页、脱敏、去重、交错和未知调用；追加轮次身份由既有真实工具链专项核对。
+
 ## 确认、作用域与恢复
 
 confirmation 操作（包括始终需审核的权限修改）先保存精确方法／参数、目标快照与资源预检，发布管理授权 Notice；普通自动选择必须跳过。只有 `answer_source='user'` 的固定问卷答复可授权，dismiss、模型答复、参数或目标变化都不是批准。用户答复在事务后由 `resolveManagementConfirmation` 安排可信执行，不再调用管理模型。目标、脏现场、冻结及 revision 等安全门仍由原引擎复核；模型不能代理答复自身或其它管理授权。

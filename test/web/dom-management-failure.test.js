@@ -28,7 +28,9 @@ test('Valet detail shows full actionable failure before reading previews and off
       expect(children.indexOf(failure)).toBeLessThan(children.indexOf(panel.querySelector('.conversation-panel')));
       expect(failure.classList.contains('detail-preview')).toBe(false);
       expect(panel.querySelectorAll('.task-error-summary')).toHaveLength(0);
-      expect(panel.querySelectorAll('button').some(node => /重试|继续|开始/.test(node.textContent))).toBe(false);
+      // The read-only call stream has retry/continuation controls; none replay management operations.
+      expect(panel.querySelectorAll('button').filter(node => !panel.querySelector('.management-calls').querySelectorAll('button').includes(node))
+        .some(node => /重试|继续|开始/.test(node.textContent))).toBe(false);
       expect(panel.querySelectorAll('button').find(node => node.textContent === '追加输入')?.disabled).toBe(true);
       expect(deepText(panel.querySelector('.management-state'))).not.toContain('已提交待处理');
       expect(deepText(panel.querySelector('.management-state'))).toContain('不会再次排队');

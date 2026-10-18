@@ -1,5 +1,6 @@
 import { check, id, bounded } from '../../core/types.js';
 import { validateWorkerQuery } from '../../core/worker-query.js';
+import { managementCalls } from '../../core/project/management-calls.js';
 import { MANAGEMENT_READ_ITEMS } from '../../core/project/management-data.js';
 import { previewWorkerCLI, executeWorkerCLI } from '../../core/worker-cli.js';
 
@@ -47,6 +48,7 @@ export const handlers = {
     return { ...task, ...(info ? { branch_archive: info } : {}),
       ...(relation ? { parent_relation: relation } : {}) };
   },
+  'worker.management_calls'(p, params) { return managementCalls(p, params); },
   'worker.run_settings'(p, params) { return p.taskRunSettings(id(params.id)); },
   'worker.progress_history'(p, params) {
     return p.progressHistory(id(params.id), { before: params.before ?? null, limit: params.limit ?? 10 });

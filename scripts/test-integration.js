@@ -40,6 +40,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC, including user-authorized fresh Valet rounds
+    'test/project/management-calls.test.js', // real Provider/bridge -> safe audit Events -> user-only bounded HTTP stream
     'test/project/management-append.test.js', // settled Valet -> user RPC append, serial admission, failure protection and recovery
     'test/project/management-append-size.test.js', // full-size immutable Message bodies and missing-instruction fail-closed
     'test/project/management-query.test.js', // typed CLI/manager queries -> real bridge, scope separation and safe rejection
@@ -58,6 +59,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
     'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
+    'test/web/dom-management-calls.test.js', // bounded Valet RPC stream, exact pairing, pagination, unknown projection and retained refresh
     'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-floating-composer.test.js', // isolated destinations, inline recovery, versions and late responses

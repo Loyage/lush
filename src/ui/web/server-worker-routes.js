@@ -32,6 +32,16 @@ export async function workerRead({ url, headers, json }, binding) {
     // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
     return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
   }
+  const managementCalls = /^\/api\/worker\/(\d+)\/management-calls$/.exec(url.pathname);
+  if (managementCalls) {
+    const params = { id: id(managementCalls[1]) };
+    for (const [key, value] of url.searchParams) {
+      check(['before','after','limit'].includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate management calls query parameter');
+      check(/^(0|[1-9]\d*)$/.test(value) && Number.isSafeInteger(Number(value)), 'invalid management calls numeric query parameter');
+      params[key] = Number(value);
+    }
+    return json(await client.request('worker.management_calls', params));
+  }
   const runsPage = /^\/api\/worker\/(\d+)\/runs-page$/.exec(url.pathname);
   if (runsPage) {
     const params = { id: id(runsPage[1]) };

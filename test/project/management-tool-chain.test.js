@@ -88,6 +88,11 @@ test('completed Valet user append -> registered RPC -> real Provider/bridge uses
     ]);
     expect(contexts[1].messages).toMatchObject([{ body: '只记录本轮事项，不涉及设置', append_number: null }]);
     expect(f.store.unread(manager.id)).toEqual([]);
+    const audit = await dispatcher.dispatch('worker.management_calls', { id: manager.id, after: 0 });
+    const finished = audit.items.filter(item => item.phase === 'finished');
+    expect(new Set(finished.map(item => item.run_id)).size).toBe(3);
+    expect(new Set(finished.map(item => item.occurrence_id)).size).toBe(3);
+    expect(finished.filter(item => item.method === 'draft.add').map(item => item.status)).toEqual(['succeeded','succeeded','failed']);
   } finally { await rpc?.close(); await f.close(); }
 });
 

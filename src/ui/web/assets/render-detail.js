@@ -2,6 +2,7 @@ import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } f
 import { workerKind } from './worker-kind.js';
 import { isValet, workTypeLabel } from './work-type.js';
 import { renderManagementState, renderManagementFailure } from './management-state.js';
+import { renderManagementCalls, captureCallsInteraction } from './render-management-calls.js';
 import { action, withReadSignal } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { appendToWorker } from './composer.js';
@@ -80,6 +81,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
   const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
+  const previousCalls = sameTask ? panel.querySelector('.management-calls') : null;
+  const restoreCallsInteraction = captureCallsInteraction(previousCalls);
+  panel.querySelector('.management-calls')?.disposeCalls?.();
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
@@ -304,7 +308,14 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.error && !management) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
 
-  if (management) panel.append(renderManagementState(task));
+  let managementCalls = null;
+  if (management) {
+    panel.append(renderManagementState(task));
+    if (task.role === 'manager' && task.task_kind === 'management') {
+      managementCalls = renderManagementCalls(task, previousCalls, progressive || {});
+      panel.append(managementCalls);
+    }
+  }
   const agent = task.calls || management ? renderAgent(task, usage) : null;
   if (agent) {
     panel.append(agent);
@@ -394,6 +405,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
+  restoreCallsInteraction();
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
   conversation?.bindConversationLifetime(progressive.signal, progressive.current);
@@ -421,6 +433,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const dispose = () => {
     if (disposed) return;
     disposed = true; pending.clear();
+    managementCalls?.disposeCalls?.();
     disposeDetailModules(panel);
     ownerDocument?.removeEventListener?.('selectionchange', flush);
     panel.removeEventListener?.('focusout', onFocusOut);
@@ -519,6 +532,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   return patches;
 }
 export function renderDetailError(taskId, message) {
+  $('detail').querySelector('.management-calls')?.disposeCalls?.();
   disposeWorkerVersions();
   const panel = $('detail');
   progressivePanels.get(panel)?.dispose(); progressivePanels.delete(panel);

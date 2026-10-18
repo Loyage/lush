@@ -64,6 +64,7 @@ export const PARAMS = {
   'worker.graph': WORKER_QUERY_PARAMETERS['worker.graph'], 'worker.list': WORKER_QUERY_PARAMETERS['worker.list'],
   'worker.activity': WORKER_QUERY_PARAMETERS['worker.activity'], 'worker.delivery_graph': ['history','cursor','limit'],
   'worker.page': WORKER_QUERY_PARAMETERS['worker.page'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
+  'worker.management_calls': ['id','before','after','limit'],
   'worker.progress_history': ['id','before','limit'], 'worker.relations': ['id','after','limit'],
   'worker.version_graph': ['id','delivery','cursor','limit'], 'worker.version_deliveries': ['id','before','limit'],
   'worker.version_commit': ['id','snapshot','commit'],
@@ -103,7 +104,7 @@ export const PARAMS = {
 };
 export const USER_ONLY = new Set([
   ...Object.keys(MERGE_CONDITION_PARAMETERS),
-  'cli.catalog','worker.cli_preview','worker.cli_execute','worker.delivery_graph',
+  'cli.catalog','worker.cli_preview','worker.cli_execute','worker.delivery_graph','worker.management_calls',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','branch.version_graph','worker.version_graph','worker.version_deliveries','worker.version_commit','worker.version_lineage','worker.version_lineage_commit','worker.code_state','worker.code_tree','worker.code_file',

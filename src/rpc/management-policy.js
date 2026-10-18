@@ -31,6 +31,7 @@ export function managementDispatchParams(method, params) {
   return definition;
 }
 const unavailable = new Set([
+  'worker.management_calls', // User-only audit; not an additional Agent read capability.
   'cli.catalog','worker.cli_preview','worker.cli_execute', // User learning/trial surfaces, never manager tools.
   'hooks.automation_settings','worker.acceptance_notice', // user configuration, never model-authorized
   'management.permissions','management.permissions_update','management.submit','management.create','management.binding_update', // no self-replicating managers/authorization changes
