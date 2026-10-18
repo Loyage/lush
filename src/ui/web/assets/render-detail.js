@@ -9,6 +9,7 @@ import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceSummary } from './worker-model-source.js';
 import { workerRenameControl } from './worker-rename.js';
+import { workerCreateControl, workerCreationFacts, waitingFirstInput, FIRST_INPUT_HELP } from './worker-create.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -120,10 +121,13 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
+  const creationFacts = workerCreationFacts(task); if (creationFacts) panel.append(creationFacts);
   const actions = el('div', undefined, 'actions task-actions');
+  const blankCreate = workerCreateControl(); if (!readOnly) actions.append(blankCreate);
+  const copyCreate = workerCreateControl(task); if (!readOnly && copyCreate) actions.append(copyCreate);
   if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
-    const help = '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
-    actions.append(guardedAction(button('追加输入', () => appendToWorker(task), undefined, { help }), appendInputBlocker(task)));
+    const help = waitingFirstInput(task) ? FIRST_INPUT_HELP : '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
+    actions.append(guardedAction(button(waitingFirstInput(task) ? '输入工作指令' : '追加输入', () => appendToWorker(task), undefined, { help }), appendInputBlocker(task)));
   }
   if (!readOnly) actions.append(workerRenameControl(task, { refresh: () => detail(task.id) }));
   const queueText = inputQueueText(task);
@@ -181,7 +185,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       actions.append(host);
     } else actions.append(node);
   }
-  if (!readOnly && ['failed', 'cancelled'].includes(task.status) && ['order','child'].includes(workerKind(task))
+  if (!readOnly && !waitingFirstInput(task) && ['failed', 'cancelled'].includes(task.status) && ['order','child'].includes(workerKind(task))
     && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
     // 父侧 #194：重试改为完整 Profile 弹窗（retryTask）；编号展示由 retry-dialog.js 内部沿用。
     if (await retryTask(task)) await detail(task.id);
@@ -210,7 +214,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   }, 'ghost', { help: '请求这个 Worker 在安全点暂停，不因中断等待超时而强杀；保留现场且不影响子 Worker，请求期间可立即点「继续」撤销。' }));
   if (!readOnly && !TERMINAL_STATUS.has(task.status) && (task.status === 'paused' || interruptRequested || resuming)) {
     const neverStarted = task.status === 'paused' && !interruptRequested && !resuming && (task.agent_wakes ?? 0) === 0;
-    actions.append(button(neverStarted ? '开始' : '继续', async () => {
+    if (!waitingFirstInput(task)) actions.append(button(neverStarted ? '开始' : '继续', async () => {
       try { await action('worker.resume', { id: task.id }); show(`Worker ${workerLabel(task)} 的${neverStarted ? '开始' : '继续'}请求已接受；尚未生效的中断会撤销，需要新调用时由后台调度。`); }
       catch (error) { show(`无法${neverStarted ? '开始' : '继续'}：${error.message}`, 'error'); }
       await detail(task.id);

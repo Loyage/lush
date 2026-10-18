@@ -207,7 +207,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   }
   function rememberEmissionSource(record) {
     const inputId = record.dispatch?.input_id ?? record.input_id;
-    if (record.kind !== 'draft' || record.mode === 'append' || !Number.isSafeInteger(record.id) || record.id <= 0 || !Number.isSafeInteger(inputId) || inputId <= 0) return;
+    if (record.kind !== 'draft' || !Number.isSafeInteger(record.id) || record.id <= 0 || !Number.isSafeInteger(inputId) || inputId <= 0) return;
     // Only remember an explicit server relationship; ambiguity never guesses a source.
     const known = state.emissionSources.get(inputId);
     state.emissionSources.set(inputId, known === undefined || known === record.id ? record.id : null);
@@ -359,7 +359,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       return;
     }
     if (dispatch && (dispatch.state !== 'cancelled' || readOnly)) {
-      panel.replaceChildren(el('h2', `草稿 #${record.id} · ${append ? '追加指令' : '工作指令'} · ${dispatchText(dispatch)}`), statusLine(record),
+      panel.replaceChildren(el('h2', `草稿 #${record.id} · ${Number.isSafeInteger(dispatch.input_id) ? '首条工作指令' : append ? '追加指令' : '工作指令'} · ${dispatchText(dispatch)}`), statusLine(record),
         el('pre', record.content, 'input-original'), el('p', dispatchText(dispatch), 'hint'),
         el('p', dispatch.state === 'cancelled'
           ? '此授权已撤销，不会继续执行。这里展示保留草稿的最新正文与最近一次提交收据；要编辑须返回设置页。'
@@ -380,13 +380,14 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         if (!current() || editor.busy) return;
         editor.busy = true; refresh.node.disabled = true;
         try {
-          if (!embedded && dispatch.state === 'succeeded' && Number.isSafeInteger(dispatch.input_id) && !append && !record.exclusive) {
+          if (!embedded && dispatch.state === 'succeeded' && Number.isSafeInteger(dispatch.input_id) && !record.exclusive) {
             await openItem({ kind: 'input', id: dispatch.input_id }, { push: false, reread: true, allowBusyEditor: editor });
           } else await openItem(record, { push: false, reread: true, allowBusyEditor: editor });
         } finally { editor.busy = false; refresh.node.disabled = false; }
       }); row.append(refresh.host);
       const inputId = dispatch.input_id ?? record.input_id;
-      if (!append && Number.isSafeInteger(inputId) && inputId > 0) {
+      if (Number.isSafeInteger(inputId) && inputId > 0) {
+        if (append) panel.append(el('p', `首条工作指令已创建原始输入 ${inputNumber(inputId)}；不是普通追加消息。`, 'hint'));
         const original = controlsButton(`查看已创建原文 ${inputNumber(inputId)}`, async () => {
           if (!current() || editor.busy) return;
           editor.busy = true; original.node.disabled = true;

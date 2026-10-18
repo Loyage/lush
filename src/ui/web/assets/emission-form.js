@@ -11,7 +11,9 @@ export function dispatchText(dispatch) {
   if (!dispatch) return '';
   return `${DISPATCH_STATUS[dispatch.state] || '提交状态未知'}${dispatch.reason ? `：${dispatch.reason}` : ''}`;
 }
-export function emissionAcknowledgement(result, append = false) {
+export function emissionAcknowledgement(result, append = false, firstInput = false) {
+  if (Number.isSafeInteger(result?.dispatch?.input_id)) return `首条工作指令已提交为原始输入 O${result.dispatch.input_id}，已授权 Agent 执行；不代表已经调用。`;
+  if (firstInput) return `已提交首条工作指令${result?.draft_id ? ` · 草稿 #${result.draft_id}` : ''}，已可靠挂载执行授权，等待条件与安全准入；真实 Input/O 以投递收据为准，尚不代表 Agent 已收到。`;
   return `已提交${append ? '追加指令' : '工作指令'}${result?.draft_id ? ` · 草稿 #${result.draft_id}` : ''}，已可靠挂载执行授权；${result?.dispatch?.state === 'waiting_conditions' ? '等待全部条件满足，再等待安全准入' : '等待安全准入'}。${append ? '尚不代表 Agent 已收到。' : '尚不代表 Worker 已创建或开始。'}`;
 }
 export function emissionRequestId() {
@@ -80,7 +82,9 @@ export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条
   const selection = el('div', undefined, 'emission-picker-row'); selection.append(field(label, select), hosts[0]);
   const lookupRow = el('div', undefined, 'emission-picker-row'); lookupRow.append(field('Worker 编号', number), hosts[1]);
   node.append(selection, lookupRow, feedback);
-  return { node, select, value: () => workers.get(Number(select.value)) || null, setBusy(value) { disabled = value; sync(); } };
+  return { node, select, value: () => workers.get(Number(select.value)) || null,
+    // A caller may hydrate a minimal lookup with verified public detail; preserve selection without firing change again.
+    update(item) { add([item]); }, setBusy(value) { disabled = value; sync(); } };
 }
 
 /** Read every direct-child page, not the overview window or terminal-only worker.page. */
@@ -216,6 +220,7 @@ export function createEmissionConditions({ conditions = [], exclusive = false, m
   const eventRow = el('div', undefined, 'emission-picker-row'); eventRow.append(field('等待事件', kind), addHost);
   manual.append(el('h4', '手动添加'), picker.node, eventRow);
   advanced.append(quiet.node);
+  if (mode === 'append') advanced.append(el('p', '目标树含等待首条输入的空 Worker 或暂停 Worker 时，静息条件不会满足。向空 Worker 提交首条工作指令前，需取消静息条件提交，避免等待自身先静息。', 'hint emission-quiet-limit'));
   if (mode === 'order') advanced.append(exclusiveControl.node, el('p', '静息等待仅约束开始时；独占开发还会阻塞后续其它开发调用，允许自己的子 Worker、管理、查询和交付。失败、暂停或待决可能使其它工作长期排队，不自动授权合并。', 'hint'));
   const advancedBlock = el('div', undefined, 'emission-setting-block'); advancedBlock.append(advancedHost, advancedSummary, advanced);
   settings.append(el('h3', '设置条件'), shortcut, manual, advancedBlock, feedback);

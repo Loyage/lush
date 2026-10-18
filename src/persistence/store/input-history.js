@@ -37,6 +37,27 @@ const appendReceipt = `d.input_id IS NULL AND ${draftMode}='append'
   AND json_type(${options},'$.target_id')='integer' AND json_extract(${options},'$.target_id')=m.task_id
   AND (json_type(${emission},'$.worker_id') IS NULL OR
     (json_type(${emission},'$.worker_id')='integer' AND json_extract(${emission},'$.worker_id')=m.task_id))`;
+// A manual container's first append is an Input, not a Message. Both the current
+// ownership and the exact successful dispatch must prove that exceptional link.
+const firstInputData = safe('first_input.data'), dispatchData = safe('dispatch.data');
+const appendFirstInputReceipt = `d.input_id=i.id AND ${draftMode}='append' AND t.input_id=i.id
+  AND json_extract(${safe('t.creation')},'$.mode') IN ('spawn','fork')
+  AND json_type(${options},'$.target_id')='integer' AND json_extract(${options},'$.target_id')=t.id
+  AND json_extract(${emission},'$.state')='succeeded'
+  AND json_type(${emission},'$.input_id')='integer' AND json_extract(${emission},'$.input_id')=i.id
+  AND json_type(${emission},'$.worker_id')='integer' AND json_extract(${emission},'$.worker_id')=t.id
+  AND json_type(${emission},'$.dispatch_id')='text' AND length(json_extract(${emission},'$.dispatch_id'))>0
+  AND json_type(${emission},'$.message_id') IS NULL AND json_type(${emission},'$.append_number') IS NULL
+  AND EXISTS (SELECT 1 FROM events first_input WHERE first_input.task_id=t.id AND first_input.type='task.first_input'
+    AND json_type(${firstInputData},'$.input_id')='integer' AND json_extract(${firstInputData},'$.input_id')=i.id
+    AND json_extract(${firstInputData},'$.authorized_by')='user')
+  AND EXISTS (SELECT 1 FROM events dispatch WHERE dispatch.task_id=d.parent_id AND dispatch.type='input.dispatch_succeeded'
+    AND json_type(${dispatchData},'$.draft_id')='integer' AND json_extract(${dispatchData},'$.draft_id')=d.id
+    AND json_type(${dispatchData},'$.dispatch_id')='text'
+      AND json_extract(${dispatchData},'$.dispatch_id')=json_extract(${emission},'$.dispatch_id')
+    AND json_type(${dispatchData},'$.input_id')='integer' AND json_extract(${dispatchData},'$.input_id')=i.id
+    AND json_type(${dispatchData},'$.worker_id')='integer' AND json_extract(${dispatchData},'$.worker_id')=t.id
+    AND json_type(${dispatchData},'$.message_id') IS NULL AND json_type(${dispatchData},'$.append_number') IS NULL)`;
 const sourceDraft = predicate => `(SELECT CASE WHEN count(*)=1 AND min(d.id) BETWEEN 1 AND 9007199254740991
   THEN min(d.id) ELSE NULL END FROM drafts d WHERE ${predicate})`;
 const unsentDraft = `d.input_id IS NULL AND coalesce(json_extract(${emission},'$.state'),'')!='succeeded'
@@ -47,7 +68,7 @@ const history = (conditional = undefined, view = 'history') => `WITH source AS (
     coalesce(t.branch,i.anchor_branch) AS branch,${taskStatus} AS status,
     coalesce(t.integration,'none') AS integration,NULL AS revision,${booking} AS booking,
     t.id AS original_task_id,'order' AS mode,NULL AS append_number,
-    ${sourceDraft(`d.input_id=i.id AND ${draftMode}='order'`)} AS source_draft_id
+    ${sourceDraft(`(d.input_id=i.id AND ${draftMode}='order' AND t.creation IS NULL) OR (${appendFirstInputReceipt})`)} AS source_draft_id
   FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id ${conditional || view === 'drafts' ? 'WHERE 0' : ''}
   UNION ALL
   SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,

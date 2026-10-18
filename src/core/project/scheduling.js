@@ -13,6 +13,7 @@ import { noticeNumber } from '../record-number.js';
 import { receivedProgressInput } from './progress.js';
 import { assertLocalWorker } from './execution-retired.js';
 import { invocationInputSources } from './invocation-evidence.js';
+import { waitingFirstInput } from '../worker-creation.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -61,6 +62,7 @@ export default {
 
   wake(taskId) {
     const task = this.store.task(taskId);
+    if (waitingFirstInput(task)) return;
     if (this.store.executionRetired(taskId)) return;
     if (this.taskSyncBusy?.has(task.id)) {
       (this.taskSyncWakePending ??= new Set()).add(task.id);
@@ -115,6 +117,7 @@ export default {
       return null;
     };
     for (const task of queued) {
+      if (waitingFirstInput(task)) continue;
       if (this.store.executionRetired(task.id)) continue;
       if (!['order','child','management','integration'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['order','child'].includes(task.task_kind) && this.inputExclusiveReason(task)) continue;
@@ -367,6 +370,7 @@ export default {
     assertTaskAncestorsOpen(this, task);
     check(['order','child'].includes(task.task_kind) || (maintenanceIntegration && task.task_kind === 'integration'),
       'only order/child Workers can be resumed');
+    check(!waitingFirstInput(task), 'Worker is waiting for its first user input; resume cannot start an empty Worker');
     // Duplicate resume is harmless, including a stale UI click after release.
     if (!task.interrupt_state && ['running','queued'].includes(task.status)) return task;
     check(task.status === 'paused' || task.interrupt_state, 'only paused workers can be resumed');
@@ -439,6 +443,7 @@ export default {
       truncated_bytes: page.truncated_bytes, reordered: page.reordered };
     try {
       let task = this.store.task(taskId);
+      check(!waitingFirstInput(task), 'Worker is waiting for its first user input');
       check(task.calls < this.config.maxCalls, 'worker invocation limit reached');
       // An explicit retry may freeze a complete task-local profile. It wins over dynamic
       // project defaults for every invocation in this attempt and is cleared at settlement.
@@ -506,9 +511,11 @@ export default {
       if (run.controller.signal.aborted) throw new Error(abortMessage());
       // retry_profile contains system instructions and local resource paths. It is runtime
       // configuration, not task data, so do not copy it into the provider's untrusted input JSON.
-      const { retry_profile: _retryProfile, management: _privateManagement, ...providerTask } = this.progressView(task);
-      const forkPointer = task.task_kind !== 'integration' && task.base_commit ? this.store.get(
-        'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
+      const { retry_profile: _retryProfile, session_fork: _privateSessionFork, management: _privateManagement, ...providerTask } = this.progressView(task);
+      // Manual spawn is deliberately blank. Manual fork uses only its frozen pointer, never a later global mapping.
+      const forkPointer = task.creation ? (task.session_fork ? JSON.parse(task.session_fork) : null)
+        : task.task_kind !== 'integration' && task.base_commit ? this.store.get(
+          'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
       let connectionRuntime;
       try {
         connectionRuntime = agent.connection_id ? await this.agentConnections.prepareRuntime(agent.connection_id) : null;

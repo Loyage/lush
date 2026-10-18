@@ -33,7 +33,7 @@ const unavailable = new Set([
   'cli.catalog','worker.cli_preview','worker.cli_execute', // User learning/trial surfaces, never manager tools.
   'hooks.automation_settings','worker.acceptance_notice', // user configuration, never model-authorized
   'management.permissions','management.permissions_update','management.submit','management.create','management.binding_update', // no self-replicating managers/authorization changes
-  'worker.spawn','worker.integrate','worker.resolve_child_divergence','notice.post',
+  'worker.create','worker.spawn','worker.integrate','worker.resolve_child_divergence','notice.post',
   'agent.config','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'agent.connections.save','agent.connections.login.start','agent.connections.login.finish',
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',

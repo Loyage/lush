@@ -29,7 +29,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 新记录使用 `task_kind='order'`。历史数据库中的 `task_kind='say'` 仅在读取、类型判定及生命周期准入边界兼容为指令 Worker，展示统一为「指令」；这不是新增旧入口，也不是迁移。既有行、分支名、工作区、会话、Event 与引用快照保持原样，不批量回写。源码中的相关函数、变量、类名和测试 fixture 改用 order / Order / ORDER；模块路径为 `src/core/project/order.js`，职责见[Runtime 地图](modules-runtime.md)。
 
-读取实现由 `src/core/order-kind.js` 的 `normalizeOrderRecord(row)` 与 Store `get` / `all` 行投影负责，SQL 类型筛选兼容两种值；新默认名称为 `order-ID`，旧名称不回写。新建 指令/child 另带不可变、可空的 `worker_number`：指令为 `W<Input id>`，已编号父下的 child 为父编号加持久同父序号，历史 Worker 与其新派生后代保持 NULL；数字内部 ID 仍是唯一的存储、鉴权、引用 target、路径与合并身份。当前子指令数读面使用 `subtree_order`，历史 `say.integrated` Event 仅兼容读取，原始审计不改写。具体职责见[Runtime 地图](modules-runtime.md#指令类型的只读兼容接缝)。
+读取实现由 `src/core/order-kind.js` 的 `normalizeOrderRecord(row)` 与 Store `get` / `all` 行投影负责，SQL 类型筛选兼容两种值；新默认名称为 `order-ID`，旧名称不回写。新建 指令/child 另带不可变、可空的 `worker_number`：指令无论是否关联 Input，都从项目独立持久单调序列分配新的顶层 `Wn`，不依赖 Input 或内部 ID；事务内保存 `meta.worker_number_high`，避让现存顶层 W 编号及 child 的顶层 W 前缀，删除／purge／重启不复用。已编号父下的 child 仍为父编号加持久同父序号，历史编号不回写、NULL 不补号，未编号历史父下的新 child 仍为 NULL；数字内部 ID 仍是唯一的存储、鉴权、引用 target、路径与合并身份。当前子指令数读面使用 `subtree_order`，历史 `say.integrated` Event 仅兼容读取，原始审计不改写。具体职责见[Runtime 地图](modules-runtime.md#指令类型的只读兼容接缝)。
 
 Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体与界面名称；「指令」只替代原 say 概念，不把它们一并更名。上述兼容的历史指令 Worker 继续按原交付协议受检；下文关于退休 Intent / Plan 等记录的限制不表示历史指令被退休。
 
@@ -55,8 +55,9 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 ## 核心工作流
 
+- `worker.create`：用户创建 paused 空容器或同父 fork，不创建 Input／调用 Agent；首条用户 worker.message／input.emit append 原子绑定唯一 Input 后授权排队。会话、来源／交付父隔离、失败与幂等边界见[手动创建契约](../reference/rpc/tasks.md#手动创建与首条输入w337d698)。现有 order 用户路径不增加操作步骤，worker.spawn 委派不改语义。
 - `input.emit` / `order.submit` 缺省及 `start:true`：先持久挂载当前输入，返回 `{emitted:true,draft_id,dispatch}`，不保证立即有 task。条件全部满足且父 runtime 真正空闲、安全可写时，才从当时父提交创建并开始独立 Worker；main/owner 不为准入调用模型。显式 `order.submit {start:false}` 保留旧仅创建 paused 路径，不是发射。main 自动确立静息 owner，其它本地分支须先 `branch.bind`；历史 create_worker Hook 与内部 order/sendOrder 不迁移。
-- `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；新建与追加统一支持版本草稿、条件及发射，追加只关联 Message/A 编号，不造 O。`input.emission_cancel` / `input.exclusive_release` 分别撤销未执行输入或释放独占，不删除成果、不重放 unknown。字段见[历史输入接口](input-history.md)及[条件发射](conditional-emission.md)。
+- `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；新建与追加统一支持版本草稿、条件及发射，已绑定目标的追加只关联 Message/A 编号，不造 O；手动空容器首条输入例外见上文。`input.emission_cancel` / `input.exclusive_release` 分别撤销未执行输入或释放独占，不删除成果、不重放 unknown。字段见[历史输入接口](input-history.md)及[条件发射](conditional-emission.md)。
 - `management.submit`：即时创建隔离 role=manager/task_kind=management 的管理身份，无开发 Input/Git 工作区；manager.catalog/history/call 等专用 Agent-only 入口只允许真实管理 invocation。受控接口默认开放，可逐项收紧，管家修改权限必须用户精确确认；普通 Agent 不扩权。隔离、scope 与未知恢复见[管理型 Worker](hook-signals-management.md)。
 - `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载，Worker详情展示为「自动化」；自动合并是内置Hook，收据与私有定义持久化，未知副作用不重放。受保护 delivery-handler／integrate_deliveries 保留普通 serial 与旧在途操作读面，worker.hooks.convergence 仅兼容历史配置；工具身份区分请求提交与真实完成，不新增任意调用 RPC。见[Hooks工程契约](hooks.md)。
 - branch.integrate_plan／integrate_start／integration／integrate_cancel／integrate_retry：用户专属的一次性整合，固定同一真实直接父的全部可准入来源，由一个私有 Worker 自主适配与验证，再受检一次 Squash。inspect／graph 通过同源 merge_operation 展示真实状态；精确字段、CLI／HTTP、截断与 revision 见[整合接口](../reference/rpc/convergence.md)。

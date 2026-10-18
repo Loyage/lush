@@ -4,6 +4,7 @@ import { resolveWorkerId } from '../worker-number.js';
 import { option, exact } from '../args.js';
 import { runWorkerHook, runWorkerCompletion } from './hooks.js';
 import { printTree, printTranscript } from '../print.js';
+import { readProfile } from './intent.js';
 
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
@@ -63,6 +64,17 @@ export async function run(command, args, ctx) {
         printTree(tree, status); return;
       }
       value = await client.request('worker.tree', request);
+    }
+    else if (verb === 'create') {
+      check(!client.token, 'manual Worker creation is user only');
+      const parent = option(args, '--parent'), source = option(args, '--source'), title = option(args, '--title');
+      const profileFile = option(args, '--profile-file');
+      exact(args, 1);
+      check(['spawn','fork'].includes(args[0]), 'worker create expects spawn or fork');
+      value = await client.request('worker.create', { mode: args[0],
+        ...(parent !== null ? { parent: await resolveWorkerId(client, parent) } : {}),
+        ...(source !== null ? { source: await resolveWorkerId(client, source) } : {}),
+        ...(title !== null ? { title } : {}), ...(profileFile !== null ? { profile: readProfile(profileFile) } : {}) });
     }
     else if (verb === 'spawn') {
       const parent = option(args, '--parent');

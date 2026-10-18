@@ -44,6 +44,8 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
   return project.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
 }
 
+import { waitingFirstInput } from '../worker-creation.js';
+
 /** 收件箱、notice、答复。 */
 export default {
   // Runtime-generated Hook/legacy plan messages explicitly opt out of user append numbering.
@@ -83,6 +85,10 @@ export default {
         assertManagementCodeExecution(this, sender, managementReceipt, 'worker.message', { id: target.id, body });
         check(['order','child'].includes(target.task_kind), 'Valet messages require a development Worker');
       } else check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
+    }
+    if (waitingFirstInput(target)) {
+      check(sender === null && userAppend && managementReceipt === null, 'only a real user input can start an empty Worker');
+      return this.bindWorkerFirstInput(target.id, body);
     }
     // Buffer behind the whole freeze, including source repair and parent-side landings.
     // Once a wave is held, later arrivals cannot overtake it while the old Agent exits.

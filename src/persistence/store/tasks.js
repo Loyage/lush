@@ -14,8 +14,19 @@ export const tasks = {
     check(task, `worker ${number} not found`);
     return task;
   },
+  /** Include historical W roots and orphaned child prefixes without rewriting any Worker. */
+  workerNumberHigh() {
+    const saved = Number(this.get("SELECT value FROM meta WHERE key='worker_number_high'")?.value ?? 0);
+    const existing = this.get(`SELECT COALESCE(MAX(CAST(substr(worker_number,2) AS INTEGER)),0) AS value
+      FROM tasks WHERE worker_number GLOB 'W[0-9]*'`).value;
+    check(Number.isSafeInteger(saved) && saved >= 0 && Number.isSafeInteger(existing) && existing >= 0, 'Worker number limit reached');
+    return Math.max(saved, existing);
+  },
+  setWorkerNumberHigh(value) {
+    this.run("INSERT INTO meta(key,value) VALUES ('worker_number_high',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", String(value));
+  },
   /** Called only inside create's transaction. Meta survives both targeted deletion and purge. */
-  allocateWorkerNumber(taskKind, parentId, inputId) {
+  allocateWorkerNumber(taskKind, parentId) {
     if (taskKind === 'management') {
       const key = 'valet_number_high';
       const high = Number(this.get('SELECT value FROM meta WHERE key=?', key)?.value ?? 0);
@@ -24,7 +35,13 @@ export const tasks = {
       this.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', key, String(next));
       return workerNumber(`V${next}`);
     }
-    if (taskKind === 'order') return inputId === null || inputId === undefined ? null : workerNumber(`W${id(inputId)}`);
+    if (taskKind === 'order') {
+      const high = this.workerNumberHigh();
+      check(high < Number.MAX_SAFE_INTEGER, 'Worker number limit reached');
+      const next = high + 1;
+      this.setWorkerNumberHigh(next);
+      return workerNumber(`W${next}`);
+    }
     if (taskKind !== 'child' || parentId === null) return null;
     const parent = this.task(parentId);
     check(parent.task_kind !== 'management', 'development child requires a W-numbered parent, not a Valet');
@@ -42,7 +59,7 @@ export const tasks = {
   summaries(layer = null) {
     return this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
       input_id,role,display_title,auto_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state,creation FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
   /**
@@ -65,7 +82,7 @@ export const tasks = {
     const layers = scope === 'all' ? ['work', 'intent'] : ['work'];
     return layers.flatMap(layer => this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
       input_id,role,display_title,auto_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,branch,interrupt_state FROM tasks INDEXED BY ${index}
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,branch,interrupt_state,creation FROM tasks INDEXED BY ${index}
       WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, layer, ...params, limit))
       .sort((a, b) => b.id - a.id).slice(0, limit);
   },
@@ -85,6 +102,7 @@ export const tasks = {
     const counts = {};
     return this.transaction(() => {
       this.setTaskIdHigh(Math.max(this.taskIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM tasks').value));
+      this.setWorkerNumberHigh(this.workerNumberHigh());
       // 锚点的分支名与目录名带着 input id，所以输入 id 也钉住：清空之后的输入继续往大走。
       this.setInputIdHigh(Math.max(this.inputIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM inputs').value));
       // Children of tasks/inputs go first; foreign keys are on, so the order is not decorative.
@@ -129,6 +147,7 @@ export const tasks = {
       const referrers = this.referringTasks(ids);
       check(referrers.length === 0, `still referenced by ${referrers.join(', ')}`);
       this.setTaskIdHigh(Math.max(this.taskIdHigh(), ...ids));
+      this.setWorkerNumberHigh(this.workerNumberHigh());
       // 顺序照 purge：先删子行，再删 tasks。args 按 where 里的占位符个数传，两条 IN 的用同一份 id 写两遍。
       const drop = (table, where, args = ids) => {
         const rows = this.get(`SELECT count(*) AS value FROM ${table} WHERE ${where}`, ...args).value;
@@ -166,6 +185,7 @@ export const tasks = {
       if (inputs.length) check(!this.get(`SELECT id FROM tasks WHERE input_id IN (${inputMarks}) AND id NOT IN (${marks}) LIMIT 1`, ...inputs,...ids),
         'Input is still shared with another Worker');
       this.setTaskIdHigh(Math.max(this.taskIdHigh(),...ids));
+      this.setWorkerNumberHigh(this.workerNumberHigh());
       if (inputs.length) this.setInputIdHigh(Math.max(this.inputIdHigh(),...inputs));
       check(!this.get(`SELECT r.request_id FROM choice_rechoices r JOIN notices n ON n.id=r.notice_id
         WHERE n.task_id IN (${marks}) AND r.task_id NOT IN (${marks}) LIMIT 1`, ...ids,...ids), 'choice snapshot has external routes');
@@ -212,7 +232,7 @@ export const tasks = {
   touch(taskId) { check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only'); this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   update(taskId, patch) {
     check(!this.executionRetired(taskId), 'Remote execution is retired; this Worker is read-only');
-    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation','auto_merge','interrupt_state','hooks','management'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation','auto_merge','interrupt_state','hooks','management','creation','session_fork'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     return this.transaction(() => {
       const observing = ['status', 'integration', 'calls'].some(key => Object.hasOwn(patch, key));
@@ -239,7 +259,7 @@ export const tasks = {
     return this.transaction(() => {
       const taskId = this.nextTaskId();
       const layer = layerOf(role);
-      const worker_number = this.allocateWorkerNumber(task_kind, parent_id, input_id);
+      const worker_number = this.allocateWorkerNumber(task_kind, parent_id);
       this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,task_kind,worker_number) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
         taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, task_kind, worker_number);
       const task = this.task(taskId);

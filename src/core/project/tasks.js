@@ -3,6 +3,7 @@ import { taskSlug } from '../naming.js';
 import { validateWorkerQuery } from '../worker-query.js';
 import { scopeMatches } from '../automation-scopes.js';
 import { workerLabel } from '../worker-number.js';
+import { waitingFirstInput, workerCreation } from '../worker-creation.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { MESSAGE_SELECT } from '../../persistence/store/messages.js';
 import { agentView, workerModelSelection, inheritedRunProfile, profileEvent } from './internal.js';
@@ -100,6 +101,7 @@ export default {
   async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined) {
     this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
+    check(!waitingFirstInput(parent), 'an empty Worker cannot delegate before its first user input');
     check(runnerNodeId === undefined, RETIRED_EXECUTION);
     assertLocalWorker(this, parent.id);
     assertTaskNotSyncing(this, parent.id);
@@ -289,7 +291,7 @@ export default {
   inspect(taskId) {
     // retry_profile may contain a replacement system prompt and local resource paths. It is
     // runtime configuration, not part of the task read model (agents can call worker.inspect).
-    const { retry_profile: _retryProfile, hooks: _privateHooks, management: _privateManagement, ...storedTask } = this.store.task(taskId);
+    const { retry_profile: _retryProfile, session_fork: _privateSessionFork, hooks: _privateHooks, management: _privateManagement, ...storedTask } = this.store.task(taskId);
     // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
     // 有执行计划时读计划窗口内足够重建用时的有界调用记录；否则只取展示窗口。
     const runsRead = storedTask.progress_plan
@@ -305,7 +307,7 @@ export default {
     const runs = bounded(progressRuns.length > RUN_WINDOW ? progressRuns.slice(-RUN_WINDOW) : progressRuns, 200000);
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
-    return { ...task, merge_operation: this.taskMergeOperation(storedTask), delivery_summary: this.taskDeliverySummary(storedTask), input_queue: this.taskInputQueue(storedTask), goal_input_delivery: this.store.goalInputDelivery(taskId),
+    return { ...task, creation: workerCreation(storedTask), merge_operation: this.taskMergeOperation(storedTask), delivery_summary: this.taskDeliverySummary(storedTask), input_queue: this.taskInputQueue(storedTask), goal_input_delivery: this.store.goalInputDelivery(taskId),
       progress_history: this.progressHistory(taskId, { limit: 10 }, 200000),
       ...(task.role === 'verifier' ? { verifies_task_worker_number: task.verifies_task_id
         ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', task.verifies_task_id)?.worker_number ?? null : null } : {}),

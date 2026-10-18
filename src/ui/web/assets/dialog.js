@@ -1,11 +1,14 @@
 /** Application dialogs, independent of #detail repaint and native confirm/prompt blocking. */
 import { $, button, el } from './dom.js';
 let active = null;
+const updates = new WeakMap();
+/** Re-evaluate caller-owned async gates only while this exact dialog content is mounted. */
+export function syncDialog(content) { updates.get(content)?.(); }
 /** Explicit programmatic dismissal; an old asynchronous submission cannot close its replacement. */
 export function closeDialog() { active?.(null); }
 
 function open({ title, message = null, detail = null, confirmLabel, cancelLabel, danger = false, field = null,
-  content = null, cardClass = '', agent = false, confirmHelp = null, onConfirm = null, canConfirm = null }) {
+  content = null, cardClass = '', agent = false, confirmHelp = null, onConfirm = null, canConfirm = null, initialFocus = null }) {
   active?.(null);
   const previous = globalThis.document?.activeElement ?? null, root = $('modal');
   let settle, closed = false, busy = false;
@@ -14,6 +17,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
     if (closed) return;
     closed = true;
     if (active === finish) active = null;
+    if (content) updates.delete(content);
     root.hidden = true; root.replaceChildren(); settle(value); previous?.focus?.();
   };
   active = finish; root.hidden = false;
@@ -73,14 +77,17 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   root.onkeydown = event => {
     if (event.key === 'Escape') { event.preventDefault?.(); cancelRequest(); return; }
     if (event.key !== 'Tab') return;
-    const contentStops = content ? ['input', 'select', 'textarea', 'button'].flatMap(tag => [...content.querySelectorAll(tag)]) : [];
-    const stops = [input, ...contentStops, cancel, confirm].filter(node => node && !node.disabled);
+    const contentStops = content ? ['input', 'select', 'textarea', 'button', 'summary', 'a[href]'].flatMap(tag => [...content.querySelectorAll(tag)])
+      .sort((a, b) => a.compareDocumentPosition ? (a.compareDocumentPosition(b) & 2 ? 1 : -1) : 0) : [];
+    const stops = [input, ...contentStops, cancel, confirm].filter(node => node && !node.disabled
+      && (typeof node.getClientRects !== 'function' || node.getClientRects().length));
     const index = stops.indexOf(globalThis.document?.activeElement ?? null);
     const next = index < 0 ? (event.shiftKey ? stops.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + stops.length) % stops.length;
     event.preventDefault?.(); (stops[next] || card).focus?.();
   };
   root.onclick = event => { if (event.target === root) cancelRequest(); };
-  root.replaceChildren(card); sync(); (input ?? (confirm.disabled ? card : confirm))?.focus?.();
+  if (content) updates.set(content, sync);
+  root.replaceChildren(card); sync(); (initialFocus ?? input ?? (confirm.disabled ? card : confirm))?.focus?.();
   return done;
 }
 
@@ -96,7 +103,7 @@ export function promptDialog({ title, message = null, value = '', label = '内�
  * While submitting, duplicate clicks/Esc/backdrop cannot dismiss the request. canConfirm preserves
  * caller-owned failure gates after the request. Programmatic replacement/navigation remains safe. */
 export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', danger = false, cardClass = '', agent = false, confirmHelp = null,
-  onConfirm = null, canConfirm = null }) {
-  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null, agent, confirmHelp, onConfirm, canConfirm })
+  onConfirm = null, canConfirm = null, initialFocus = null }) {
+  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null, agent, confirmHelp, onConfirm, canConfirm, initialFocus })
     .then(value => value === true);
 }

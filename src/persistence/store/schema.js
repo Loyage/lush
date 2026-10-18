@@ -96,6 +96,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         task_kind TEXT,
         -- Immutable public number; historical Workers retain NULL and their integer identity.
         worker_number TEXT,
+        -- User-created container provenance and private immutable Pi fork pointer; legacy rows stay NULL.
+        creation TEXT, session_fork TEXT,
         -- order/child 的合并预约；versioned JSON，NULL 表示未预约，历史其它预约只保留记录。
         reservation TEXT,
         auto_merge TEXT,

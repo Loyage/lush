@@ -387,6 +387,24 @@ body:has(#detail[data-view="settings"]) .composer{display:none}
 .modal-label{color:var(--dim);font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
 .modal-input{padding:9px 11px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--text);font:inherit;font-size:13px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.worker-create-entry{min-height:44px;max-width:100%;white-space:normal}
+.worker-create-modal{width:min(640px,100%);overflow-wrap:anywhere}
+.worker-create-form,.worker-create-field{display:flex;flex-direction:column;gap:8px;min-width:0}
+.worker-create-form{gap:16px}
+.worker-create-form input,.worker-create-form select,.worker-create-form textarea{max-width:100%;min-width:0;box-sizing:border-box}
+.worker-create-field>input:not([type=checkbox]),.worker-create-field>select{width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);font:inherit}
+.worker-create-override{flex-direction:row;align-items:center;min-height:44px;cursor:pointer}
+.worker-create-override input{width:22px;height:22px}
+.worker-create-advanced>summary{min-height:44px;cursor:pointer;padding:10px 0}
+.worker-create-modal button,.worker-create-modal select,.worker-create-modal input:not([type=checkbox]),.worker-create-modal summary{min-height:44px;max-width:100%;white-space:normal}
+.worker-create-modal .modal-actions{flex-wrap:wrap}
+.worker-create-modal .emission-picker-row{flex-wrap:wrap}
+.worker-create-modal .emission-picker-row .emission-field{min-width:0;flex:1 1 160px}
+.worker-create-modal .emission-field :is(input,select){width:100%}
+.worker-create-modal .retry-profile-grid{grid-template-columns:minmax(0,1fr)}
+.worker-create-modal .retry-field{min-width:0}
+.worker-creation-facts{display:grid;gap:8px;overflow-wrap:anywhere;margin:16px 0}
+@media(max-width:480px){.worker-create-modal{padding:16px}.worker-create-modal .emission-picker-row{flex-direction:column;align-items:stretch}.worker-create-modal .emission-picker-row .emission-field{flex:0 0 auto;width:100%}}
 /* Source → candidate → editable name stays together in every model form. */
 .agent-connection-binding{display:grid;gap:8px;min-width:0;width:100%;box-sizing:border-box;margin:8px 0;padding:12px;border:1px solid var(--line-soft);border-radius:9px;background:var(--bg)}
 .agent-connection-binding[hidden]{display:none}

@@ -246,10 +246,12 @@ export default {
               if (quiet) wait(quiet);
             }
             const before = this.store.get('SELECT max(id) AS id FROM messages')?.id ?? 0;
-            this.message(options.target_id, draft.content);
-            const message = this.store.get('SELECT id,append_number FROM messages WHERE task_id=? AND id>? ORDER BY id DESC LIMIT 1', options.target_id, before);
-            check(message, 'input append receipt missing');
-            this.recordInputDispatch(draft.id, claim.dispatch_id, { message_id: message.id, append_number: message.append_number, worker_id: options.target_id,
+            const first = this.store.task(options.target_id).input_id === null && Boolean(this.store.task(options.target_id).creation);
+            const delivered = this.message(options.target_id, draft.content);
+            const message = first ? null : this.store.get('SELECT id,append_number FROM messages WHERE task_id=? AND id>? ORDER BY id DESC LIMIT 1', options.target_id, before);
+            check(first ? delivered.input_id : message, 'input append receipt missing');
+            this.recordInputDispatch(draft.id, claim.dispatch_id, { ...(first ? { input_id: delivered.input_id }
+              : { message_id: message.id, append_number: message.append_number }), worker_id: options.target_id,
               worker_number: this.store.task(options.target_id).worker_number ?? null });
           });
         } else {

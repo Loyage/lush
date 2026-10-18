@@ -14,6 +14,7 @@ import { progressReportingEnabled, progressStats, refreshProgressDurations, rend
 import { workerLabel, rememberWorkers } from './worker-label.js';
 import { listEntry } from './list-surface.js';
 import { isDevelopmentWorker, isValet, workTypeLabel } from './work-type.js';
+import { workerCreateControl, waitingFirstInput } from './worker-create.js';
 
 // DOM-owned state is discarded with the node on boot/project changes. Signatures describe
 // rendered dependencies, not updated_at (child status/progress/config can change independently).
@@ -81,6 +82,7 @@ function whyLine(task, index) {
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
     ? `本轮工作完成，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认；无需你验收` : '本轮工作完成，待验收；可追加输入继续开发';
   if (task.status === 'awaiting') return '等你决定：有没答复的问题';
+  if (task.status === 'paused' && waitingFirstInput(task)) return '等待首条输入 · 尚未调用 Agent';
   if (task.status === 'paused') return '已暂停：可追加输入或调整运行设置，点「继续」恢复';
   if (task.status === 'completed' && task.integration === 'conflict') return '已完成，合并冲突等你决定';
   if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '已完成，等你批准合并';
@@ -89,6 +91,8 @@ function whyLine(task, index) {
 /** 兼容旧入口名称；任务列表以平铺方式渲染，关系视图由 render-task-graph.js 负责。 */
 export function renderTree(data) {
   rememberWorkers(data.tasks);
+  const hero = $('side-tasks')?.querySelector('.resource-hero');
+  if (hero && !hero.querySelector('.worker-create-entry')) { const control = workerCreateControl(); control.classList.add('worker-create-entry'); hero.append(control); }
   renderWorkList(data, 'tasks');
   renderWorkList(data, 'valets');
 }

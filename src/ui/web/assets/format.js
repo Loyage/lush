@@ -225,6 +225,8 @@ export const statusOf = task => !TERMINAL_STATUS.has(task.status) && task.interr
   ? { label: '中断请求中', icon: STATUS[task.status]?.icon || '◐' }
   : !TERMINAL_STATUS.has(task.status) && task.interrupt_state === 'resuming'
     ? { label: '继续排队中', icon: '○' }
+    : task.status === 'paused' && task.creation?.waiting_first_input === true
+      ? { label: '等待首条输入', icon: '⏸' }
     : task.status === 'paused' && (task.agent_wakes ?? 0) === 0
       ? { label: '待开始', icon: '⏸' }
       : task.status === 'awaiting_acceptance' && task.task_kind === 'child'

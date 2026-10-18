@@ -1,6 +1,7 @@
 import { $, button, el } from './dom.js';
 import { attachComposerViewport, usesTouchEnter } from './composer-viewport.js';
 import { workerKind } from './worker-kind.js';
+import { waitingFirstInput } from './worker-create.js';
 import { action, api } from './api.js';
 import { taskTitle, isHistoricalDelivery } from './format.js';
 import { iterationBlocker } from './render-iteration.js';
@@ -218,7 +219,7 @@ export function toggleComposerDetails(force) {
 export function syncComposer() {
   renderParentOptions();
   const management = Boolean(ui.composerManagement);
-  const target = management ? {} : destination(), followup = target.id != null;
+  const target = management ? {} : destination(), followup = target.id != null, firstInput = followup && waitingFirstInput(target.task);
   const input = $('input');
   const touch = usesTouchEnter();
   const enter = touch ? '回车换行 · 按钮' : 'Enter';
@@ -228,15 +229,16 @@ export function syncComposer() {
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   // Admission facts must remain readable without opening shortcuts/settings, including over a keyboard.
   const targetStatus = target.reason || [target.queueText || target.wait || (target.freeze ? target.freeze.reason || '父分支冻结，等待安全边界' : ''),
-    followup && target.task?.status === 'paused' ? '暂停中，需开始 / 继续后处理' : ''].filter(Boolean).join(' · ');
+    firstInput ? '等待首条输入 · 提交才授权 Agent 执行' : followup && target.task?.status === 'paused' ? '暂停中，需开始 / 继续后处理' : ''].filter(Boolean).join(' · ');
   $('composer-target-status').hidden = !targetStatus;
   const modeText = {
     'composer-target-status': targetStatus,
     'composer-mode-icon': management ? '⚙' : followup ? '↳' : '＋',
-    'composer-mode-title': management ? '管理 Lush' : followup ? '追加输入' : '新建工作',
+    'composer-mode-title': management ? '管理 Lush' : firstInput ? '输入工作指令' : followup ? '追加输入' : '新建工作',
     'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}`,
     'composer-mode-behavior': target.reason || (management
       ? '由管家处理 · 受控接口默认自动执行，可逐项限制 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
+      : firstInput ? `不创建新 Worker · ${enter} 提交首条工作指令并授权 Agent 执行 · 生成真实原始输入 O · 暂存不执行`
       : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，导航不改变目标${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
         : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
@@ -246,18 +248,20 @@ export function syncComposer() {
     if (node.textContent !== text) node.textContent = text;
   }
   input.placeholder = management ? '描述你希望管家查询、调整或安排的事项…'
+    : firstInput ? '描述你希望此 Worker 完成的工作…'
     : followup ? '补充要求、提供反馈，或说明需要调整的地方…'
       : '描述你希望新 Worker 完成的工作…';
-  input.setAttribute('aria-label', management ? '管理指令正文' : followup ? '追加指令正文' : '工作指令正文');
+  input.setAttribute('aria-label', management ? '管理指令正文' : followup && !firstInput ? '追加指令正文' : '工作指令正文');
   input.disabled = Boolean(target.reason);
   const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
   $('draft-commit').classList.add('agent-call');
   const saved = currentEdit()?.saved, conditions = saved || currentEdit()?.localOptions, conditional = Boolean(conditions?.conditions?.length || conditions?.exclusive);
-  $('draft-commit').textContent = conditional ? '按条件提交' : management ? '提交管理指令' : followup ? '提交追加' : '提交新工作';
+  $('draft-commit').textContent = conditional ? '按条件提交' : management ? '提交管理指令' : firstInput ? '提交工作指令' : followup ? '提交追加' : '提交新工作';
   $('draft-commit').classList.toggle('hook-button', Boolean(!management && target.freeze));
   const description = target.reason || (management
     ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；受控接口默认自动执行，可在全局 CLI 接口页面限制。管家修改接口权限始终须用户审核，不提供文件或 Shell 工具。'
+    : firstInput ? `向 ${label} 提交首条工作指令，创建真实 Input 并授权 Agent 执行；无需另点开始，不创建新 Worker。`
     : followup ? `提交追加指令给 ${label}，可靠保存后等待安全准入；不代表 Agent 已收到，冻结不打断交付或源侧修复，暂停中仍需显式继续。`
       : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在工作树。`);
   const help = agentHelp(conditional ? `保存此草稿并授权按原条件提交；等待全部条件与安全准入，不保证立即执行。${description}` : description);
@@ -267,7 +271,7 @@ export function syncComposer() {
   if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; $('input-buffer').textContent = saved ? '保存草稿' : '暂存为草稿'; }
   if ($('input-buffer-help')) {
     $('input-buffer-help').hidden = management;
-    const bufferHelp = followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在草稿页编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
+    const bufferHelp = firstInput ? `保存首条工作指令正文和目标 ${label} 为草稿，尚未授权执行，不产生 Input、不调用 Agent；稍后提交才绑定真实原始输入。` : followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在草稿页编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
     $('input-buffer-help').setAttribute('data-help', bufferHelp); $('input-buffer')?.setAttribute('data-help', bufferHelp);
   }
   if ($('composer-management')) $('composer-management').textContent = management ? '回到新建工作' : '管理 Lush';
@@ -380,7 +384,7 @@ async function submitInput(mode) {
       ui.draftsPage?.added?.();
     } else {
       if (untouched && target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;
-      paintRunSettings(); show(emissionAcknowledgement(result, target.id != null));
+      paintRunSettings(); show(emissionAcknowledgement(result, target.id != null, waitingFirstInput(target.task)));
       ui.draftsPage?.added?.();
       ui.inputsPage?.added?.();
     }

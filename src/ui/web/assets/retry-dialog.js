@@ -16,6 +16,7 @@ const roleProfile = (settings, role) => {
 
 /** Worker-local settings survive delivery; saving never changes project defaults. */
 export async function retryTask(task) {
+  if (task.creation?.waiting_first_input === true) { show('此 Worker 尚无首条工作指令，不能重试；请先输入工作指令，已结束的空 Worker 请重新创建。', 'error'); return false; }
   return profileDialog(task, { method: 'worker.retry' });
 }
 

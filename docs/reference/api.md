@@ -48,7 +48,7 @@ CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使�
 
 ## 用户编号与 CLI 身份
 
-新原始输入沿用项目次序显示为 `O5`，其直接指令 Worker 为 `W5`；Agent 派生的后代按父级次序显示为 `W5-1`、`W5-1-1`。新指令即使提交到已有 Worker 分支，仍用自身输入编号。失败或删除可能留下空号，编号不复用。历史 Worker 不改编号；未编号的历史父 Worker 新派生后代继续使用旧整数编号。
+新原始输入沿用项目次序显示为 `O5`；新指令 Worker 不论是否关联 Input，均从项目独立持久单调序列分配 `W1`、`W2`……，与 Input 及内部 ID 解耦。新指令即使提交到已有 Worker 分支，也分配新的顶层 W 编号；Agent 派生的后代仍按父级次序显示为 `W5-1`、`W5-1-1`。分配避让所有现存顶层 W 编号及 child 的顶层 W 前缀，失败或删除可能留下空号，删除／purge／重启后不复用。历史 Worker 不改编号、不补 NULL；未编号的历史父 Worker 新派生后代仍无 W 编号，按原整数身份查看。
 
 新 Valet 使用项目独立序列 `V1`、`V2`……，保存于共有 `tasks.worker_number` 字段；不依赖 Input 或内部 ID。创建时在事务内更新 `meta.valet_number_high`，删除、purge、重启后不复用；同一 Valet 的多次信号执行保持原编号。历史管理记录不补号，仍按原身份查看。V 编号没有开发子层级。
 
@@ -71,7 +71,7 @@ bun run lushw self notice post '问题' --body '背景'
 
 ### 持久身份边界
 
-`tasks.worker_number` 可空、创建后不可改写，部分唯一索引兜底；同父 child 次序在 `meta.worker_child_high:<parent_id>` 持久递增，不按存活子数重算，不随删除／purge 清除。读面携带明确编号，缺关联时为 null；用户报告回退 `#内部ID`，不得用整数或当前树推算 W／V 编号。机器身份、排序、权限、合并顺序和引用快照不改。
+`tasks.worker_number` 可空、创建后不可改写，部分唯一索引兜底；顶层 W 高水位在 `meta.worker_number_high` 与创建事务内一同保存，删除前也钉住历史 W 前缀高水位；同父 child 次序在 `meta.worker_child_high:<parent_id>` 持久递增，不按存活子数重算，不随删除／purge 清除。读面携带明确编号，缺关联时为 null；用户报告回退 `#内部ID`，不得用整数或当前树推算 W／V 编号。机器身份、排序、权限、合并顺序和引用快照不改。
 
 ## 追加输入与 Notice 编号
 

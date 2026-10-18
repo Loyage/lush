@@ -2,6 +2,7 @@ import { check, id, text, TERMINAL } from '../types.js';
 import { assertLocalWorker } from './execution-retired.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
+import { waitingFirstInput } from '../worker-creation.js';
 import { normalizeInputOptions, inputOptions, emissionLocked, inputEmission } from './input-emission-data.js';
 
 const STATUSES = new Set(['draft','waiting_conditions','emitted','sent','emission_failed','unknown_dispatch','created','queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled','unknown']);
@@ -79,6 +80,7 @@ export default {
 
   assertInputParent(parentId, branch = undefined) {
     const parent = this.store.task(id(parentId));
+    check(!waitingFirstInput(parent), 'an empty Worker cannot receive child orders before its first user input');
     check(['main','owner','order','say'].includes(parent.task_kind) && parent.branch && (branch === undefined || parent.branch === branch)
       && !TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} is no longer available; select an active parent Worker`);
     const record = this.store.branch(parent.branch);

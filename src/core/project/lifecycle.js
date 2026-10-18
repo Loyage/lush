@@ -3,6 +3,7 @@ import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
+import { waitingFirstInput } from '../worker-creation.js';
 import { assertLocalWorker, RETIRED_EXECUTION } from './execution-retired.js';
 
 /**
@@ -324,6 +325,7 @@ export default {
     assertLocalWorker(this, taskId);
     let task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
+    check(!waitingFirstInput(task), 'Worker is waiting for its first user input; retry cannot start an empty Worker');
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled workers can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
@@ -408,6 +410,12 @@ export default {
           observed_at: closed.ended_at, actual_exit_at: null });
         this.hookRecoveredWorkers.add(run.task_id);
         this.emitTaskHook(run.task_id, 'agent.failed', recoveredEvent);
+      }
+      // A crash during container creation leaves owned resources for inspection, never a runnable empty shell.
+      for (const task of localTasks()) if (waitingFirstInput(task) && !TERMINAL.has(task.status)
+        && !this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.manual_created' LIMIT 1", task.id)) {
+        this.store.update(task.id, { status: 'failed', error: 'daemon interrupted during Worker creation; inspect recorded branch/worktree resources' });
+        this.store.event(task.id, 'task.creation_interrupted', { branch: task.branch, workspace: task.workspace });
       }
       // Never replay an invocation with unknown filesystem side effects.
       for (const task of localTasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')

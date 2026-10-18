@@ -38,6 +38,24 @@ export function forkCheckpoint(home, pointer) {
   return filename;
 }
 
+/** Strict manual fork admission must also validate an already-frozen cache, not just its existence. */
+export function validatedForkCheckpoint(home, pointer) {
+  const file = forkCheckpoint(home, pointer);
+  if (fs.realpathSync(file) !== path.resolve(file)) throw new Error('Pi checkpoint must be a local regular file');
+  const stat = fs.statSync(file);
+  if (!stat.isFile() || stat.size > 64 * 1024 * 1024) throw new Error('invalid Pi checkpoint file');
+  const entries = fs.readFileSync(file, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
+  if (entries.length < 2 || entries[0]?.type !== 'session' || !entries[0].id) throw new Error('invalid Pi checkpoint');
+  const visited = new Set();
+  let parent = null;
+  for (const entry of entries.slice(1)) {
+    if (typeof entry?.id !== 'string' || !entry.id || visited.has(entry.id) || entry.parentId !== parent)
+      throw new Error('invalid frozen Pi checkpoint branch');
+    visited.add(entry.id); parent = entry.id;
+  }
+  return file;
+}
+
 /** The marker is written by the Pi extension at tool boundaries, never by the model. */
 export function readCommitPointer(home, taskId, runId) {
   const file = path.join(home, 'sessions', `task-${taskId}-context.json`);

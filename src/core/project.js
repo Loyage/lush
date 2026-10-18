@@ -12,6 +12,7 @@ import referencesMethods from './project/references.js';
 import specsMethods from './project/specs.js';
 import plansMethods from './project/plans.js';
 import tasksMethods from './project/tasks.js';
+import workerCreateMethods from './project/worker-create.js';
 import progressMethods from './project/progress.js';
 import deliveryReadMethods from './project/delivery-read.js';
 import treeMethods from './project/tree.js';
@@ -78,7 +79,7 @@ const MIXINS = [
   ['convergencePrepare', convergencePrepareMethods], ['convergenceLand', convergenceLandMethods], ['convergenceSafety', convergenceSafetyMethods],
   ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods], ['oneShotIntegration', oneShotIntegrationMethods],
   ['diagnostics', diagnosticsMethods], ['maintenance', maintenanceMethods], ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['order', orderMethods], ['drafts', draftsMethods], ['references', referencesMethods],
-  ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
+  ['workerCreate', workerCreateMethods], ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['inputQueue', inputQueueMethods], ['choiceSnapshots', choiceSnapshotMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],
   ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
   ['automationSettings', automationSettingsMethods], ['automationOperations', automationOperationMethods], ['autoSelect', autoSelectMethods], ['completion', completionMethods], ['hooks', hookMethods], ['hookInstall', hookInstallMethods], ['commandHooks', commandHookMethods], ['shortcutCommands', shortcutCommandMethods], ['scheduledHooks', scheduledHookMethods], ['hookSignals', hookSignalMethods], ['management', managementMethods], ['deletion', deletionMethods], ['inputHistory', inputHistoryMethods], ['agentPackages', agentPackagesMethods], ['versionHistory', historyMethods], ['versionGraph', versionGraphMethods], ['versionLineage', versionLineageMethods], ['code', codeMethods], ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],

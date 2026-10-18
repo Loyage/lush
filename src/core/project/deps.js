@@ -1,5 +1,6 @@
 import { check, TERMINAL } from '../types.js';
 import { iterationViews } from './iteration.js';
+import { workerCreation } from '../worker-creation.js';
 
 /** 依赖边的读模型与结构校验。 */
 export default {
@@ -14,7 +15,7 @@ export default {
     return tasks.map(task => {
       const deps = (edges.get(task.id) || []).map(edge => ({ ...edge,
         ...(this.store.executionRetired(edge.id) ? { execution_retired: true } : {}) }));
-      return { ...this.progressView(task, runs.get(task.id) ?? []), ...iterations.get(task.id), deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)),
+      return { ...this.progressView(task, runs.get(task.id) ?? []), ...iterations.get(task.id), creation: workerCreation(task), deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)),
         route: task.input_id !== null && task.input_id !== undefined && routed.has(task.input_id) };
     });
   },

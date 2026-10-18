@@ -17,6 +17,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/reading-conversation-integration.test.js', // input/output -> HTTP segmented raw copy
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
+    'test/web/dom-worker-create-api.test.js', // create-only UI -> real HTTP/RPC/Git -> first Input/O receipt, strict fork inheritance and late-response isolation
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
     'test/web/skills-page-integration.test.js', // Skills -> authenticated Host/device writer -> next invocation snapshot; failures and late replies
     'test/web/dom-valet-append-api.test.js', // settled Valet detail -> authenticated HTTP/RPC -> fresh serial occurrence; busy rejection retains input
@@ -30,6 +31,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/core-api.test.js', // shared RPC registry and handlers
     'test/worker-context.test.js', // active invocation -> relation CLI/RPC, nested read isolation, pagination and fixed integration membership
     'test/web/core-api.test.js', // real HTTP routes
+    'test/web/worker-create.test.js', // authenticated manual container creation -> first Input/O -> safe read model
+    'test/project/worker-create-bridge.test.js', // user CLI -> user-only RPC -> paused creation -> controlled Pi fork/spawn
     'test/worker-cli-trial.test.js', // user HTTP -> fixed real CLI -> daemon; confirmation, worktree admission, limits and unknown effects
     'test/web/automation-registry-api.test.js', // authenticated HTTP -> register-only, explicit mount/upgrade and auth rejection
     'test/web/silent-maintenance.test.js', // authenticated HTTP/RPC -> maintenance -> Host silent-batch evidence
@@ -84,6 +87,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/cli-catalog.test.js', // parser/catalogue agreement
     'test/cli-entrypoints.test.js', // published bins/source scripts -> real CLI/RPC and unchanged authority
     'test/worker-cli.test.js', // relation parsing and all source shortcuts retain their correct executable ownership
+    'test/project/worker-create-bridge.test.js', // manual user create, real W lookup, first input and controlled Pi checkpoint
     'test/agent/capabilities.test.js', // shipped Skills/guides and invocation prompt agree on the fixed development CLI
     'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
     'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount

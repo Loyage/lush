@@ -7,6 +7,7 @@ import { workerLabel } from './worker-label.js';
 export function appendInputBlocker(task, workers = ui.lastSnapshot?.tasks || []) {
   if (task.execution_retired === true) return '远端执行已退役，此 Worker 仅保留只读历史，不能追加输入。';
   if (isHistoricalDelivery(task) || !['order', 'child'].includes(workerKind(task))) return '此 Worker 不支持追加输入。';
+  if (TERMINAL_STATUS.has(task.status) && task.creation?.waiting_first_input === true) return '空 Worker 已结束，不能开始或重试；请重新创建 Worker。';
   if (TERMINAL_STATUS.has(task.status)) return task.status === 'completed'
     ? 'Worker 已完成；请先显式恢复开发。' : 'Worker 已结束；请先重试。';
   if (!task.branch || task.archived || task.branch_archive?.archived || task.branch_info?.archived)
@@ -48,6 +49,7 @@ export function inputQueueText(task) {
 export function appendInputAcknowledgement(task, result) {
   const queue = inputQueue(result);
   const label = `Worker ${workerLabel(task)}`;
+  if (task.creation?.waiting_first_input === true && Number.isSafeInteger(result?.input_id)) return `首条工作指令已提交给 ${label}，原始输入 O${result.input_id} 已创建并授权 Agent 执行；无需另点开始。`;
   if (queue?.buffered) return `追加指令已入箱给 ${label}，待交付给 Agent；${queue.reason || '等待 Agent 可接收输入的安全点'}。`;
   if (!queue && inputWaitReason(task)) return `已追加给 ${label}；投递状态暂不可用，请在 Worker 详情查看。`;
   return `已追加给 ${label}${task.status === 'paused' || result?.status === 'paused' ? '；开始 / 继续后处理' : '；Agent 将在可接收输入时处理'}。`;

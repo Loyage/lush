@@ -96,6 +96,7 @@ export const handlers = {
   'worker.transcript_step'(p, params) { return p.transcriptStep(id(params.id), params.seq, params.offset ?? 0); },
   'progress.plan'(p, params, actor) { return p.reportProgressPlan(actor, params.steps); },
   'progress.complete'(p, params, actor) { return p.completeProgressStep(actor, params.step); },
+  'worker.create'(p, params) { return p.createWorker(params); },
   'worker.spawn'(p, params, actor) {
     const parent = params.parent ?? actor;
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own worker');

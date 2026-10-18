@@ -41,6 +41,7 @@ const workers = [
   ['list','[--brief] [--after N] [--limit N]','按内部 ID 升序分页；after 为非负整数，limit 为 1..1000（默认 200）；--brief 短摘要的 limit 为 1..200（默认 30）。','','worker.list'],
   ['tree','[ID|Wn]','查看 Worker 委派树；非 JSON 附带状态。','','worker.tree,system.status'],
   ['inspect','ID|Wn|Vn','查看完整 Worker 详情。','W5','worker.inspect'],
+  ['create','spawn|fork [--parent ID|Wn] [--source ID|Wn] [--title TITLE] [--profile-file PATH]','用户创建暂停容器，不调用 Agent；fork 需要 source；首条用户输入授权执行。','spawn --title 新工作','worker.create,worker.lookup','write'],
   ['spawn',"'目标' --parent ID|Wn [--name NAME]",'在活动指令或 child 下创建独立子 Worker。',"'专项实现' --parent W5",'worker.spawn','agent'],
   ['rename',"ID|Wn '标题'",'只修改展示标题；空标题恢复自动标题。',"W5 '接口实现'",'worker.rename','write'],
   ['message',"ID|Wn '说明'",'向既有 Worker 追加输入，可能唤醒 Agent。',"W5 '补充测试'",'worker.message','agent'],

@@ -21,7 +21,7 @@ export function publicResult(value, method = '') {
     seen.set(entry, copy);
     let changed = false;
     for (const [key, child] of Object.entries(entry)) {
-      if (key === 'retry_profile' || (['hooks', 'auto_merge', 'management'].includes(key) && typeof child === 'string')) {
+      if (key === 'retry_profile' || key === 'session_fork' || (['hooks', 'auto_merge', 'management'].includes(key) && typeof child === 'string')) {
         changed = true; continue;
       }
       // Profile env and environment API values are validated string maps, not

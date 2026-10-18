@@ -19,6 +19,7 @@ import { graphGitStatus } from './task-graph-git.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { workerDeleteControl } from './worker-delete.js';
 import { workerRenameControl } from './worker-rename.js';
+import { workerCreateControl, waitingFirstInput, FIRST_INPUT_HELP } from './worker-create.js';
 import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { sourceDelivery } from './delivery-ui.js';
@@ -140,6 +141,7 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   if (!minimal) head.append(taskActionsMenu(node, inputWorkers));
   row.append(head);
+  if (!minimal && waitingFirstInput(node)) row.append(el('p', '等待首条输入 · 尚未调用 Agent', 'hint worker-first-input'));
   const tracking = node.merge_operation ? null
     : sourceDelivery(node.delivery_summary, { showStage: false, showInputQueue: false });
   if (tracking) row.append(tracking);
@@ -261,8 +263,8 @@ function appendTaskActions(row, node, inputWorkers) {
   const deletion = workerDeleteControl(node, { refresh: loadTaskGraph });
   if (deletion) row.append(deletion);
   if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
-    row.append(guardedAction(button('追加输入', () => appendToWorker(node), 'ghost', {
-      help: '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间提交的追加指令可靠入箱，不打断在途合并或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
+    row.append(guardedAction(button(waitingFirstInput(node) ? '输入工作指令' : '追加输入', () => appendToWorker(node), 'ghost', {
+      help: waitingFirstInput(node) ? FIRST_INPUT_HELP : '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间提交的追加指令可靠入箱，不打断在途合并或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
     }), appendInputBlocker(node, inputWorkers)));
   }
 }
@@ -277,7 +279,7 @@ function minimalSummary(node, queueNote, folded = new Set()) {
     : stats.total ? '计划已全部完成' : reporting && node.status === 'running' ? '等待 Agent 汇报计划' : '';
   const waiting = ['waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'queued'].includes(node.status);
   const interruptHint = interruptReason(node);
-  const note = interruptHint || (node.integration_error ? `集成受阻：${node.integration_error}`
+  const note = (waitingFirstInput(node) ? '等待首条输入 · 尚未调用 Agent' : null) || interruptHint || (node.integration_error ? `集成受阻：${node.integration_error}`
     : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step);
   const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
   const relations = mergeRelations(node);
@@ -329,6 +331,7 @@ function taskActionsMenu(node, inputWorkers) {
     close.setAttribute('autofocus', '');
     panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost', { worker: node }),
       ...(node.execution_retired === true ? [] : [workerRenameControl(node, { refresh: loadTaskGraph })]));
+    const copyCreate = workerCreateControl(node); if (copyCreate) panel.append(copyCreate);
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
       { worker: node }));
     const queueText = inputQueueText(node);
@@ -413,7 +416,7 @@ export function renderTaskGraph(graph) {
   const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', '工作树'));
+  hero.append(el('h1', '工作树'), workerCreateControl());
   const summary = el('div', undefined, 'task-graph-summary');
   const active = graph.counts ? [...counts].reduce((sum, [status, count]) =>
     sum + (ACTIVE.has(status) && !hidden.has(status) ? count : 0), 0) : nodes.filter(node => ACTIVE.has(node.status)).length;

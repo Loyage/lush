@@ -11,7 +11,7 @@ const ADDED_COLUMNS = {
   branches: ['summary', 'showcase_reservation', 'merge_run'],
   drafts: ['input_options', 'emission'],
   messages: ['signal_type', 'signal_key', 'delivery_hold', 'append_number'],
-  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management', 'display_title', 'auto_title'],
+  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management', 'display_title', 'auto_title', 'creation', 'session_fork'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at', 'answer_source'],
 };

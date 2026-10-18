@@ -3,6 +3,7 @@ import { ui } from './state.js';
 import { api } from './api.js';
 import { taskTitle } from './format.js';
 import { workerLabel } from './worker-label.js';
+import { waitingFirstInput } from './worker-create.js';
 import { composerReferences, setComposerReferences } from './context-references.js';
 import { show } from './messages.js';
 import { readStored, writeStored, scopedKey } from './prefs.js';
@@ -96,7 +97,7 @@ export function paintComposerWorkspace() {
   $('input-form').hidden = !space.open;
   $('composer-menu').hidden = !space.menu;
   const task = menuWorker(), append = $('composer-menu-append');
-  append.hidden = !task; append.textContent = task ? `追加 ${workerLabel(task)} · ${taskTitle(task)}` : '追加当前 Worker';
+  append.hidden = !task; append.textContent = task ? `${waitingFirstInput(task) ? '输入工作指令' : '追加'} ${workerLabel(task)} · ${taskTitle(task)}` : '追加当前 Worker';
   const launcher = $('composer-launcher');
   launcher.textContent = space.open ? '⌄' : space.menu ? '×' : '＋';
   launcher.setAttribute('aria-expanded', String(space.open || space.menu));
