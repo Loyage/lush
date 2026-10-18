@@ -39,6 +39,11 @@ const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js
 const restore = registerNavigation({ refresh: async () => {} });
 const type = value => { dom.node('input').value = value; dom.node('input').oninput(); };
 const submit = () => dom.node('input').onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+const arrow = async (key = 'ArrowUp', fields = {}) => {
+  let prevented = false;
+  await dom.node('input').onkeydown({ key, ...fields, preventDefault() { prevented = true; } });
+  return prevented;
+};
 const reference = { version: 1, kind: 'text', target: {}, label: '引用', quote: '看到的文字' };
 const reloadComposer = async () => { resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer(); };
 beforeEach(async () => {
@@ -119,6 +124,67 @@ test('resume scans all pages, skips unauthorized-to-edit states and restores ful
   selectComposerMode('order'); expect(dom.node('input').value).toBe('');
   await resumeComposerDraft(); expect(dom.node('input').value).toBe('完整修改'); await submit();
   expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 5, expected_revision: 4 } }); expect(calls.some(call => call.method === 'draft.add')).toBe(false);
+});
+
+test('empty-editor arrows traverse all matching editable drafts and return to the original empty editor', async () => {
+  records = [draft(10, { branch: 'work/7', parent_id: 7 }), draft(9, { dispatch: { state: 'queued' } }),
+    draft(8, { references: [reference], conditions: [{ kind: 'parent_quiet' }], exclusive: true }), draft(7)];
+  selectComposerMode('order'); ui.composerProfile = { config_mode: 'pi' };
+  expect(dom.node('input-buffer').textContent).toBe('暂存为草稿');
+  expect(await arrow('ArrowDown')).toBe(true); expect(reads.filter(url => url.startsWith('/api/inputs'))).toHaveLength(0);
+  await arrow(); expect(currentEdit().saved.id).toBe(8); expect(composerReferences()).toEqual([reference]);
+  expect(dom.node('input-buffer').textContent).toBe('保存草稿'); expect(dom.node('draft-commit').textContent).toBe('按条件提交');
+  expect(reads.some(url => url.includes('cursor=next'))).toBe(true);
+  await arrow(); expect(currentEdit().saved.id).toBe(7);
+  await arrow(); expect(currentEdit().saved.id).toBe(7); // Oldest boundary does not wrap.
+  await arrow('ArrowDown'); expect(currentEdit().saved.id).toBe(8);
+  await arrow('ArrowDown'); expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeUndefined();
+  expect(composerReferences()).toEqual([]); expect(ui.composerProfile).toEqual({ config_mode: 'pi' });
+  await arrow(); expect(currentEdit().saved.id).toBe(8); expect(calls).toHaveLength(0);
+});
+
+test('draft arrows leave edited text, IME, modifiers, management and attachments alone', async () => {
+  records = [draft(1)]; selectComposerMode('order');
+  for (const fields of [{ isComposing: true }, { keyCode: 229 }, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }])
+    expect(await arrow('ArrowUp', fields)).toBe(false);
+  dom.node('input').oncompositionstart(); expect(await arrow()).toBe(false); dom.node('input').oncompositionend();
+  ui.composerSubmitting = true; expect(await arrow()).toBe(false); ui.composerSubmitting = false;
+  addComposerReference(reference); expect(await arrow()).toBe(false);
+  selectComposerMode('management'); expect(await arrow()).toBe(false);
+  selectComposerMode('order', null, 'work/7'); type('普通多行\n正文'); expect(await arrow()).toBe(false);
+  type(''); await arrow(); expect(dom.node('input').value).toBe(''); // No matching drafts.
+  selectComposerMode('append', { ...worker(8), archived: true }); expect(await arrow()).toBe(false);
+  selectComposerMode('append', worker(8)); records = [draft(2, { mode: 'append', target_id: 8 }), draft(3, { mode: 'append', target_id: 9 })];
+  await arrow(); expect(currentEdit().saved.id).toBe(2);
+  type('编辑后的草稿'); expect(await arrow('ArrowDown')).toBe(false); expect(await arrow()).toBe(false);
+  expect(dom.node('input').value).toBe('编辑后的草稿'); expect(calls).toHaveLength(0);
+});
+
+test('arrow recall is single-flight and late responses cannot replace typing, navigation or another target', async () => {
+  records = [draft(1)]; selectComposerMode('order'); deferredRead = true;
+  const pending = arrow(); await until(() => release); const repeated = arrow(); // The second handler shares the pending read.
+  deferredRead = false; release(); await Promise.all([pending, repeated]);
+  expect(currentEdit().saved.id).toBe(1);
+  await arrow('ArrowDown'); release = null; deferredRead = true;
+  // A fresh destination starts a fresh query rather than reusing another destination cursor.
+  selectComposerMode('order', null, 'work/7'); records = [draft(2, { parent_id: 7, branch: 'work/7' })];
+  const late = arrow(); await until(() => release); type('在途新文字'); deferredRead = false; release(); await late;
+  expect(dom.node('input').value).toBe('在途新文字'); expect(currentEdit().saved).toBeUndefined();
+  type(''); release = null; deferredRead = true;
+  const collapsed = arrow(); await until(() => release); collapseComposer(); deferredRead = false; release(); await collapsed;
+  expect(dom.node('input-form').hidden).toBe(true); expect(dom.node('input').value).toBe('');
+  selectComposerMode('order', null, 'work/7'); release = null; deferredRead = true;
+  const changed = arrow(); await until(() => release); selectComposerMode('management'); deferredRead = false; release(); await changed;
+  expect(ui.composerManagement).toBe(true); expect(currentEdit().saved).toBeUndefined();
+});
+
+test('arrow recall rechecks cached draft eligibility and reports read errors without discarding the current draft', async () => {
+  records = [draft(1), draft(2)]; selectComposerMode('order'); await arrow(); await arrow();
+  records[0].dispatch = { state: 'queued' }; await arrow('ArrowDown');
+  expect(currentEdit().saved.id).toBe(2); expect(dom.node('input').value).toBe('正文 2'); expect(dom.node('error').textContent).toContain('已授权');
+  selectComposerMode('order', null, 'work/7'); readFailure = true; await arrow();
+  expect(dom.node('input').value).toBe(''); expect(dom.node('error').textContent).toContain('草稿读取失败');
+  readFailure = false; records = [draft(3, { parent_id: 7, branch: 'work/7' })]; await arrow(); expect(currentEdit().saved.id).toBe(3);
 });
 
 test('switching drafts keeps the previous local content; version conflicts do not fetch or overwrite it', async () => {

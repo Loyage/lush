@@ -123,6 +123,62 @@ function targetOfEntry(entry) {
   return { mode: entry.mode, target_id: entry.target_id, branch: entry.branch,
     parent_id: entry.saved?.parent_id ?? ui.composerParents?.find(parent => parent.branch === entry.branch)?.id };
 }
+/** Restore the complete identity, never just copy the preview into a new input. */
+async function loadComposerDraft(record, { space, entry, target, current }) {
+  const { editableDraft, matchesDraft } = await import('./draft-editor.js');
+  if (!current()) return;
+  const full = await api(`/api/input/draft/${record.id}`); if (!current()) return;
+  if (!editableDraft(full) || !matchesDraft(full, target) || typeof full.content !== 'string' || !Array.isArray(full.references))
+    throw new Error('此草稿已授权、已发送、去向改变或版本不完整；不会覆盖本地内容');
+  const key = `draft:${record.id}`;
+  let chosen = space.entries.get(key);
+  if (!chosen) {
+    chosen = { ...entry, key, saved: full, content: full.content, references: full.references, profile: null, scroll: 0, selection: null, request: {} };
+    space.entries.set(key, chosen);
+  }
+  rememberComposer(); space.last.set(entry.destination, key); applyEntry(chosen); openComposer();
+  return chosen;
+}
+
+/** Start only from an empty editor; recalled, unmodified drafts keep the CLI-style cursor alive. */
+export function navigateComposerDraft(direction) {
+  const space = workspace(), entry = currentEdit();
+  if (!space || !entry || entry.mode === 'management' || ui.composerSubmitting || $('input').disabled) return null;
+  let history = space.history;
+  const unchanged = () => space.history === history && space.active === history.entry && space.read === history.read
+    && ui.composerEditRevision === history.revision && ui.composerReferenceRevision === history.refs;
+  if (!history || !unchanged()) {
+    space.history = null;
+    if ($('input').value || composerReferences().length || entry.saved) return null;
+    if (direction < 0) return Promise.resolve();
+    history = { origin: entry, entry, read: space.read, revision: ui.composerEditRevision, refs: ui.composerReferenceRevision, index: -1 };
+    space.history = history;
+  }
+  if (history.pending) return history.pending;
+  const current = () => workspace() === space && unchanged() && !ui.composerSubmitting;
+  history.pending = (async () => {
+    try {
+      const target = targetOfEntry(entry);
+      if (!history.records) {
+        if (entry.mode === 'order' && target.parent_id == null) throw new Error('父 Worker 身份尚未读取或已失效，请稍后重试；不会改投其他父 Worker');
+        const { matchingDrafts } = await import('./draft-editor.js'); if (!current()) return;
+        const records = await matchingDrafts(target, current); if (!current() || !records) return;
+        history.records = records;
+      }
+      const index = Math.max(-1, Math.min(history.records.length - 1, history.index + direction));
+      if (index === history.index) return;
+      if (index === -1) {
+        rememberComposer(); space.last.set(entry.destination, history.origin.key); applyEntry(history.origin); openComposer();
+      } else if (!await loadComposerDraft(history.records[index], { space, entry, target, current })) return;
+      history.index = index; history.entry = currentEdit(); history.read = space.read;
+      history.revision = ui.composerEditRevision; history.refs = ui.composerReferenceRevision;
+    } catch (error) {
+      if (current()) { space.history = null; show(`草稿读取失败：${error.message}；当前编辑已保留。`, 'error'); }
+    }
+  })().finally(() => { history.pending = null; });
+  return history.pending;
+}
+
 /** Both empty-editor continuation and selection read the complete same-project destination scope. */
 export async function resumeComposerDraft(latest = true) {
   if (ui.composerSubmitting || currentEdit()?.mode === 'management') return;
@@ -132,35 +188,25 @@ export async function resumeComposerDraft(latest = true) {
   const current = () => workspace() === space && space.read === read && space.active === entry
     && ui.composerEditRevision === revision && ui.composerReferenceRevision === refs && !ui.composerSubmitting;
   const target = targetOfEntry(entry), list = $('composer-draft-list');
-  list.hidden = false; list.replaceChildren(el('p', '正在检索本项目同模式、同目标的全部未发送暂存…', 'hint'));
+  list.hidden = false; list.replaceChildren(el('p', '正在检索本项目同模式、同目标的全部未发送草稿…', 'hint'));
   try {
     if (entry.mode === 'order' && target.parent_id == null) throw new Error('父 Worker 身份尚未读取或已失效，请稍后重试；不会改投其他父 Worker');
-    const { editableDraft, matchesDraft, matchingDrafts } = await import('./draft-editor.js');
+    const { matchingDrafts } = await import('./draft-editor.js');
     if (!current()) return;
     const records = await matchingDrafts(target, current); if (!current() || !records) return;
     const local = [...space.entries.values()].filter(item => item.destination === entry.destination && item !== entry && hasContent(item));
     const load = async record => {
       if (!current()) return;
-      try {
-        const key = `draft:${record.id}`;
-        let chosen = space.entries.get(key);
-        if (!chosen) {
-          const full = await api(`/api/input/draft/${record.id}`); if (!current()) return;
-          if (!editableDraft(full) || !matchesDraft(full, target) || typeof full.content !== 'string' || !Array.isArray(full.references))
-            throw new Error('此草稿已授权、已发送、去向改变或版本不完整；不会覆盖本地内容');
-          chosen = { ...entry, key, saved: full, content: full.content, references: full.references, profile: null, scroll: 0, selection: null, request: {} };
-          space.entries.set(key, chosen);
-        }
-        rememberComposer(); space.last.set(entry.destination, key); applyEntry(chosen); openComposer();
-      } catch (error) { if (current()) show(error.message, 'error'); }
+      try { await loadComposerDraft(record, { space, entry, target, current }); }
+      catch (error) { if (current()) show(error.message, 'error'); }
     };
     if (latest && records.length) { await load(records[0]); return; }
-    list.replaceChildren(el('p', records.length || local.length ? '选择暂存；当前编辑仍保留在本页，不会被覆盖。' : '已查完：此模式与目标没有可编辑的未发送暂存。授权等待、结果未知及已发送记录不在此列。', 'hint'));
+    list.replaceChildren(el('p', records.length || local.length ? '选择草稿；当前编辑仍保留在本页，不会被覆盖。' : '已查完：此模式与目标没有可编辑的未发送草稿。授权等待、结果未知及已发送记录不在此列。', 'hint'));
     for (const item of local) list.append(button(`本页未完成 · ${item.saved ? `草稿 #${item.saved.id}` : '未暂存'} · ${item.content.slice(0, 60)}`, () => {
       if (!current()) return; rememberComposer(); space.last.set(entry.destination, item.key); applyEntry(item); openComposer();
     }, 'ghost'));
     for (const record of records) list.append(button(`草稿 #${record.id} · ${record.content.slice(0, 80)}`, () => load(record), 'ghost'));
-  } catch (error) { if (current()) { list.replaceChildren(el('p', `暂存读取失败：${error.message}；未能确认是否有可续写内容。`, 'hint')); show(error.message, 'error'); } }
+  } catch (error) { if (current()) { list.replaceChildren(el('p', `草稿读取失败：${error.message}；未能确认是否有可续写内容。`, 'hint')); show(error.message, 'error'); } }
 }
 export function finishComposerEdit({ consume, detached = false, saved = null, options = null } = {}) {
   const space = workspace(), entry = currentEdit(); if (!entry) return;

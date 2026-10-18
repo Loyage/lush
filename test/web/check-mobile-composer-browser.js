@@ -159,8 +159,16 @@ try{
     assert(await execute(`return window.calls.at(-1).method==='input.emit'&&Boolean(window.calls.at(-1).params.mode==='append')===${appendMode}&&!window.calls.at(-1).params.conditions&&!document.querySelector('.emission-conditions');`),'shifted shortcut opened conditions or changed destination');
   }
   console.log('PASS native Ctrl+Shift+Enter directly emits both new and append inputs');
+  await execute(`window.selectComposer('order');document.querySelector('#input').focus();window.arrowCalls=window.calls.length;`);
+  assert(await execute(`return document.querySelector('#composer-resume').textContent==='继续最近草稿'&&document.querySelector('#composer-choose-draft').textContent==='选择其他草稿'&&document.querySelector('#input-buffer').textContent==='暂存为草稿';`),'draft button terminology is inconsistent');
+  await keys(['\uE013']);assert(await wait(`document.querySelector('#input').value==='可续写暂存'`),'native ArrowUp did not recall latest draft');
+  assert(await execute(`return document.querySelector('#input-buffer').textContent==='保存草稿'&&document.querySelector('#draft-commit').textContent==='按条件提交';`),'arrow recall lost draft identity/conditions');
+  await keys(['\uE015']);assert(await wait(`document.querySelector('#input').value===''`),'native ArrowDown did not restore empty editor');
+  await keys(['\uE013']);assert(await wait(`document.querySelector('#input').value==='可续写暂存'`),'draft traversal could not restart');
+  await keys(['改','\uE015']);assert(await execute(`return document.querySelector('#input').value.includes('改')&&window.calls.length===window.arrowCalls;`),'arrow after editing discarded text or invoked an action');
+  // Preserve this modified draft locally, then consume it through the existing save/emit regression below.
   await resize(390,844);await execute(`window.selectComposer('order');window.touch=true;`);
-  await click('#composer-resume');assert(await wait(`document.querySelector('#input').value==='可续写暂存'`),'inline latest draft did not restore');
+  assert(await execute(`return document.querySelector('#input').value.includes('可续写暂存');`),'arrow-recalled draft was not retained across resize');
   assert(await execute(`return document.querySelector('#draft-commit').textContent==='按条件提交'&&document.querySelector('#composer-condition-summary').textContent.includes('独占');`),'draft lost conditions');
   await execute(`document.querySelector('#input').focus();`);await keys(['续','写']);
   await click('#composer-launcher');

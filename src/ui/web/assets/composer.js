@@ -15,7 +15,7 @@ import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerLabel } from './worker-label.js';
 import { appendInputBlocker, inputQueueText, inputWaitReason } from './worker-input.js';
 import { emissionAcknowledgement, emissionRequestId } from './emission-form.js';
-import { initComposerWorkspace, currentEdit, selectComposerMode, paintComposerWorkspace, finishComposerEdit, collapseComposer, rememberComposer } from './composer-workspace.js';
+import { initComposerWorkspace, currentEdit, selectComposerMode, paintComposerWorkspace, finishComposerEdit, collapseComposer, rememberComposer, navigateComposerDraft } from './composer-workspace.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
 export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
@@ -264,7 +264,7 @@ export function syncComposer() {
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
   textEditor?.sync();
-  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; $('input-buffer').textContent = saved ? '保存暂存' : '暂存'; }
+  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; $('input-buffer').textContent = saved ? '保存草稿' : '暂存为草稿'; }
   if ($('input-buffer-help')) {
     $('input-buffer-help').hidden = management;
     const bufferHelp = followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在草稿页编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
@@ -435,6 +435,10 @@ export function initComposer() {
     if (event.key === 'Escape') { event.preventDefault(); collapseComposer(); return; }
     if ((event.ctrlKey || event.metaKey) && event.key?.toLowerCase() === 's' && !event.altKey && !event.shiftKey && currentEdit()?.saved) {
       event.preventDefault(); if (!event.repeat) return buffer(); return;
+    }
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      const navigation = navigateComposerDraft(event.key === 'ArrowUp' ? 1 : -1);
+      if (navigation) { event.preventDefault(); return navigation; }
     }
     if (event.key !== 'Enter') return;
     if (event.altKey) return;

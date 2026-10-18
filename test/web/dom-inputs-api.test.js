@@ -43,9 +43,12 @@ for (const mode of ['order', 'append']) test(`real floating composer resumes, up
     const refs = mode === 'order' ? [{ version: 1, kind: 'text', target: {}, label: '快照', quote: '引用原文', location: {}, captured_at: '2026-01-01T00:00:00.000Z' }] : [];
     const draft = await action('draft.add', { content: '原始暂存', references: refs, ...(worker ? { mode, target_id: worker.id } : { branch: 'main' }) }, { refresh: false });
     resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
-    selectComposerMode(mode, worker); await resumeComposerDraft();
+    selectComposerMode(mode, worker); requests.length = 0;
+    const input = dom.node('input'); let recalled = false;
+    await input.onkeydown({ key: 'ArrowUp', preventDefault() { recalled = true; } });
+    expect(recalled).toBe(true); expect(requests.filter(request => request.method === 'input.emit')).toHaveLength(0);
     expect(currentEdit().saved).toMatchObject({ id: draft.id, revision: 1, references: refs });
-    const input = dom.node('input'); input.value = '原位续写后的正文'; input.oninput(); requests.length = 0;
+    input.value = '原位续写后的正文'; input.oninput(); requests.length = 0;
     collapseComposer(); expect(requests).toHaveLength(0); // Automatic save is browser-only, not an RPC or authorization.
     resetUiState(); input.value = ''; dom.node('input-parent').value = ''; await initComposer(); selectComposerMode(mode, worker);
     expect(input.value).toBe('原位续写后的正文'); expect(currentEdit().saved.id).toBe(draft.id);
