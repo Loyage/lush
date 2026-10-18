@@ -23,7 +23,7 @@ const input = JSON.parse(fs.readFileSync(path.join(process.env.LUSH_HOME, 'sessi
 const task = input.task;
 fs.appendFileSync(path.join(process.env.LUSH_HOME, 'lifecycle-proof.jsonl'), JSON.stringify({ id: task.id, kind: task.task_kind, calls: task.calls, messages: input.messages }) + '\\n');
 if (task.task_kind === 'order' && task.calls === 1) {
-  const child = Bun.spawnSync([process.execPath, ${JSON.stringify(cli)}, 'worker', 'spawn', 'controlled child', '--name', 'provider-child', '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawnSync([process.execPath, ${JSON.stringify(cli)}, 'children', 'spawn', 'controlled child', '--name', 'provider-child', '--json'], { stdout: 'pipe', stderr: 'pipe' });
   if (child.exitCode) throw new Error(new TextDecoder().decode(child.stderr));
   console.log('parent delegated');
 } else if (task.task_kind === 'child') {

@@ -10,7 +10,7 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
-管理 Agent 可发现全部当前 RPC 能力；`lushw` 集合从 `src/cli/catalog.js` 的 `LUSHW_METHODS` 派生。W316／D677、D678：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作，以及自动化注册、挂载。自动化仍必须[先注册再单独挂载](../reference/rpc/hooks.md#先注册再单独挂载)：hooks.register 只注册指令及项目功能，成功后才可用明确登记版本独立请求 worker.hook_attach；注册不挂载、不执行。旧 hooks.install／Project／CLI 原子捷径全部拒绝，管家目录标 unavailable，不能借旧权限快照恢复。注册 schema／示例由同一纯协议源提供，事务收据可证明注册完成；挂载仅接受登记引用，无内联动作或运行参数旁路。
+管理 Agent 可发现当前公开能力及其可用性；项目协作代理集合由 `src/rpc/management-code-methods.js` 的 `MANAGEMENT_CODE_METHODS` 独立审核，不再从 `LUSHW_METHODS` 派生。invocation 绑定的 `context.*` 不可代理，不因 CLI 改为自身事务而丢失已审核的项目级跨树管理能力。W316／D677、D678：全部已支持的受控接口默认开放，读取为 read，其余可执行操作为 automatic，包括取消、中断、合并、验收回收、删除、支持的配置与服务操作，以及自动化注册、挂载。自动化仍必须[先注册再单独挂载](../reference/rpc/hooks.md#先注册再单独挂载)：hooks.register 只注册指令及项目功能，成功后才可用明确登记版本独立请求 worker.hook_attach；注册不挂载、不执行。旧 hooks.install／Project／CLI 原子捷径全部拒绝，管家目录标 unavailable，不能借旧权限快照恢复。注册 schema／示例由同一纯协议源提供，事务收据可证明注册完成；挂载仅接受登记引用，无内联动作或运行参数旁路。
 
 执行权限统一来自 `src/rpc/management-policy.js`；用户可分别收紧为 confirmation／unavailable，需要确认时由真实用户批准各个精确请求，权限修改能力本身始终须真实用户精确批准。不扩大固有不可用的私有材料、交互认证、原始会话、自复制或任意文件／Shell 工具边界。自动执行不绕过预检、revision、目标、Git、冻结或生命周期安全门，不复活终态、已归档或祖先关闭的工作。快捷指令不恢复独立预授权或已删除的 command_authorize，普通开发 Agent 不因此扩权。
 
@@ -22,7 +22,7 @@ W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设�
 
 全局读模型为 `{version:1,scope:'device',configured,revision,groups,methods,permissions}`。`configured:false` 表示**内建默认已生效**，不是待启用草稿，无需首次保存。W316／D677 明确使旧版 `management-permissions.json` 和项目 meta 限制退出授权，原数据及历史快照保留、不自动导入或改写；用户之后的自定义权限仅保存至设备私有 `management-permissions-v2.json`。页面首次保存自定义更改说明全部项目影响。离线项目恢复时读取共享权威；旧版本进程不会自动更新，须由用户在安全点分别更新 Host 与各 daemon，混用版本时不能声称权限已统一。无配置读取不创建根；新文件不安全／损坏时拒绝授权，不回退默认或旧项目值。已有 v2 文件内退役 hooks.install 的旧允许值仅留历史，读取投影钳制为 unavailable、不改文件、不阻断其他合法权限；下次显式保存使用当前目录。
 
-页面按需读取全局权限，核对动态审核上限／可选值与静态目录（包括保存 ACK）一致；版本不匹配时禁止编辑。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；不接受 sparse patch、未知字段、缺项或提权，使用 revision 防并发覆盖。私有文件原子发布与最终授权／持久开始使用同一跨进程 `settings-write` 锁排序，开始后释放锁再执行副作用；各 daemon 的一秒只读观察在修订变化后协调未开始请求，不重放失败。锁忙保守拒绝，不偷锁。`read` 仅可 read／unavailable，`automatic` 可 automatic／confirmation／unavailable，`confirmation` 可 confirmation／unavailable，`unavailable` 不可提升；必要发现 `manager.catalog` 固定 read。权限修改 `management.permission_set` 的上限固定 confirmation，仅可 confirmation／unavailable，不能设为 automatic。manager.call/start/retry 是传输／兼容入口，不是独立提权项。
+页面按需读取全局权限，核对动态审核上限／可选值与静态目录（包括保存 ACK）一致；版本不匹配时禁止编辑。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和执行校验均来自 `src/rpc/management-policy.js`。接口的 read／automatic 仅说明逐项访问级别，不替代范围、用户明确授权、参数、revision 或生命周期安全门。用户终端的设备 scope 可以默认；管家受控调用必须显式提供 `scope:'device'`，且本轮用户指令明确包含“设备／全局／device”（大小写不敏感）。因此仅要求使用某账号模型不等于该检查所需的设备授权；不能靠放宽接口权限解决。CLI 学习目录与 `manager_catalog` 的设备条目共享 `authorization` 说明、显式条件及范围参数示例；示例不是授权。permissions 是**完整** `method -> access` 映射，包含不可用条目；不接受 sparse patch、未知字段、缺项或提权，使用 revision 防并发覆盖。私有文件原子发布与最终授权／持久开始使用同一跨进程 `settings-write` 锁排序，开始后释放锁再执行副作用；各 daemon 的一秒只读观察在修订变化后协调未开始请求，不重放失败。锁忙保守拒绝，不偷锁。`read` 仅可 read／unavailable，`automatic` 可 automatic／confirmation／unavailable，`confirmation` 可 confirmation／unavailable，`unavailable` 不可提升；必要发现 `manager.catalog` 固定 read。权限修改 `management.permission_set` 的上限固定 confirmation，仅可 confirmation／unavailable，不能设为 automatic。manager.call/start/retry 是传输／兼容入口，不是独立提权项。
 
 逐项用户 RPC `management.permission_get {method,scope:'device'}` 返回接口权限、可选值及全局 revision；`management.permission_set {method,access,expected_revision,scope:'device'}` 以单项 CAS 保存并返回 `{method,access,revision}`，复用同一私有文件、完整映射校验与设备写锁。CLI 为 `lush hooks management permission-get METHOD --scope device`／`permission-set METHOD ACCESS --revision REV --scope device`。Valet 只能经 `manager.call` 代理，普通开发 Agent 不可直调；设备操作仍须用户指令与 scope 明确。修改请求先展示接口、旧值、新值、修订及同设备用户所有项目影响，真实用户批准精确请求后执行，不接受自动选择或模型授权。批准前不写入，修订变化时拒绝旧批准覆盖新设置；修改审核能力自身也不能取消审核，结果未知不自动重放。
 
@@ -32,13 +32,13 @@ W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设�
 
 capability 仅在真正进入执行回调、完成最新权限及精确确认校验后标 running，私有 `execution_authorization` 固定该方法开始时的权限，后续真实 bridge／receipt 校验不因项目权限变化误拦截。已经开始的操作不因之后修改权限被强制中断，完成的副作用不撤销；历史 running 收据保留原开始授权及既有 unknown／精确完成证明恢复规则。开始／重试返回的 waiting 动作仍是**未开始**：capability succeeded 仅表示提交，动作真正执行前还须用最新权限和原精确批准重新核验。
 
-查询契约由 `src/core/worker-query.js` 同源供给 CLI 学习目录、管家目录及校验，包含类型、枚举、默认值、分页说明与参数示例。`worker.graph.scope` 是 `all|tree`，`worker.activity/page.scope` 是 `work|all`；这些是当前项目的查询范围，不要求设备指令或 `scope:'device'`，也不接受自造 `development`。设备设置仍须显式指令与设备作用域，不能以查询例外扩权。只有这组契约在执行前产生的固定参数错误使用 `-32030`，可信 bridge 双端按代码和固定消息白名单投影为 `kind:'invalid_parameters',execution:'not_started'`，不回显错误参数值、路径或任意异常；可修正参数后重新提交只读查询。权限拒绝、普通 handler 错误、输出超限、超时、断连及未知结果仍采用保守失败，不声明未执行、不自动重放。
+查询契约由 `src/core/worker-query.js` 同源供给 CLI 学习目录、管家目录及校验，包含类型、枚举、默认值、分页说明与参数示例。`worker.graph.scope` 是 `all|tree`，`worker.activity/page.scope` 是 `work|all`；这些是当前项目的查询范围，不要求设备指令或 `scope:'device'`，也不接受自造 `development`。设备设置仍须显式指令与设备作用域，不能以查询例外扩权。这组契约在执行前产生的固定参数错误使用 `-32030`，可信 bridge 双端按代码和固定消息白名单投影为 `kind:'invalid_parameters',execution:'not_started'`，不回显错误参数值、路径或任意异常；可修正参数后重新提交只读查询。设备 scope 的固定前置错误另用 `-32031`，仅在进入业务 dispatch 前校验：缺参／范围值不对为 `invalid_parameters/recovery:'read_catalog'`，缺少本轮用户明确授权为 `authorization_required/recovery:'ask_user'`，均标 `execution:'not_started'`。Pi 工具错误正文保留这份安全 JSON，避免模型只看到 Error.message 而丢失 kind／恢复指引。管家按 `manager_catalog` 中目标 method 的 `authorization` 检查显式参数和用户指令，不得替用户补写授权；普通权限拒绝、handler 错误、输出超限、超时、断连及未知结果仍采用保守失败，不声明未执行、不自动重放。
 
 `manager.query`、`manager.history` 是独立审核的安全 read 条目；直接工具与 manager.call 使用同一最新项目权限检查。worker.lookup 的真实管理 actor 亦需该条目 read 授权。manager.start 对应 worker.resume，manager.retry 对应 worker.retry；两个专用入口和 manager.call 均遵守对应权限。收紧为 confirmation 时发布既有精确用户确认 Notice，用户批准后交给原受控动作引擎，不直接转发普通 resume/retry handler；仍检查目标类型／状态、祖先、冻结、旧调用、配置、去重、等待与 unknown，不允许 profile 覆盖。自动权限也走同一动作引擎，不能借 manager.call 绕过目标门禁。确认收据 succeeded 只表示已提交，result.action 及独立 action receipt 显示 waiting／skipped／succeeded 等实际结果。
 
 ### 开发能力的受控代理
 
-`lushw` 是开发协作入口，`lush` 是管理入口，二者共用命令目录与业务实现。Valet 继续仅通过可信 `manager.call`／真实 bridge 调用开发能力，不获得 Shell、本地文件工具、开发 Skill 或任意 RPC 直通；本地 help、指南和问卷示例不是 RPC，不构成文件或命令执行授权。CLI 分区与迁移见[双入口](../reference/api.md#开发与管理双入口)。
+`lushw self/parent/children` 是开发 Worker 的上下文事务入口，`lush` 是项目管理入口，二者目录同源但业务叶命令唯一归属。Valet 继续仅通过可信 `manager.call`／真实 bridge 调用开发能力，不获得 Shell、本地文件工具、开发 Skill 或任意 RPC 直通；本地 help、指南和问卷示例不是 RPC，不构成文件或命令执行授权。CLI 分区与迁移见[双入口](../reference/api.md#开发与管理双入口)。
 
 Valet 可向当前项目任意合法开发目标发消息，保存真实 Valet sender；可在指定活动 order/child 下派生 child，child 的分支基线、父子编号与交付目标仍属于该开发 parent，不挂在无 Git 分支的 Valet 下。进度、自动标题与决策 Notice 只作用于 Valet 自身。`worker.accept` 按最新权限经原统一验收入口执行；设为 confirmation 时须真实用户批准精确目标，默认 automatic 时无需逐次确认，但仍复核干净现场、交付、消息、后代、冻结及资源归属；接口默认开放不提高 Worker 的自动链最高级别。普通开发 invocation 的直接父子约束不变。
 
@@ -64,7 +64,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 管家 Pi 扩展只导入 Node 可加载的纯协议定义，不从 daemon 总注册表间接引入 Bun 实现；RPC 传输只在固定 Bun bridge 中按需加载。失败时 `Run.error`、`Worker.error` 与管理执行原因保留固定白名单诊断及处理建议（扩展加载、模型／来源、进程启动、输出上限、超时／中断、未分类失败），不持久化原始 stderr、凭证或异常正文。UI 在详情顶部完整显示安全原因，旧记录缺少诊断时明确不可还原，不从通用“调用中断”倒推根因；失败后不提供自动重试，不改变 unknown 收据与禁止重放规则。
 
-这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，拒绝直接调用普通 Agent 的 notice/progress/message 等方法；已审核 `lushw` 能力须通过 `manager.call` 检查真实管理身份、最新项目权限（已开始操作使用固定开始授权）、作用域与目标后代理执行。
+这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，拒绝直接调用普通 Agent 的 notice/progress/message 等方法；已审核的项目管理／协作能力须通过 `manager.call` 检查真实管理身份、最新项目权限（已开始操作使用固定开始授权）、作用域与目标后代理执行。
 
 ## 数据与时间
 

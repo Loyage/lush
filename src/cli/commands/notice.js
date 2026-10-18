@@ -9,7 +9,7 @@ export function isLocalCommand(args) {
   return args[0] === 'example' || args[0] === 'check';
 }
 
-function questionsFromFile(file, body) {
+export function questionsFromFile(file, body) {
   const hint = 'Expected {"questions":[...]} with 1-4 questions and 2-4 options per question; use lushw notice example for a complete JSON template.';
   let fd;
   try {
@@ -51,7 +51,7 @@ export async function run(command, args, ctx = {}) {
     const verb = args.shift();
     if (verb === 'list') { exact(args, 0); value = await client.request('notice.list'); }
     else if (verb === 'post') {
-      const task = option(args, '--worker', process.env.LUSH_TASK_ID), body = option(args, '--body', '');
+      const task = option(args, '--worker'), body = option(args, '--body', '');
       const file = option(args, '--questions-file'), kind = option(args, '--kind'); exact(args, 1);
       check(kind === null || ['question','info'].includes(kind), 'notice kind must be question or info');
       check(kind !== 'info' || file === null, 'an info notice cannot contain a questionnaire');

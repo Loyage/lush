@@ -14,10 +14,11 @@ import { run as config } from '../src/cli/commands/config.js';
 import { run as notice } from '../src/cli/commands/notice.js';
 import { run as branch } from '../src/cli/commands/branch.js';
 import { run as progress } from '../src/cli/commands/progress.js';
+import { run as context } from '../src/cli/commands/context.js';
 import { run as order } from '../src/cli/commands/intent.js';
 import { fixture } from './helpers.js';
 
-const handlers = { worker, hooks, agent, config, notice, branch, progress, order };
+const handlers = { worker, hooks, agent, config, notice, branch, progress, order, self: context, parent: context, children: context };
 const uuid = '11111111-1111-4111-8111-111111111111';
 function tokens(command) {
   return [...command.matchAll(/'([^']*)'|([^\s]+)/g)].map(match => match[1] ?? match[2]);
@@ -46,6 +47,19 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
   expect(() => assertAllowed('cli.catalog', { q: 'x' }, null)).toThrow('unknown parameter');
   expect(() => assertAllowed('cli.catalog', {}, { id: 5 })).toThrow('user approval');
   expect(managementPolicy('cli.catalog').access).toBe('unavailable');
+});
+
+test('scoped help exposes the selected usage and device authorization without unrelated commands', () => {
+  const help = cliHelp('lush', 'agent resources');
+  expect(help).toContain('agent resources [--scope device]');
+  expect(help).toContain('scope:"device"');
+  expect(help).toContain('接口 read/automatic 权限不替代');
+  expect(help).toContain('manager_catalog');
+  expect(help).not.toContain('agent sources save --file');
+  expect(cliHelp('lushw', 'self inspect')).toContain('self inspect');
+  expect(() => cliHelp('lushw', 'worker inspect')).toThrow('lush help worker inspect');
+  expect(() => cliHelp('lushw', 'agent resources')).toThrow('lush help agent resources');
+  expect(() => cliHelp('lush', 'PRIVATE-NONEXISTENT')).toThrow('run lush help');
 });
 
 test('execution nodes are absent from CLI help, catalogue, RPC registration and management permissions', () => {

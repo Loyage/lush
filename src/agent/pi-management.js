@@ -6,6 +6,7 @@ import { managementInvocation, validateManagementRPC, MANAGEMENT_RPC_METHODS } f
 import { builtInPrompt } from './prompts.js';
 import { isWorkerNumber } from '../core/worker-number.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
+import { safeManagementPreflightError } from '../core/management-guidance.js';
 
 const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
 export const MANAGEMENT_TOOL_NAMES = Object.freeze(MANAGEMENT_RPC_METHODS.filter(method => method.startsWith('manager.'))
@@ -13,7 +14,7 @@ export const MANAGEMENT_TOOL_NAMES = Object.freeze(MANAGEMENT_RPC_METHODS.filter
 const workerSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^(?:W[1-9][0-9]*(?:-[1-9][0-9]*)*|V[1-9][0-9]*)$' }],
   description: '当前项目 Worker／Valet 的内部整数 ID 或精确持久编号（如 W117、W117-1、V1）；V 查询不授予开发动作权限，不能猜测编号。' };
 const MAX_OUTPUT = 256 * 1024;
-const UNCONFIRMED = '管理请求被拒绝或未确认完成；副作用可能已经发生，不能换身份或自动重试。';
+const UNCONFIRMED = '管理请求被拒绝或未确认完成；副作用可能已经发生，不能换身份或自动重试。可用 manager_catalog 核对用法、access/reason 和 authorization；未知执行结果仍须交用户检查。';
 
 /** Node Pi cannot use Bun.connect. Run only the fixed trusted Bun bridge for one bounded request. */
 export async function managementRPCRequest(method, params, signal, env = process.env) {
@@ -52,8 +53,9 @@ export async function managementRPCRequest(method, params, signal, env = process
         try {
           const response = JSON.parse(output);
           if (code !== 0) {
-            const safe = safeWorkerQueryError(response);
-            if (safe) { finish(Object.assign(new Error(safe.error), safe)); return; }
+            const safe = safeWorkerQueryError(response) ?? safeManagementPreflightError(response);
+            // Pi may render only Error.message: keep recovery metadata visible to the model too.
+            if (safe) { finish(Object.assign(new Error(JSON.stringify(safe)), safe)); return; }
             throw new Error();
           }
           if (!response || Object.hasOwn(response, 'error') || !Object.hasOwn(response, 'result')) throw new Error();
@@ -118,7 +120,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
     return { content: [{ type: 'text', text }], details: result };
   };
   pi.registerTool({ name: 'manager_catalog', label: '管理能力目录', exposure: 'model-only',
-    description: '列出当前 Lush 全部公开功能、查询 schema/枚举/默认值/分页示例及真实权限边界；scope 的含义按接口区分，不猜 development/device。目录不是授权。',
+    description: '列出当前 Lush 全部公开功能、查询 schema/枚举/默认值/分页示例及 authorization 前置条件；遇到用法或范围错误先查目标 method。scope 的含义按接口区分，不猜 development/device；目录不是用户授权。',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async execute(_id, params, signal) { return resultView(await call('manager.catalog', params, signal)); },

@@ -4,11 +4,19 @@
 
 ## 开发与管理双入口
 
-`lushw`（Lush Worker）面向开发 Worker 的协作与查询，`lush` 面向用户／Valet 的项目管理。两者共用命令目录与处理器；共享查询可由任一入口调用，开发专属命令从旧 `lush` 直接迁出、不保留别名，旧调用在派发前给出迁移提示。用户也可使用 `lushw`，但 Agent-only 方法仍须有效 invocation。
+W332／D695：`lush` 面向用户／Valet 的项目管理，`lushw`（Lush Worker）只处理当前 Worker 自身与直接父子事务。两者由同源目录派生，但业务叶命令只有一个入口，只有本地 help 双入口。项目级 Worker／branch 查询及管理操作归 `lush`；Worker 无需知道自身编号、树中层级或当前目录，服务端从有效 invocation token 绑定 `lushw self/parent/children`。无身份、过期身份或越权关系的数据调用拒绝；不能通过伪造 `LUSH_TASK_ID` 选择自身。
+
+这是破坏性迁移：旧 `lushw worker/branch/status/progress` 及 `lushw notice post/list` 不保留。自身查询改用 `self inspect/history/transcript`；父查询／消息用 `parent inspect/message`；直接 child 的分页、查询、派工、消息和安全验收用 `children …`；标题、Notice 与进度归 `self`。精确参数、完整命令与示例以 `bun run lushw help` 及 `src/cli/catalog.js` 为准，不在文档维护第二份命令清单。`skills list/get` 和本地 `notice example/check` 不需项目或 invocation。源码快捷 `bun run progress` 映射到 `lushw self progress`；`bun run message ID '说明'` 是用户管理的 `lush worker message`，不是开发消息入口。
+
+`context.*` 的参数、注册和校验同源于 `src/core/worker-context.js`，全部要求有效 invocation，拒绝未知参数；self 是默认关系，parent 自动解析，child 关系仅接受自己的直接 child（整数或真实 W 编号）。`context.children {after?,limit?}` 按 ID 升序返回 `items,total,cursor,has_more,limit`，默认50、最多200；`context.notices {before?,limit?}` 只查自身 Notice，倒序分页默认30、最多100。分页使用实际返回的 cursor；详情 `coverage=worker_context`，省略嵌套关系、收件箱、原始运行记录等，`omitted` 标明范围；历史 `coverage=event_metadata_only` 只含事件身份／类型／时间，使用 next/has_more 续读，不含事件正文。执行证据须按需读取相关 transcript，不把精简详情或历史元数据冒充全量。
+
+后端同样限制普通 Worker 的 raw RPC 查询为自身、直接父和直接 child；拒绝项目级枚举、兄弟、孙辈和无关目标，不是只隐藏帮助目录。特殊整合 Worker 的额外只读查询须命中持久固定成员集合，不获得派工、消息或验收权限。原写入、冻结、生命周期与安全验收门保持。
 
 旧 `lushc` 可执行文件与源码脚本直接移除，不保留兼容入口，外部脚本须改用 `lushw`。已有进程不会热更新；用户须在安全空闲点更新安装入口，并分别更新 daemon 与 Host，不能只刷新页面。历史会话、用户自定义 Prompt 和外部脚本不批量改写；旧指令引用须由维护者按新入口更新。
 
-入口不授予权限：开发 Agent 的工作区、直接父子协作与后端安全门保持不变，带 Agent token 的 `lush` 管理写入口不能绕过这些限制。Valet 默认获得全部 `lushw` RPC 能力，通过可信管理工具在当前项目内跨树代理；不获得 Shell 或 Git 分支，已支持的受控写操作默认自动执行，可逐项收紧，权限修改本身始终须用户审核；既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
+帮助可离线读取：`lush help agent resources`、`lush agent sources list --help`、`lushw help self inspect` 只打印指定命令／子目录的用法，不发现项目、不调用 RPC，也不会因存在待执行正文而执行命令。普通 CLI 处理器报错附带对应的只读帮助入口；未知结果不可通过重试来验证。Valet 没有 Shell，应调用 `manager_catalog`，按目标 method 的参数、schema、示例及 `authorization` 前置条件查用法，不尝试直接运行 CLI。设备接口权限与范围授权的区别见[管家权限契约](../engineering/hook-signals-management.md#设备全局管家权限)。
+
+入口不授予权限：带 Agent token 的 `lush` 管理入口不能绕过开发限制。Valet 的项目能力独立于 `LUSHW_METHODS`，由 `MANAGEMENT_CODE_METHODS` 和管理策略审核；保留已审核的当前项目跨树代理，不代理 invocation 绑定的 `context.*`。Valet 仅使用可信管理工具，不获得 Shell 或 Git 分支；已支持的受控写操作默认自动执行，可逐项收紧，权限修改本身始终须用户审核。既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
 
 CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使用实际 `lush`／`lushw`。具体命令、读／写分类与关联 RPC 由 `src/cli/catalog.js` 派生，不在这里维护另一份权限名单。读入口不接受写选项，准备阶段包含读取的变更命令仍归写；分类不等于执行授权，现有逐 RPC 权限与确认门不变。
 
@@ -18,7 +26,7 @@ CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使�
 
 本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[当前指令流程](../task-flow.md)。
 
-公开实体入口为 `lush worker`／`lushw worker` / RPC `worker.*`，旧 Task 命令与方法不保留别名；`notice --worker` / `config worker-call-limit` 与保留的内部字段之间的映射见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
+项目管理实体入口为 `lush worker` / RPC `worker.*`；Worker 自身协作入口及 `context.*` 见上文，旧 Task 命令与方法不保留别名；`notice --worker` / `config worker-call-limit` 与保留的内部字段之间的映射见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
 
 ## CLI 精简迁移（D647）
 
@@ -29,7 +37,7 @@ CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使�
 | `worker reserve ID merge` | `worker merge ID` |
 | `worker reserve-all BRANCH` | `worker merge-all BRANCH` |
 | `worker unreserve ID` | `worker merge-cancel ID` |
-| `worker resolve ID` | `lushw worker accept ID` |
+| `worker resolve ID` | `lush worker accept ID`（用户）；`lushw children accept ID`（直接父 Agent） |
 | `worker delete ID`（预检） | `worker delete-preview ID` |
 | `config migrate`（预检） | `config migrate-preview` |
 | `agent sources models ID --refresh` | `agent sources models-refresh ID` |
@@ -49,13 +57,17 @@ CLI 的工作身份参数支持原整数或严格的 W／V 编号；身份解析
 ```bash
 bun run lush worker inspect W5-1
 bun run lush worker inspect V1  # Valet 通用只读详情；不是开发 Worker
-bun run lushw worker message W5-1 '补充说明'
+bun run lush worker message W5-1 '用户补充说明'
 bun run lush worker rename W5 '登录修复'  # 仅用户，只改展示标题；空串恢复自动标题
-bun run lushw worker spawn '目标' --parent W5 --name child
-bun run lushw notice post '问题' --worker W5-1 --body '背景'
+bun run lush worker spawn '目标' --parent W5 --name child  # 用户管理派工
+# 以下在有效 Worker invocation 内，自动绑定自身：
+bun run lushw self inspect
+bun run lushw children message W5-1 '补充说明'  # 必须是真实直接 child
+bun run lushw children spawn '目标' --name child
+bun run lushw self notice post '问题' --body '背景'
 ```
 
-CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原接口；`W5` 或 `V5` 均不意味着内部 `id=5`。解析严格接受 `Wn(-n)*` 或 `Vn`，正安全整数、无前导零；`V1-1`、小写、溢出和超长值拒绝。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W／V 编号。
+管理 CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原接口；上下文 CLI 的 child 参数由服务端解析并复核直接父子关系。`W5` 或 `V5` 均不意味着内部 `id=5`。解析严格接受 `Wn(-n)*` 或 `Vn`，正安全整数、无前导零；`V1-1`、小写、溢出和超长值拒绝。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W／V 编号。
 
 ### 持久身份边界
 
@@ -72,13 +84,13 @@ Notice 按明确 kind 展示：question／questionnaire／历史 plan 为 `D<Not
 | 命令 | 章节 |
 |---|---|
 | `lush order`（指令；旧 say 无别名） | [一条指令输入如何交付](../task-flow.md) |
-| `lushw worker list/tree/inspect/spawn/message/accept`；`lush worker cancel/retry/merge/cleanup` 等管理操作 | [Worker、Run 与 Artifact](rpc/tasks.md) |
+| `lushw self/parent/children …`（自身与直接父子）；`lush worker …`（项目查询与管理） | [Worker、Run 与 Artifact](rpc/tasks.md) |
 | `lush worker inspect` / `history` / `transcript` / `watch`（[终端内观看](../native-viewer.md)） / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
 | `lush worker cleanup [--keep-branch]` / `worker delete-preview ID` / `worker delete ID --confirm --revision REV` | [磁盘回收与彻底删除](rpc/maintenance.md) |
 | `lush branch tree` / `show` / `bind` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush branch integrate plan/start/show/cancel/retry` | [一次性整合](rpc/convergence.md#一次性整合)（仅用户，非空操作调用 Agent） |
 | `lush branch convergence list/show/runs/retry` | [历史归并兼容](rpc/convergence.md#单分支策略)（策略／默认写入口退休） |
-| `lushw notice list/post/example/check`；`lush notice answer/dismiss` | [待决问题](rpc/notices.md) |
+| `lushw self notice list/post`、本地 `lushw notice example/check`；`lush notice …` 管理 | [待决问题](rpc/notices.md) |
 | `lush status` / `lush config show` / `lush config set|reset` / `lush agent show|prompt|env|init|set|reset` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
 | `lush agent network show` / `set --file PATH` / `reset` | [项目出站网络代理](../engineering/outbound-network.md) |
 | Web 读取路由与 `POST /api/action` | [Web 路由](web-routes.md) |

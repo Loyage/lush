@@ -2,8 +2,9 @@ import { CLI_EXECUTABLES, cliCommands } from '../cli/catalog.js';
 import { AUTOMATION_CAPABILITIES } from '../core/hook-registration.js';
 import { MERGE_CONDITION_CAPABILITIES } from '../core/merge-conditions.js';
 import { WORKER_QUERY_CAPABILITIES } from '../core/worker-query.js';
+import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
-import { managementPolicy, managementAllowedAccess } from './management-policy.js';
+import { managementPolicy, managementAllowedAccess, managementAuthorization } from './management-policy.js';
 
 const risks = {
   read: '只读学习／查询不执行写操作；目录可见不等于执行授权。',
@@ -25,7 +26,8 @@ export function cliCatalog() {
     rpc: entry.rpc.map(method => {
       const policy = managementPolicy(method);
       return { method, parameters: [...PARAMS[method]], ...(MERGE_CONDITION_CAPABILITIES[method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[method] ?? {}),
-        ...(AUTOMATION_CAPABILITIES[method] ?? {}), base_access: policy.access,
+        ...(AUTOMATION_CAPABILITIES[method] ?? {}), ...(CONTEXT_CAPABILITIES[method] ?? {}),
+        ...(managementAuthorization(method) ? { authorization: managementAuthorization(method) } : {}), base_access: policy.access,
         allowed_access: [...managementAllowedAccess(policy.access, method)], reason: policy.reason,
         audience: USER_ONLY.has(method) ? 'user' : AGENT_ONLY.has(method) ? 'agent' : 'user-and-agent' };
     }),

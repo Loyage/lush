@@ -60,7 +60,7 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     // existing advanced section; browsing never executes the examples.
     await button('返回搜索结果').onclick();
     search.value = 'worker list'; search.oninput({});
-    dom.node('detail').querySelector('[data-command="lushw worker list"]').onclick();
+    dom.node('detail').querySelector('[data-command="lush worker list"]').onclick();
     const advanced = dom.node('detail').querySelector('details');
     expect(advanced.open).toBe(false);
     expect(deepText(advanced)).toContain('RPC 参数契约（类型、必填、默认值与枚举）');

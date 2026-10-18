@@ -13,15 +13,15 @@
 
 ## 发布方法
 
-用 daemon 固定的开发入口（不是管理入口 lush），仅向自身 Worker 发布，省略 --worker：
+用 daemon 固定的开发入口（不是管理入口 lush），仅向自身 Worker 发布；self 接口不接受 --worker 或目标 ID：
 
 ```bash
-lushw notice post '分析结论已就绪' --kind info --body '结论：……。依据：……。限制或待验证：……。完整结果见当前 Worker。'
+lushw self notice post '分析结论已就绪' --kind info --body '结论：……。依据：……。限制或待验证：……。完整结果见当前 Worker。'
 ```
 
 开发完成提醒的标题可用“本轮工作已就绪”，正文简述实际完成内容、验证结果、风险和下一步。使用资料明确的 worker_number，没有时才回退 #内部ID，不从 ID 推算编号。正文不要复制大段日志、凭证或敏感资料。
 
-`--kind info` 对应 RPC `notice.post {title, body, kind:"info"}`；身份由当前 invocation token 决定。不传 questions 或 --questions-file，不用默认 question、空问卷或 worker message 冒充告知。info 返回 `kind=info / status=sent`，不等待答复、不暂停 invocation，不阻塞调度、合并或验收。面向用户引用返回 Notice 时用 N 加返回的整数 ID。
+`--kind info` 对应 RPC `context.notice {title, body, kind:"info"}`；身份由当前 invocation token 决定。不传 questions 或 --questions-file，不用默认 question、空问卷或父子追加消息冒充告知。info 返回 `kind=info / status=sent`，不等待答复、不暂停 invocation，不阻塞调度、合并或验收。面向用户引用返回 Notice 时用 N 加返回的整数 ID。
 
 先完成必要验证、提交和自身收尾，再发布一次简短告知，检查成功返回后正常输出最终结果。告知不是最终结果的替代品，也不表示已合并、已验收或 runtime 已完成交付；只有真实 integration=merged 才能说已合入。分析无须为了通知制造代码提交。
 

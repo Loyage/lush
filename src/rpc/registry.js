@@ -5,12 +5,14 @@ import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
 import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
 import { MERGE_CONDITION_PARAMETERS, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
+import { CONTEXT_PARAMETERS, validateContextCall } from '../core/worker-context.js';
 
 const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_node_id');
 
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
+  ...CONTEXT_PARAMETERS,
   ...MERGE_CONDITION_PARAMETERS,
   'cli.catalog': [],
   'worker.cli_preview': ['id','command'], 'worker.cli_execute': ['id','command','revision','confirm'],
@@ -103,6 +105,8 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
+  'system.status','system.summary','worker.list','worker.tree','worker.graph','worker.activity','worker.page',
+  'graph.get','branch.tree','branch.show','notice.list','notice.page',
   ...Object.keys(MERGE_CONDITION_PARAMETERS),
   'cli.catalog','worker.cli_preview','worker.cli_execute','worker.delivery_graph','worker.management_calls',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
@@ -130,6 +134,7 @@ export const USER_ONLY = new Set([
   'branch.convergence','branch.convergence_list','branch.convergence_set','branch.convergence_defaults','branch.convergence_defaults_set','branch.convergence_runs','branch.convergence_retry',
 ]);
 export const AGENT_ONLY = new Set([
+  ...Object.keys(CONTEXT_PARAMETERS),
   'worker.auto_title','worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
   'manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call',
 ]);
@@ -138,9 +143,9 @@ export { MANAGER_METHODS } from './management-methods.js';
 /** Integration invocations can inspect fixed work and ask/report for themselves, never deliver or spawn. */
 export const INTEGRATION_METHODS = new Set([
   'notice.post','progress.plan','progress.complete',
-  'system.status','system.summary',
+  'context.inspect','context.history','context.transcript','context.notices','context.notice',
+  'context.progress_plan','context.progress_complete',
   'worker.lookup','worker.inspect','worker.diff','worker.history','worker.history_page','worker.transcript',
-  'branch.tree','branch.show','graph.get','notice.list','notice.page',
 ]);
 
 export function assertAllowed(method, params, actor) {
@@ -156,6 +161,7 @@ export function assertAllowed(method, params, actor) {
   }
   check(who === null || !USER_ONLY.has(method), `${method} requires user approval, not an agent`);
   check(!(who === null && AGENT_ONLY.has(method)), `${method} is agent only`);
+  validateContextCall(method, params);
   if (Object.hasOwn(MERGE_CONDITION_PARAMETERS, method)) {
     const { _token, ...publicParams } = params;
     validateMergeConditionCall(method, publicParams);

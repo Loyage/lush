@@ -1,9 +1,8 @@
 /* Non-modal dock: its grid row reserves reading space. Collapsed means zero form footprint. */
-#composer-shell { position:relative; display:block; min-width:0; padding:8px 16px max(8px,env(safe-area-inset-bottom)); max-height:60dvh; overflow:auto; }
+#composer-shell { position:relative; display:block; min-width:0; padding:8px 16px max(8px,env(safe-area-inset-bottom)); max-height:78dvh; overflow:auto; }
 #composer-shell[data-open="false"] { height:0; min-height:0; padding:0; border:0; overflow:visible; }
 html[data-lush-space="project"] body:has(#detail) #composer-shell { display:block; }
 #composer-shell[hidden], #composer-shell [hidden] { display:none !important; }
-#composer-shell[data-large="true"] { max-height:78dvh; }
 #composer-shell #input-form { max-width:1100px; }
 #composer-shell .composer-launcher { position:fixed; right:max(16px,env(safe-area-inset-right)); bottom:max(16px,env(safe-area-inset-bottom)); width:52px; height:52px; min-height:52px; border-radius:50%; background:var(--accent); color:var(--bg); border:1px solid var(--accent); box-shadow:0 3px 14px #0003; font-size:28px; padding:0; z-index:8; }
 #composer-shell[data-open="true"] .composer-launcher { position:absolute; top:8px; right:12px; bottom:auto; width:44px; height:44px; min-height:44px; font-size:24px; }
@@ -19,8 +18,7 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell #input-form[data-blocked="true"] .composer-target-status { color:var(--failed); }
 #composer-shell .composer-mode-behavior { display:none; }
 #composer-shell #input-form[data-expanded="true"] .composer-mode-behavior { display:block; flex-basis:100%; }
-#composer-shell textarea, #composer-shell textarea:focus { height:64px; min-height:64px; max-height:none; font-size:16px; }
-#composer-shell[data-large="true"] textarea { height:28dvh; }
+#composer-shell textarea, #composer-shell textarea:focus { height:28dvh; min-height:64px; max-height:none; font-size:16px; }
 #composer-shell .composer-recovery { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0; }
 #composer-shell .composer-recovery button { font-size:12px; min-height:44px; }
 #composer-shell .composer-draft-list { display:grid; gap:6px; max-height:160px; overflow:auto; margin:6px 0; }
@@ -38,9 +36,8 @@ html[data-lush-space="global"] #composer-shell { display:none; }
   html[data-lush-space="project"] .content-shell { min-height:0; overflow:hidden; }
   html[data-lush-space="project"] #detail { min-height:0; overflow:auto; }
   html[data-lush-space="project"] body { padding-bottom:0; }
-  #composer-shell { bottom:auto; padding:6px 10px max(6px,env(safe-area-inset-bottom)); max-height:calc(var(--composer-visible-height,100dvh) * .65); }
-  #composer-shell[data-large="true"] { max-height:calc(var(--composer-visible-height,100dvh) * .8); }
-  #composer-shell[data-large="true"] textarea { height:calc(var(--composer-visible-height,100dvh) * .3); }
+  #composer-shell { bottom:auto; padding:6px 10px max(6px,env(safe-area-inset-bottom)); max-height:calc(var(--composer-visible-height,100dvh) * .8); }
+  #composer-shell textarea, #composer-shell textarea:focus { height:calc(var(--composer-visible-height,100dvh) * .3); }
   #composer-shell .composer-toolbar { gap:4px; }
   #composer-shell .composer-toolbar button { font-size:12px; padding:6px 8px; }
   #composer-project { flex-basis:100%; font-size:11px; }

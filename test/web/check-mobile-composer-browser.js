@@ -90,16 +90,16 @@ try{
     await click('#composer-expand');
     const dock=await execute(`const s=document.querySelector('#composer-shell').getBoundingClientRect(),c=document.querySelector('.content-shell').getBoundingClientRect();return {top:s.top,bottom:c.bottom,reading:c.height};`);
     assert(dock.bottom<=dock.top+1&&dock.reading>80,`dock overlays reading pane ${width}: ${JSON.stringify(dock)}`);
-    await click('#composer-switch');
+    await click('#composer-launcher'); await click('#composer-launcher');
     assert(await execute(`return Array.from(document.querySelectorAll('#composer-menu button')).filter(n=>n.getClientRects().length).every(n=>{const r=n.getBoundingClientRect();return r.height>=44&&r.left>=0&&r.right<=innerWidth});`),`menu clips on ${width}`);
     await click('#composer-menu-order');
-    await click('#composer-large');assert(await execute(`return document.querySelector('#composer-shell').dataset.large==='true'&&document.querySelector('.content-shell').getBoundingClientRect().height>0;`),'large edit removed reading pane');await click('#composer-large');
+    assert(await execute(`return !document.querySelector('#composer-large,#composer-switch')&&document.querySelector('#input').getBoundingClientRect().height>=innerHeight*.25&&document.querySelector('.content-shell').getBoundingClientRect().height>0;`),'editor is not large by default or removed reading pane');
     await execute(`const d=document.querySelector('#detail');d.scrollTop=150;window.readingTop=d.scrollTop;const i=document.querySelector('#input');i.value='保留编辑';i.dispatchEvent(new Event('input'));i.scrollTop=12;`);
     await click('#composer-launcher');
     assert(await execute(`return document.querySelector('#input-form').hidden&&document.querySelector('#composer-shell').getBoundingClientRect().height===0&&document.querySelector('#detail').scrollTop===window.readingTop&&document.activeElement===document.querySelector('#composer-launcher');`),`collapse lost reading position ${width}`);
-    await click('#composer-launcher');assert(await execute(`return document.querySelector('#input').value==='保留编辑'&&!document.querySelector('#input-form').hidden;`),`one click resume failed ${width}`);
+    await click('#composer-launcher'); await click('#composer-menu-order'); assert(await execute(`return document.querySelector('#input').value==='保留编辑'&&!document.querySelector('#input-form').hidden&&!document.querySelector('.text-editor-undo').disabled;`),`category auto-resume failed ${width}`);
     await execute(`const i=document.querySelector('#input');i.value='';i.dispatchEvent(new Event('input'));`);
-    console.log(`PASS focus, dock reservation, menu, enlarge, collapse/resume, themes ${theme} ${width}x${height}`);
+    console.log(`PASS focus, dock reservation, menu, default large editor, collapse/auto-resume, themes ${theme} ${width}x${height}`);
     if(width<=760){
       await execute('window.frozen(true);');
       assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===3&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth);`),`frozen buttons wrap/overflow ${width}`);
@@ -165,10 +165,13 @@ try{
   await execute(`document.querySelector('#input').focus();`);await keys(['续','写']);
   await click('#composer-launcher');
   assert(await execute(`return document.querySelector('#input-form').hidden&&document.activeElement===document.querySelector('#composer-launcher')&&document.querySelector('#composer-launcher').dataset.pending==='true';`),'collapse did not blur/preserve pending edit');
-  await click('#composer-launcher');assert(await execute(`return !document.querySelector('#input-form').hidden&&document.querySelector('#input').value.includes('续写');`),'one click did not restore draft');
-  await click('#input-buffer');assert(await wait(`window.calls.at(-1).method==='draft.update'`),'resumed draft duplicated instead of update');
+  await click('#composer-launcher'); await click('#composer-menu-order'); assert(await execute(`return !document.querySelector('#input-form').hidden&&document.querySelector('#input').value.includes('续写');`),'category did not restore automatic draft edit');
+  await click('#input-buffer');assert(await wait(`window.calls.at(-1).method==='draft.update'&&document.querySelector('#input').value===''`),'resumed draft duplicated instead of update/clear');
+  await click('#composer-launcher'); await click('#composer-launcher'); await click('#composer-menu-order');
+  assert(await execute(`return document.querySelector('#input').value==='';`),'explicit save unexpectedly auto-loaded draft');
+  await click('#composer-resume');assert(await wait(`document.querySelector('#input').value.includes('续写')`),'explicit continuation failed');
   await click('#draft-commit');assert(await wait(`window.calls.at(-1).method==='input.emit'&&window.calls.at(-1).params.draft_id===40&&window.calls.at(-1).params.expected_revision===4`),'resumed draft did not emit exact saved revision');
-  console.log('PASS inline continuation, saved revision/condition identity, collapse and one-click resume');
+  console.log('PASS inline continuation, saved revision/condition identity, category auto-resume and explicit stash exclusion');
   for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
     await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';window.append({archived:true});window.compact();`);
     assert(await execute(`const n=document.querySelector('#composer-target-status'),r=n.getBoundingClientRect(),s=document.querySelector('#composer-shell').getBoundingClientRect();return document.querySelector('#input-form').dataset.expanded==='false'&&document.querySelector('#input').disabled&&!n.hidden&&getComputedStyle(n).display!=='none'&&n.textContent.includes('分支已归档')&&r.height>0&&r.top>=s.top&&r.bottom<=s.bottom&&r.right<=innerWidth;`),`compact blocked reason hidden ${theme}/${width}`);
@@ -182,6 +185,16 @@ try{
     assert(await execute(`return document.querySelector('#input-form').hidden&&document.activeElement===document.querySelector('#composer-launcher')&&document.querySelector('#input').value==='合法冻结追加';`),`Escape did not restore launcher focus ${theme}/${width}`);
     console.log(`PASS compact admission facts, keyboard blocker visibility, legal freeze and Escape focus ${theme} ${width}`);
   }
+  // A real page reload keeps only browser auto-saves, independently for all three destinations.
+  await execute(`window.selectComposer('order');document.querySelector('#input').value='重开新建';window.selectComposer('management');document.querySelector('#input').value='重开管理';window.append();document.querySelector('#input').value='重开追加';document.querySelector('#composer-launcher').click();`);
+  await rpc(`/session/${session}/frame`,{id:null});
+  await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});
+  await resize(390,844);assert(await wait('window.ready'),'reload fixture failed');
+  await click('#composer-launcher'); await click('#composer-menu-management');
+  assert(await execute(`return document.querySelector('#input').value==='重开管理'&&window.calls.length===0;`),'management browser edit did not survive reload');
+  await execute(`window.selectComposer('order');`);assert(await execute(`return document.querySelector('#input').value==='重开新建';`),'new-work browser edit did not survive reload');
+  await execute(`window.append();`);assert(await execute(`return document.querySelector('#input').value==='重开追加'&&window.calls.length===0;`),'append browser edit did not survive reload');
+  console.log('PASS real page reload restores three independent browser edits without RPC or Agent calls');
   passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});driver.kill();await driver.exited;server.stop(true);

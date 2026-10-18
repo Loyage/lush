@@ -43,7 +43,7 @@ if (enabled) {
  await refused({title: 'Bad kind', kind: 'plan'}, 'question or info');
  await refused({title: 'Bad questions', kind: 'info', questions: []}, 'cannot contain a questionnaire');
  const before = await client.request('worker.inspect', {id: input.task.id});
- const notice = JSON.parse(await command(['notice', 'post', 'Analysis result', '--kind', 'info', '--body', 'Conclusion: inspected; no code changes.', '--json']));
+ const notice = JSON.parse(await command(['self', 'notice', 'post', 'Analysis result', '--kind', 'info', '--body', 'Conclusion: inspected; no code changes.', '--json']));
  const after = await client.request('worker.inspect', {id: input.task.id});
  if (before.status !== 'running' || after.status !== 'running' || !after.agent.active || notice.kind !== 'info' || notice.status !== 'sent') throw new Error('info parked or changed the invocation');
  fs.writeFileSync(path.join(home, 'info-receipt.json'), JSON.stringify(notice));

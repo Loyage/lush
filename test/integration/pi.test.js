@@ -22,8 +22,8 @@ const prompt = fs.readFileSync(systemFile,'utf8');
 fs.appendFileSync(path.join(process.env.LUSH_HOME,'seen.jsonl'),JSON.stringify({args, cwd:process.cwd(), project:process.env.LUSH_PROJECT, token:!!process.env.LUSH_AGENT_TOKEN, cliPath:Bun.which('lushw'), promptHasPinnedCLI:prompt.includes('bash 中的 lushw 是 daemon 当前代码所固定的开发协作 CLI')&&!prompt.includes('lushc'), task:context.task, sharedEnv:process.env.TEST_SHARED, promptRole:prompt.includes('角色：'+context.task.role), promptHasWorkerInstructions:prompt.includes('角色：worker'), verificationPlan:prompt.includes('实施前简要明确改动行为、受影响调用点、专项／集成范围及最终全量负责人'), verificationEvidence:prompt.includes('被测代码树标识（如 Git tree）及日志路径')})+'\\n');
 if(context.task.task_kind === 'order') {
  const command = context.task.calls === 1
-   ? ['lushw','worker','spawn','delegated via pinned CLI','--name','delegated-work','--json']
-   : ['lushw','worker','accept',String(context.children.find(child => child.status === 'awaiting_acceptance').id),'--json'];
+   ? ['lushw','children','spawn','delegated via pinned CLI','--name','delegated-work','--json']
+   : ['lushw','children','accept',String(context.children.find(child => child.status === 'awaiting_acceptance').id),'--json'];
  const proc = Bun.spawn(command,{stdout:'pipe',stderr:'pipe'});
  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
  if(await proc.exited) throw new Error(err); console.log(out);

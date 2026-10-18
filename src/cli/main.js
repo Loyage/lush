@@ -9,7 +9,7 @@ import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
 import * as worker from './commands/task.js';
-import * as progress from './commands/progress.js';
+import * as context from './commands/context.js';
 import * as notice from './commands/notice.js';
 import * as branch from './commands/branch.js';
 import * as agent from './commands/agent.js';
@@ -24,7 +24,7 @@ export { HELP };
  * 返回 undefined 表示「命令自己已经打印过」，主流程不再 print，也不做 fingerprint 提醒。
  */
 const COMMANDS = new Map();
-const modules = { system, intent, worker, progress, notice, branch, agent, config, hooks, skills };
+const modules = { system, intent, worker, context, notice, branch, agent, config, hooks, skills };
 for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   const module = modules[key];
   for (const name of names) {
@@ -42,7 +42,11 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   // --help / -h 在任意位置都只印帮助：子命令会把裸 --help 当成必填正文落库（spec add / branch summary / notice post 等）。
   // 必须在构造 Config / UIClient 之前返回，保证不解析命令、不发任何 RPC、不做 fingerprint 提醒。
   if (!args.length || ['help','--help','-h'].includes(args[0]) || args.includes('--help') || args.includes('-h')) {
-    console.log(cliHelp(executable)); return;
+    const helpArgs = (args[0] === 'help' ? args.slice(1) : args).filter(arg => !['--help', '-h'].includes(arg));
+    const topic = args[0] === 'help' ? helpArgs.join(' ') : CLI_COMMANDS
+      .filter(item => item.path.split(' ').every((part, index) => helpArgs[index] === part))
+      .sort((a, b) => b.path.length - a.path.length)[0]?.path ?? helpArgs[0] ?? '';
+    console.log(cliHelp(executable, topic)); return;
   }
   check(args[0] !== 'runner', 'Runner execution nodes are retired; only local execution is supported');
   check(!args.some(arg => arg === '--runner-node' || arg.startsWith('--runner-node=')), '--runner-node is retired; new Workers always execute locally');
@@ -73,19 +77,28 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   }
   const handler = COMMANDS.get(command);
   if (!handler) throw new Error(`unknown command: ${command}; run ${executable} help`);
+  const invoke = async context => {
+    try { return await handler(command, args, context); }
+    catch (error) {
+      // Keep the original failure and exit semantics; help is local and never replays a request.
+      if (error instanceof Error) error.message += `\n用法：${entry.usage.replace(/^lush(?=\s|$)/, executable)}\n帮助：${executable} help ${entry.path}（只读，不会重试；请求结果未知时不要重放）`;
+      throw error;
+    }
+  };
   // Guides and local Notice helpers return before project discovery, settings, sockets or
   // credentials. Notice helpers read only the explicit questions file, never project state.
   if (command === 'skills' || (command === 'notice' && notice.isLocalCommand(args))) {
-    const value = await handler(command, args, { json, executable });
+    const value = await invoke({ json, executable });
     if (value !== undefined) print(value, json);
     return;
   }
+  if (executable === 'lushw') check(Boolean(process.env.LUSH_AGENT_TOKEN), 'lushw data commands require an active Worker invocation');
   const globalWeb = command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
   const client = globalWeb
     ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }
     : new UIClient(selectedConfig, process.env.LUSH_AGENT_TOKEN || null);
-  const value = await handler(command, args, { client, json, executable });
+  const value = await invoke({ client, json, executable });
   if (value === undefined) return;
   if (value?.fingerprint) {
     const local = codeIdentity();

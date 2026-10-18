@@ -21,7 +21,7 @@
 
 ## 运行时与失败语义
 
-开发协作 CLI 为 `lushw worker accept ID`；用户与直接父开发 Agent 的原权限不变。Valet 跨树验收必须经过持久预检与用户精确确认，再经同一统一动作入口复核安全门；不能借管家能力自动验收回收，授权与恢复见[Valet 契约](hook-signals-management.md#开发能力的受控代理)。
+用户项目管理 CLI 为 `lush worker accept ID`，直接父开发 Agent 使用 `lushw children accept ID`；原验收安全门不变。Valet 跨树验收按最新管理权限经同一统一动作入口复核安全门；设为 confirmation 时必须持久预检并由用户精确确认，默认 automatic 不额外要求逐次确认，授权与恢复见[Valet 契约](hook-signals-management.md#开发能力的受控代理)。
 
 `acceptTask` 是统一动作的权威入口。Git 操作串行执行，资源检查与删除过程中复核身份、消息和授权；不能在仍活跃的 invocation 中删检出，也不能通过嵌套排队造成 Git gate 死锁。
 
@@ -33,7 +33,7 @@ inspect／graph 同源增加 `acceptance_recovery:boolean`：仅据当前轮未�
 
 ## 用户显式强制验收（W318／D682）
 
-普通验收默认保持全部未读检查。用户可在未读阻塞后选择次级「强制验收…」，先预检列出终态 Worker 的系统通知、失败／取消状态及资源回收范围，再二次确认；不调用 Agent。CLI 使用 `bun run lushw worker accept-preview ID`，随后 `bun run lushw worker accept ID --force --confirm --revision REV`。RPC 为 `worker.accept_preview {id}` 与 `worker.accept_force {id,revision,confirm:true}`；两者均用户专属，不开放给开发 Agent、Valet 或自动 Hook。
+普通验收默认保持全部未读检查。用户可在未读阻塞后选择次级「强制验收…」，先预检列出终态 Worker 的系统通知、失败／取消状态及资源回收范围，再二次确认；不调用 Agent。CLI 使用 `bun run lush worker accept-preview ID`，随后 `bun run lush worker accept ID --force --confirm --revision REV`；开发 `children accept` 不提供 force。RPC 为 `worker.accept_preview {id}` 与 `worker.accept_force {id,revision,confirm:true}`；两者均用户专属，不开放给开发 Agent、Valet 或自动 Hook。
 
 仅允许跳过有精确同收件箱 `task.signal` 来源证据的已结算通知，且接收 Worker 必须是 completed／failed／cancelled。未知类型、修复／合并请求、普通消息、用户追加、暂存输入和待决问题不放行；运行退出、脏现场、未交付改动、在途预约／冻结和共享资源检查全部保留；[已退役远端 Worker](execution-model.md#单机执行与执行节点退役) 即使显式强制验收也必须拒绝。具体可跳过类型由 `project/acceptance-force.js` 单点定义。
 

@@ -58,7 +58,7 @@ test('lookup is strict, read-only and does not alter original integer RPC author
     await expect(rpc.dispatch('worker.artifact', { id: task.worker_number })).rejects.toThrow('positive integer');
     const token = 'fixture-agent';
     f.store.update(task.id, { status: 'running' }); f.store.armAgent(task.id, tokenHash(token));
-    f.project.running.set(task.id, { controller: new AbortController() });
+    f.project.running.set(task.id, { token, controller: new AbortController() });
     expect(await rpc.dispatch('worker.lookup', { number: ownChild.worker_number, _token: token })).toEqual({ id: ownChild.id, worker_number: ownChild.worker_number });
     await expect(rpc.dispatch('worker.spawn', { parent: ownChild.id, goal: 'not own', _token: token })).rejects.toThrow('own worker');
     await expect(rpc.dispatch('worker.cancel', { id: ownChild.id, _token: token })).rejects.toThrow('requires user approval');

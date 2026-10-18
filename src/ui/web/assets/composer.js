@@ -15,7 +15,7 @@ import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerLabel } from './worker-label.js';
 import { appendInputBlocker, inputQueueText, inputWaitReason } from './worker-input.js';
 import { emissionAcknowledgement, emissionRequestId } from './emission-form.js';
-import { initComposerWorkspace, currentEdit, selectComposerMode, paintComposerWorkspace, finishComposerEdit, collapseComposer } from './composer-workspace.js';
+import { initComposerWorkspace, currentEdit, selectComposerMode, paintComposerWorkspace, finishComposerEdit, collapseComposer, rememberComposer } from './composer-workspace.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
 export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
@@ -361,8 +361,7 @@ async function submitInput(mode) {
     const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
       && (management ? ui.composerManagementProfile : ui.composerProfile) === creationProfile
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
-    const keepSaved = saved && mode === 'buffer';
-    if (untouched && !keepSaved) {
+    if (untouched) {
       input.value = ''; textEditor?.reset(); setComposerReferences([]); request.requestDefinition = null;
       finishComposerEdit({ consume: true });
     } else if (saved && mode !== 'buffer') {
@@ -377,7 +376,7 @@ async function submitInput(mode) {
       ui.composerManagementResult = result.task || null;
       show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，接口按最新权限执行。`);
     } else if (mode === 'buffer') {
-      show(`已${saved ? '更新' : '暂存为'}草稿 #${result.id}，尚未提交；可在这里继续编辑或到「草稿」设定条件，未创建 Worker、未调用 Agent。`);
+      show(`已${saved ? '更新' : '暂存为'}草稿 #${result.id}，尚未提交；可在「草稿」继续编辑与设定条件，下次打开不自动加载，未创建 Worker、未调用 Agent。`);
       ui.draftsPage?.added?.();
     } else {
       if (untouched && target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;
@@ -385,7 +384,8 @@ async function submitInput(mode) {
       ui.draftsPage?.added?.();
       ui.inputsPage?.added?.();
     }
-    update = { identity, submission, view, appendTarget: ui.composerAppendTarget, resetMode: target.id != null && untouched && !keepSaved,
+    rememberComposer();
+    update = { identity, submission, view, appendTarget: ui.composerAppendTarget, resetMode: mode !== 'buffer' && target.id != null && untouched,
       // The just-sent inbox may refresh its detail after returning to creation, never re-enter append.
       detailId: view?.id === 'task' ? target.id ?? null : null,
       editRevision: ui.composerEditRevision, referenceRevision: ui.composerReferenceRevision, canNavigate: untouched };

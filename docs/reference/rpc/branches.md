@@ -11,8 +11,8 @@
 | 无 CLI；节点详情 | `worker.version_commit` | `{id,snapshot,commit}`（完整 SHA） | 用户专属，只读 |
 | 无 CLI；完整分支历程 | `worker.version_lineage` | `{id,cursor?,limit?}`（默认30，1..100） | 用户专属，只读 |
 | 无 CLI；历程节点详情 | `worker.version_lineage_commit` | `{id,snapshot,commit}`（完整 SHA） | 用户专属，只读 |
-| `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
-| `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
+| `lush branch tree [--verbose]` | `branch.tree` | `{}` | 用户专属，只读；Valet 经已审核 bridge |
+| `lush branch show BRANCH` | `branch.show` | `{branch}` | 用户专属，只读；Valet 经已审核 bridge |
 | `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
 | `branch archive BRANCH [--discard] [--continue]` | `branch.archive` | `{branch, discard?, continue?}` | 用户专属 |
 | `branch convergence list` | `branch.convergence_list` | `{}` | 用户专属，只读 |

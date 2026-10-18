@@ -7,6 +7,7 @@ import { MANAGEMENT_TOOL_NAMES, registerManagementTools } from '../../src/agent/
 import { MANAGEMENT_RPC_METHODS } from '../../src/agent/management-rpc.js';
 import { Dispatcher, HANDLERS } from '../../src/rpc/dispatcher.js';
 import { LUSHW_METHODS } from '../../src/cli/catalog.js';
+import { MANAGEMENT_CODE_METHODS } from '../../src/rpc/management-code-methods.js';
 import { managementPolicy } from '../../src/rpc/management-policy.js';
 import { PARAMS, MANAGER_METHODS, AGENT_ONLY } from '../../src/rpc/registry.js';
 import { RPCServer } from '../../src/rpc/server.js';
@@ -68,7 +69,8 @@ test('completed Valet user append -> registered RPC -> real Provider/bridge uses
       { name: 'manager_query', params: {} },
     ]);
     expect(second[0].response.details).toMatchObject({ method: 'draft.add', status: 'succeeded' });
-    expect(second[1].error).toContain('管理请求被拒绝');
+    expect(JSON.parse(second[1].error)).toMatchObject({ kind: 'authorization_required', execution: 'not_started', recovery: 'ask_user' });
+    expect(second[1].error).toContain('本轮用户');
     expect(second[2].error).toContain('管理请求被拒绝');
     expect(second[3].response.details.workers).toEqual([]);
     expect(f.store.draftCount()).toBe(2);
@@ -113,7 +115,7 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
         f.store.finishRun(run.id, 'completed', { result: 'PRIVATE_PROVIDER_OUTPUT', error: 'PRIVATE_PROVIDER_ERROR' });
         historyRuns.push(run.id);
       }
-      const cli = managementToolCLI(f.root, runtime);
+      const cli = managementToolCLI(f.root, runtime, { compactCatalog: true });
       f.config.env.LUSH_PI_COMMAND = cli.command;
       const provider = new AgentProvider(f.config, f.project.agentSettings);
       // Observe real runtime-issued options only; never substitute a Provider result
@@ -160,11 +162,12 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
         profile: { agent: 'pi', config_mode: mode,
           ...(connection ? { connection_id: connection.id, model: 'deepseek/deepseek-chat' } : {}) } }).task;
       expect(manager.worker_number).toBe('V1');
-      cli.plan([...plan, { name: 'manager_query', params: { worker: manager.worker_number } }]);
+      cli.plan([...plan, { name: 'manager_query', params: { worker: manager.worker_number } },
+        { name: 'manager_call', params: { method: 'context.inspect', params: {} } }]);
       f.project.pump();
       await Promise.all([...f.project.running.values()].map(run => run.promise));
       const task = f.store.task(manager.id);
-      expect(task.status).toBe('completed');
+      expect(task.status, task.error ?? 'management Provider did not complete').toBe('completed');
       expect(invocation.context.management.authorization).toMatchObject({
         dangerous_operations: 'latest_device_permissions', permission_changes: 'exact_user_confirmation',
       });
@@ -176,23 +179,29 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
       expect(result.entries).toContainEqual({ type: 'lush.invocation', data: {
         task_id: manager.id, run_id: invocation.context.invocation.run_id, role: 'manager' } });
       const replies = result.replies;
-      expect(replies).toHaveLength(17);
+      expect(replies).toHaveLength(18);
       for (const [index, reply] of replies.entries()) {
-        if (index === 5) {
+        if (index === 5 || index === 17) {
           expect(reply.response).toBeUndefined();
           expect(reply.error).toContain('管理请求被拒绝或未确认完成');
         } else {
           if (reply.error) throw new Error(`unexpected tool error at plan ${index}: ${plan[index]?.params?.method ?? plan[index]?.name}`);
           expect(reply.error).toBeUndefined();
-          expect(reply.response.content).toEqual([{ type: 'text', text: JSON.stringify(reply.response.details) }]);
+          if (index === 0) {
+            expect(reply.catalogContentVerified).toBe(true);
+            expect(reply.response.content).toEqual([]);
+          } else expect(reply.response.content).toEqual([{ type: 'text', text: JSON.stringify(reply.response.details) }]);
         }
       }
       const catalog = replies[0].response.details;
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(PARAMS)));
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(HANDLERS)));
-      // Renaming the CLI must preserve the actual Provider-visible development
-      // capabilities and their policy, including the user-only force preview.
+      // Relation-bound Worker APIs never become target-based Valet proxies.
+      // The independently reviewed management set retains cross-tree authority.
       for (const method of LUSHW_METHODS) {
+        expect(catalog.methods.find(item => item.method === method).access).toBe('unavailable');
+      }
+      for (const method of MANAGEMENT_CODE_METHODS) {
         expect(catalog.methods.find(item => item.method === method).access).toBe(managementPolicy(method).access);
       }
       expect(catalog.methods.find(item => item.method === 'draft.add').access).toBe('automatic');

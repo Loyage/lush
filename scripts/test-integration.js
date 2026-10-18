@@ -26,6 +26,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   ]),
   rpc: Object.freeze([
     'test/core-api.test.js', // shared RPC registry and handlers
+    'test/worker-context.test.js', // active invocation -> relation CLI/RPC, nested read isolation, pagination and fixed integration membership
     'test/web/core-api.test.js', // real HTTP routes
     'test/worker-cli-trial.test.js', // user HTTP -> fixed real CLI -> daemon; confirmation, worktree admission, limits and unknown effects
     'test/web/automation-registry-api.test.js', // authenticated HTTP -> register-only, explicit mount/upgrade and auth rejection
@@ -44,6 +45,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-append.test.js', // settled Valet -> user RPC append, serial admission, failure protection and recovery
     'test/project/management-append-size.test.js', // full-size immutable Message bodies and missing-instruction fail-closed
     'test/project/management-query.test.js', // typed CLI/manager queries -> real bridge, scope separation and safe rejection
+    'test/project/management-guidance.test.js', // CLI/manager prerequisites -> real scope diagnostics, handler success and unknown-error masking
     'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
     'test/project/force-acceptance.test.js', // real CLI/RPC, user-only exact scope and unchanged acceptance safety/recovery
@@ -79,6 +81,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/cli-surfaces.test.js', // executable catalogue
     'test/cli-catalog.test.js', // parser/catalogue agreement
     'test/cli-entrypoints.test.js', // published bins/source scripts -> real CLI/RPC and unchanged authority
+    'test/worker-cli.test.js', // relation parsing and all source shortcuts retain their correct executable ownership
     'test/agent/capabilities.test.js', // shipped Skills/guides and invocation prompt agree on the fixed development CLI
     'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
     'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount

@@ -1,6 +1,6 @@
 # 审阅与过程读模型
 
-本节管读模型：`worker.inspect` / `worker.history` / `worker.diff` / `worker.transcript` / `worker.usage`，以及客户端轮询用的 `worker wait`；分页与字节预算都在这里。
+本节管读模型：`worker.inspect` / `worker.history` / `worker.diff` / `worker.transcript` / `worker.usage`，以及客户端轮询用的 `worker wait`；分页与字节预算都在这里。下表 CLI 为用户的 `lush …` 项目读面；开发 Agent 使用关系绑定的 `lushw self/parent/children …`，普通 raw RPC 也受相同目标准入约束，inspect／history 是精简投影，差异与 coverage 见[双入口契约](../api.md#开发与管理双入口)，不能把下文用户详情字段当作开发接口保证。
 
 | CLI | RPC | 参数 |
 |---|---|---|

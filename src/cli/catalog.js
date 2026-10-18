@@ -1,15 +1,18 @@
 // Code-owned public CLI catalogue. Main registration and generated help consume
 // this same hierarchy; browser clients receive only the safe projection, never handlers.
+import { DEVICE_SCOPE_GUIDANCE, MANAGEMENT_RECOVERY_GUIDANCE } from '../core/management-guidance.js';
 export const COMMAND_MODULES = Object.freeze({
   system: ['daemon', 'status', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status'],
-  intent: ['order'], worker: ['worker'], progress: ['progress'], notice: ['notice'],
+  intent: ['order'], worker: ['worker'], context: ['self','parent','children'], notice: ['notice'],
   branch: ['branch'], agent: ['agent'], config: ['config'], hooks: ['hooks'], skills: ['skills'],
 });
 const entries = [];
 const directories = {
   daemon: '项目后台的启动、停止与代码身份。', host: '设备 Web 工作台的启动、停止与身份。',
+  self: '当前 invocation 的自身 Worker。', parent: '自身的直接父 Worker。', children: '自身的直接子 Worker。',
+  'self notice': '读取及发布自身 Notice。', 'self progress': '汇报自身里程碑。',
   worker: '查看、沟通与管理持久 Worker。', branch: '查看分支、管理归并与资源。',
-  notice: '发布问题、答复决定与读取告知。', progress: '活动 Agent 汇报里程碑。',
+  notice: '发布问题、答复决定与读取告知。',
   skills: '无需项目的内置能力指南。', agent: '设备 Agent、模型来源与插件配置。',
   config: '设备调用限额与显式旧设置迁移。', hooks: '项目自动化模板、快捷指令与时间信号。',
   'worker hook': '管理单个 Worker 的自动化挂载。', 'hooks command': '仅供 Hook 执行的快捷指令目录。',
@@ -24,7 +27,7 @@ function add(path, args, description, exampleArgs, rpc = [], kind = 'read', adva
   entries.push({ path, description, directory: false, usage: `lush ${path}${args ? ` ${args}` : ''}`,
     example: `lush ${path}${exampleArgs ? ` ${exampleArgs}` : ''}`, rpc, kind, advanced });
 }
-add('help', '', '打印完整公开 CLI 帮助，不发现项目或发送 RPC。', '', [], 'local-read', '--help / -h 可放在任意位置，优先只打印帮助，不执行命令。');
+add('help', '[命令路径]', '打印完整或指定命令的 CLI 帮助，不发现项目或发送 RPC。', '', [], 'local-read', '--help / -h 可放在任意位置，优先只打印帮助，不执行命令。示例：lush help agent resources；lushw self inspect --help。');
 for (const verb of ['start','stop','restart','status']) {
   add(`daemon ${verb}`, '', { start: '启动所选项目后台；已运行时不替换代码。', stop: '停止所选项目后台。', restart: '停止后重新启动所选项目后台。', status: '读取项目后台身份与状态。' }[verb], '',
     verb === 'stop' ? ['system.stop'] : verb === 'restart' ? ['system.stop','system.status'] : ['system.status'], verb === 'status' ? 'read' : 'local-write', '后台控制仅用户可用；停止／重启前确认项目安全空闲。');
@@ -39,7 +42,6 @@ const workers = [
   ['tree','[ID|Wn]','查看 Worker 委派树；非 JSON 附带状态。','','worker.tree,system.status'],
   ['inspect','ID|Wn|Vn','查看完整 Worker 详情。','W5','worker.inspect'],
   ['spawn',"'目标' --parent ID|Wn [--name NAME]",'在活动指令或 child 下创建独立子 Worker。',"'专项实现' --parent W5",'worker.spawn','agent'],
-  ['auto-title',"'标题'",'为自身一次性生成自动展示标题；仅活动指令／child Agent。',"'接口实现'",'worker.auto_title','write'],
   ['rename',"ID|Wn '标题'",'只修改展示标题；空标题恢复自动标题。',"W5 '接口实现'",'worker.rename','write'],
   ['message',"ID|Wn '说明'",'向既有 Worker 追加输入，可能唤醒 Agent。',"W5 '补充测试'",'worker.message','agent'],
   ['watch','ID|Wn|Vn [--after N]','终端内观看执行；q/Esc/Ctrl-C 退出。','W5','worker.inspect,worker.transcript_page','local-read'],
@@ -130,8 +132,23 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['example','','输出完整问卷 JSON，无需项目或后台。','','','local-read'],
   ['check','--questions-file FILE [--body TEXT]','本地预检问卷格式与限额，不发布。','--questions-file questions.json','','local-read'],
 ]) add(`notice ${verb}`,args,description,example,rpc ? [rpc] : [],kind,'D/N 只是展示前缀，Notice 参数仍用整数。answer 使用 --answers-file 时不再提供 ANSWER；本地预检不证明权限或状态。');
-add('progress plan','KEY[:显示名]...','Agent 规划少量有序里程碑。','inspect:核对 implement:实现',['progress.plan'],'write','仅自身活动 invocation；完成前不可提前标完成。');
-add('progress complete','KEY','Agent 标记实际已完成里程碑。','inspect',['progress.complete'],'write');
+for (const relation of ['self','parent','children']) {
+  for (const verb of relation === 'parent' ? ['inspect'] : ['inspect','history','transcript']) {
+    add(`${relation} ${verb}`, `${relation === 'children' ? 'ID ' : ''}${verb === 'transcript' ? '[--after N] [--limit N]' : verb === 'history' ? '[--after N]' : ''}`.trim(),
+      `读取${{ self: '自身', parent: '直接父 Worker', children: '直接子 Worker' }[relation]}${{ inspect: '详情', history: '事件历史元数据', transcript: '执行记录' }[verb]}。`,
+      relation === 'children' ? 'W5-1' : '', [`context.${verb}`]);
+  }
+}
+for (const relation of ['parent','children']) add(`${relation} message`, `${relation === 'children' ? 'ID ' : ''}'说明'`,
+  '向直接父／子追加消息；main/owner 不是普通收件箱。', relation === 'children' ? "W5-1 '补充测试'" : "'接口确认'", ['context.message'], 'agent');
+add('children list','[--after N] [--limit N]','直接 child 分页；after 默认0，limit 默认50、最多200。','',['context.children']);
+add('children spawn',"'目标' [--name NAME]",'仅从自身活动 order/child 派工。',"'专项实现'",['context.spawn'],'agent');
+add('children accept','ID','安全验收已交付直接 child；默认保留现场供追加需求。','W5-1',['context.accept'],'destructive');
+add('self auto-title',"'标题'",'为自身一次性生成自动标题。',"'接口实现'",['context.auto_title'],'write');
+add('self notice list','[--before N] [--limit N]','分页读取自身 Notice。','',['context.notices']);
+add('self notice post',"'标题' [--body TEXT] [--kind question|info] [--questions-file FILE]",'发布自身问题或非阻塞告知。',"'方案确认'",['context.notice'],'write');
+add('self progress plan','KEY[:显示名]...','规划自身有序里程碑。','inspect:核对 implement:实现',['context.progress_plan'],'write');
+add('self progress complete','KEY','标记实际完成的自身里程碑。','inspect',['context.progress_complete'],'write');
 add('skills list','','读取代码内置能力指南目录。','',[],'local-read');
 add('skills get','ID','读取 progress / delegation / auto-title / context 指南。','progress',[],'local-read','无需项目／daemon，不读取设备开启状态。');
 for (const [verb,args,description,example,rpc,kind] of [
@@ -143,7 +160,7 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['env','ROLE','本地读取环境键及来源，值脱敏。','agent','','local-read'],
   ['init','[ROLE] [--local]','创建补充约定文件，不覆盖已有文件。','agent','','local-write'],
   ['resources','[--scope device]','读取本地模型、来源与额度缓存，不联网。','','agent.selection.resources','read'],
-]) add(`agent ${verb}`,args,description,example,rpc ? rpc.split(',') : [],kind,'仅用户；设备配置不接受 project scope。TARGET 为 default 或实际角色。Pi 默认模式不混入托管覆盖；补充 Prompt 使用 --append-prompt。init --local 创建设备私有补充。');
+]) add(`agent ${verb}`,args,description,example,rpc ? rpc.split(',') : [],kind,`终端仅用户；设备配置不接受 project scope。${DEVICE_SCOPE_GUIDANCE} TARGET 为 default 或实际角色。Pi 默认模式不混入托管覆盖；补充 Prompt 使用 --append-prompt。init --local 创建设备私有补充。`);
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取托管来源安全列表。','','agent.connections.list','read'],
   ['show','ID','从安全列表查看指定来源。','CONNECTION_ID','agent.connections.list','read'],
@@ -153,7 +170,7 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['save','--file PATH','从私有 JSON 保存连接与凭证，不经 argv 回显。','--file connection.json','agent.connections.save','write'],
   ['remove','ID','删除托管来源，不改历史调用。','CONNECTION_ID','agent.connections.remove','destructive'],
   ['login','ID [--callback | --poll LOGIN_ID | --cancel LOGIN_ID | --finish LOGIN_ID --url-file PATH]','显式设备或回调登录；认证材料仅用户。','CONNECTION_ID','agent.connections.device.start,agent.connections.device.poll,agent.connections.device.cancel,agent.connections.login.start,agent.connections.login.finish','write'],
-]) add(`agent sources ${verb}`,args,description,example,rpc.split(','),kind,'可选 --scope device；scope 默认设备。登录分支一对多，不自动完成交互、不授权 Valet 认证。模型目录刷新失败不冒充缓存成功。');
+]) add(`agent sources ${verb}`,args,description,example,rpc.split(','),kind,`可选 --scope device。${DEVICE_SCOPE_GUIDANCE} 登录分支一对多，不自动完成交互、不授权 Valet 认证。模型目录刷新失败不冒充缓存成功。`);
 for (const verb of ['show','set','reset']) add(`agent network ${verb}`, verb === 'set' ? '--file PATH [--scope device]' : '[--scope device]',
   { show: '读取设备出站代理设置，认证不回显。', set: '从 JSON 保存出站网络代理。', reset: '恢复继承后台启动环境。' }[verb], verb === 'set' ? '--file network.json' : '',
   [verb === 'show' ? 'agent.network' : 'agent.network.configure'], verb === 'show' ? 'read' : 'write', '后续后台请求与 Agent 生效，不热改旧调用。密码不能放命令参数。');
@@ -192,19 +209,13 @@ export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
     rpc: Object.freeze([...new Set([...(entry.rpc ?? []), ...(numbered && !entry.directory ? ['worker.lookup'] : [])])]),
   });
 }));
-// Public entry-point classification; the management policy consumes the same
-// catalogue-derived RPC set as CLI dispatch/help and browser discovery.
-export const LUSHW_PATHS = new Set([
-  'help', 'status',
-  'worker list', 'worker tree', 'worker inspect', 'worker spawn', 'worker auto-title',
-  'worker message', 'worker transcript', 'worker history', 'worker accept', 'worker accept-preview',
-  'branch tree', 'branch show', 'notice list', 'notice post', 'notice example', 'notice check',
-  'progress plan', 'progress complete', 'skills list', 'skills get',
-]);
-export const SHARED_CLI_PATHS = new Set([
-  'help', 'status', 'worker list', 'worker tree', 'worker inspect', 'worker transcript',
-  'worker history', 'branch tree', 'branch show', 'notice list',
-]);
+// Public entry-point ownership is shared by dispatch/help/browser discovery.
+// Valet's reviewed project capabilities are independent of invocation-bound APIs.
+export const LUSHW_PATHS = new Set(CLI_COMMANDS.filter(entry => !entry.directory &&
+  (/^(self|parent|children) /.test(entry.path) || ['help','notice example','notice check','skills list','skills get'].includes(entry.path)))
+  .map(entry => entry.path));
+// Only local help is shared. Project management leaves have one executable owner.
+export const SHARED_CLI_PATHS = new Set(['help']);
 export const LUSHW_METHODS = new Set(CLI_COMMANDS.filter(entry => LUSHW_PATHS.has(entry.path))
   .flatMap(entry => entry.rpc));
 
@@ -232,8 +243,14 @@ export function cliCommands(executable = 'lush') {
   });
 }
 
-export function cliHelp(executable = 'lush') {
+export function cliHelp(executable = 'lush', topic = '') {
   const development = executable === 'lushw';
-  const commands = cliCommands(executable);
-  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}`).join('\n')}\n\n${development ? 'lushw 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地问卷示例：bun run lushw notice example > questions.json' : 'config show|set|reset 管理设备限额；不向 Agent token 开放管理入口。\n开发协作命令使用 lushw，不保留旧 lush 别名。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n`;
+  const available = cliCommands(executable);
+  const commands = topic ? available.filter(entry => entry.path === topic || entry.path.startsWith(`${topic} `)) : available;
+  if (!commands.length) {
+    const entry = CLI_COMMANDS.find(item => item.path === topic);
+    const hint = entry ? `${commandExecutables(entry)[0]} help ${topic}` : `${executable} help`;
+    throw new Error(`unknown help topic for ${executable}; run ${hint}`);
+  }
+  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}`).join('\n')}\n\n${development ? 'lushw 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地问卷示例：bun run lushw notice example > questions.json' : 'config show|set|reset 管理设备限额；不向 Agent token 开放管理入口。\n项目级 worker/branch 操作使用 lush；invocation 自身与直接父子协作使用 lushw self/parent/children。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n${MANAGEMENT_RECOVERY_GUIDANCE}\n`;
 }

@@ -25,11 +25,6 @@ export async function run(command, args, ctx) {
           note: `短摘要；完整目标与结果用 ${ctx.executable ?? 'lushw'} worker inspect ID。` };
       }
     }
-    else if (verb === 'auto-title') {
-      check(Boolean(client.token), 'automatic titles require an Agent invocation');
-      exact(args, 1);
-      value = await client.request('worker.auto_title', { title: args[0] });
-    }
     else if (verb === 'rename') {
       check(!client.token, 'Worker titles are user only, not an agent operation');
       exact(args, 2);
@@ -70,7 +65,7 @@ export async function run(command, args, ctx) {
       value = await client.request('worker.tree', request);
     }
     else if (verb === 'spawn') {
-      const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
+      const parent = option(args, '--parent');
       const name = option(args, '--name');
       exact(args, 1);
       value = await client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}) });

@@ -153,10 +153,10 @@ integration_workers.items 为 `{id,worker_number,status,title,missing,identity_m
 
 Runtime 内部创建的 `task_kind='integration'` 使用 invocation 临时 token；Dispatcher 从成功认证的 Store Worker 事实识别类型，不能靠 Prompt、角色名称或调用参数取得开发 Agent 权限。`src/rpc/registry.js` 的 `INTEGRATION_METHODS` 是默认拒绝的窄白名单：
 
-- 自身提问／汇报：`notice.post`、`progress.plan`、`progress.complete`。Notice 只能写 token 所属 Worker；进度不接受目标 Worker ID。
-- 只读：`system.status/summary`、`worker.lookup/inspect/diff/history/history_page/transcript`、`branch.tree/show`、`graph.get`、`notice.list/page`。
+- 自身提问／汇报：`context.notice`、`context.progress_plan/complete`（兼容底层 `notice.post`、`progress.plan/complete`）。Notice 只能写 token 所属 Worker；进度不接受目标 Worker ID。
+- 只读：自身／直接父的 `context.inspect/history/transcript`、自身 `context.notices`，以及受目标准入检查的 `worker.lookup/inspect/diff/history/history_page/transcript`。除自身和直接父外，额外目标必须命中服务端重新核验的持久固定整合成员，不能按任意 ID、目标子树或角色名放行；context 的 child 关系仍只认真实直接 child。项目状态、全项目 Worker／branch／graph／Notice 枚举均不可用。
 
-其它方法一律拒绝，包括 `worker.spawn/integrate/resolve_child_divergence/message/auto_title/accept`、所有策略／合并／验收 mutation、管理工具，以及全部 `branch.convergence*`、`branch.integrate_*` 和 `branch.integration`。新增公开 RPC 不自动扩展整合权限；现有 USER_ONLY / AGENT_ONLY 校验仍先执行，普通开发 Agent 和管理 Agent 权限不变。过期、停驻、中断或已结束 invocation 的 token 不能使用这些允许的方法。
+其它方法一律拒绝，包括 `worker.spawn/integrate/resolve_child_divergence/message/auto_title/accept`、所有策略／合并／验收 mutation、管理工具，以及全部 `branch.convergence*`、`branch.integrate_*` 和 `branch.integration`。新增公开 RPC 不自动扩展整合权限；现有 USER_ONLY / AGENT_ONLY 校验仍先执行，普通开发查询边界见[双入口契约](../api.md#开发与管理双入口)，管理代理仍独立审核。过期、停驻、中断或已结束 invocation 的 token 不能使用这些允许的方法。
 
 此 RPC 门不是 OS 沙箱，不防止同系统用户的任意本机命令；工作区、固定输入、执行 Prompt 与生命周期隔离由 Runtime 提供。
 

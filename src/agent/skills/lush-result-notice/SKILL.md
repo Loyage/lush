@@ -13,4 +13,4 @@ description: 任务仅分析，或用户明确要求做好后告知时加载；�
 lushw skills get result-notice
 ```
 
-实际完成后调用 `lushw notice post --kind info`，不要把告知发成待决问题；不能只依赖最终回答或 runtime 自动提醒。不扩大权限，不改变交付、合并或验收状态。
+实际完成后调用 `lushw self notice post --kind info`，不要把告知发成待决问题；不能只依赖最终回答或 runtime 自动提醒。不扩大权限，不改变交付、合并或验收状态。

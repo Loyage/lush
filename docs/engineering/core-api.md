@@ -8,7 +8,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 这是**破坏性的公开接口命名变更**，旧入口不保留别名：
 
-- CLI 开发协作使用 `lushw worker …`，管理使用 `lush worker …`，共享查询可双入口；Notice 发布使用 `lushw notice post … --worker ID`；开发专属旧 lush 调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
+- CLI 项目管理使用 `lush worker …`；开发协作改用 invocation 绑定的 `lushw self/parent/children …`，自身 Notice 发布使用 `lushw self notice post …`，只有本地 help 双入口。旧项目式开发调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
 - RPC 使用 `worker.*`，旧公开 `task.*` 方法一律拒绝；`notice.post` 的参数仍叫 `task`，`system.configure` 的设置键仍为 `task_call_limit`。
 - HTTP 使用 `/api/worker/<id>` 及其读取后缀、`/api/workers`、`/api/worker-graph`；旧 `/api/task/<id>`、`/api/tasks`、`/api/task-graph` 返回 404。Web 写动作同样使用 `worker.*`。
 - 浏览器使用 `#worker-ID`、`#workers`、`#worker-graph`；Worker 详情的执行与代码入口显式在新标签页打开，使用 `#worker-ID-execution`／`#worker-ID-execution-code` 独立 hash；旧 Task hash 不作为兼容入口。全局模式的项目路由前缀 `/p/<project-id>/` 不变。
@@ -39,7 +39,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ### Agent 自动标题（W202／决定 D471）
 
-指令及 child 的当前 Agent 理解目标后调用 Agent-only `worker.auto_title {title}` / CLI `worker auto-title '标题'`，仅从有效 invocation token 确定自身，无目标 ID 参数。非空单行最多 60 字符、去除首尾空白；首次成功写入 nullable `tasks.auto_title`，后续调用返回已有值而不覆盖（`{id,auto_title,changed}`），不能清空。不增加模型请求、调度或 Git 操作，`updated_at` 不变，`task.auto_titled` Event 仅首次写入时记录。项目写门与 running／非 parked／非 aborted invocation 校验保留；开发调用仅 order/child，analysis 与用户无写能力。Valet 可经已授权的管理代理为自身生成标题，不借此取得开发分支；详见[Valet 契约](hook-signals-management.md)。
+指令及 child 的当前 Agent 理解目标后调用 Agent-only `context.auto_title {title}` / CLI `lushw self auto-title '标题'`（底层自身标题写入继续使用 `worker.auto_title` 能力），仅从有效 invocation token 确定自身，无目标 ID 参数。非空单行最多 60 字符、去除首尾空白；首次成功写入 nullable `tasks.auto_title`，后续调用返回已有值而不覆盖（`{id,auto_title,changed}`），不能清空。不增加模型请求、调度或 Git 操作，`updated_at` 不变，`task.auto_titled` Event 仅首次写入时记录。项目写门与 running／非 parked／非 aborted invocation 校验保留；开发调用仅 order/child，analysis 与用户无写能力。Valet 可经已授权的管理代理为自身生成标题，不借此取得开发分支；详见[Valet 契约](hook-signals-management.md)。
 
 显示优先级为用户 `display_title` → Agent `auto_title` → 原目标首行。清空用户标题恢复该自动标题；手动重命名不被 Agent 覆盖。inspect/list/page/子节点/graph/后台摘要及输入父候选携带 auto_title，CLI/Web 显示和 Worker 检索支持它。原始 Input、goal、name、编号、Git/会话身份与历史报告/引用快照不回写。旧行新增字段为 NULL，不批量生成；标题在有实际 Agent invocation 时产生，暂停未开始、命名失败或自定义替代 Prompt 未调用时仍以原目标兜底。Web 不开放自动标题 mutation，用户 `worker.rename` 权限不变。
 
@@ -71,7 +71,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 - `worker.graph {details?:boolean,hidden_statuses?:string[],include_archived?:boolean,cursor?:string,scope?:"all"|"tree"}`：缺省 scope=all 仍读取完整字段并包含归档、兼容历史节点；Web 显式 scope=tree 只分页可绘制种类。所有请求按真实 JSON 字节与每批 200 节点双重分页；状态/归档筛选不加载隐藏节点正文，`details:false` 不读取 Git/会话。响应提供完整筛选计数、匹配总数、续读游标与页外布局祖先；巨型节点明示降级并推进游标，结构变化拒绝旧游标要求刷新，详见 [Worker RPC](../reference/rpc/tasks.md)与[字节分页边界](task-graph.md#字节分页与服务端筛选)。不新增写入口或权限，不迁移 Git/Store 历史。
 - `worker.delivery_graph {history?:boolean,cursor?:string,limit?:number}`：用户专属只读历史合并诊断兼容面，不再有独立当前交付导航；GET `/api/worker-delivery-graph`，来源 `delivery_summary` 与 inspect/graph 同源，不改变真实 parent_id、不增加模型工具。参数、完整计数与有界分页唯一契约见[归并接口](../reference/rpc/convergence.md#项目交付视图d642)。
 - `worker.relations {id,after?,limit?}`：用户专属只读直接父与直接子分页，Web `GET /api/worker/ID/relations`，不读 Git／会话、不改变状态；[局部关系字段](../reference/rpc/tasks.md#局部-worker-关系)。
-- `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.progress_history` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1` / Valet 的 `V1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。
+- `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.progress_history` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；用户支持 CLI 与 Web。普通开发查询受[上下文边界](../reference/api.md#开发与管理双入口)限制：禁止项目枚举，相关 inspect／history 是精简投影，不沿用用户全量读面。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1` / Valet 的 `V1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。
 - 历史 v1 的 `worker.integrate`／`worker.resolve_child_divergence` 仅后端保留固定子提交的受检路径（对应 CLI 已删除）；当前 v2 由父 runtime 队列交付，拒绝绕过，见[合并协议](merge.md)。
 - `worker.auto_merge {id,enabled}`：用户专属的持久自动合并开关，Web 位于 Worker 详情的「本轮交付就绪」Hooks 节点；新指令默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Worker RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。
 - `worker.reserve {kind:'merge'}` / `worker.reserve_all {branch}` / `worker.unreserve` / `worker.resolve_divergence` / `worker.approve_merge`：前三项 CLI 分别为 `worker merge ID` / `worker merge-all BRANCH` / `worker merge-cancel ID`，后两项仅保留旧后端收尾、不再提供 CLI。冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Worker 逐条按同一套准入放入 v2 merge 队列，当前 version 2 请求由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改父子关系、不额外调用父 Agent；旧 version 1 仍需固定提交批准，旧 version 2 merge 身份／在途重挂只作历史兼容。

@@ -10,7 +10,7 @@ import { tokenHash } from '../../src/core/project/internal.js';
 import { managementPolicy } from '../../src/rpc/management-policy.js';
 import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';
 
-const bin = path.resolve(import.meta.dir, '../../bin/lushw');
+const bin = path.resolve(import.meta.dir, '../../bin/lush');
 const preview = (f, id) => f.project.acceptTask(id, null, { forcePreview: true });
 const force = (f, id, revision) => f.project.acceptTask(id, null, { force: true, revision, confirm: true });
 
@@ -60,7 +60,7 @@ test('new methods are registered user-only and unavailable to Agent, Valet and c
     const actor = f.store.create({ task_kind: 'order', role: 'agent', goal: 'permission probe' });
     const token = 'force-acceptance-probe';
     f.store.update(actor.id, { status: 'running' }); f.store.armAgent(actor.id, tokenHash(token));
-    f.project.running.set(actor.id, { controller: new AbortController() });
+    f.project.running.set(actor.id, { token, controller: new AbortController() });
     const dispatcher = new Dispatcher(f.project, createSignal(), {});
     for (const method of ['worker.accept_preview', 'worker.accept_force']) {
       expect(PARAMS[method]).toBeDefined(); expect(USER_ONLY.has(method)).toBe(true);

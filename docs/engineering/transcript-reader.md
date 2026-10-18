@@ -148,11 +148,11 @@ W182／用户决定 #440：`render-conversation.js` 将原始目标、明确来�
 
 在真实终端里使用原生只读 `lush worker watch ID [--after N]`；Web「Agent」块提供复制入口，已知来源时固定并 Shell 引用 `--project`。原生观看器使用 Pi 公开渲染组件及 `worker.transcript_page` 连续分段读面；只读取已完成记录，不新增 RPC、AgentSession、Pi 子进程、模型调用或执行入口，不写会话、不加载用户扩展，具体边界与上限见[原生观看器](../native-viewer.md)。
 
-纯文本持续跟随的 CLI、Web 入口与循环实现已删除，不保留兼容别名。`lush worker transcript ID [--after N]` 仍是单次查询，供用户／Agent 使用且支持 JSON；不会轮询。原生观看仅用户可运行，agent token 会被拒绝，`--json` 不适用且须真实 TTY。`worker.transcript_latest` 继续服务 Web 阅读器，不因删除 CLI 跟随而移除后端读面。
+纯文本持续跟随的 CLI、Web 入口与循环实现已删除，不保留兼容别名。`lush worker transcript ID [--after N]` 仍是用户单次查询；开发 Agent 使用 `lushw self transcript` 或 `lushw children transcript ID` 的关系入口，支持 JSON，不会轮询。原生观看仅用户可运行，agent token 会被拒绝，`--json` 不适用且须真实 TTY。`worker.transcript_latest` 继续服务 Web 阅读器，不因删除 CLI 跟随而移除后端读面。
 
 ## 专用解释 Agent（历史实现）
 
-`explanation.*` / `intro.*` 已从 `src/rpc/registry.js` 移除，不再有公开 RPC / CLI / Web 入口；下面的实现与测试仍存在于源码中，只为读懂历史记录与后续清理，不能当作当前可操作的能力。当前可用的执行记录接口只有 `worker.transcript*`。
+`explanation.*` / `intro.*` 已从 `src/rpc/registry.js` 移除，不再有公开 RPC / CLI / Web 入口；下面的实现与测试仍存在于源码中，只为读懂历史记录与后续清理，不能当作当前可操作的能力。当前执行记录由 `worker.transcript*` 及受限关系接口 `context.transcript` 提供，具体权限见[双入口契约](../reference/api.md#开发与管理双入口)。
 
 选中执行记录中的 1–8,192 字文字，右键“介绍：目的、原理与结果含义”，直接创建 `explainer` 根 Worker；不创建 Input、开发分支或 worktree，也不附着在可能已终态的源 Worker 下。
 

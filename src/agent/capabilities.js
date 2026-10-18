@@ -21,7 +21,7 @@ export const AGENT_CAPABILITIES = Object.freeze([
     trigger: '给定上下文不足、确需补充 Worker 历史或执行记录时加载；不要默认扫描项目历史。' },
   { id: 'result-notice', setting: 'result_notice', title: '结果告知',
     description: '任务仅分析，或用户明确要求完成后告知时加载；结果就绪后主动发布非阻塞告知。',
-    trigger: '自己的任务只是分析，或用户明确要求“做好了告诉我”等完成提醒时，必须加载；实际完成后、结束本轮前调用 lushw notice post --kind info 告知结果，不能只写最终回答。' },
+    trigger: '自己的任务只是分析，或用户明确要求“做好了告诉我”等完成提醒时，必须加载；实际完成后、结束本轮前调用 lushw self notice post --kind info 告知结果，不能只写最终回答。' },
 ].map(entry => Object.freeze({ ...entry, name: `lush-${entry.id}`,
   skill: fileURLToPath(new URL(`./skills/lush-${entry.id}/SKILL.md`, import.meta.url)),
   guide: fileURLToPath(new URL(`./skills/lush-${entry.id}/guide.md`, import.meta.url)) })));

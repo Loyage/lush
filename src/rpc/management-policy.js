@@ -1,15 +1,13 @@
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
+import { managementScopeError, managementScopeAuthorization, MANAGEMENT_RECOVERY_GUIDANCE, DEVICE_SCOPE_GUIDANCE } from '../core/management-guidance.js';
 import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
 import { MERGE_CONDITION_CAPABILITIES, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-query.js';
-import { CLI_COMMANDS, LUSHW_PATHS, LUSHW_METHODS } from '../cli/catalog.js';
+import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
+import { MANAGEMENT_CODE_METHODS, MANAGEMENT_CODE_READS } from './management-code-methods.js';
 
-export { LUSHW_METHODS };
 export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install']);
-// Classify the actual development catalogue, rather than copying its RPC names.
-const codeEntries = CLI_COMMANDS.filter(entry => LUSHW_PATHS.has(entry.path));
-const codeReads = new Set(codeEntries.filter(entry => entry.kind === 'read').flatMap(entry => entry.rpc));
 
 const reads = new Set([
   'manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
@@ -66,8 +64,9 @@ export function managementPolicy(method) {
   if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
   if (method === 'hooks.install') return legacyManagementPolicy(method);
   if (method === 'hooks.register') return { access: 'automatic', reason: '只注册不挂载；完成后独立请求具体目标及固定版本，用户可逐项收紧权限。' };
-  if (LUSHW_METHODS.has(method)) {
-    if (codeReads.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
+  if (method.startsWith('context.')) return { access: 'unavailable', reason: 'Worker context is bound to its own active development invocation; use reviewed project management methods.' };
+  if (MANAGEMENT_CODE_METHODS.has(method)) {
+    if (MANAGEMENT_CODE_READS.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
       ? '管家只读安全元数据与续读游标，不返回原始提示词、工具参数、输出或事件正文。' : null };
     return { access: 'automatic', reason: '仅当前项目的受控代理；自身元数据／决策不冒充开发身份，跨树协作仍通过原安全引擎。' };
   }
@@ -151,13 +150,22 @@ export function managementPermissionMethods(snapshot = null) {
       base_access: base.access, ...effective, allowed_access: [...managementAllowedAccess(base.access, method)] };
   });
 }
+// Scope authorization is separate from method access and ordinary CLI defaults.
+export function managementAuthorization(method) {
+  return (PARAMS[method]?.includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method))
+    && !WORKER_QUERY_CAPABILITIES[method]?.schema.properties.scope
+    && !['agent.status', 'branch.convergence_defaults_set'].includes(method)
+    ? managementScopeAuthorization() : null;
+}
 export function managementCatalog(snapshot = null, legacy = false) {
   const effectiveSnapshot = legacy ? { permissions: Object.fromEntries(Object.keys(PARAMS)
     .map(method => [method, legacyManagementPolicy(method).access])) } : snapshot;
   return { scope: 'current_project', groups: MANAGEMENT_GROUPS.map(group => ({ ...group })),
     methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
       parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])],
-      ...(MERGE_CONDITION_CAPABILITIES[item.method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}) })),
+      ...(managementAuthorization(item.method) ? { authorization: managementAuthorization(item.method) } : {}),
+      ...(MERGE_CONDITION_CAPABILITIES[item.method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}), ...(CONTEXT_CAPABILITIES[item.method] ?? {}) })),
+    help: `${MANAGEMENT_RECOVERY_GUIDANCE}\n${DEVICE_SCOPE_GUIDANCE}`,
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
 }
@@ -188,10 +196,10 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   const queryScope = WORKER_QUERY_CAPABILITIES[method]?.schema.properties.scope;
   const projectMountScope = method === 'branch.convergence_defaults_set';
   if (!queryScope && !projectMountScope && Object.hasOwn(params, 'scope')) {
-    check(params.scope === 'device', 'management settings must explicitly select device scope');
-    check(/设备|全局|device/i.test(instruction), 'device scope must be explicitly requested in the user instruction');
-  } else if (!queryScope && !projectMountScope && (PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
-    check(false, 'device settings require explicit scope in both user instruction and parameters');
+    if (params.scope !== 'device') throw managementScopeError('invalid_scope');
+    if (!/设备|全局|device/i.test(instruction)) throw managementScopeError('user_authorization_required');
+  } else if (managementAuthorization(method)) {
+    throw managementScopeError('scope_required');
   }
   // Validate registration before asking for authorization; mounting is a separate exact request.
   if (method === 'hooks.register') validateHookRegistration(params);

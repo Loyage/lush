@@ -125,13 +125,13 @@ try {
   for (const mode of ['append', 'create', 'management']) {
     if (mode === 'management') {
       await execute(`document.querySelector('#input').blur();`);
-      await click('#composer-switch'); await click('#composer-menu-management');
+      await click('#composer-launcher'); await click('#composer-launcher'); await click('#composer-menu-management');
       assert(await waitFor('document.querySelector("#input-form").dataset.mode==="management"'), 'management mode missing');
     }
     if (mode === 'create') {
       // Settle the existing focus-height collapse before WebDriver computes a click coordinate.
       await execute(`document.querySelector('#input').blur();`);
-      await click('#composer-switch'); await click('#composer-menu-order');
+      await click('#composer-launcher'); await click('#composer-launcher'); await click('#composer-menu-order');
       assert(await waitFor('document.querySelector("#input-form").dataset.mode==="create"'), 'reset button did not restore creation');
     }
     for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [760, 700], [390, 844], [320, 700]]) {
@@ -174,7 +174,7 @@ try {
   assert(await execute(`return !window.calls.some(c=>c.method==='order.submit');`), 'mode reset unexpectedly created Worker');
   await execute(`window.composer.appendToWorker(window.ui.composerTask);const box=document.querySelector('#input');box.value='仍然只给原目标';box.dispatchEvent(new Event('input'));location.hash='#workers';`);
   assert(await waitFor('document.querySelector("#input-form").hidden && window.ui.composerAppendTarget?.id===1'), 'navigation changed the pinned append destination or left the form open');
-  await execute(`document.querySelector('#composer-launcher').click();`);
+  await click('#composer-launcher'); await click('#composer-menu-append');
   assert(await execute(`return window.ui.composerAppendTarget?.id===1&&document.querySelector('#input').value==='仍然只给原目标'&&!document.querySelector('#input-form').hidden;`), 'launcher changed destination or lost the retained body');
   await execute(`window.ui.composerTask={id:999,worker_number:'W999',goal:'不同页面目标'};window.composer.syncComposer();`);
   assert(await execute(`return document.querySelector('#composer-mode-target').textContent.includes('W179')&&!document.querySelector('#composer-mode-target').textContent.includes('W999');`), 'unrelated detail replaced pinned target metadata');

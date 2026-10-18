@@ -137,7 +137,7 @@
 </div>
 </main>
 <div class="composer" id="composer-shell" data-open="false">
-  <button type="button" id="composer-launcher" class="composer-launcher" aria-label="选择输入方式" aria-expanded="false" aria-controls="input-form composer-menu" data-help="选择输入方式；有未完成编辑时一次恢复，不提交或调用 Agent。">＋</button>
+  <button type="button" id="composer-launcher" class="composer-launcher" aria-label="选择输入方式" aria-expanded="false" aria-controls="input-form composer-menu" data-help="选择输入类别和目标，恢复当前浏览器自动保存的编辑，不提交或调用 Agent。">＋</button>
   <div id="composer-menu" class="composer-menu" role="group" aria-label="输入方式" hidden>
     <button type="button" id="composer-menu-append" hidden>追加当前 Worker</button>
     <button type="button" id="composer-menu-order">新建工作 · 默认 main</button>
@@ -145,8 +145,6 @@
   </div>
   <form id="input-form" data-mode="create" data-expanded="false" hidden>
   <div class="composer-toolbar">
-    <button type="button" id="composer-switch" class="ghost" aria-controls="composer-menu" data-help="切换输入方式；不同模式与目标独立保留本页编辑，不携带文字改投。">切换方式</button>
-    <button type="button" id="composer-large" class="ghost" aria-expanded="false" data-help="扩大或缩小长文编辑空间；保持阅读区可滚动，不提交或丢弃编辑。">扩大编辑</button>
     <span id="composer-project" class="hint"></span>
   </div>
   <div id="composer-mode" class="composer-mode" role="status" aria-live="polite" aria-atomic="true">

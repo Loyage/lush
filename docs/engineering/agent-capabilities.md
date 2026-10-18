@@ -23,7 +23,7 @@
 - `lushw skills list` 列出随当前 CLI 发布的内置指南；`lushw skills get ID` 输出该模块指南。支持 `--json`、严格参数和未知 ID 拒绝，不接受文件路径，不读取设备私密配置或返回实际启用状态，不联网／安装／写盘／执行模型，无项目及 daemon 离线可用。
 - `agentPrompt` 注入适用模块的短入口与明确关闭状态，而非整篇指南。避免在 agent、common_cli 等剩余段落继续重复要求关闭模块的主动操作；安全、生命周期、最低验证责任与结构化决策保留。替代／追加 Prompt 与旧会话不自动重写，明确关闭不是权限隔离。
 - Pi 显式加载本 invocation 已启用的内置 Skill 路径，包含 Lush 与 Pi 默认模式，不动用户 Pi 配置。内置模块与显式第三方 resources 区分；manager、explainer、butler 不加载开发插件。Codex 使用相同入口及 CLI 指南，不声称支持 Pi 扩展。
-- `result-notice` 按实际任务目标识别纯分析（含普通 order/child 与只读 analysis），或用户明确要求完成提醒；结果实际就绪后主动调用 `notice.post` 的 info 模式。普通进度、等待与中途安全停止不触发；不以问卷代替告知，不把告知当合并或验收，失败／未知不得伪报送达。完整流程由固定指南维护，发布参数见 [Notice 契约](../reference/rpc/notices.md)。
+- `result-notice` 按实际任务目标识别纯分析（含普通 order/child 与只读 analysis），或用户明确要求完成提醒；结果实际就绪后主动调用 `lushw self notice post`（`context.notice`）的 info 模式。普通进度、等待与中途安全停止不触发；不以问卷代替告知，不把告知当合并或验收，失败／未知不得伪报送达。完整流程由固定指南维护，发布参数见 [Notice 契约](../reference/rpc/notices.md)。
 - 同一 invocation 的入口和资源参数来自同一设置快照，避免两次读取跨设置更新造成不一致。`agentPrompt` 返回 `capabilities` 安全状态及 `builtin_skills` 路径快照，provider 不再重读开关。`builtInPrompt(role,{progressReporting?,capabilities?,taskKind?})` 为配置预览使用同一注册表。原 `PROMPT_PARTS` 为兼容保留导出，实际注入不使用长进度／标题片段。
 
 ## 全局设置界面

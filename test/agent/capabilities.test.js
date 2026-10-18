@@ -2,7 +2,46 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import { AGENT_CAPABILITIES, listCapabilityGuides, capabilityGuide } from '../../src/agent/capabilities.js';
 import { agentPrompt } from '../../src/agent/prompts.js';
+import { cliCommands } from '../../src/cli/catalog.js';
 import { temp } from '../helpers.js';
+
+const retiredWorkerCLI = /\blushw (?:worker|branch|status|progress)\b|\blushw notice (?:list|post)\b/;
+
+test('context-oriented prompts and all Skill command examples match the owned CLI catalogue', () => {
+  const root = temp();
+  try {
+    const config = { project: root, home: root, runtimeSettings: { get: () => ({}) } };
+    for (const kind of ['order', 'child', 'analysis', 'integration']) {
+      const prompt = agentPrompt(config, 'agent', {}, kind).text;
+      expect(prompt).not.toMatch(retiredWorkerCLI);
+      if (kind !== 'analysis') expect(prompt).toContain('lushw self notice post');
+    }
+    const prompt = agentPrompt(config, 'agent', {}, 'order').text;
+    for (const phrase of ['有效 invocation token', 'lushw parent inspect', 'lushw children inspect ID',
+      'coverage=worker_context', '不含嵌套关系', '用户用 lush worker accept ID', 'Agent 用 lushw children accept ID']) {
+      expect(prompt).toContain(phrase);
+    }
+    const leaves = cliCommands('lushw').filter(entry => !entry.directory).map(entry => entry.path);
+    let checked = 0;
+    for (const entry of AGENT_CAPABILITIES) {
+      const text = fs.readFileSync(entry.skill, 'utf8') + '\n' + capabilityGuide(entry.id).content;
+      expect(text).not.toMatch(retiredWorkerCLI);
+      for (const match of text.matchAll(/\blushw ((?:[a-z][a-z-]*)(?: [a-z][a-z-]*)*)/g)) {
+        expect(leaves.some(leaf => match[1] === leaf || match[1].startsWith(`${leaf} `))).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(20);
+    const context = capabilityGuide('context').content;
+    for (const phrase of ['event_metadata_only', 'worker_context', 'omitted', 'next', 'has_more', '不含事件正文', '直接子 Worker']) {
+      expect(context).toContain(phrase);
+    }
+    const manager = agentPrompt(config, 'manager').text;
+    expect(manager).toContain('MANAGEMENT_CODE_METHODS');
+    expect(manager).toContain('不代理 context.*');
+    expect(manager).not.toContain('默认开放全部 lushw RPC');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('built-in capabilities share their registry, guides and invocation policy', () => {
   const root = temp();

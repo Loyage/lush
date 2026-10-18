@@ -8,7 +8,7 @@ const requests = [];
 const dom = installDom({ fetch: (url, options) => { if (options?.body) requests.push(JSON.parse(options.body)); return httpFetch(fixture.url + url, options); } });
 const { resetUiState } = await import('../../src/ui/web/assets/state.js');
 const { initComposer, buffer } = await import('../../src/ui/web/assets/composer.js');
-const { selectComposerMode, resumeComposerDraft, currentEdit } = await import('../../src/ui/web/assets/composer-workspace.js');
+const { selectComposerMode, resumeComposerDraft, currentEdit, collapseComposer } = await import('../../src/ui/web/assets/composer-workspace.js');
 const { action } = await import('../../src/ui/web/assets/api.js');
 const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
@@ -46,8 +46,14 @@ for (const mode of ['order', 'append']) test(`real floating composer resumes, up
     selectComposerMode(mode, worker); await resumeComposerDraft();
     expect(currentEdit().saved).toMatchObject({ id: draft.id, revision: 1, references: refs });
     const input = dom.node('input'); input.value = '原位续写后的正文'; input.oninput(); requests.length = 0;
-    await buffer(); expect(currentEdit().saved.revision).toBe(2); expect(input.value).toBe('原位续写后的正文');
+    collapseComposer(); expect(requests).toHaveLength(0); // Automatic save is browser-only, not an RPC or authorization.
+    resetUiState(); input.value = ''; dom.node('input-parent').value = ''; await initComposer(); selectComposerMode(mode, worker);
+    expect(input.value).toBe('原位续写后的正文'); expect(currentEdit().saved.id).toBe(draft.id);
+    await buffer(); expect(input.value).toBe(''); expect(currentEdit().saved).toBeNull();
     expect(fixture.store.draft(draft.id).content).toBe('原位续写后的正文');
+    collapseComposer(); resetUiState(); input.value = ''; dom.node('input-parent').value = ''; await initComposer(); selectComposerMode(mode, worker);
+    expect(input.value).toBe(''); // A manually stashed item must never automatically reload.
+    await resumeComposerDraft(); expect(currentEdit().saved.revision).toBe(2);
     await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     const authorization = requests.find(request => request.method === 'input.emit');
     expect(authorization.params).toMatchObject({ draft_id: draft.id, expected_revision: 2 });

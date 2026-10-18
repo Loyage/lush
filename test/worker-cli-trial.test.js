@@ -37,10 +37,10 @@ test('Worker CLI registers user-only methods with unavailable Valet policy and s
   }
   expect(parseWorkerCLI('lush worker rename W1 "literal ; $(no) | text"')).toMatchObject({ path: 'worker rename', kind: 'write',
     requires_confirmation: true, argv: ['worker','rename','W1','literal ; $(no) | text'] });
-  expect(parseWorkerCLI('lushw --json worker list')).toMatchObject({ path: 'worker list', requires_confirmation: false });
+  expect(parseWorkerCLI('lush --json worker list')).toMatchObject({ path: 'worker list', requires_confirmation: false });
   expect(parseWorkerCLI('lush daemon stop --help')).toMatchObject({ path: 'help', kind: 'local-read', requires_confirmation: false });
-  expect(parseWorkerCLI('lushw worker message W1 "same text"')).toMatchObject({
-    command: 'lushw worker message W1 "same text"', path: 'worker message', kind: 'agent', requires_confirmation: true });
+  expect(parseWorkerCLI('lush worker message W1 "same text"')).toMatchObject({
+    command: 'lush worker message W1 "same text"', path: 'worker message', kind: 'agent', requires_confirmation: true });
   for (const command of ['sh -c true', '/bin/lush status', 'LUSH_AGENT_TOKEN=x lush status', 'lush status; echo no',
     'lush status | cat', 'lush status $(id)', 'lush --project /tmp status', 'lush status --project=/tmp',
     'lushw worker rename W1 no', 'lush worker wait W1', 'lush worker watch W1', 'lush daemon restart',
@@ -59,7 +59,7 @@ test('real HTTP → user RPC → fixed lush/lushw CLI → daemon → bounded res
     fs.writeFileSync(path.join(f.task.workspace, '.env'), 'LUSH_AGENT_TOKEN=stolen\nLUSH_HOME=/wrong\n');
     fs.writeFileSync(path.join(f.task.workspace, 'bunfig.toml'), 'preload = ["./evil.js"]\n');
     fs.writeFileSync(path.join(f.task.workspace, 'evil.js'), 'throw new Error("CHECKOUT PRELOAD EXECUTED")');
-    for (const command of ['lushw --json worker list', 'lush --json worker inspect ' + f.task.id, 'lushw help']) {
+    for (const command of ['lush --json worker list', 'lush --json worker inspect ' + f.task.id, 'lushw help']) {
       const p = await f.preview(command);
       expect(p).toMatchObject({ id: f.task.id, workspace: f.task.workspace, command, requires_confirmation: false });
       expect(p.revision).toHaveLength(64);
@@ -87,7 +87,7 @@ test('real HTTP → user RPC → fixed lush/lushw CLI → daemon → bounded res
     expect(invalid.value).toMatchObject({ status: 'failed', exit_code: 1 });
     // Parent's new --kind info stays a confirmed write through the shared
     // catalogue, private CLI correlation and real user-authorized notice RPC.
-    const info = await f.preview(`lushw --json notice post 'CLI info' --worker ${f.task.worker_number} --kind info --body 'CLI result'`);
+    const info = await f.preview(`lush --json notice post 'CLI info' --worker ${f.task.worker_number} --kind info --body 'CLI result'`);
     expect(info).toMatchObject({ path: 'notice post', kind: 'write', requires_confirmation: true });
     expect((await f.execute(info)).code).not.toBe(200);
     const reported = await f.execute(info, true);
@@ -116,7 +116,7 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
     const id = created.value.task.id;
     expect((await post('worker.cli_preview', { id, command: 'lush status' }, { anonymous: true })).code).toBe(401);
     expect((await post('worker.cli_preview', { id, command: 'lush status' }, { headers: { 'Content-Type': 'application/json', Origin: 'http://evil.invalid' } })).code).toBe(403);
-    for (const command of ['lushw --json worker list', `lush worker rename ${id} actual-cli`]) {
+    for (const command of ['lush --json worker list', `lush worker rename ${id} actual-cli`]) {
       const preview = await post('worker.cli_preview', { id, command }); expect(preview.code).toBe(200);
       const result = await post('worker.cli_execute', { id, command, revision: preview.value.revision, confirm: true });
       expect(result.code).toBe(200); expect(result.value).toMatchObject({ status: 'succeeded', exit_code: 0 });
@@ -159,7 +159,7 @@ test('worktree identity, stale revisions, active/frozen modifications and missin
     f.project.running.set(f.task.id, { controller: new AbortController() });
     expect((await f.post('worker.cli_preview', { id: f.task.id, command })).code).not.toBe(200);
     // Read-only queries remain usable while the Worker is active.
-    expect((await f.execute(await f.preview('lushw worker list'))).value.status).toBe('succeeded');
+    expect((await f.execute(await f.preview('lush worker list'))).value.status).toBe('succeeded');
     f.project.running.clear();
     f.store.update(f.task.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'requested',
       queue_protocol: 1, parent_id: f.task.parent_id, commit: await git(f.task.workspace, 'rev-parse', 'HEAD') }) });
@@ -203,9 +203,9 @@ test('mutation lease prevents concurrency/reclamation/scheduling while preservin
     expect(f.project.cliMutation).toBeNull(); expect(f.project.cliRunning.size).toBe(0);
     await until(() => !f.project.taskMergeWakePending.has(f.task.parent_id));
     // The CLI does not acquire an Agent-only identity just because the executable is lushw.
-    const agentOnly = await f.execute(await f.preview('lushw worker auto-title forbidden'), true);
+    const agentOnly = await f.execute(await f.preview('lushw self auto-title forbidden'), true);
     expect(agentOnly.value).toMatchObject({ status: 'failed', exit_code: 1 });
-    expect(agentOnly.value.stderr).toContain('Agent invocation');
+    expect(agentOnly.value.stderr).toContain('active Worker invocation');
   } finally { pending.resolve(); await f.close(); }
 });
 
@@ -213,7 +213,7 @@ test('read-only CLI lease protects its cwd at the actual Git removal boundary wi
   const f = await trialFixture(), entered = gate(), release = gate(), original = f.project.branchArchivability;
   try {
     f.project.branchArchivability = async function (...args) { entered.resolve(); await release.promise; return original.apply(this, args); };
-    const p = await f.preview(`lushw --json worker inspect ${f.task.id}`), job = f.execute(p);
+    const p = await f.preview(`lush --json worker inspect ${f.task.id}`), job = f.execute(p);
     await entered.promise;
     expect(f.project.cliMutation).toBeUndefined();
     await expect(f.project.workspaces.git(f.root, 'worktree', 'remove', f.task.workspace)).rejects.toThrow('CLI still uses');
@@ -233,16 +233,16 @@ test('read-only trial leaves concurrent Agent RPC permissions intact; busy mutat
     f.project.running.set(active.id, { token, controller: new AbortController() });
     const { UIClient } = await import('../src/ui/client.js'); const agent = new UIClient(f.config, token);
     f.project.branchArchivability = async function (...args) { entered.resolve(); await release.promise; return original.apply(this, args); };
-    const preview = await f.preview(`lushw --json worker inspect ${f.task.id}`), job = f.execute(preview);
+    const preview = await f.preview(`lush --json worker inspect ${f.task.id}`), job = f.execute(preview);
     await entered.promise;
     const marker = f.project.cliRunning.keys().next().value;
     expect(f.project.cliMutation).toBeUndefined(); expect(f.project.maintenancePaused()).toBe(false);
-    expect((await agent.request('worker.list')).some(task => task.id === active.id)).toBe(true);
+    expect((await agent.request('context.inspect')).id).toBe(active.id);
     expect((await agent.request('progress.plan', { steps: [{ key: 'normal', label: 'Normal Agent progress' }] })).task_id).toBe(active.id);
     expect((await agent.request('notice.post', { title: 'Concurrent Agent notice', body: 'Read-only trial does not block this RPC.' })).task_id).toBe(active.id);
     // Knowing a read correlation does not change an Agent into a user or broaden the catalog RPC set.
     await expect(agent.request('worker.rename', { id: active.id, title: 'forbidden', _cli_trial: marker })).rejects.toThrow('user approval');
-    await expect(agent.request('worker.inspect', { id: f.task.id, _cli_trial: marker })).rejects.toThrow('invalid CLI execution context');
+    await expect(agent.request('worker.inspect', { id: active.id, _cli_trial: marker })).rejects.toThrow('invalid CLI execution context');
     expect(f.project.running.get(active.id).controller.signal.aborted).toBe(false);
     release.resolve(); expect((await job).value.status).toBe('succeeded');
     const modifying = await f.preview(`lush worker rename ${f.task.id} blocked`);

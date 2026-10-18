@@ -7,7 +7,7 @@ const json = value => ({ ok: true, json: async () => structuredClone(value) });
 const draft = (id, fields = {}) => ({ kind: 'draft', id, mode: 'order', content: `正文 ${id}`, parent_id: 1, branch: 'main', revision: 3, references: [], status: 'draft', ...fields });
 const worker = id => ({ id, worker_number: `W${id}`, task_kind: 'order', status: 'running', branch: `work/${id}`, workspace: `/tmp/${id}`, goal: `目标 ${id}` });
 const dom = installDom({ fetch: async (url, options = {}) => {
-  const path = new URL(url, 'http://fixture'); reads.push(path.pathname + path.search);
+  const path = new URL(url, 'http://fixture'); path.pathname = path.pathname.replace(/^\/p\/[a-f0-9]{16}/, ''); reads.push(path.pathname + path.search);
   if (path.pathname === '/api/input-parents') return json({ items: [{ id: 1, branch: 'main' }, { id: 7, branch: 'work/7', goal: '另一个父' }] });
   if (path.pathname === '/api/inputs') {
     if (readFailure) throw Error('查询失败');
@@ -40,13 +40,14 @@ const restore = registerNavigation({ refresh: async () => {} });
 const type = value => { dom.node('input').value = value; dom.node('input').oninput(); };
 const submit = () => dom.node('input').onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
 const reference = { version: 1, kind: 'text', target: {}, label: '引用', quote: '看到的文字' };
+const reloadComposer = async () => { resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer(); };
 beforeEach(async () => {
-  resetUiState(); calls.length = reads.length = 0; records = []; failure = deferred = deferredRead = readFailure = false; release = null;
+  resetUiState(); dom.localStorage.clear(); dom.location.pathname = '/'; calls.length = reads.length = 0; records = []; failure = deferred = deferredRead = readFailure = false; release = null;
   dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
 });
 afterAll(() => { restore(); dom.restore(); });
 
-test('closed first entry is two clicks, resumed editing one click; collapse keeps references/settings/scroll and blurs', () => {
+test('every closed entry opens the category menu; collapse auto-saves references/settings/scroll and blurs', () => {
   expect(dom.node('input-form').hidden).toBe(true);
   dom.node('composer-launcher').click(); expect(dom.node('composer-menu').hidden).toBe(false);
   expect(dom.node('composer-menu-append').hidden).toBe(true); expect(calls).toHaveLength(0);
@@ -54,7 +55,9 @@ test('closed first entry is two clicks, resumed editing one click; collapse keep
   type('新工作'); addComposerReference(reference); ui.composerProfile = { config_mode: 'pi' }; dom.node('input').scrollTop = 50;
   dom.node('composer-launcher').click(); expect(dom.node('input-form').hidden).toBe(true); expect(document.activeElement).toBe(dom.node('composer-launcher'));
   expect(dom.node('composer-launcher').dataset.pending).toBe('true');
-  dom.node('composer-launcher').click(); expect(dom.node('input-form').hidden).toBe(false);
+  dom.node('composer-launcher').click(); expect(dom.node('composer-menu').hidden).toBe(false);
+  dom.node('composer-menu-order').click(); expect(dom.node('input-form').hidden).toBe(false);
+  expect(calls).toHaveLength(0);
   expect(dom.node('input').value).toBe('新工作'); expect(composerReferences()).toEqual([reference]); expect(ui.composerProfile).toEqual({ config_mode: 'pi' }); expect(dom.node('input').scrollTop).toBe(50);
 });
 
@@ -100,7 +103,7 @@ test('navigation and unrelated detail reads cannot change a pinned append target
   ui.view = { id: 'task' }; ui.selected = 8; ui.composerTask = worker(8); appendToWorker(worker(8)); type('只给8');
   activateDetailView({ view: 'task', key: 'task-9' }); ui.selected = 9; ui.composerTask = worker(9); ui.syncComposer();
   expect(dom.node('input-form').hidden).toBe(true); expect(ui.composerAppendTarget.id).toBe(8);
-  dom.node('composer-launcher').click(); expect(dom.node('composer-mode-target').textContent).toContain('W8'); expect(dom.node('composer-mode-target').textContent).not.toContain('目标 9');
+  selectComposerMode('append', worker(8)); expect(dom.node('composer-mode-target').textContent).toContain('W8'); expect(dom.node('composer-mode-target').textContent).not.toContain('目标 9');
   ui.composerTask = null; ui.composerError = '另一个详情读取失败'; ui.syncComposer(); expect(dom.node('input').disabled).toBe(false);
   await submit(); expect(calls.at(-1).params.target_id).toBe(8);
 });
@@ -112,7 +115,9 @@ test('resume scans all pages, skips unauthorized-to-edit states and restores ful
   expect(dom.node('draft-commit').textContent).toBe('按条件提交'); expect(dom.node('composer-condition-summary').textContent).toContain('父 Worker 静息');
   expect(dom.node('input-parent').disabled).toBe(true); type('完整修改'); await buffer();
   expect(calls).toHaveLength(1); expect(calls[0]).toMatchObject({ method: 'draft.update', params: { id: 5, expected_revision: 3, conditions: [{ kind: 'parent_quiet' }], exclusive: true } });
-  expect(dom.node('input').value).toBe('完整修改'); await submit();
+  expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeNull();
+  selectComposerMode('order'); expect(dom.node('input').value).toBe('');
+  await resumeComposerDraft(); expect(dom.node('input').value).toBe('完整修改'); await submit();
   expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 5, expected_revision: 4 } }); expect(calls.some(call => call.method === 'draft.add')).toBe(false);
 });
 
@@ -169,4 +174,63 @@ test('an interrupted history query is not reported as no drafts', async () => {
   records = [draft(1, { parent_id: 7 })]; selectComposerMode('order'); await resumeComposerDraft(); expect(deepText(dom.node('composer-draft-list'))).toContain('已查完');
   readFailure = true; await resumeComposerDraft(); expect(deepText(dom.node('composer-draft-list'))).toContain('未能确认'); expect(deepText(dom.node('composer-draft-list'))).not.toContain('已查完');
   collapseComposer(); expect(dom.node('composer-launcher').classList.contains('agent-call')).toBe(false);
+});
+
+test('browser auto-save survives reload for all modes and exact targets, without creating project drafts', async () => {
+  selectComposerMode('order'); type('main 自动保存'); addComposerReference(reference);
+  ui.composerProfile = { config_mode: 'pi' }; dom.node('input').scrollTop = 42;
+  selectComposerMode('order', null, 'work/7'); type('父7');
+  selectComposerMode('append', worker(8)); type('追加8');
+  selectComposerMode('append', worker(9)); type('追加9');
+  selectComposerMode('management'); type('管理自动保存'); collapseComposer();
+  await reloadComposer();
+  expect(dom.node('input-form').hidden).toBe(true);
+  selectComposerMode('management'); expect(dom.node('input').value).toBe('管理自动保存');
+  selectComposerMode('append', worker(8)); expect(dom.node('input').value).toBe('追加8');
+  selectComposerMode('append', worker(9)); expect(dom.node('input').value).toBe('追加9');
+  selectComposerMode('order', null, 'work/7'); expect(dom.node('input').value).toBe('父7');
+  selectComposerMode('order'); expect(dom.node('input').value).toBe('main 自动保存');
+  expect(composerReferences()).toEqual([reference]); expect(ui.composerProfile).toEqual({ config_mode: 'pi' }); expect(dom.node('input').scrollTop).toBe(42);
+  type(''); dom.node('input').oninput();
+  selectComposerMode('management'); type(''); collapseComposer(); await reloadComposer(); selectComposerMode('management'); expect(dom.node('input').value).toBe('');
+  expect(calls).toHaveLength(0);
+});
+
+test('automatic browser edits are isolated by project identity', async () => {
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; await reloadComposer(); selectComposerMode('order'); type('项目A'); collapseComposer();
+  dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/'; await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe(''); type('项目B'); collapseComposer();
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('项目A');
+  expect(calls).toHaveLength(0);
+});
+
+test('explicit button or new-work Enter stash clears automatic recovery, including resumed drafts; append Enter still emits', async () => {
+  selectComposerMode('order'); type('Enter 暂存'); collapseComposer(); selectComposerMode('order');
+  await dom.node('input').onkeydown({ key: 'Enter', preventDefault() {} });
+  expect(calls.at(-1).method).toBe('draft.add'); expect(dom.node('input').value).toBe('');
+  await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('');
+  records = [draft(6)]; await resumeComposerDraft(); type('更新原草稿'); collapseComposer(); await reloadComposer(); selectComposerMode('order');
+  expect(currentEdit().saved.id).toBe(6); expect(dom.node('input').value).toBe('更新原草稿');
+  await buffer(); expect(calls.at(-1)).toMatchObject({ method: 'draft.update', params: { id: 6, expected_revision: 3 } });
+  await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeUndefined();
+  selectComposerMode('append', worker(8)); type('直接提交追加'); collapseComposer(); selectComposerMode('append', worker(8));
+  await dom.node('input').onkeydown({ key: 'Enter', preventDefault() {} });
+  expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { target_id: 8, mode: 'append' } });
+  await reloadComposer(); selectComposerMode('append', worker(8)); expect(dom.node('input').value).toBe('');
+});
+
+test('failed stash and in-flight edits stay recoverable; late success clears only its acknowledged snapshot', async () => {
+  selectComposerMode('order'); type('保存失败仍保留'); failure = '暂存失败'; await buffer(); collapseComposer();
+  await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('保存失败仍保留');
+  failure = false; deferred = true; const pending = buffer(); type('请求中的新编辑'); collapseComposer(); release(); await pending;
+  expect(currentEdit().saved.id).toBe(50);
+  await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('请求中的新编辑'); expect(currentEdit().saved.id).toBe(50);
+  deferred = false; records = [draft(50, { content: '保存失败仍保留', revision: 1 })]; await buffer();
+  await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('');
+});
+
+test('browser storage failures are visible and never discard the active text', () => {
+  selectComposerMode('order'); type('不能丢失');
+  const set = dom.localStorage.setItem; dom.localStorage.setItem = () => { throw Error('quota exceeded'); };
+  try { collapseComposer(); expect(dom.node('input').value).toBe('不能丢失'); expect(dom.node('error').textContent).toContain('自动保存失败'); }
+  finally { dom.localStorage.setItem = set; collapseComposer(); }
 });

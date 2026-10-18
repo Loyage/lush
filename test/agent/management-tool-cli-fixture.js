@@ -5,7 +5,7 @@ import path from 'node:path';
  * extensions, execute functions, Provider arguments and the Bun RPC bridge are real.
  * The plan contains test inputs, never a second production tool catalogue.
  */
-export function managementToolCLI(root, runtime) {
+export function managementToolCLI(root, runtime, { compactCatalog = false } = {}) {
   const command = path.join(root, 'controlled-pi');
   const planFile = path.join(root, 'tool-plan.json');
   fs.writeFileSync(command, `#!/usr/bin/env ${runtime}
@@ -53,7 +53,14 @@ for (const { name, params, callId } of plan) {
   if ((await emit('tool_call', { toolName: name })).some(r => r?.block)) throw Error('management tool blocked: ' + name);
   try {
     const response = await tools.get(name).execute(callId ?? 'probe-' + name, params, new AbortController().signal, ctx);
-    replies.push({ name, response });
+    // The real tool returns the full catalogue twice (text and details). Verify
+    // both inside the child, but do not echo both into the final Provider result:
+    // combined catalogues otherwise exceed the unchanged 256000-byte result cap.
+    if (${JSON.stringify(compactCatalog)} && name === 'manager_catalog') {
+      if (JSON.stringify(response.content) !== JSON.stringify([{ type: 'text', text: JSON.stringify(response.details) }]))
+        throw Error('catalogue text/details mismatch');
+      replies.push({ name, response: { ...response, content: [] }, catalogContentVerified: true });
+    } else replies.push({ name, response });
   } catch (error) { replies.push({ name, error: error.message }); }
 }
 console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun', extensions,

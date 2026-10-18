@@ -1,9 +1,10 @@
 import { check, isPlainObject } from '../core/types.js';
 import { beginManagementCall, finishManagementCall } from '../core/project/management-calls.js';
 import { dispatchWorkerCLI } from '../core/worker-cli.js';
-import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
+import { PARAMS, AGENT_ONLY, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
+import { assertWorkerRead, contextDetail, contextHistory } from '../core/worker-context.js';
 import { publicResult } from './public-result.js';
-import { LUSHW_METHODS } from './management-policy.js';
+import { MANAGEMENT_CODE_METHODS } from './management-code-methods.js';
 import { assertManagementCapabilityExecution, dispatchManagementCode, managementCodeReadResult } from '../core/project/management-code.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
@@ -13,6 +14,7 @@ import { handlers as noticeHandlers } from './handlers/notice.js';
 import { handlers as branchHandlers } from './handlers/branch.js';
 import { handlers as candidateHandlers } from './handlers/candidate.js';
 import { handlers as hookHandlers } from './handlers/hooks.js';
+import { handlers as contextHandlers } from './handlers/context.js';
 
 /** 合并各 handler 表：重名说明两个分区认领了同一个方法，PARAMS 里没有对应 handler 说明拆漏了。 */
 function mergeHandlers(groups) {
@@ -25,7 +27,7 @@ function mergeHandlers(groups) {
   return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers]);
+export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers, contextHandlers]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) {
@@ -34,12 +36,12 @@ export class Dispatcher {
     // This trusted callback is never a public RPC. The management engine records
     // reviewed capabilities / exact user confirmations before reaching it.
     project.managementDispatch = async (method, params, actorId = null, receiptId = null) => {
-      assertAllowed(method, params, LUSHW_METHODS.has(method) ? actorId : null);
+      assertAllowed(method, params, AGENT_ONLY.has(method) ? actorId : null);
       check(!this.stopping?.isRequested?.(), '项目后台正在停止，请稍后再试');
       // Legacy user handlers are still governed by reviewed policy and an exact
       // durable receipt, not merely by reaching this trusted callback.
-      if (!LUSHW_METHODS.has(method)) assertManagementCapabilityExecution(project, actorId, receiptId, method, params);
-      const result = LUSHW_METHODS.has(method)
+      if (!MANAGEMENT_CODE_METHODS.has(method)) assertManagementCapabilityExecution(project, actorId, receiptId, method, params);
+      const result = MANAGEMENT_CODE_METHODS.has(method)
         ? await dispatchManagementCode(project, method, params, actorId, receiptId,
           actor => HANDLERS[method].call(this, project, params, actor))
         : managementCodeReadResult(method, await HANDLERS[method].call(this, project, params, null, { management: true }), project, params);
@@ -102,7 +104,21 @@ export class Dispatcher {
       'integration agents can only inspect work and post notices or report progress for themselves');
     check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
       '项目后台正在停止，请稍后再试');
-    return dispatchWorkerCLI(p, method, { ...params, _cli_trial: cliTrial }, actor,
-      async () => publicResult(await HANDLERS[method].call(this, p, params, actor), method));
+    const targetReads = new Set(['worker.inspect','worker.diff','worker.history','worker.history_page',
+      'worker.transcript','worker.usage','worker.progress_history']);
+    if (actor !== null && targetReads.has(method)) assertWorkerRead(p, actor, params.id);
+    // worker.lookup is shared with the isolated manager tool, but only that real
+    // Store identity gets the separately reviewed project-wide resolution scope.
+    if (actor !== null && method === 'worker.lookup' && actorTask?.task_kind !== 'management')
+      assertWorkerRead(p, actor, p.store.lookupWorker(params.number).id);
+    return dispatchWorkerCLI(p, method, { ...params, _cli_trial: cliTrial }, actor, async () => {
+      if (actor !== null && method === 'worker.inspect') return publicResult(contextDetail(p, params.id), method);
+      const value = await HANDLERS[method].call(this, p, params, actor);
+      if (actor !== null && method === 'worker.history') return contextHistory(value);
+      if (actor !== null && method === 'worker.history_page') return { ...value, events: contextHistory(value.events ?? []) };
+      if (actor !== null && ['worker.spawn','worker.message','worker.accept'].includes(method))
+        return publicResult(contextDetail(p, value.id), method);
+      return publicResult(value, method);
+    });
   }
 }

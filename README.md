@@ -17,7 +17,7 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 ### 输入与 Worker 相连：围绕目标，而不是工作清单
 
-原话、引用、各轮输入与结果关联保存，便于回看目标，不必从分支名猜测。管理 CLI 使用 `lush order '目标'`，源码快捷入口为 `bun run order`；开发协作使用 `lushw`，例如 `bun run lushw worker message W5 '补充说明'`。两个入口共用底层接口，入口名称不替代身份授权，见[CLI 分区](docs/reference/api.md#开发与管理双入口)。
+原话、引用、各轮输入与结果关联保存，便于回看目标，不必从分支名猜测。管理 CLI 使用 `lush order '目标'`，源码快捷入口为 `bun run order`；开发协作使用绑定当前 invocation 的 `lushw self/parent/children`，例如 `bun run lushw self inspect` 查看自身、`bun run lushw children message W5-1 '补充说明'` 给直接 child 追加要求。项目级查询与管理统一使用 `lush`，入口名称不替代身份授权，见[CLI 分区](docs/reference/api.md#开发与管理双入口)。
 
 ### 精确的 commit，而不是笼统的“完成了”
 

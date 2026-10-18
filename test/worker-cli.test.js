@@ -6,6 +6,7 @@ import { HELP } from '../src/cli/help.js';
 import { cliHelp } from '../src/cli/catalog.js';
 const CODE_HELP = cliHelp('lushw');
 import { run as worker } from '../src/cli/commands/task.js';
+import { run as context } from '../src/cli/commands/context.js';
 import { run as notice } from '../src/cli/commands/notice.js';
 import { print } from '../src/cli/args.js';
 import { printTree, printTranscript, printBranchShow } from '../src/cli/print.js';
@@ -22,23 +23,24 @@ test('task is rejected instead of registered as a worker alias', async () => {
     await expect(main(args)).rejects.toThrow(`unknown command: ${args[0]}`);
   }
   expect(HELP).toContain('Lush — 项目管理接口');
-  expect(HELP).not.toContain('worker spawn');
-  expect(CODE_HELP).toContain('worker spawn');
+  expect(HELP).toContain('worker spawn');
+  expect(CODE_HELP).toContain('children spawn');
+  expect(CODE_HELP).not.toContain('worker spawn');
   expect(HELP).not.toMatch(/\btask\b|\bTask\b|任务/);
 });
 
-test('worker main command dispatches and retains LUSH_TASK_ID as the default parent', async () => {
+test('relation main dispatch ignores forged LUSH_TASK_ID and sends no caller identity', async () => {
   const f = fixture();
   try {
     const script = `import { main } from ${JSON.stringify(path.join(root, 'src/cli/main.js'))};
 import { UIClient } from ${JSON.stringify(path.join(root, 'src/ui/client.js'))};
 UIClient.prototype.request = async function(method, params) { return { method, params }; };
-await main(['worker', 'spawn', 'goal', '--name', 'child-worker', '--json'], { executable: 'lushw' });`;
+await main(['children', 'spawn', 'goal', '--name', 'child-worker', '--json'], { executable: 'lushw' });`;
     const proc = Bun.spawn(['bun', '-e', script], { cwd: f.root,
-      env: env({ LUSH_PROJECT: f.root, LUSH_TASK_ID: '7' }), stdout: 'pipe', stderr: 'pipe' });
+      env: env({ LUSH_PROJECT: f.root, LUSH_TASK_ID: '7', LUSH_AGENT_TOKEN: 'fixture' }), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     expect({ code, err }).toEqual({ code: 0, err: '' });
-    expect(JSON.parse(out)).toEqual({ method: 'worker.spawn', params: { parent: 7, goal: 'goal', name: 'child-worker' } });
+    expect(JSON.parse(out)).toEqual({ method: 'context.spawn', params: { goal: 'goal', name: 'child-worker' } });
   } finally { await f.close(); }
 });
 
@@ -91,14 +93,15 @@ test('worker rename accepts numbered identity and an empty reset title, but reje
   expect(calls).toHaveLength(3); expect(HELP).toContain("worker rename ID '标题'");
 });
 
-test('worker auto-title is Agent-only and has no target identity parameter', async () => {
+test('self auto-title is Agent-only and has no target identity parameter or old worker alias', async () => {
   const client = { ...recordingClient(), token: 'active' };
-  expect(await worker('worker', ['auto-title', '理解后的主题'], { client, json: true })).toEqual({ title: '理解后的主题' });
-  expect(client.calls).toEqual([{ method: 'worker.auto_title', params: { title: '理解后的主题' } }]);
+  expect(await context('self', ['auto-title', '理解后的主题'], { client, json: true })).toEqual({ title: '理解后的主题' });
+  expect(client.calls).toEqual([{ method: 'context.auto_title', params: { title: '理解后的主题' } }]);
   for (const args of [['auto-title'], ['auto-title', '7', 'title'], ['auto-title', 'title', 'extra']])
-    await expect(worker('worker', args, { client, json: true })).rejects.toThrow('invalid arguments');
-  await expect(worker('worker', ['auto-title', 'title'], { client: recordingClient(), json: true })).rejects.toThrow('Agent invocation');
-  expect(client.calls).toHaveLength(1); expect(CODE_HELP).toContain("worker auto-title '标题'");
+    await expect(context('self', args, { client, json: true })).rejects.toThrow('invalid arguments');
+  await expect(context('self', ['auto-title', 'title'], { client: recordingClient(), json: true })).rejects.toThrow('active Worker invocation');
+  await expect(worker('worker', ['auto-title', 'title'], { client, json: true })).rejects.toThrow('unknown worker command');
+  expect(client.calls).toHaveLength(1); expect(CODE_HELP).toContain("self auto-title '标题'");
 });
 
 test('CLI Worker list and tree prefer user title then generated title without changing original goals', () => {
@@ -132,7 +135,7 @@ test('worker auto-merge is a strict user hook CLI, not a reservation', async () 
 test('worker iteration CLI rejects extra arguments and documents each action', async () => {
   for (const verb of ['accept','reopen','sync-parent','resolve-sync']) {
     const client = { async request() { throw new Error('CLI must reject before RPC'); } };
-    expect(verb === 'accept' ? CODE_HELP : HELP).toContain(`worker ${verb} ID`);
+    expect(HELP).toContain(`worker ${verb} ID`);
     await expect(worker('worker', [verb, '7', 'force'], { client, json: true })).rejects.toThrow();
   }
 });
@@ -163,7 +166,9 @@ test('package and ops expose workers without a tasks shortcut', async () => {
       env: env(), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     expect({ code, err }).toEqual({ code: 0, err: '' });
-    expect(out).toContain(['message', 'progress'].includes(command) ? CODE_HELP : HELP);
+    const executable = command === 'progress' ? 'lushw' : 'lush';
+    const topic = { workers: 'worker list', tree: 'worker tree', inspect: 'worker inspect', transcript: 'worker transcript', message: 'worker message', progress: 'self progress' }[command];
+    expect(out).toContain(cliHelp(executable, topic));
   }
   const proc = Bun.spawn(['bun', path.join(root, 'scripts/ops.js'), 'tasks'], { env: env(), stdout: 'pipe', stderr: 'pipe' });
   const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);

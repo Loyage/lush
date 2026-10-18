@@ -8,9 +8,11 @@ const aliases = {
   inspect: ['worker','inspect'], transcript: ['worker','transcript'], cancel: ['worker','cancel'], retry: ['worker','retry'],
   cleanup: ['worker','cleanup'], notices: ['notice','list'],
   answer: ['notice','answer'], message: ['worker','message'], wait: ['worker','wait'],
+  progress: ['self','progress'],
 };
 // Source shortcuts select the same fixed public entry as the corresponding bin.
-// Management remains lush; progress/message are development operations, not aliases there.
-const executable = ['progress', 'message'].includes(command) ? 'lushw' : 'lush';
+// Targeted message is project management; only progress binds to the current Worker.
+// Development messages use explicit lushw parent/children relationships.
+const executable = command === 'progress' ? 'lushw' : 'lush';
 try { await main([...(aliases[command] || [command]), ...args], { executable }); }
 catch (error) { console.error(`${executable}: ${error.message}`); process.exitCode = 1; }

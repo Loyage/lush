@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isWorkerNumber } from '../core/worker-number.js';
 import { MANAGER_METHODS } from '../rpc/management-methods.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
+import { safeManagementPreflightError } from '../core/management-guidance.js';
 
 export const MANAGEMENT_RPC_METHODS = Object.freeze([...MANAGER_METHODS]);
 
@@ -67,9 +68,9 @@ if (import.meta.main) {
     if (Buffer.byteLength(output) > 256 * 1024) throw new Error('management response too large');
     process.stdout.write(output);
   } catch (error) {
-    // Only code-owned query preflight diagnostics may cross this boundary. Never
+    // Only code-owned query/scope preflight diagnostics may cross this boundary. Never
     // expose arbitrary handler/auth errors, input values, paths or credentials.
-    process.stdout.write(JSON.stringify(safeWorkerQueryError(error) ?? {
+    process.stdout.write(JSON.stringify(safeWorkerQueryError(error) ?? safeManagementPreflightError(error) ?? {
       error: '管理请求被拒绝或未确认完成；不能换身份或自动重试。',
       ...(Number.isInteger(error.code) ? { code: error.code } : {}) }));
     process.exitCode = 1;

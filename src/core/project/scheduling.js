@@ -409,7 +409,7 @@ export default {
     check(typeof token === 'string', 'invalid agent token');
     const task = this.store.agentByToken(tokenHash(token));
     const run = task ? this.running.get(task.id) : null;
-    if (!run) throw new LushError('invalid or expired agent token');
+    if (!run || run.token !== token || run.invocationEnded) throw new LushError('invalid or expired agent token');
     check(!['explainer','butler'].includes(task.role), 'isolated agents have no RPC capability');
     check(task.status === 'running' && !run.parked && !run.controller.signal.aborted, 'agent worker is no longer active');
     if (task.task_kind === 'integration') check(!run.invocationEnded && this.convergenceIntegrationReady?.(task),
