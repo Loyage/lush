@@ -8,7 +8,7 @@ import { startWeb } from '../src/ui/web/server.js';
 import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
 import { DeviceSettingsService } from '../src/host/device-settings.js';
-import { listCapabilityGuides } from '../src/agent/capabilities.js';
+import { listCapabilityGuides, capabilitySource } from '../src/agent/capabilities.js';
 import { readDashboardSettings } from '../src/core/dashboard-settings.js';
 import { DeviceAutomationSettings } from '../src/core/device-automation.js';
 import { emptyDiagnostics } from '../src/core/runtime-diagnostics.js';
@@ -197,11 +197,14 @@ try {
   assert(await evaluate(`document.querySelector('.composer').hidden || getComputedStyle(document.querySelector('.composer')).display === 'none'`), 'empty workbench shows active composer');
   // Production compiled route, authenticated HTTP and the real device writer with no projects.
   await click('#skills-open'); await until(`document.querySelectorAll('.skill-card').length===${listCapabilityGuides().length}`);
-  assert(await evaluate(`document.getElementById('skills-open').getAttribute('aria-current')==='page'&&[...document.querySelectorAll('.skill-details')].every(node=>!node.open)&&!document.querySelector('.skills-page .agent-call')`), 'Skills defaults or navigation are incorrect');
+  assert(await evaluate(`document.getElementById('skills-open').getAttribute('aria-current')==='page'&&[...document.querySelectorAll('.skill-details,.skill-source')].every(node=>!node.open)&&!document.querySelector('.skills-page .agent-call')&&!document.querySelector('.skill-source pre')`), 'Skills defaults or navigation are incorrect');
+  await click('[data-skill="progress"] .skill-source summary');
+  await until(`document.querySelector('[data-skill="progress"] [data-skill-document="guide"]')`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await resize(width);
     await evaluate(`(() => {document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.reducedMotion='true';return true})()`);
     assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.skill-toggle')].every(n=>n.getBoundingClientRect().height>=44)&&[...document.querySelectorAll('.skill-card')].every(n=>{const r=n.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})`), `Skills overflow/touch target ${theme}/${width}`);
+    assert(await evaluate(`!document.querySelector('.skill-source textarea,.skill-source input,.skill-source [contenteditable]')&&[...document.querySelectorAll('.skill-source pre')].every(n=>!n.isContentEditable&&n.scrollWidth<=n.clientWidth+1&&getComputedStyle(n).maxHeight==='none')`), `Skill read-only original overflow/editor ${theme}/${width}`);
     await screenshot(`skills-${theme}-${width}`);
   }
   await resize(1440);
@@ -214,10 +217,15 @@ try {
     assert(await evaluate(`document.activeElement.tagName==='SUMMARY'`), 'Skills explanation not keyboard reachable');
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'skills-keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
     assert(await evaluate(`document.activeElement.parentElement.open`), 'Skill explanation did not expand');
+    if (skill.id !== 'progress') await click(`[data-skill="${skill.id}"] .skill-source summary`);
+    await until(`document.querySelector('[data-skill="${skill.id}"] [data-skill-document="guide"]')`);
+    const raw = capabilitySource(skill.id);
+    assert(await evaluate(`(() => {const card=document.querySelector('[data-skill="${skill.id}"]');return card.querySelector('[data-skill-document="entry"]').textContent===${JSON.stringify(raw.entry)}&&card.querySelector('[data-skill-document="guide"]').textContent===${JSON.stringify(raw.guide)}&&!card.querySelector('.skill-toggle input').checked&&!card.querySelector('.skill-source textarea,.skill-source input,.skill-source [contenteditable]')})()`), `Disabled Skill ${skill.id} original differs from shipped files or is editable`);
+    await click(`[data-skill="${skill.id}"] .skill-source summary`);
   }
   await click('[data-capability-reset]'); await until(`[...document.querySelectorAll('.skill-toggle input')].every(n=>n.checked&&!n.disabled)`);
   assert(listCapabilityGuides().every(skill=>deviceSettings.runtime.get()[skill.setting].value===true)&&selected.length===0, 'Skills reset failed or started a project');
-  console.log('PASS compiled Skills route, real Host/device save/reset, keyboard, collapsed details, light/dark 320/390/1440px without a project');
+  console.log('PASS compiled Skills route, real Host/device save/reset, keyboard, collapsed details, exact read-only SKILL.md/guide.md including disabled Skills, light/dark 320/390/1440px without a project');
   for (const [id, fragment] of [['settings-open', 'settings'], ['docs-open', 'docs'], ['project-management-open', 'project-management']]) {
     await click(`#${id}`);
     await until(`location.hash === '#${fragment}'`);

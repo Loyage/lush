@@ -53,6 +53,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 设备设置与旧配置迁移
 
+`GET /api/host/skills?id=<模块ID>` 为已登录用户按需读取内置 Skill 入口和完整指南原文，严格白名单、只读，不接受任意文件路径或写方法；返回模型及限制见[Skills 契约](../engineering/agent-capabilities.md#工作台-skills-页面)。
+
 `GET /api/host/settings/<suffix>` 与 `POST /api/host/settings/action` 是已登录用户专属的窄设置入口，无项目前缀、仅 device scope；不接受 Worker/模型调用/历史/迁移/项目路径/token。设置的唯一有效来源以[用户工作台契约](../engineering/user-workspace.md)为准；安全迁移见[旧配置迁移契约](../engineering/device-settings.md)。Host 不为管理配置启动 daemon，也不构造伪项目。
 
 项目路由的兼容配置读面仅接受 device scope；显式 `scope=project` 已拒绝，不继续提供项目设置覆盖。`GET /api/settings/migration` 与 `settings.migration.apply {revision,confirm:true}` 仍经固定项目路由显式预检／确认，不接受任意磁盘路径。历史与 Worker 运行参数接口不接受 device scope，不搬迁项目事实。

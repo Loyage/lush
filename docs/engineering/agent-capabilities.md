@@ -18,7 +18,7 @@
 
 ## Agent 与 CLI 接缝
 
-- `src/agent/capabilities.js` 维护固定注册表、设置解析、角色／task_kind 适用范围、薄入口及内置 Skill 路径；不读凭证，不创建文件，不执行插件代码。导出 `AGENT_CAPABILITIES`、`resolveAgentCapabilities(config,role,taskKind?,settings?)`、`capabilityPromptPart(entries)`、`listCapabilityGuides()` 与 `capabilityGuide(id)`；后两者仅提供固定公开指南，不返回实际启用状态。
+- `src/agent/capabilities.js` 维护固定注册表、设置解析、角色／task_kind 适用范围、薄入口及内置 Skill 路径；不读凭证，不创建文件，不执行插件代码。导出 `AGENT_CAPABILITIES`、`resolveAgentCapabilities(config,role,taskKind?,settings?)`、`capabilityPromptPart(entries)`、`listCapabilityGuides()`、`capabilityGuide(id)` 与 `capabilitySource(id)`；只投影固定公开元数据、指南或入口与指南原文，不返回实际启用状态。
 - `src/agent/skills/lush-<ID>/SKILL.md` 为标准 Skill 入口，frontmatter 声明名称与使用时机；详细指南作为该目录的固定随代码资源，CLI 从白名单 ID 读取。具体目录以注册表为准，auto-title 可使用 `lush-auto-title`。
 - `lushw skills list` 列出随当前 CLI 发布的内置指南；`lushw skills get ID` 输出该模块指南。支持 `--json`、严格参数和未知 ID 拒绝，不接受文件路径，不读取设备私密配置或返回实际启用状态，不联网／安装／写盘／执行模型，无项目及 daemon 离线可用。
 - `agentPrompt` 注入适用模块的短入口与明确关闭状态，而非整篇指南。避免在 agent、common_cli 等剩余段落继续重复要求关闭模块的主动操作；安全、生命周期、最低验证责任与结构化决策保留。替代／追加 Prompt 与旧会话不自动重写，明确关闭不是权限隔离。
@@ -28,6 +28,6 @@
 
 ## 工作台 Skills 页面
 
-用户工作台侧栏的 `#skills` 独立页面管理 Lush 内置 Skills，系统设置只保留跳转入口，不重复维护开关。默认卡片展示用途、已确认状态与直接保存开关；“使用说明”按需展开适用时机及关闭影响。窄屏单列，保留旧进度输入标识兼容，不安装或管理第三方 Skills。
+用户工作台侧栏的 `#skills` 独立页面管理 Lush 内置 Skills，系统设置只保留跳转入口，不重复维护开关。默认卡片展示用途、已确认状态与直接保存开关；“使用说明”按需展开适用时机及关闭影响。窄屏单列，保留旧进度输入标识兼容，不安装或管理第三方 Skills。每卡另有默认折叠的“查看 Skill 原文（只读）”，展开才读取随当前 Host 发布的完整 `SKILL.md` 及 `guide.md`，按纯文本展示、可选择复制、不提供编辑或正文保存；关闭的 Skill 也可阅读，内容不是已有 Worker 的调用快照。读取失败可显式重试，离页或重新读取设置后旧响应不能覆盖新页面。
 
-Host 的现有 runtime 读模型与 configure ACK 附加 `builtin_skills`，由 `listCapabilityGuides()` 同源投影公开元数据（含 trigger/effect，不含磁盘路径），前端不另存能力或设置键清单。缺少元数据／布尔状态时提示更新 Host，不猜测开启状态。通过 Host settingsClient 保存设备 partial patch，无项目及项目离线可配置；保存中单飞，失败恢复上次确认状态并要求重新读取核对，迟到回复不抢回页面。统一说明后续调用生效、当前调用及已有子 Worker 不受影响、不是权限隔离，保存不立即调用 Agent。
+Host 的现有 runtime 读模型与 configure ACK 附加 `builtin_skills`，由 `listCapabilityGuides()` 同源投影公开元数据（含 trigger/effect，不含磁盘路径），前端不另存能力或设置键清单。用户专属根 `GET /api/host/skills?id=<模块ID>` 只接受注册表白名单 ID，返回 `{version:1,id,name,title,entry,guide}`；每个文件最多 65536 UTF-8 字节、原样保留，不接受路径、token、未知／重复参数或写方法，不读取设备配置、启动项目或执行内容。缺少元数据／布尔状态时提示更新 Host，不猜测开启状态。通过 Host settingsClient 保存设备 partial patch，无项目及项目离线可配置；保存中单飞，失败恢复上次确认状态并要求重新读取核对，迟到回复不抢回页面。统一说明后续调用生效、当前调用及已有子 Worker 不受影响、不是权限隔离，保存不立即调用 Agent。

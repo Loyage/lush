@@ -1,6 +1,7 @@
 import { check, isPlainObject } from '../../core/types.js';
 import { projectRouteId } from '../../host/registry.js';
 import { cliCatalog } from '../../rpc/cli-catalog.js';
+import { capabilitySource } from '../../agent/capabilities.js';
 import { createUserServices } from '../../host/user-services.js';
 import { validateAppearanceUpdate } from '../../host/project-appearance.js';
 import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../../host/device-settings.js';
@@ -14,11 +15,17 @@ export function createHostRoutes(projectHost, auth, options, env) {
   const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env });
   return {
     async handle({ request, url, headers, json }) {
-      // Session identity is root-only and never attaches a project or instantiates device services.
-      if (/^\/p\/[a-z0-9]{16}\/api\/host\/session$/.test(url.pathname)) return json({ error: 'not found' }, 404);
+      // These root-only reads never attach a project or instantiate device services.
+      if (/^\/p\/[a-z0-9]{16}\/api\/host\/(?:session|skills)$/.test(url.pathname)) return json({ error: 'not found' }, 404);
       if (url.pathname === '/api/host/cli/catalog') {
         check(request.method === 'GET' && !url.search, 'CLI catalog requires GET without query parameters');
         return json(cliCatalog());
+      }
+      if (url.pathname === '/api/host/skills') {
+        if (request.method !== 'GET') return json({ error: 'not found' }, 404);
+        const query = userQuery(url, ['id']);
+        check(typeof query.id === 'string', 'built-in Skill id required');
+        return json(capabilitySource(query.id));
       }
       if (url.pathname === '/api/host/session') {
         if (request.method !== 'GET') return json({ error: 'not found' }, 404);

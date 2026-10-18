@@ -2,6 +2,7 @@ import { $, button, el } from './dom.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { settingsClient } from './settings-api.js';
+import { skillSource } from './skill-source.js';
 
 // Metadata and setting keys come from the Host's code-owned capability registry,
 // never a second frontend catalogue or third-party resource discovery.
@@ -55,7 +56,9 @@ export function openSkills() {
     if (blocked) resetHost.setAttribute('data-help', reason); else resetHost.removeAttribute('data-help');
     content.setAttribute('aria-busy', String(state.saving || Boolean(state.pending)));
   }
+  let paintRevision = 0;
   function paint() {
+    const revision = ++paintRevision;
     controls.length = 0; content.replaceChildren();
     for (const skill of skillsOf(state.runtime)) {
       const card = el('article', undefined, 'skill-card'); card.dataset.skill = skill.id;
@@ -67,7 +70,8 @@ export function openSkills() {
       toggle.append(host, status); head.append(title, toggle);
       const details = el('details', undefined, 'skill-details');
       details.append(el('summary', '使用说明'), el('p', `适用时机：${skill.trigger}`), el('p', skill.effect), el('code', skill.name));
-      card.append(head, el('p', skill.description, 'skill-description'), details); content.append(card);
+      card.append(head, el('p', skill.description, 'skill-description'), details,
+        skillSource(skill, () => owns() && paintRevision === revision)); content.append(card);
       controls.push({ skill, input, status, host }); input.onchange = () => save({ [skill.setting]: input.checked });
     }
   }

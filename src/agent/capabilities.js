@@ -37,12 +37,35 @@ export function listCapabilityGuides() {
     ({ id, name, title, description, setting, trigger, effect }));
 }
 
-export function capabilityGuide(id) {
+function registeredCapability(id) {
   const entry = AGENT_CAPABILITIES.find(entry => entry.id === id);
   check(entry, 'unknown built-in skill; use lushw skills list');
-  const content = fs.readFileSync(entry.guide, 'utf8').trim();
-  check(Buffer.byteLength(content) <= 65536, 'built-in skill guide exceeds 65536 bytes');
-  return { ...listCapabilityGuides().find(entry => entry.id === id), content };
+  return entry;
+}
+
+function readCapabilityFile(file) {
+  try {
+    check(fs.statSync(file).size <= 65536, 'built-in skill file exceeds 65536 bytes');
+    const content = fs.readFileSync(file, 'utf8');
+    check(Buffer.byteLength(content) <= 65536, 'built-in skill file exceeds 65536 bytes');
+    return content;
+  } catch (error) {
+    // Installation/file errors must not expose internal absolute resource paths over HTTP.
+    if (error.code) throw new Error('built-in skill file is unavailable; update Host and retry');
+    throw error;
+  }
+}
+
+export function capabilityGuide(id) {
+  const entry = registeredCapability(id);
+  return { ...listCapabilityGuides().find(entry => entry.id === id), content: readCapabilityFile(entry.guide).trim() };
+}
+
+/** Exact shipped text only. No caller-controlled path, settings, execution or write operation. */
+export function capabilitySource(id) {
+  const entry = registeredCapability(id);
+  return { version: 1, id: entry.id, name: entry.name, title: entry.title,
+    entry: readCapabilityFile(entry.skill), guide: readCapabilityFile(entry.guide) };
 }
 
 function applicable(entry, role, taskKind) {

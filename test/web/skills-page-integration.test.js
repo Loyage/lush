@@ -3,16 +3,79 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { installDom, deepText } from '../dom-stub.js';
 import { env, temp, gate } from '../helpers.js';
-import { startTestWeb, fetch } from './auth-fixture.js';
+import { startTestWeb, fetch, rawFetch } from './auth-fixture.js';
 import { AGENT_CAPABILITIES, listCapabilityGuides } from '../../src/agent/capabilities.js';
 import { RuntimeSettings } from '../../src/core/settings.js';
 import { agentPrompt } from '../../src/agent/prompts.js';
 import { openSkills } from '../../src/ui/web/assets/render-skills.js';
+import { skillSource } from '../../src/ui/web/assets/skill-source.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
 import { makeWorld } from './dom-world.js';
 
 const switchFor = (dom, setting) => dom.node('detail').querySelector(`[data-runtime-input="${setting}"]`);
 const refresh = dom => dom.node('detail').querySelectorAll('button').find(node => node.textContent === '重新读取');
+
+test('Host Skill source is authenticated, bounded, exact, fixed-ID and GET-only without settings or project startup', async () => {
+  const root = temp(), device = path.join(root, 'device');
+  const web = startTestWeb(null, 0, { env: env({ LUSH_GLOBAL_CONFIG: device }),
+    projectHost: { status() { throw new Error('must not access project state'); }, openRoute() { throw new Error('must not attach a project'); } } });
+  const base = `http://127.0.0.1:${web.port}`;
+  try {
+    expect((await rawFetch(base + '/api/host/skills?id=progress')).status).toBe(401);
+    expect((await rawFetch(base + '/api/host/skills?id=progress', { headers: { Authorization: 'Bearer synthetic-test-token' } })).status).toBe(401);
+    expect((await fetch(base + '/p/aaaaaaaaaaaaaaaa/api/host/skills?id=progress')).status).toBe(404);
+    for (const skill of AGENT_CAPABILITIES) {
+      const response = await fetch(base + `/api/host/skills?id=${skill.id}`);
+      expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
+      const value = await response.json();
+      expect(value).toEqual({ version: 1, id: skill.id, name: skill.name, title: skill.title,
+        entry: fs.readFileSync(skill.skill, 'utf8'), guide: fs.readFileSync(skill.guide, 'utf8') });
+      expect(Buffer.byteLength(value.entry)).toBeLessThanOrEqual(65536); expect(Buffer.byteLength(value.guide)).toBeLessThanOrEqual(65536);
+      expect(JSON.stringify(value)).not.toContain(skill.skill); expect(JSON.stringify(value)).not.toContain(skill.guide);
+    }
+    for (const query of ['', '?id=missing', '?id=../../AGENTS.md', '?id=%2Fetc%2Fpasswd', '?id=progress&id=context',
+      '?id=progress&path=AGENTS.md', '?id=progress&_token=synthetic', '?id=progress&scope=project']) {
+      expect((await fetch(base + '/api/host/skills' + query)).status).toBe(400);
+    }
+    const before = AGENT_CAPABILITIES.map(skill => [fs.readFileSync(skill.skill, 'utf8'), fs.readFileSync(skill.guide, 'utf8')]);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const response = await fetch(base + '/api/host/skills?id=progress', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry: 'changed', guide: 'changed' }) });
+      expect(response.status).toBe(404);
+    }
+    expect(AGENT_CAPABILITIES.map(skill => [fs.readFileSync(skill.skill, 'utf8'), fs.readFileSync(skill.guide, 'utf8')])).toEqual(before);
+    expect(fs.existsSync(path.join(device, 'shared'))).toBe(false); // static reading never instantiates device services
+  } finally { await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Skill source opens lazily, shares in-flight reads, preserves raw text, retries only explicitly and ignores stale content', async () => {
+  const held = gate(); let mode = 'pending', reads = 0, active = true;
+  const value = { version: 1, id: 'progress', entry: '<script>not executable</script>\n', guide: '# Full guide\n\n```bash\nnever execute\n```\n' };
+  const dom = installDom({ fetch: () => {
+    reads++;
+    if (mode === 'pending') return held.promise;
+    if (mode === 'fail') return Promise.resolve(Response.json({ error: 'source unavailable' }, { status: 503 }));
+    return Promise.resolve(Response.json(value));
+  } });
+  try {
+    const source = skillSource({ id: 'progress' }, () => active); dom.node('detail').append(source);
+    expect(reads).toBe(0); source.open = true; const loading = source.ontoggle(); const repeated = source.ontoggle();
+    expect(reads).toBe(1); source.open = false; await source.ontoggle();
+    held.resolve(Response.json(value)); await Promise.all([loading, repeated]);
+    expect(source.open).toBe(false); expect(source.querySelector('script')).toBeNull();
+    expect(source.querySelector('[data-skill-document="entry"]').textContent).toBe(value.entry);
+    source.open = true; await source.ontoggle(); expect(reads).toBe(1);
+    mode = 'fail'; const failure = skillSource({ id: 'progress' }, () => active); failure.open = true; await failure.ontoggle();
+    expect(deepText(failure)).toContain('source unavailable'); expect(reads).toBe(2);
+    mode = 'normal'; await failure.querySelector('button').onclick(); expect(reads).toBe(3);
+    expect(failure.querySelector('[data-skill-document="guide"]').textContent).toBe(value.guide);
+    const late = gate(); mode = 'pending';
+    // A distinct source response must not paint after the owning card/page is replaced.
+    const stale = skillSource({ id: 'progress' }, () => active); stale.open = true;
+    const previousFetch = globalThis.fetch; globalThis.fetch = () => late.promise;
+    const reading = stale.ontoggle(); active = false; late.resolve(Response.json(value)); await reading;
+    expect(stale.querySelector('pre')).toBeNull(); globalThis.fetch = previousFetch;
+  } finally { dom.restore(); }
+});
 
 test('Skills page -> authenticated Host -> device writer -> next Pi/Codex prompt uses the same registry without a project', async () => {
   const root = temp(), device = path.join(root, 'device');
@@ -30,6 +93,7 @@ test('Skills page -> authenticated Host -> device writer -> next Pi/Codex prompt
     expect(JSON.stringify(data.builtin_skills)).not.toContain('SKILL.md');
     expect(dom.node('detail').querySelectorAll('.skill-card').map(node => node.dataset.skill)).toEqual(AGENT_CAPABILITIES.map(skill => skill.id));
     expect(deepText(dom.node('detail'))).toContain('不是权限隔离');
+    expect(calls.some(call => call.route.startsWith('/api/host/skills?'))).toBe(false);
     for (const skill of AGENT_CAPABILITIES) {
       const input = switchFor(dom, skill.setting); expect(input.checked).toBe(true);
       input.checked = false; await input.onchange();
@@ -41,6 +105,16 @@ test('Skills page -> authenticated Host -> device writer -> next Pi/Codex prompt
         expect(after.builtin_skills).not.toContain(skill.skill); expect(after.text).toContain(`${skill.id}（${skill.title}）`);
       }
       expect(before.builtin_skills).toContain(skill.skill); // the old invocation snapshot is untouched
+      const source = dom.node('detail').querySelectorAll('.skill-card').find(node => node.dataset.skill === skill.id).querySelector('.skill-source');
+      expect(source.open).toBeFalsy();
+      const writes = calls.filter(call => call.options?.method === 'POST').length;
+      source.open = true; await source.ontoggle();
+      expect(source.querySelector('[data-skill-document="entry"]').textContent).toBe(fs.readFileSync(skill.skill, 'utf8'));
+      expect(source.querySelector('[data-skill-document="guide"]').textContent).toBe(fs.readFileSync(skill.guide, 'utf8'));
+      expect(source.querySelector('textarea')).toBeNull(); expect(source.querySelector('input')).toBeNull();
+      expect(calls.filter(call => call.options?.method === 'POST')).toHaveLength(writes);
+      const reads = calls.length; source.open = false; await source.ontoggle(); source.open = true; await source.ontoggle();
+      expect(calls).toHaveLength(reads); // cache only in this mounted panel
     }
     expect(agentPrompt(config, 'agent', {}, 'order').builtin_skills).toEqual([]);
     const second = new RuntimeSettings({ home: path.join(root, 'project-b'), deviceHome: path.join(device, 'shared') });
@@ -49,7 +123,7 @@ test('Skills page -> authenticated Host -> device writer -> next Pi/Codex prompt
     expect(JSON.parse(calls.at(-1).options.body).params.settings).toEqual(Object.fromEntries(AGENT_CAPABILITIES.map(skill => [skill.setting, null])));
     expect(agentPrompt(config, 'agent', {}, 'order').builtin_skills).toEqual(before.builtin_skills);
     expect(second.get().result_notice.value).toBe(true);
-    expect(calls.every(call => call.route.startsWith('/api/host/settings/'))).toBe(true);
+    expect(calls.every(call => call.route.startsWith('/api/host/settings/') || call.route.startsWith('/api/host/skills?id='))).toBe(true);
     for (const params of [{ _token: 'synthetic-test-token', settings: { result_notice: false } }, { scope: 'project', settings: { result_notice: false } }]) {
       const rejected = await fetch(base + '/api/host/settings/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'system.configure', params }) });
       expect(rejected.status).toBeGreaterThanOrEqual(400);
@@ -83,6 +157,29 @@ test('Skills restores confirmed state after failed save, rereads before editing,
     pending.resolve(await world.fetchImpl('/api/host/settings/action', { method: 'POST', body: JSON.stringify({ method: 'system.configure', params: { settings: { result_notice: false } } }) }));
     await saving; expect(dom.node('detail').children[0]).toBe(next);
     mode = 'normal'; await openSkills(); expect(switchFor(dom, 'result_notice').checked).toBe(false);
+  } finally { dom.restore(); }
+});
+
+test('refresh replaces source ownership and malformed source replies require an explicit retry', async () => {
+  const world = makeWorld(), held = gate(); let mode = 'held';
+  const raw = { version: 1, id: 'progress', entry: '---\nentry\n---\n', guide: '# complete guide\n' };
+  const dom = installDom({ fetch: (route, options) => {
+    if (String(route).startsWith('/api/host/skills?')) {
+      if (mode === 'held') return held.promise;
+      return Promise.resolve(Response.json(mode === 'malformed' ? { ...raw, id: 'context' } : raw));
+    }
+    return world.fetchImpl(route, options);
+  } });
+  try {
+    await openSkills(); const old = dom.node('detail').querySelector('.skill-source'); old.open = true;
+    const reading = old.ontoggle(); await refresh(dom).onclick();
+    const current = dom.node('detail').querySelector('.skill-source'); expect(current).not.toBe(old);
+    held.resolve(Response.json(raw)); await reading;
+    expect(old.querySelector('pre')).toBeNull(); expect(current.querySelector('pre')).toBeNull();
+    mode = 'malformed'; current.open = true; await current.ontoggle();
+    expect(deepText(current)).toContain('原文响应不完整'); expect(current.querySelector('pre')).toBeNull();
+    mode = 'normal'; await current.querySelector('button').onclick();
+    expect(current.querySelector('[data-skill-document="entry"]').textContent).toBe(raw.entry);
   } finally { dom.restore(); }
 });
 
