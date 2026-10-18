@@ -47,7 +47,7 @@ function checked(data, task) {
 function receipt(mapping) {
   const box = el('details', undefined, 'lineage-receipt');
   box.dataset.delivery = String(mapping.delivery_id);
-  box.append(el('summary', `交付 Event ${mapping.delivery_id} · ${short(mapping.source_commit)} ${mapping.delivery_available ? '→' : '/'} ${mapping.commit ? `${mapping.delivery_available ? '' : '未核验落点 '}${short(mapping.commit)}` : '无可信落点'} · ${text(mapping.delivered_at)}${mapping.delivery_available ? '' : ` · 不可追溯：${text(mapping.delivery_unavailable_reason)}`}`),
+  box.append(el('summary', `${mapping.delivery_available ? '交付到父轨' : '交付不可追溯'} · ${short(mapping.source_commit)} ${mapping.delivery_available ? '→' : '/'} ${mapping.commit ? `${mapping.delivery_available ? '' : '未核验落点 '}${short(mapping.commit)}` : '无可信落点'}${mapping.delivery_available ? '' : ` · ${text(mapping.delivery_unavailable_reason)}`}`),
     el('time', text(mapping.delivered_at), 'version-metadata'));
   if (!mapping.delivery_available) box.append(el('p', text(mapping.delivery_unavailable_reason), 'versions-error'));
   box.append(el('p', '持久 Event 收据映射，不是 Git parents。', 'hint'),
@@ -62,7 +62,11 @@ export function createWorkerLineage(task, isMounted) {
   const ownerDocument = document, boot = ui.workerNumbers, project = projectApi('/api/'), view = ui.view;
   const root = el('section', undefined, 'worker-versions versions-page lineage-page'); root.dataset.workerId = String(task.id);
   const title = el('div', undefined, 'section-title'); title.append(el('h2', '版本迭代'));
-  const scope = el('h3', `Worker ${workerLabel(task)} · 完整来源链`, 'versions-scope');
+  const overview = el('div', undefined, 'lineage-overview'); overview.hidden = true;
+  const legend = el('div', undefined, 'lineage-legend');
+  for (const [kind, label] of [['git', '实线：Git 父边'], ['delivery', '虚线箭头：交付映射'], ['parent', '点线：父侧历史省略']]) {
+    legend.append(el('span', label, `lineage-legend-${kind}`));
+  }
   const feedback = el('span', '滚入后读取已提交来源链，每段最多 30 个自身 commit。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
   const tip = el('p', undefined, 'version-tip hint');
   const tracks = el('div', undefined, 'lineage-tracks');
@@ -101,19 +105,25 @@ export function createWorkerLineage(task, isMounted) {
   };
   function commitCard(commit, origin = false) {
     const card = el('div', undefined, `lineage-card ${origin ? 'lineage-anchor' : 'lineage-source'}`); card.dataset.commit = commit.commit;
-    const marker = button(origin ? '◇' : '●', () => loadCommit(commit, card), 'lineage-node');
+    const marker = button('', () => loadCommit(commit, card), 'lineage-node');
+    marker.append(el('span', origin ? '◇' : '●', 'lineage-node-symbol'));
     marker.setAttribute('aria-label', `查看${origin ? '引出点' : '提交'} ${short(commit.commit)} 的详情`);
     marker.setAttribute('data-help', '按需读取这个固定来源节点的完整提交消息、作者与关联输入，不调用 Agent。');
     marker.id = `lineage-node-${task.id}-${commit.commit}`;
     if (origin) marker.classList.add('lineage-parent-node');
     marker.setAttribute('aria-controls', panel.id); marker.setAttribute('aria-expanded', 'false');
     const body = el('div', undefined, 'lineage-body');
-    body.append(el('span', origin ? '引出点' : '自身提交', 'lineage-kind'), el('h4', text(commit.subject, '（无摘要）')),
-      el('code', short(commit.commit), 'version-short-sha'));
-    const time = el('time', text(commit.committed_at).replace('T', ' ').slice(0, 16), 'version-metadata');
+    const heading = el('div', undefined, 'lineage-node-heading');
+    heading.append(el('span', origin ? '从父轨分出' : '自身提交', 'lineage-kind'), el('code', short(commit.commit), 'version-short-sha'));
+    body.append(heading, el('h4', text(commit.subject, '（无摘要）')));
+    const metadata = el('div', undefined, 'version-metadata');
+    const time = el('time', text(commit.committed_at).replace('T', ' ').slice(0, 16));
     if (commit.committed_at) time.setAttribute('datetime', commit.committed_at);
-    body.append(time);
-    for (const association of commit.association === 'verified' ? commit.tasks || [] : []) body.append(workerLink(association));
+    metadata.append(time);
+    for (const association of commit.association === 'verified' ? commit.tasks || [] : []) {
+      if (association.id !== task.id) metadata.append(workerLink(association));
+    }
+    body.append(metadata);
     const rail = el('div', undefined, `lineage-rail ${origin ? 'lineage-parent' : 'lineage-worker'}`);
     rail.append(marker); card.append(rail, body); return card;
   }
@@ -121,23 +131,37 @@ export function createWorkerLineage(task, isMounted) {
     displayed = data; index = pageIndex;
     const model = versionLineageLayout(data);
     tracks.replaceChildren(workerLink(data.parent), workerLink(data.worker));
+    const verified = data.deliveries.filter(m => m.delivery_available);
+    const latest = [...verified].sort((a, b) => b.delivery_id - a.delivery_id)[0];
+    const from = el('p'); from.append(el('strong', '从哪里分出 '), workerLink(data.parent), el('code', short(data.origin.commit)));
+    const to = el('p');
+    if (latest) to.append(el('strong', '本段最近交付 '), el('code', short(latest.source_commit)), el('span', ' → '), workerLink(data.parent), el('code', short(latest.commit)));
+    else to.append(el('span', '本段没有已核验的交付落点；不代表其他分段没有交付。'));
+    overview.replaceChildren(from, to); overview.hidden = false;
     tip.textContent = `固定 tip ${short(data.tip)} · ${data.tip_evidence === 'delivery.source' ? `分支已回收／不可用，来源取自交付 Event ${data.tip_delivery_id}` : '分支已提交快照（不含未提交改动）'}`;
-    const rows = [], sources = new Map(), targets = new Map(), cells = new Map();
+    const rows = [], sources = new Map(), targets = new Map();
     const renderRow = row => {
       const item = el('li', undefined, `lineage-row${row.origin ? ' lineage-origin' : ''}`);
       const card = commitCard(row.commit, row.origin), marker = card.querySelector('.lineage-node');
       const source = card.querySelector('.lineage-body');
       item.append(card); sources.set(row.commit.commit, marker);
       if (row.origin) targets.set(row.commit.commit, marker);
-      cells.set(row.commit.commit, card.querySelector('.lineage-rail'));
+      if (row.deliveries.some(mapping => mapping.delivery_available)) {
+        card.classList.add('lineage-delivery-source');
+        if (!row.origin) card.querySelector('.lineage-kind').textContent = '交付源';
+      }
+      if (row.commit.commit === data.tip) card.querySelector('.lineage-node-heading').append(el('span', '快照末端', 'lineage-tip-badge'));
       for (const landing of row.landings) {
         const anchor = el('div', undefined, 'lineage-card lineage-anchor lineage-landing'); anchor.dataset.landing = landing;
         const body = el('div', undefined, 'lineage-body');
-        body.append(el('span', '父侧落点', 'lineage-kind'), el('h4', '交付锚点'), el('code', short(landing), 'version-short-sha'));
+        const heading = el('div', undefined, 'lineage-node-heading');
+        heading.append(el('span', '父侧落点', 'lineage-kind'), el('code', short(landing), 'version-short-sha'));
+        const name = el('h4', '交付到 '); name.append(workerLink(data.parent)); body.append(heading, name);
         const receipts = data.deliveries.filter(m => m.delivery_available && m.commit === landing);
-        for (const mapping of receipts) body.append(el('p', `Event ${mapping.delivery_id} · 来源 ${short(mapping.source_commit)}`, 'version-metadata'));
-        const details = el('details', undefined, 'lineage-landing-receipts'); details.append(el('summary', '查看落点映射收据'), ...receipts.map(receipt)); body.append(details);
-        const marker = el('span', '□', 'lineage-anchor-dot lineage-parent-node'); marker.id = `lineage-parent-${task.id}-${landing}`;
+        const from = [...new Set(receipts.map(mapping => short(mapping.source_commit)))];
+        body.append(el('p', `来源 ${from.join('、')}`, 'version-metadata'));
+        const details = el('details', undefined, 'lineage-landing-receipts'); details.append(el('summary', `查看交付收据（${receipts.length}）`), ...receipts.map(receipt)); body.append(details);
+        const marker = el('span', undefined, 'lineage-anchor-dot lineage-parent-node'); marker.append(el('span', '□', 'lineage-node-symbol')); marker.id = `lineage-parent-${task.id}-${landing}`;
         const rail = el('div', undefined, 'lineage-rail lineage-parent'); rail.append(marker);
         targets.set(landing, marker); anchor.append(rail, body); item.append(anchor);
       }
@@ -164,10 +188,7 @@ export function createWorkerLineage(task, isMounted) {
     }
     for (const row of model.rows) rows.push(renderRow(row));
     list.replaceChildren(prior, ...rows);
-    mappingLines.present(model, sources, targets, cells);
-    // Parent progression is omitted external history, never asserted Git adjacency.
-    const lastAnchor = rows.findLastIndex(row => row.querySelector('.lineage-anchor'));
-    rows.forEach((row, i) => { if (i < lastAnchor) row.classList.add('lineage-parent-omitted'); });
+    mappingLines.present(model, sources, targets);
     const unknown = new Map(data.untraceable_deliveries.map(m => [m.delivery_id, m]));
     unavailable.replaceChildren(el('h4', `不可追溯交付 · ${unknown.size}`), ...[...unknown.values()].map(receipt)); unavailable.hidden = !unknown.size;
     status(`第 ${index + 1} 页 · 本段从上到下旧到新 · ${data.commits.length} 个自身 commit${data.has_more ? '；尚有更早分段，创建起点到本段之间省略。' : '；已到创建起点。'}${index > 0 ? ' 本段之后还有较新版本。' : ''}`);
@@ -239,12 +260,16 @@ export function createWorkerLineage(task, isMounted) {
   const newer = button('较新版本', () => load(index - 1), 'ghost versions-newer');
   const older = button('较早版本', () => load(index + 1), 'ghost versions-more');
   const controls = el('div', undefined, 'versions-controls'); controls.append(refresh, retry);
+  const toolbar = el('div', undefined, 'lineage-toolbar'); toolbar.append(tracks, controls);
+  const technical = el('details', undefined, 'lineage-technical');
+  technical.append(el('summary', '图范围与快照说明'), tip,
+    el('p', '自身提交从上到下旧到新。父侧只显示引出点与交付锚点，点线省略外部历史，不证明落点之间的 Git 相邻关系。交付虚线依据已核验 Event，不是 Git merge 父边。', 'hint'));
+  legend.append(el('span', '旧 → 新（向下）', 'lineage-direction'));
   const paging = el('nav', undefined, 'versions-footer'); paging.setAttribute('aria-label', '来源图分段分页');
   for (const control of [newer, older]) {
     const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', '每段最多 30 个自身提交，固定首屏快照；没有对应页或读取中不可切换。'); host.append(control); paging.append(host);
   }
-  root.append(title, scope, el('p', '父轨左 · 当前 Worker 右 · 从上到下旧到新。实线只表示真实 Git 父边；父轨虚线省略外部历史，交付 Event 单独映射。', 'hint'),
-    start, controls, feedback, tip, tracks, canvas, unavailable, panel, paging);
+  root.append(title, overview, toolbar, legend, start, feedback, canvas, unavailable, technical, panel, paging);
   module = enhanceVersionModule(root, feedback);
   sync();
   if (typeof IntersectionObserver === 'function') {
