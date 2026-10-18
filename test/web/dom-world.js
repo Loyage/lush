@@ -1,3 +1,4 @@
+import { listCapabilityGuides } from '../../src/agent/capabilities.js';
 import { DEVICE_PREF_NAMES, PREF_DEFS } from '../../src/ui/web/assets/prefs.js';
 
 export const NOW = Date.now();
@@ -77,6 +78,7 @@ export function makeWorld() {
     currentBranch: 'main',
     // 运行设置：system.status.settings 的镜像；/api/action 的 system.configure 改写它。
     runtimeSettings: {
+      builtin_skills: listCapabilityGuides(),
       file: '/tmp/demo/.lush/settings.json',
       call_timeout: { value: 900, default: 900, overridden: false },
       task_call_limit: { value: 24, default: 24, overridden: false },

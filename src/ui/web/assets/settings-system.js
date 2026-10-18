@@ -78,64 +78,10 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
 }
 
 
-// These settings describe Lush's built-in guidance, not third-party Pi resources or RPC permissions.
-const CAPABILITY_FIELDS = [
-  { key: 'progress_reporting', label: '启用进度汇报', note: '指导里程碑计划与完成上报；关闭后不再显示进度指引，已有记录保留。' },
-  { key: 'worker_delegation', label: '启用子 Worker 委派', note: '指导子 Worker 创建、分工与非阻塞协调；关闭不取消已有子 Worker。' },
-  { key: 'worker_auto_title', label: '启用自动标题', note: '指导当前指令和子 Worker 生成一次性标题；关闭不修改已有标题。' },
-  { key: 'context_retrieval', label: '启用上下文检索', note: '提供 Worker 摘要、历史与执行记录的按需检索指南；关闭不删除历史。' },
-  { key: 'result_notice', label: '启用结果告知', note: '任务仅分析或用户明确要求完成提醒时，指导 Agent 主动发布结果告知；与 runtime 自动提醒独立，可能收到两条。关闭不删除历史。' },
-];
-
-function capabilityEditor(runtime, client, ownsPage, invalidate) {
-  const box = block('Agent 能力');
-  const feedback = el('p', '', 'settings-note'); feedback.hidden = true;
-  feedback.setAttribute('role', 'status'); feedback.dataset.capabilityStatus = '';
-  const inputs = [], hosts = [];
-  box.append(el('p', '所有项目后续调用统一加载已开启能力的轻量入口，并按需读取 Skill 指南。关闭仅控制注入及主动使用，不是权限隔离；CLI / API 权限不变，当前调用与已有子 Worker 继续，安全与交付边界始终保留。保存不会立即调用 Agent。', 'settings-note'));
-  for (const spec of CAPABILITY_FIELDS) {
-    const enabled = runtime[spec.key]?.value !== false;
-    const input = el('input'); input.type = 'checkbox'; input.checked = enabled; input.dataset.runtimeInput = spec.key;
-    input.setAttribute('aria-label', spec.label);
-    const host = el('span', undefined, 'help-host'); host.append(input);
-    host.setAttribute('data-help', `${spec.label}只影响所有项目后续调用的能力指南；不立即调用 Agent。`);
-    box.append(row(spec.label, spec.note, host)); inputs.push(input); hosts.push(host);
-    input.onchange = () => save({ [spec.key]: input.checked });
-  }
-  const reset = button('恢复能力默认', () => save(Object.fromEntries(CAPABILITY_FIELDS.map(spec => [spec.key, null]))), 'ghost',
-    { help: '清除全部能力开关的设备覆盖，恢复全部开启；保留历史，不中断当前调用或立即调用 Agent。' });
-  reset.dataset.capabilityReset = '';
-  const resetHost = el('span', undefined, 'help-host'); resetHost.append(reset);
-  box.append(resetHost, feedback);
-  let saving = false;
-  async function save(patch) {
-    if (!ownsPage() || saving) return;
-    saving = true; feedback.hidden = true;
-    for (const [index, input] of inputs.entries()) {
-      input.disabled = true; hosts[index].setAttribute('data-help', '正在保存设备能力设置；完成后可继续编辑。');
-    }
-    reset.disabled = true; resetHost.setAttribute('data-help', '正在保存设备能力设置；完成后可恢复默认。');
-    try {
-      const saved = await client.action('system.configure', { settings: patch });
-      if (!ownsPage()) { invalidate(); return; }
-      for (const [index, spec] of CAPABILITY_FIELDS.entries()) {
-        runtime[spec.key] = saved[spec.key]; inputs[index].checked = saved[spec.key]?.value !== false;
-      }
-      feedback.className = 'settings-note'; feedback.setAttribute('role', 'status');
-      feedback.textContent = '能力设置已保存；所有项目后续调用生效，当前调用与已有子 Worker 不受影响。'; feedback.hidden = false;
-    } catch (failure) {
-      if (!ownsPage()) return;
-      for (const [index, spec] of CAPABILITY_FIELDS.entries()) inputs[index].checked = runtime[spec.key]?.value !== false;
-      feedback.className = 'settings-error'; feedback.setAttribute('role', 'alert'); feedback.textContent = failure.message; feedback.hidden = false;
-    } finally {
-      saving = false;
-      for (const [index, input] of inputs.entries()) {
-        input.disabled = false;
-        hosts[index].setAttribute('data-help', `${CAPABILITY_FIELDS[index].label}只影响所有项目后续调用的能力指南；不立即调用 Agent。`);
-      }
-      reset.disabled = false; resetHost.removeAttribute('data-help');
-    }
-  }
+function skillsLink() {
+  const box = block('Skills');
+  const link = el('a', '了解与管理 Skills', 'nav-link'); link.href = '/#skills';
+  box.append(el('p', 'Lush 内置 Agent 能力已移至工作台独立页面；设备统一开关在 Skills 页面管理。', 'settings-note'), link);
   return box;
 }
 
@@ -153,13 +99,11 @@ export function createSystemSettings({ isActive }) {
       const limits = block('调用与拆解限额');
       limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, owns),
         row('设置文件', '设备唯一运行设置的保存位置。', el('code', plain(runtime.file), 'settings-path')));
-      const capabilities = capabilityEditor(runtime, client, () => owns() && state.capabilities === capabilities, () => { state.loaded = false; });
-      state.capabilities = capabilities;
       state.network ||= renderNetworkSettings({ ownsPage: owns, scope: 'device' });
       state.migration ||= renderSettingsMigration({ ownsPage: owns, onMigrated: async () => {
         state.loaded = false; const value = await client.read('/api/settings/runtime'); if (owns()) paint(value);
       } });
-      replacePageContent(state.node, scopeSummary(runtime), limits, capabilities, state.network, state.migration,
+      replacePageContent(state.node, scopeSummary(runtime), limits, skillsLink(), state.network, state.migration,
         el('p', '项目运行状态、历史与后台控制在项目工作页管理；本页不会因配置读取启动项目。', 'settings-note'));
       pageBlocks(state.node, 'settings-system', 'fold');
     };

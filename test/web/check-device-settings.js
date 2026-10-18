@@ -43,6 +43,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
+import {openSkills} from '/assets/render-skills.js';window.openSkills=openSkills;
 import {ensureProject} from '/assets/project-picker.js';import {openSettings} from '/assets/render-settings.js';await ensureProject();window.ensureProject=ensureProject;window.openSystem=async()=>{openSettings();return document.querySelector('[data-settings-tab=system]').onclick()};window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
 </script></body></html>`;
 let server, driver, session, base, passed = false, diagnosisFails = false, noProjectMode = false;
@@ -130,7 +131,7 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
   async function layout(name, width) {
-    const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
+    const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view,.skills-page');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
     assert(result.page<=1 && result.root<=1 && result.controls && result.noScope, `Device layout ${name}: ${JSON.stringify(result)}`);
     await screenshot(name);
   }
@@ -160,7 +161,11 @@ try {
     await execute('return window.openSystem()'); await waitFor('document.querySelector("[data-runtime-input=call_timeout]")');
     assert(await execute(`return [...document.querySelectorAll('.settings-scope-pane>.block')].every(n=>n.classList.contains('module-fold')&&!n.classList.contains('module-preview'));`), 'runtime forms are not explicit folds');
     assert(await execute(`return !document.querySelector('[data-runtime-input="concurrency"],[data-runtime-input="control_concurrency"]') && !document.querySelector('.settings-view').textContent.includes('并发额度')`), 'Removed concurrency settings remain visible');
-    assert(await execute(`return ${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n?.type==='checkbox'&&n.getAttribute('aria-label')?.startsWith('启用')}) && document.querySelector('.settings-view').textContent.includes('不是权限隔离')`), 'Capability switches or their effect explanation are missing');
+    assert(await execute(`return !document.querySelector('[data-runtime-input="progress_reporting"]')&&document.querySelector('a[href="/#skills"]')`),'System settings still duplicates Skills controls');
+    await layout(`runtime-${theme}-${width}`,width);
+    await execute('return window.openSkills()'); await waitFor('document.querySelectorAll(".skill-card").length===5');
+    assert(await execute(`return [...document.querySelectorAll('.skill-details')].every(n=>!n.open)`), 'Skill details are not collapsed by default');
+    assert(await execute(`return ${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n?.type==='checkbox'&&n.getAttribute('aria-label')?.startsWith('启用')}) && document.querySelector('.skills-page').textContent.includes('不是权限隔离')`), 'Capability switches or their effect explanation are missing');
     const previous = await execute(`const n=document.querySelector('[data-runtime-input=progress_reporting]');n.focus();return n.checked`);
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: ' ' }, { type: 'keyUp', value: ' ' }] }] });
     await waitFor('document.querySelector("[data-capability-status]")?.textContent.includes("能力设置已保存") && !document.querySelector("[data-runtime-input=progress_reporting]").disabled');
@@ -168,15 +173,15 @@ try {
     const write = capabilityWrites.at(-1);
     assert(write.method==='system.configure' && write.params.scope==='device' && JSON.stringify(write.params.settings)===JSON.stringify({progress_reporting:!previous}), 'Capability save is not a fixed device partial patch');
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE004' }, { type: 'keyUp', value: '\uE004' }] }] });
-    assert(await execute(`return document.activeElement?.dataset.runtimeInput==='worker_delegation'`), 'Capability keyboard Tab order is broken');
+    assert(await execute(`return document.activeElement?.tagName==='SUMMARY'`), 'Skill detail is not keyboard reachable');
     await click('[data-capability-reset]'); await waitFor(`${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n.checked&&!n.disabled})`);
     assert(JSON.stringify(capabilityWrites.at(-1).params.settings)===JSON.stringify(Object.fromEntries(capabilityKeys.map(key=>[key,null]))), 'Capability restoration did not reset all keys');
-    await layout(`runtime-${theme}-${width}`,width);
+    await layout(`skills-${theme}-${width}`,width);
     console.log(`PASS device-only source/Agent/runtime and all capability switches with keyboard save/reset Firefox ${theme}/${width}`);
   }
   await fetch(`http://127.0.0.1:${server.port}/test/mode?global=true`,{method:'POST'});
   calls.length=0; await execute('return window.ensureProject()');
-  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['runtime','openSystem','[data-runtime-input=call_timeout]']]) {
+  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['runtime','openSystem','[data-runtime-input=call_timeout]'],['skills','openSkills','.skill-card']]) {
     await execute(`return window.${entry}()`); await waitFor(`document.querySelector('${ready}')`);
     assert(await execute(`return !document.querySelector('[data-settings-scope]') && !document.querySelector('.legacy-usage-history,.agent-connection-consumers,[data-service-restart="project"]') && [...document.querySelectorAll('[data-migration-action="preview"],[data-migration-action="apply"]')].every(n=>n.disabled)`), `No-project boundary ${name}`);
     await layout(`host-${name}`,320);

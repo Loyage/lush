@@ -39,7 +39,7 @@ export function renderSettings() {
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '设备设置'),
-    el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、模型来源与快捷解释各有独立设备页面。', 'hint'));
+    el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、Skills 与模型来源各有独立设备页面。', 'hint'));
   head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceSettings.render() : systemSettings.render());
   if (activeTab === 'interface') pageBlocks(view.querySelector('.settings-tab-panel'), 'settings-interface', 'fold');

@@ -80,6 +80,7 @@ async function openPage(load, open, view, options = {}) {
 const openCliInterfaces = () => openPage(() => import('./render-valet-settings.js'), module => module.openCliInterfaces({ registerPageLeaveGuard }), 'cli-interfaces');
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
+const openSkills = () => openPage(() => import('./render-skills.js'), module => module.openSkills(), 'skills');
 const openVersionsRedirect = () => openPage(() => import('./retired-pages.js'), module => module.openLegacyVersions(), 'version-redirect', { push: false, hash: '#versions' });
 const openHooks = (feature = null, subpage = 'settings') => openPage(() => import('./render-project-automation.js'), module => module.openProjectAutomation({ feature, subpage }), 'hooks', { hash: !feature ? '#hooks' : ['completion', 'push', 'convergence', 'acceptance_notice'].includes(feature) ? `#hooks-${feature}` : `#hooks-feature-${encodeURIComponent(feature)}` });
 
@@ -110,7 +111,7 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'nav-link'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'nav-link nav-back'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
+const deviceHash = hash => /^#(?:settings|skills|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
@@ -136,6 +137,7 @@ function openHashTarget(hash, project, doc, generation) {
     if (hash === '#project-management') return openProjectManager({ push: false });
     if (hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
     if (hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
+    if (hash === '#skills') return ui.view?.id === 'skills' ? undefined : openSkills();
     if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
     const source = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(hash);
     if (source) return openSources(source[1]);
@@ -218,6 +220,7 @@ function initGlobalNavigation() {
   workspaceLink('cli-interfaces-open', '#cli-interfaces', openCliInterfaces);
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
+  workspaceLink('skills-open', '#skills', openSkills);
   workspaceLink('model-sources-open', '#model-sources', () => openSources());
   workspaceLink('docs-open', '#docs', () => openDocsView());
 }

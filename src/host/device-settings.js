@@ -4,6 +4,7 @@ import { check, isPlainObject } from '../core/types.js';
 import { RuntimeSettings, RUNTIME_SETTINGS_LIMITS, RUNTIME_SETTINGS_KEYS } from '../core/settings.js';
 import { configurationScope, validateConfigurationDirectory } from '../core/device-config.js';
 import { AgentSettings } from '../agent/settings.js';
+import { listCapabilityGuides } from '../agent/capabilities.js';
 import { readAgentEnvironment, saveAgentEnvironment } from '../agent/environment.js';
 import { readNetworkConfiguration, saveNetworkConfiguration } from '../agent/network.js';
 import { ConnectionManager } from '../agent/connections.js';
@@ -68,7 +69,7 @@ export class DeviceSettingsService {
     return { ...value, configuration_scope: this.metadata(['default', 'mixed'].includes(source) ? source : 'device') };
   }
   runtimeView(value) {
-    return this.view({ ...value, ...Object.fromEntries(RUNTIME_SETTINGS_KEYS.map(key =>
+    return this.view({ ...value, builtin_skills: listCapabilityGuides(), ...Object.fromEntries(RUNTIME_SETTINGS_KEYS.map(key =>
       [key, { ...value[key], source: value[key].overridden ? 'device' : 'default' }])) });
   }
   getManager() {

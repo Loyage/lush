@@ -111,7 +111,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
   assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled&&document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'root boot failed');
-  const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
+  const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['skills', 'skills'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null });
     // WebDriver keyboard activation can scroll the outer iframe fixture as well as

@@ -8,19 +8,24 @@ const isolatedRoles = new Set(['manager', 'butler', 'explainer']);
 /** Fixed, code-owned resources, never user paths or a second permission/scheduling system. */
 export const AGENT_CAPABILITIES = Object.freeze([
   { id: 'progress', setting: 'progress_reporting', title: '进度汇报',
-    description: '本轮开始实质工作前加载，汇报有序里程碑并在实际完成后更新。',
+    description: '将工作拆成里程碑，完成步骤后更新进度，方便跟踪执行情况。',
+    effect: '关闭后不再主动汇报里程碑，已有进度记录保留。',
     trigger: '开始实质工作前必须加载；完成步骤时按指南上报。' },
   { id: 'delegation', setting: 'worker_delegation', title: '子 Worker 委派',
-    description: '需要创建子 Worker 或拆分并行工作时加载；复用 Lush 的非阻塞委派与交付。',
+    description: '让 Agent 将合适的工作拆给独立子 Worker，并协调分工与交付。',
+    effect: '关闭后不再主动创建子 Worker；已有子 Worker 的检查、消息与交付仍继续。',
     trigger: '决定创建新子 Worker 前必须加载；已有后代的检查、消息与交付仍遵守核心。' },
   { id: 'auto-title', setting: 'worker_auto_title', title: '自动标题',
-    description: '当前 order/child 尚无自动标题时加载，为自身生成一次简短标题。',
+    description: '为新的指令和子 Worker 生成简短标题，方便识别工作内容。',
+    effect: '关闭后不再主动生成自动标题，不修改已有标题或用户设置的展示标题。',
     trigger: '当前 task_kind 为 order/child 且 auto_title 为空时，理解目标后、结束本轮前必须加载。' },
   { id: 'context', setting: 'context_retrieval', title: '上下文检索',
-    description: '启动上下文不足时加载，有界查询 Worker 摘要、事件和执行记录。',
+    description: '在上下文不足时查阅 Worker 摘要、历史和执行记录，补充必要信息。',
+    effect: '关闭后不再主动使用这份检索指南，不删除历史，也不撤销已有读取权限。',
     trigger: '给定上下文不足、确需补充 Worker 历史或执行记录时加载；不要默认扫描项目历史。' },
   { id: 'result-notice', setting: 'result_notice', title: '结果告知',
-    description: '任务仅分析，或用户明确要求完成后告知时加载；结果就绪后主动发布非阻塞告知。',
+    description: '纯分析任务或你明确要求完成提醒时，主动发布非阻塞结果告知。',
+    effect: '与 runtime 自动提醒独立，可能收到两条；关闭只停止 Agent 主动结果告知，不修改提醒 Hook 或删除历史。',
     trigger: '自己的任务只是分析，或用户明确要求“做好了告诉我”等完成提醒时，必须加载；实际完成后、结束本轮前调用 lushw self notice post --kind info 告知结果，不能只写最终回答。' },
 ].map(entry => Object.freeze({ ...entry, name: `lush-${entry.id}`,
   skill: fileURLToPath(new URL(`./skills/lush-${entry.id}/SKILL.md`, import.meta.url)),
@@ -28,7 +33,8 @@ export const AGENT_CAPABILITIES = Object.freeze([
 
 /** Public built-in metadata only: this does not disclose device settings or effective enablement. */
 export function listCapabilityGuides() {
-  return AGENT_CAPABILITIES.map(({ id, name, title, description, setting }) => ({ id, name, title, description, setting }));
+  return AGENT_CAPABILITIES.map(({ id, name, title, description, setting, trigger, effect }) =>
+    ({ id, name, title, description, setting, trigger, effect }));
 }
 
 export function capabilityGuide(id) {

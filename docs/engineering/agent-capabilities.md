@@ -26,6 +26,8 @@
 - `result-notice` 按实际任务目标识别纯分析（含普通 order/child 与只读 analysis），或用户明确要求完成提醒；结果实际就绪后主动调用 `lushw self notice post`（`context.notice`）的 info 模式。普通进度、等待与中途安全停止不触发；不以问卷代替告知，不把告知当合并或验收，失败／未知不得伪报送达。完整流程由固定指南维护，发布参数见 [Notice 契约](../reference/rpc/notices.md)。
 - 同一 invocation 的入口和资源参数来自同一设置快照，避免两次读取跨设置更新造成不一致。`agentPrompt` 返回 `capabilities` 安全状态及 `builtin_skills` 路径快照，provider 不再重读开关。`builtInPrompt(role,{progressReporting?,capabilities?,taskKind?})` 为配置预览使用同一注册表。原 `PROMPT_PARTS` 为兼容保留导出，实际注入不使用长进度／标题片段。
 
-## 全局设置界面
+## 工作台 Skills 页面
 
-全局设置的系统页提供一个“Agent 能力”分组，各能力的独立开关。保持旧进度输入标识兼容；每项解释能力及后续调用生效，整体说明已有子 Worker 和当前调用不受影响、不是权限隔离。通过 Host settingsClient 保存 partial patch，无项目及离线可配置，失败恢复真实已保存状态，迟到回复不抢回页面，不把保存配置标成立即调用 Agent。
+用户工作台侧栏的 `#skills` 独立页面管理 Lush 内置 Skills，系统设置只保留跳转入口，不重复维护开关。默认卡片展示用途、已确认状态与直接保存开关；“使用说明”按需展开适用时机及关闭影响。窄屏单列，保留旧进度输入标识兼容，不安装或管理第三方 Skills。
+
+Host 的现有 runtime 读模型与 configure ACK 附加 `builtin_skills`，由 `listCapabilityGuides()` 同源投影公开元数据（含 trigger/effect，不含磁盘路径），前端不另存能力或设置键清单。缺少元数据／布尔状态时提示更新 Host，不猜测开启状态。通过 Host settingsClient 保存设备 partial patch，无项目及项目离线可配置；保存中单飞，失败恢复上次确认状态并要求重新读取核对，迟到回复不抢回页面。统一说明后续调用生效、当前调用及已有子 Worker 不受影响、不是权限隔离，保存不立即调用 Agent。

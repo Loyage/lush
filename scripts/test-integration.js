@@ -18,6 +18,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
+    'test/web/skills-page-integration.test.js', // Skills -> authenticated Host/device writer -> next invocation snapshot; failures and late replies
     'test/web/dom-valet-append-api.test.js', // settled Valet detail -> authenticated HTTP/RPC -> fresh serial occurrence; busy rejection retains input
     'test/web/force-acceptance-page.test.js', // shared control -> authenticated HTTP -> exact terminal-receipt confirmation/reclamation
     'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
