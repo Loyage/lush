@@ -17,7 +17,7 @@
 
 - 直接路径 `{content,references?,branch?,mode?:'order'|'append',target_id?,conditions?,exclusive?,profile?,client_request_id?}`。
 - 版本草稿路径 `{draft_id,expected_revision,profile?,client_request_id?}`；正文、模式、条件和目标从草稿取，不允许覆盖。
-- 返回 `{emitted:true,draft_id,mode,parent_id?,target_id?,dispatch}`，不保证有 `task`。`dispatch` 安全读面至少 `{state,reason?,input_id?,worker_id?,worker_number?,message_id?}`；state 为 `waiting_conditions|queued|dispatching|succeeded|failed|unknown|cancelled`。发射确认只表示挂载成功，不能显示“已创建/已开始”。
+- 返回 `{emitted:true,draft_id,draft_number,mode,parent_id?,target_id?,dispatch}`，不保证有 `task`。`dispatch` 安全读面至少 `{state,reason?,input_id?,worker_id?,worker_number?,message_id?}`；state 为 `waiting_conditions|queued|dispatching|succeeded|failed|unknown|cancelled`。发射确认只表示挂载成功，不能显示“已创建/已开始”；草稿展示号与内部身份的区别见[历史输入接口](input-history.md#写面与并发保护)。
 - 新提交即使可立即创建也先给持久挂载收据，由 runtime 异步推进；重复请求、断连重试必须按 `client_request_id` 和版本去重。
 - `draft.add/update` 扩展 `{mode?,target_id?,conditions?,exclusive?}`，旧调用省略保持 order；旧方法可增加末位 options，不破坏现有内部调用。读取 `input.get/history` 的 draft 项提供 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 安全字段。挂载中不能编辑/删除；增加 `input.emission_cancel {draft_id,expected_revision}` -> `cancelInputEmission(draftId,revision)`，仅撤销尚未执行的意图/条件 Hook。已开始未知不能盲目解除或重放。
 - 条件 JSON：`[{kind:'worker_settled',worker_id:整数},{kind:'worker_merged',worker_id:整数},{kind:'parent_quiet'}]`，最多 16 项，无脚本。worker_merged 明确是本轮成果到 main，不把 child 到直接父的合并等同 main。exclusive 为 boolean，仅 order，隐含 parent_quiet；append 不提供独占。

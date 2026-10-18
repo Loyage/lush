@@ -26,7 +26,7 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 
 历史／详情中的 Input 和 Message 另带 `source_draft_id:正整数|null`，只返回唯一、明确的持久关联，供定位 `input.get {kind:'draft',id}` 的条件／独占收据：普通 Input 使用 order 草稿的 `input_id`；手动容器经 append 草稿提交首条 Input 时，须同时证明当前 Input/Worker 互相归属、草稿 `input_id`、整数目标与成功 `emission.input_id/worker_id` 一致，并有同 Worker 的首条用户输入 Event 及同 draft/dispatch 的成功发射 Event；不能退回普通 order 弱关联，也不按正文／时间猜测。缺失、篡改、类型不符或多个有效来源均返回 null。Message 使用 append 草稿的整数 `emission.message_id`、整数目标 `input_options.target_id`，若有 `emission.worker_id` 也须一致。关联歧义、类型或目标不符均保守 null，绝不按正文、时间或顺序猜测；其它 kind 此字段为 null。成功发射的 order／append 草稿仍可按原 draft ID 获取收据，已转换且没有发射收据的旧 order 草稿保持原先不可读取边界。冻结缓冲的可信用户 Message 已真实入箱，归历史而非草稿；这不表示 Agent 已收到或处理，投递状态仍由原消息／调用读面证明。
 
-条目包含 `kind`、`id`、`mode`、`append_number`（非 Message 为 null）、`source_draft_id`、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`，草稿还返回 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 和兼容 `hook_mount:{parent_id,hook_id,state}|null`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
+条目包含 `kind`、`id`、`mode`、`draft_number`（非草稿为 null）、`append_number`（非 Message 为 null）、`source_draft_id`、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`，草稿还返回 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 和兼容 `hook_mount:{parent_id,hook_id,state}|null`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
 
 `status` 是历史页的只读投影：`draft`、`created`、`queued`、`running`、`waiting`、`awaiting`、`paused`、`awaiting_acceptance`、`completed`、`failed`、`cancelled`、`unknown`，以及挂载草稿的 `waiting_conditions|emitted|sent|emission_failed|unknown_dispatch`。`created` 区分从未调用 Agent 的 paused Worker；同时检查本轮调用数、终身唤醒数与 Run 记录，避免重试清零 calls 后误报待开始。不会反写 Worker 状态。
 
@@ -45,6 +45,8 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 | `input.emission_cancel` / `input.exclusive_release` | `{draft_id,expected_revision}`：分别撤销未执行授权或释放已经持有的独占意愿，不取消已创建工作 |
 
 这些动作通过 `POST /api/action` 的窄白名单调用，不恢复 `input.submit` 或旧 `draft.commit`。`order.submit` 缺省及 `start:true` 同样是持久挂载；显式 `start:false` 保留旧仅创建路径。完整直接参数、条件上限及收据见[条件发射](conditional-emission.md)。
+
+D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手动暂存／更新结果和发射收据均返回正整数或 null。只有主动 `draft.add` 暂存的新草稿从独立单调计数分配；直接 `input.emit`／`order.submit` 正文路径产生的内部发射草稿不占号。`drafts.draft_number` 为兼容新增 nullable INTEGER，`meta.draft_number_high` 在同一事务保存高水位，删除、发送、重启后均不复用号码；更新／发射原草稿保留原号。旧行保持 null，不回填、不改号；全部内部 ID、URL、RPC 参数、条件信号、源草稿关系和历史记录仍用原身份。Web 编号通过 `draft-label.js` 的 `draftLabel(record)` 统一显示：有号为「草稿 #N」，无号为「草稿记录 #内部ID」；仅有 `source_draft_id` 的链接称「提交草稿」，不把内部 ID 猜成展示号。计数分配区别仅在私有创建路径，不新增可让调用方控制编号的 RPC 参数。
 
 新草稿 revision 从 1 递增。更新、删除与发射必须显式携带 `expected_revision`；旧草稿用显式 `null` 匹配尚无版本的历史行，不能省略字段绕过校验。旧草稿没有父身份时，先选择父 Worker 并保存，再发射。历史行不批量回填或改写。
 
@@ -73,6 +75,8 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 `openInputs({section?:'history'|'drafts',item?:{kind,id},push?:boolean})` 复用编辑器但不混合页面身份：`#inputs` 属于 `ui.view.id='inputs'`，`#drafts` 和 `#input-draft-<id>` 属于 `drafts`；Input／Message／management 原文深链接归历史。旧条件提交 hash 转至草稿。同页往返保留查询、分页、滚动和本地编辑；追加深链接同步分类，分类变化使旧查询和分页失效；离页未保存编辑须确认，迟到读响应不能重开旧详情。版本冲突仍须先保留本地修改，再刷新读取。
 
 主输入面板默认收起，导航只收起、不取消绑定的追加目标；详情页读取只可刷新同一目标，不能用另一 Worker 的状态替换编辑归属。模式、目标及恢复草稿的身份分别隔离编辑内容。W330／D692：收起与切换时经 `composer-cache.js`／`prefs.js` 项目作用域存储自动保存浏览器编辑快照（正文、引用、设置、位置及续写身份），不调用服务器暂存接口。W338／D706：v2 快照保留同目标多条编辑与各去向的最近选择，旧 v1 去向键只按当前项目发现，不删除旧快照；v2 存在后不重新加载已消费的旧编辑。菜单按模式投影同一批未完成编辑，具体条目恢复精确 key 而非只恢复默认去向。缓存的 Worker 简介仅作定位显示，刷新后恢复追加须经既有 `GET /api/worker/:id` 重新核验目标，读取失败或身份不匹配保持禁用与原文，迟到响应不能覆盖其他编辑。选择类别即打开默认大输入框；每次从圆形入口菜单选择类别，恢复同项目、模式及目标的自动保存，不将正文改投。保存失败明确提示并保留本页内容。手动暂存或提交成功且无在途新编辑时清空本条编辑与自动恢复，包含更新已恢复草稿；在途新编辑继续绑定已保存版本，授权后的新编辑则脱离原草稿。管理输入也可自动保存到浏览器，但不新增项目草稿或改变回车行为。空框 ↑／↓ 与可见续写按钮共用草稿恢复接缝；方向键仅在空框启动，按列表倒序移动并可返回原空框，正文或引用变更、去向切换及面板收起使本轮游标失效；重复按键复用在途读取，迟到响应不得覆盖编辑。续写通过既有 `input.history {view:'drafts'}` 查完所有分页，按模式与目标匹配可编辑记录，再读取完整详情核验；等待、结果未知、已发送或旧 Hook 占用记录不开放续写。恢复保留原 `id/revision`、去向、引用、条件与独占，保存调用 `draft.update`，授权调用 `input.emit {draft_id,expected_revision}`；版本冲突保留本地内容，不自动覆盖。迟到读取校验编辑身份、请求代次、正文与引用版本；在途新编辑不被旧提交清空，也不继续绑定已授权草稿。
+
+主输入恢复草稿后提供「删除草稿」，经确认调用既有 `draft.remove {id,expected_revision}`；确认与请求共用提交单飞锁，去向／导航变化使尚未发出的确认失效。成功清除该条编辑及 v2 浏览器恢复身份、失效旧续写列表与方向键游标，同步未完成菜单与黄点；同目标其他编辑仍保留。确认或请求期间的新正文／引用／设置保留为脱离原草稿的本地编辑，失败与版本冲突不清空、不自动重试；删除后的列表刷新不纳入删除锁。
 
 主输入框不提供条件配置入口，但恢复已有条件草稿时保留条件摘要与「按条件提交」；Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 同样提交执行授权（内部仍为发射）。独立草稿详情默认展开执行条件，静息／独占高级项及运行参数按需展开；条件输入功能的嵌入编辑器仍默认收起条件表单。通过「执行条件设置」收起或展开，均保留本地设置；入口简要标注已有条件／独占，唯一发射动作按当前配置显示「提交指令／提交追加」或「按条件提交」，调用 `input.emit`，不以 ACK 冒充创建完成。保存按钮比较正文、目标、引用、条件和独占，恢复原值、保存成功后变灰；仅运行参数变动不启用保存。Ctrl/⌘+S 在活动可编辑详情内调用同一保存路径，IME、请求单飞、干净状态和页面身份均受保护；正文撤销／重做也同步保存状态，不新增发射快捷键。
 

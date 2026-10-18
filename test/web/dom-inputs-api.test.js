@@ -8,11 +8,15 @@ const requests = [], reads = [];
 const dom = installDom({ fetch: (url, options) => { reads.push(url); if (options?.body) requests.push(JSON.parse(options.body)); return httpFetch(fixture.url + url, options); } });
 const { resetUiState } = await import('../../src/ui/web/assets/state.js');
 const { initComposer, buffer } = await import('../../src/ui/web/assets/composer.js');
-const { selectComposerMode, resumeComposerDraft, currentEdit, collapseComposer } = await import('../../src/ui/web/assets/composer-workspace.js');
+const { selectComposerMode, resumeComposerDraft, currentEdit, collapseComposer, removeComposerDraft } = await import('../../src/ui/web/assets/composer-workspace.js');
 const { action } = await import('../../src/ui/web/assets/api.js');
 const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 afterAll(() => dom.restore());
+const deleteConfirmed = async () => {
+  const pending = removeComposerDraft(); await until(() => dom.node('modal').querySelector('.modal-confirm'));
+  await dom.node('modal').querySelector('.modal-confirm').click(); await pending;
+};
 
 test('real detail DOM submits an explicit append through HTTP/RPC and returns composer to create mode', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
@@ -30,6 +34,37 @@ test('real detail DOM submits an explicit append through HTTP/RPC and returns co
     const drafts = fixture.store.all('SELECT * FROM drafts'); expect(drafts).toHaveLength(1);
     expect(input.value).toBe(''); expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
+  } finally { restore(); await fixture.close(); }
+});
+
+for (const mode of ['order', 'append']) test(`real composer deletes numbered ${mode} drafts through the registered HTTP action without reusing numbers or deleting inputs`, async () => {
+  fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
+  const restore = registerNavigation({ refresh: async () => {} });
+  try {
+    fixture.project.kick = () => {}; fixture.project.scheduleInputEmissions = () => {}; dom.localStorage.clear(); requests.length = 0;
+    const direct = await action('input.emit', { content: '不占草稿展示号' }, { refresh: false });
+    const worker = mode === 'append' ? (await fixture.project.order('追加去向', 'main', [], null, false)).task : null;
+    const options = worker ? { mode, target_id: worker.id } : { branch: 'main' };
+    const refs = mode === 'order' ? [{ version: 1, kind: 'text', target: {}, label: '附件', quote: '删除关联附件', location: {}, captured_at: '2026-01-01T00:00:00.000Z' }] : [];
+    const saved = await action('draft.add', { content: '待删除草稿', references: refs, ...options }, { refresh: false });
+    expect(saved).toMatchObject({ id: 2, draft_number: 1 });
+    resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer(); selectComposerMode(mode, worker);
+    await dom.node('input').onkeydown({ key: 'ArrowUp', preventDefault() {} });
+    expect(currentEdit().saved.id).toBe(saved.id); expect(dom.node('composer-draft-status').textContent).toContain('草稿 #1');
+    const inputs = fixture.store.all('SELECT * FROM inputs'); requests.length = 0;
+    await deleteConfirmed(); expect(requests).toEqual([{ method: 'draft.remove', params: { id: saved.id, expected_revision: saved.revision } }]);
+    expect(fixture.store.get('SELECT * FROM drafts WHERE id=?', saved.id)).toBeNull();
+    expect(fixture.store.all('SELECT * FROM draft_references WHERE draft_id=?', saved.id)).toEqual([]);
+    expect(fixture.store.draft(direct.draft_id).draft_number).toBeNull(); expect(fixture.store.all('SELECT * FROM inputs')).toEqual(inputs);
+    expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeNull();
+    collapseComposer(); resetUiState(); dom.node('input').value = ''; await initComposer(); selectComposerMode(mode, worker);
+    expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeUndefined();
+    const next = await action('draft.add', { content: '下一个草稿', ...options }, { refresh: false }); expect(next.draft_number).toBe(2);
+    await resumeComposerDraft(); expect(currentEdit().saved.id).toBe(next.id);
+    await action('draft.update', { id: next.id, content: '其他标签更新了版本', expected_revision: next.revision }, { refresh: false });
+    await deleteConfirmed(); expect(fixture.store.draft(next.id).content).toBe('其他标签更新了版本');
+    expect(dom.node('input').value).toBe('下一个草稿'); expect(currentEdit().saved.revision).toBe(next.revision);
+    expect(dom.node('error').textContent).toContain('changed'); expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
   } finally { restore(); await fixture.close(); }
 });
 

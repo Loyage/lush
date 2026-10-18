@@ -2,6 +2,7 @@
 import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { listCapabilityGuides } from '../src/agent/capabilities.js';
 
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
 const output = process.argv[2] || '/tmp/lush-input-pages-browser';
@@ -15,7 +16,7 @@ window.rows=[
  {...base,kind:'input',mode:'order',id:20,task_id:1,status:'awaiting_acceptance',content:'已经发送的工作原文 <img src=x>，记录用户何时对项目作出批示。'},
  {...base,kind:'message',mode:'append',id:21,task_id:1,task_worker_number:'W20',append_number:'A20-1',status:'waiting',content:'已入箱的追加指令，不代表 Agent 已经收到。'},
  {...base,kind:'management',mode:'management',id:22,task_id:22,task_worker_number:'V1',status:'running',content:'管理指令原文'},
- {...base,kind:'draft',mode:'order',id:1,status:'draft',revision:1,content:'未发送工作暂存：调整历史与草稿页面，允许修改执行条件。',conditions:[{kind:'worker_merged',worker_id:17,worker_number:'W17'}],exclusive:false},
+ {...base,kind:'draft',mode:'order',id:1,draft_number:12,status:'draft',revision:1,content:'未发送工作暂存：调整历史与草稿页面，允许修改执行条件。',conditions:[{kind:'worker_merged',worker_id:17,worker_number:'W17'}],exclusive:false},
  {...base,kind:'draft',mode:'order',id:2,status:'unknown_dispatch',revision:1,content:'未知投递授权保留待核验',conditions:[],dispatch:{state:'unknown',reason:'等待核验真实现场',conditions:[]}},
  {...base,kind:'draft',mode:'append',id:3,status:'draft',revision:1,target_id:1,target_worker_number:'W20',content:'追加输入暂存：补充窄屏验证。',conditions:[],exclusive:false}
 ];window.calls=[];window.reads=[];
@@ -32,7 +33,7 @@ window.fetch=async(url,options={})=>{
  if(path==='/api/action'){
   const body=JSON.parse(options.body);window.calls.push(body);const p=body.params,row=window.rows.find(row=>row.kind==='draft'&&row.id===(p.id??p.draft_id));
   if(body.method==='draft.update'){if(p.expected_revision!==row.revision)throw Error('revision conflict');Object.assign(row,p,{revision:row.revision+1});return json(row);}
-  if(body.method==='input.emit'){row.dispatch={state:'waiting_conditions',conditions:row.conditions};return json({emitted:true,draft_id:row.id,revision:row.revision,dispatch:row.dispatch});}
+  if(body.method==='input.emit'){row.dispatch={state:'waiting_conditions',conditions:row.conditions};return json({emitted:true,draft_id:row.id,draft_number:row.draft_number??null,revision:row.revision,dispatch:row.dispatch});}
  }
  return world.fetchImpl(path+route.search,options);
 };
@@ -46,7 +47,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (path === '/') return new Response('<!doctype html><html><body style="margin:0"><iframe id="view" src="/p/aaaaaaaaaaaaaaaa/#inputs" style="width:1440px;height:1000px;border:0;display:block"></iframe></body></html>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/p/aaaaaaaaaaaaaaaa/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
-  if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text()).replace('../../src/ui/web/assets/prefs.js', '/prefs.js'), { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text()).replace('../../src/ui/web/assets/prefs.js', '/prefs.js').replace("import { listCapabilityGuides } from '../../src/agent/capabilities.js';", `const listCapabilityGuides=()=>${JSON.stringify(listCapabilityGuides())};`), { headers: { 'Content-Type': 'text/javascript' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -154,9 +155,10 @@ try {
   const finished=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>document.querySelector('.input-detail').textContent.includes('已投递')?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
   assert(finished,'successful receipt did not refresh');
   await execute("[...document.querySelectorAll('button')].find(node=>node.textContent==='查看已创建原文 O30').click();");
-  const source=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>location.hash==='#input-input-30'&&document.querySelector('.input-detail').textContent.includes('查看提交草稿 #1')?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
+  const source=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>location.hash==='#input-input-30'&&document.querySelector('.input-detail').textContent.includes('查看提交草稿')?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
   assert(source,'actual original must expose source receipt');
-  await execute("[...document.querySelectorAll('button')].find(node=>node.textContent==='查看提交草稿 #1 · 条件与独占').click();");
+  assert(await execute("return !document.querySelector('.input-detail').textContent.includes('提交草稿 #1');"),'source link guessed a display number from an internal id');
+  await execute("[...document.querySelectorAll('button')].find(node=>node.textContent==='查看提交草稿 · 条件与独占').click();");
   await rpc(`/session/${session}/frame`,{id:null});
   const noDuplicate=await frame("await until(()=>win.location.hash==='#input-draft-1');button('← 返回草稿').click();return ![...doc.querySelectorAll('.input-record')].some(node=>node.dataset.input==='draft:1');");
   assert(noDuplicate,'successful source still appears in draft list');

@@ -31,9 +31,11 @@ function addMissingColumns(db) {
     WHERE task_kind='management'`).run();
   // Draft ownership/version are optional on historical rows; never infer or backfill them.
   const draftColumns = new Set(db.query('PRAGMA table_info(drafts)').all().map(row => row.name));
-  for (const column of ['parent_id', 'revision']) {
+  for (const column of ['parent_id', 'revision', 'draft_number']) {
     if (!draftColumns.has(column)) db.query(`ALTER TABLE drafts ADD COLUMN ${column} INTEGER`).run();
   }
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS drafts_display_number ON drafts(draft_number)
+    WHERE draft_number IS NOT NULL`).run();
   db.query(`CREATE INDEX IF NOT EXISTS drafts_emission_pending ON drafts(id)
     WHERE emission IS NOT NULL AND json_extract(emission,'$.state') IN ('waiting_conditions','queued','dispatching')`).run();
   db.query(`CREATE INDEX IF NOT EXISTS drafts_emission_exclusive ON drafts(id)

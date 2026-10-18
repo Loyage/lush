@@ -10,6 +10,7 @@ import { detail, refresh } from './navigate.js';
 import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 import { agentHelp } from './help.js';
+import { draftLabel } from './draft-label.js';
 import { confirmDialog, closeDialog, formDialog } from './dialog.js';
 import { createProfileForm } from './agent-profile-form.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
@@ -380,7 +381,7 @@ async function submitInput(mode) {
       ui.composerManagementResult = result.task || null;
       show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，接口按最新权限执行。`);
     } else if (mode === 'buffer') {
-      show(`已${saved ? '更新' : '暂存为'}草稿 #${result.id}，尚未提交；可在「草稿」继续编辑与设定条件，下次打开不自动加载，未创建 Worker、未调用 Agent。`);
+      show(`已${saved ? '更新' : '暂存为'}${draftLabel(result)}，尚未提交；可在「草稿」继续编辑与设定条件，下次打开不自动加载，未创建 Worker、未调用 Agent。`);
       ui.draftsPage?.added?.();
     } else {
       if (untouched && target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;

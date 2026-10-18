@@ -107,7 +107,7 @@ test('real UI spawn -> waiting -> first Input/O -> draft receipt -> history; lat
   await button(dom.node('detail'), '查看已创建原文 O1').onclick();
   expect(dom.location.hash).toBe('#input-input-1'); expect(deepText(dom.node('detail'))).toContain('first real user instruction');
   const original = await api('/api/input/input/1');
-  const sourceLink = button(dom.node('detail'), `查看提交草稿 #${draftId} · 条件与独占`);
+  const sourceLink = button(dom.node('detail'), '查看提交草稿 · 条件与独占');
   // The append-first association now has exact backend proof; follow it back to the original receipt.
   expect(original.source_draft_id).toBe(draftId);
   expect(sourceLink).toBeDefined();
@@ -140,7 +140,7 @@ test('real non-null Input source_draft_id returns to its exact persisted submiss
   await openInputs({ section: 'drafts', item: { kind: 'draft', id: emission.draft_id } });
   await button(dom.node('detail'), `查看已创建原文 O${original.id}`).onclick();
   expect(dom.location.hash).toBe(`#input-input-${original.id}`);
-  const sourceLink = button(dom.node('detail'), `查看提交草稿 #${original.source_draft_id} · 条件与独占`);
+  const sourceLink = button(dom.node('detail'), '查看提交草稿 · 条件与独占');
   expect(sourceLink).toBeDefined(); expect(sourceLink.classList.contains('agent-call')).toBe(false);
   await sourceLink.onclick();
   expect(dom.location.hash).toBe(`#input-draft-${emission.draft_id}`);

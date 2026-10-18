@@ -3,7 +3,7 @@ import { installDom, deepText } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld(), calls = [];
-const draft = { kind: 'draft', id: 1, mode: 'order', content: '尚未执行的想法', created_at: '2026-10-01T00:00:00Z',
+const draft = { kind: 'draft', id: 1, draft_number: 27, mode: 'order', content: '尚未执行的想法', created_at: '2026-10-01T00:00:00Z',
   parent_id: 1, branch: 'main', status: 'draft', integration: 'none', revision: 3, references: [] };
 const json = value => ({ ok: true, json: async () => structuredClone(value) });
 const dom = installDom({ fetch: async (url, options = {}) => {
@@ -14,7 +14,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/action') {
     const call = JSON.parse(options.body); calls.push(call);
     if (call.method === 'draft.update') { Object.assign(draft, call.params, { revision: draft.revision + 1 }); return json(draft); }
-    if (call.method === 'input.emit') { draft.dispatch = { state: 'queued' }; return json({ emitted: true, draft_id: 1, dispatch: draft.dispatch }); }
+    if (call.method === 'input.emit') { draft.dispatch = { state: 'queued' }; return json({ emitted: true, draft_id: 1, draft_number: draft.draft_number, dispatch: draft.dispatch }); }
   }
   return world.fetchImpl(url, options);
 } });
@@ -26,8 +26,10 @@ const button = (root, label) => root.querySelectorAll('button').find(node => nod
 test('draft list opens its editor, saves changed text then submits the new revision', async () => {
   await openInputs({ section: 'drafts' });
   expect(dom.node('detail').querySelectorAll('.input-record')).toHaveLength(1);
+  expect(deepText(dom.node('detail'))).toContain('草稿 #27');
   await openInputs({ item: { kind: 'draft', id: 1 } });
   const panel = dom.node('detail').querySelector('.input-detail'), editor = panel.querySelector('textarea');
+  expect(panel.querySelector('h2').textContent).toBe('草稿 #27');
   editor.value = '修改后的正文'; editor.oninput();
   await button(panel, '保存').onclick();
   expect(calls[0]).toMatchObject({ method: 'draft.update', params: { id: 1, content: '修改后的正文', expected_revision: 3 } });
@@ -35,5 +37,6 @@ test('draft list opens its editor, saves changed text then submits the new revis
   await button(panel, '提交指令').onclick();
   expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 4 } });
   expect(panel.querySelector('textarea')).toBeNull(); expect(deepText(panel)).toContain('等待准入');
-  expect(dom.location.hash).toBe('#input-draft-1');
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(deepText(panel)).toContain('草稿 #27');
+  expect(deepText(panel)).not.toContain('草稿 #1');
 });

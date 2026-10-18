@@ -68,7 +68,7 @@ const history = (conditional = undefined, view = 'history') => `WITH source AS (
     coalesce(t.branch,i.anchor_branch) AS branch,${taskStatus} AS status,
     coalesce(t.integration,'none') AS integration,NULL AS revision,${booking} AS booking,
     t.id AS original_task_id,'order' AS mode,NULL AS append_number,
-    ${sourceDraft(`(d.input_id=i.id AND ${draftMode}='order' AND t.creation IS NULL) OR (${appendFirstInputReceipt})`)} AS source_draft_id
+    ${sourceDraft(`(d.input_id=i.id AND ${draftMode}='order' AND t.creation IS NULL) OR (${appendFirstInputReceipt})`)} AS source_draft_id,NULL AS draft_number
   FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id ${conditional || view === 'drafts' ? 'WHERE 0' : ''}
   UNION ALL
   SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,
@@ -76,19 +76,19 @@ const history = (conditional = undefined, view = 'history') => `WITH source AS (
       WHEN 'waiting_conditions' THEN 'waiting_conditions' WHEN 'queued' THEN 'emitted'
       WHEN 'dispatching' THEN 'emitted' WHEN 'succeeded' THEN 'sent'
       WHEN 'failed' THEN 'emission_failed' WHEN 'unknown' THEN 'unknown_dispatch' ELSE 'draft' END,
-    'none',d.revision,'{}',NULL,${draftMode},NULL,NULL
+    'none',d.revision,'{}',NULL,${draftMode},NULL,NULL,d.draft_number
   FROM drafts d LEFT JOIN tasks p ON p.id=d.parent_id WHERE ${conditional === 'mounted' ? conditionalReceipt
     : conditional === 'configured' ? `(${conditionalDefinition} OR ${conditionalReceipt})`
     : view === 'drafts' ? unsentDraft : view === 'detail' ? 'd.input_id IS NULL' : '0'}
   UNION ALL
   SELECT 'message',m.id,m.body,m.created_at,m.task_id,t.parent_id,t.worker_number,
     (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id),t.branch,${taskStatus},
-    coalesce(t.integration,'none'),NULL,${booking},t.id,'append',${messageNumber},${sourceDraft(appendReceipt)}
+    coalesce(t.integration,'none'),NULL,${booking},t.id,'append',${messageNumber},${sourceDraft(appendReceipt)},NULL
   FROM messages m LEFT JOIN tasks t ON t.id=m.task_id WHERE ${conditional || view === 'drafts' ? '0' : userMessage}
   UNION ALL
   SELECT 'management',t.id,t.goal,t.created_at,t.id,t.parent_id,t.worker_number,
     (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id),t.branch,${taskStatus},
-    coalesce(t.integration,'none'),NULL,${booking},t.id,'management',NULL,NULL
+    coalesce(t.integration,'none'),NULL,${booking},t.id,'management',NULL,NULL,NULL
   FROM tasks t WHERE ${conditional || view === 'drafts' ? '0' : `t.task_kind='management' AND json_extract(${safe('t.management')},'$.origin')='input'`}
 ), projected AS (
   SELECT *,CASE
@@ -112,7 +112,7 @@ const history = (conditional = undefined, view = 'history') => `WITH source AS (
     ELSE 'none' END AS merge_status
   FROM source
 )`;
-const fields = 'kind,id,mode,append_number,source_draft_id,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
+const fields = 'kind,id,mode,append_number,source_draft_id,draft_number,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
 
 export const inputHistory = {
   inputHistoryRows({ q, status, integration, conditional, view, modes, cursor, limit }) {

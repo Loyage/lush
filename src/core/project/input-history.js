@@ -20,6 +20,26 @@ export function checkDraftRevision(draft, expected) {
   check(draft.revision === expected, `draft ${draft.id} changed; reload its latest revision`);
 }
 
+/** Private creation path: RPC options cannot choose or suppress a display number. */
+export function createBufferedDraft(project, content, references = [], branch = undefined, options = {}, numbered = false) {
+  return project.write('buffer a draft', async () => {
+    text(content, 'draft');
+    const normalized = project.normalizeReferences(references);
+    const settings = normalizeInputOptions(project, options);
+    const target = settings.mode === 'append' ? project.assertAppendInputTarget(settings.target_id) : null;
+    const parent = target ? project.inputRoot(target) : await project.inputParent(branch);
+    project.assertWritable('buffer a draft');
+    return project.store.transaction(() => {
+      project.assertInputParent(parent.id, parent.branch);
+      check(project.store.draftCount() < 500, 'too many buffered drafts; submit or remove some first');
+      const draft = project.store.addDraft(content, { numbered });
+      project.store.run('UPDATE drafts SET parent_id=?,revision=1,input_options=? WHERE id=?', parent.id, JSON.stringify(settings), draft.id);
+      project.store.setDraftReferences(draft.id, normalized);
+      return project.inputGet('draft', draft.id);
+    });
+  });
+}
+
 export default {
   inputHistory({ cursor, limit = 50, q = '', status, integration, conditional, view, modes } = {}) {
     check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 to 100');
@@ -104,22 +124,7 @@ export default {
   },
 
   addBufferedDraft(content, references = [], branch = undefined, options = {}) {
-    return this.write('buffer a draft', async () => {
-      text(content, 'draft');
-      const normalized = this.normalizeReferences(references);
-      const settings = normalizeInputOptions(this, options);
-      const target = settings.mode === 'append' ? this.assertAppendInputTarget(settings.target_id) : null;
-      const parent = target ? this.inputRoot(target) : await this.inputParent(branch);
-      this.assertWritable('buffer a draft');
-      return this.store.transaction(() => {
-        this.assertInputParent(parent.id, parent.branch);
-        check(this.store.draftCount() < 500, 'too many buffered drafts; submit or remove some first');
-        const draft = this.store.addDraft(content);
-        this.store.run('UPDATE drafts SET parent_id=?,revision=1,input_options=? WHERE id=?', parent.id, JSON.stringify(settings), draft.id);
-        this.store.setDraftReferences(draft.id, normalized);
-        return this.inputGet('draft', draft.id);
-      });
-    });
+    return createBufferedDraft(this, content, references, branch, options, true);
   },
 
   updateBufferedDraft(draftId, content, references, branch, revision, options = {}) {

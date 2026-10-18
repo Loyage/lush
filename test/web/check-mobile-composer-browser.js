@@ -20,7 +20,7 @@ window.matchMedia=q=>q==='(pointer: coarse)'?{matches:window.touch}:nativeMatch(
 const viewport=new EventTarget();Object.assign(viewport,{height:innerHeight,offsetTop:0,scale:1});
 Object.defineProperty(window,'visualViewport',{value:viewport,configurable:true});
 window.keyboard=h=>{viewport.height=h;viewport.dispatchEvent(new Event('resize'));};
-window.calls=[];window.fail=false;window.defer=false;window.fixtureDraft={kind:'draft',id:40,mode:'order',parent_id:1,branch:'main',content:'可续写暂存',references:[],revision:3,status:'draft',conditions:[{kind:'parent_quiet'}],exclusive:true};
+window.calls=[];window.fail=false;window.defer=false;window.fixtureDraft={kind:'draft',id:40,draft_number:7,mode:'order',parent_id:1,branch:'main',content:'可续写暂存',references:[],revision:3,status:'draft',conditions:[{kind:'parent_quiet'}],exclusive:true};
 window.fetch=async(url,options)=>{if(String(url).endsWith('/api/input-parents'))return Response.json({items:[{id:1,branch:'main'}]});
 if(String(url).includes('/api/inputs?'))return Response.json({items:[window.fixtureDraft],next_cursor:null});
 if(String(url).endsWith('/api/input/draft/40'))return Response.json(window.fixtureDraft);
@@ -28,6 +28,7 @@ if(String(url).endsWith('/api/worker/8'))return Response.json({id:8,worker_numbe
 const body=JSON.parse(options.body);window.calls.push(body);if(window.defer)await new Promise(r=>window.release=r);
 if(window.fail)return Response.json({error:'fixture failure'},{status:500});
 if(body.method==='draft.update'){Object.assign(window.fixtureDraft,body.params,{revision:window.fixtureDraft.revision+1});return Response.json(window.fixtureDraft);}
+if(body.method==='draft.remove'){window.fixtureDraft=null;return Response.json({id:body.params.id});}
 return Response.json(body.method==='draft.add'?{id:4}:{emitted:true,draft_id:body.params.draft_id||4,dispatch:{state:'queued'}});};
 registerNavigation({refresh:async()=>{},detail:async()=>{}});ui.view={id:'overview'};
 document.documentElement.dataset.lushSpace='project';
@@ -122,7 +123,7 @@ try{
       await resize(width,320);
       await execute('window.page();window.space("global");window.menu();');
       const menuGeometry=await execute(`const m=document.querySelector('#navigation-menu');m.scrollTop=m.scrollHeight;return {scroll:m.scrollHeight,height:m.clientHeight,bottom:m.getBoundingClientRect().bottom,viewport:innerHeight,links:Array.from(m.querySelectorAll('.workspace-link')).filter(b=>b.getClientRects().length).length,top:document.querySelector('#sidebar').getBoundingClientRect().top};`);
-      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===9&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
+      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===10&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
       await execute('window.space("project");window.page();window.scrollTo(0,0);');
       await resize(width,height);
       console.log(`PASS pinned header, equal navigation cards, resource jumps, global scrollable menu ${theme} ${width}`);
@@ -163,7 +164,7 @@ try{
   await execute(`window.selectComposer('order');document.querySelector('#input').focus();window.arrowCalls=window.calls.length;`);
   assert(await execute(`return document.querySelector('#composer-resume').textContent==='继续最近草稿'&&document.querySelector('#composer-choose-draft').textContent==='选择其他草稿'&&document.querySelector('#input-buffer').textContent==='暂存为草稿';`),'draft button terminology is inconsistent');
   await keys(['\uE013']);assert(await wait(`document.querySelector('#input').value==='可续写暂存'`),'native ArrowUp did not recall latest draft');
-  assert(await execute(`return document.querySelector('#input-buffer').textContent==='保存草稿'&&document.querySelector('#draft-commit').textContent==='按条件提交';`),'arrow recall lost draft identity/conditions');
+  assert(await execute(`return document.querySelector('#input-buffer').textContent==='保存草稿'&&document.querySelector('#draft-commit').textContent==='按条件提交'&&document.querySelector('#composer-draft-status').textContent.includes('草稿 #7')&&!document.querySelector('#composer-draft-status').textContent.includes('草稿 #40');`),'arrow recall lost draft identity/conditions');
   await keys(['\uE015']);assert(await wait(`document.querySelector('#input').value===''`),'native ArrowDown did not restore empty editor');
   await keys(['\uE013']);assert(await wait(`document.querySelector('#input').value==='可续写暂存'`),'draft traversal could not restart');
   await keys(['改','\uE015']);assert(await execute(`return document.querySelector('#input').value.includes('改')&&window.calls.length===window.arrowCalls;`),'arrow after editing discarded text or invoked an action');
@@ -181,6 +182,20 @@ try{
   await click('#composer-resume');assert(await wait(`document.querySelector('#input').value.includes('续写')`),'explicit continuation failed');
   await click('#draft-commit');assert(await wait(`window.calls.at(-1).method==='input.emit'&&window.calls.at(-1).params.draft_id===40&&window.calls.at(-1).params.expected_revision===4`),'resumed draft did not emit exact saved revision');
   console.log('PASS inline continuation, saved revision/condition identity, category auto-resume and explicit stash exclusion');
+  await click('#composer-resume');assert(await wait(`document.querySelector('#input').value.includes('续写')`),'delete fixture did not restore');
+  for(const width of [320,390,760,1440]){
+    await resize(width,900);await execute(`document.querySelector('#input').blur();`);
+    assert(await execute(`const b=document.querySelector('#composer-remove-draft'),r=b.getBoundingClientRect();return !b.hidden&&r.height>=44&&r.left>=0&&r.right<=innerWidth&&!b.classList.contains('agent-call');`),`delete button clips or calls Agent at ${width}`);
+  }
+  await execute(`window.deleteCalls=window.calls.length;`);await click('#composer-remove-draft');
+  assert(await execute(`return document.querySelector('.modal-title').textContent==='删除草稿 #7？'&&window.calls.length===window.deleteCalls;`),'delete confirmation used internal id or mutated before approval');
+  await click('.modal-cancel');assert(await execute(`return document.querySelector('#input').value.includes('续写')&&window.calls.length===window.deleteCalls;`),'cancel deleted text');
+  await click('#composer-remove-draft');await click('.modal-confirm');
+  assert(await wait(`document.querySelector('#input').value===''&&document.querySelector('#composer-remove-draft').hidden`),'delete did not consume current edit');
+  assert(await execute(`return window.calls.at(-1).method==='draft.remove'&&window.calls.at(-1).params.id===40&&window.calls.at(-1).params.expected_revision===4&&document.querySelector('#composer-condition-summary').hidden;`),'delete lost exact server identity/revision or retained deleted conditions');
+  await click('#composer-launcher');await click('#composer-launcher');await click('#composer-menu-order');
+  assert(await execute(`return document.querySelector('#input').value==='';`),'deleted browser edit was resurrected');
+  console.log('PASS numbered draft deletion, cancellation, exact version/identity, responsive button and browser recovery cleanup');
   for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
     await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';window.append({archived:true});window.compact();`);
     assert(await execute(`const n=document.querySelector('#composer-target-status'),r=n.getBoundingClientRect(),s=document.querySelector('#composer-shell').getBoundingClientRect();return document.querySelector('#input-form').dataset.expanded==='false'&&document.querySelector('#input').disabled&&!n.hidden&&getComputedStyle(n).display!=='none'&&n.textContent.includes('分支已归档')&&r.height>0&&r.top>=s.top&&r.bottom<=s.bottom&&r.right<=innerWidth;`),`compact blocked reason hidden ${theme}/${width}`);

@@ -2,6 +2,7 @@ import { el, button } from './dom.js';
 import { api } from './api.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 import { taskTitle } from './format.js';
+import { draftLabel } from './draft-label.js';
 
 export const DISPATCH_STATUS = {
   waiting_conditions: '已提交 · 等待条件', queued: '已提交 · 等待准入', dispatching: '正在投递',
@@ -13,8 +14,8 @@ export function dispatchText(dispatch) {
 }
 export function emissionAcknowledgement(result, append = false, firstInput = false) {
   if (Number.isSafeInteger(result?.dispatch?.input_id)) return `首条工作指令已提交为原始输入 O${result.dispatch.input_id}，已授权 Agent 执行；不代表已经调用。`;
-  if (firstInput) return `已提交首条工作指令${result?.draft_id ? ` · 草稿 #${result.draft_id}` : ''}，已可靠挂载执行授权，等待条件与安全准入；真实 Input/O 以投递收据为准，尚不代表 Agent 已收到。`;
-  return `已提交${append ? '追加指令' : '工作指令'}${result?.draft_id ? ` · 草稿 #${result.draft_id}` : ''}，已可靠挂载执行授权；${result?.dispatch?.state === 'waiting_conditions' ? '等待全部条件满足，再等待安全准入' : '等待安全准入'}。${append ? '尚不代表 Agent 已收到。' : '尚不代表 Worker 已创建或开始。'}`;
+  if (firstInput) return `已提交首条工作指令${result?.draft_id ? ` · ${draftLabel(result)}` : ''}，已可靠挂载执行授权，等待条件与安全准入；真实 Input/O 以投递收据为准，尚不代表 Agent 已收到。`;
+  return `已提交${append ? '追加指令' : '工作指令'}${result?.draft_id ? ` · ${draftLabel(result)}` : ''}，已可靠挂载执行授权；${result?.dispatch?.state === 'waiting_conditions' ? '等待全部条件满足，再等待安全准入' : '等待安全准入'}。${append ? '尚不代表 Agent 已收到。' : '尚不代表 Worker 已创建或开始。'}`;
 }
 export function emissionRequestId() {
   return globalThis.crypto?.randomUUID?.() || `input-${Date.now()}-${Math.random().toString(36).slice(2)}`;

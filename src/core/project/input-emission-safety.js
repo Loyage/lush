@@ -181,7 +181,7 @@ export default {
     for (const exclusive of this.activeInputExclusive()) {
       if (exclusive.draft_id === ownDraftId) continue;
       if (exclusive.worker_id && this.inputSubtree(exclusive.worker_id).some(task => task.id === taskId)) continue;
-      return `独占开发 ${exclusive.worker_number ?? (exclusive.worker_id ? `#${exclusive.worker_id}` : `草稿 #${exclusive.draft_id}`)} 尚未交付收口`;
+      return `独占开发 ${exclusive.worker_number ?? (exclusive.worker_id ? `#${exclusive.worker_id}` : `草稿记录 #${exclusive.draft_id}`)} 尚未交付收口`;
     }
     return null;
   },

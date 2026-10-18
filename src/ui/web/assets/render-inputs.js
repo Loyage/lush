@@ -1,5 +1,6 @@
 import { $, el, button } from './dom.js';
 import { editableDraft, draftOptions, updateDraft, emitDraft } from './draft-editor.js';
+import { draftLabel } from './draft-label.js';
 import { api, action, projectApi } from './api.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -30,7 +31,7 @@ const INPUT_MODES = { order: { label: '新建工作', content: '工作指令', i
 const keyOf = item => `${item.kind}:${item.id}`;
 const modeOf = item => item.mode || (item.kind === 'message' ? 'append' : item.kind === 'management' ? 'management' : 'order');
 function recordLabel(item) {
-  if (item.kind === 'draft') return `草稿 #${item.id}`;
+  if (item.kind === 'draft') return draftLabel(item);
   if (item.kind === 'message') return `追加指令 ${/^A[1-9]\d*-[1-9]\d*$/.test(item.append_number) ? item.append_number : `消息 #${item.id}`}`;
   if (item.kind === 'management') return `管理指令 ${workerLabel(item.task_id ?? item.id, item.task_worker_number)}`;
   return `原始指令 ${inputNumber(item.id)}`;
@@ -344,11 +345,11 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     function appendSourceLink() {
       const sourceId = Object.hasOwn(record, 'source_draft_id') ? record.source_draft_id : record.kind === 'input' ? state.emissionSources.get(record.id) : null;
       if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return;
-      const source = controlsButton(`查看提交草稿 #${sourceId} · 条件与独占`, () => {
+      const source = controlsButton('查看提交草稿 · 条件与独占', () => {
         if (!current() || editor.busy) return;
         return embedded ? openItem({ kind: 'draft', id: sourceId }) : openInputs({ item: { kind: 'draft', id: sourceId } });
       }, { help: '按明确持久关联查看条件授权收据及最新独占状态；打开不调用 Agent，释放独占须另行确认。' });
-      panel.append(el('p', `此原文关联提交草稿 #${sourceId}；条件与独占以草稿最新收据为准。`, 'hint'), source.host);
+      panel.append(el('p', '此原文关联提交草稿；条件与独占以草稿最新收据为准。', 'hint'), source.host);
     }
     if (['message', 'management'].includes(record.kind)) {
       panel.replaceChildren(el('h2', recordLabel(record)), statusLine(record), el('pre', record.content, 'input-original'),
@@ -359,7 +360,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       return;
     }
     if (dispatch && (dispatch.state !== 'cancelled' || readOnly)) {
-      panel.replaceChildren(el('h2', `草稿 #${record.id} · ${Number.isSafeInteger(dispatch.input_id) ? '首条工作指令' : append ? '追加指令' : '工作指令'} · ${dispatchText(dispatch)}`), statusLine(record),
+      panel.replaceChildren(el('h2', `${draftLabel(record)} · ${Number.isSafeInteger(dispatch.input_id) ? '首条工作指令' : append ? '追加指令' : '工作指令'} · ${dispatchText(dispatch)}`), statusLine(record),
         el('pre', record.content, 'input-original'), el('p', dispatchText(dispatch), 'hint'),
         el('p', dispatch.state === 'cancelled'
           ? '此授权已撤销，不会继续执行。这里展示保留草稿的最新正文与最近一次提交收据；要编辑须返回设置页。'
@@ -436,7 +437,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       return;
     }
     if (mounted) {
-      panel.replaceChildren(el('h2', `草稿 #${record.id} · 预约已挂载`), statusLine(record), el('pre', record.content, 'input-original'),
+      panel.replaceChildren(el('h2', `${draftLabel(record)} · 预约已挂载`), statusLine(record), el('pre', record.content, 'input-original'),
         el('p', `预约状态：${mounted.state || '未知'}。正文、引用和完整运行参数已被授权快照占用；现在不可编辑、删除或重复提交。等待或失败的 Hook 停用后可释放草稿；执行中不可撤销，结果未知时须先检查现场，再移除挂载释放占用。`, 'hint'));
       for (const reference of references) panel.append(el('p', reference.label || '引用', 'hint'), el('pre', reference.quote || '', 'input-quote'));
       if (!Number.isSafeInteger(mounted.parent_id) || mounted.parent_id < 1 || typeof mounted.hook_id !== 'string') {
@@ -447,7 +448,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       const stateLine = el('p', '正在核验可取消状态…', 'hint'); panel.append(stateLine);
       const cancel = controlsButton('取消预约挂载', async () => {
         if (!current() || editor.busy || cancel.node.disabled) return;
-        if (!await confirmDialog({ title: `取消草稿 #${record.id} 的预约？`, message: '仅移除还未执行的挂载并释放草稿编辑。不会删除已创建的 Worker；动作已开始或状态改变时由后台拒绝。', confirmLabel: '取消预约', confirmHelp: '移除等待中的一次性 Hook，恢复草稿编辑；不取消已启动 Agent。' })) return;
+        if (!await confirmDialog({ title: `取消${draftLabel(record)} 的预约？`, message: '仅移除还未执行的挂载并释放草稿编辑。不会删除已创建的 Worker；动作已开始或状态改变时由后台拒绝。', confirmLabel: '取消预约', confirmHelp: '移除等待中的一次性 Hook，恢复草稿编辑；不取消已启动 Agent。' })) return;
         if (!current()) return;
         editor.busy = true; cancel.node.disabled = true;
         try {
@@ -474,12 +475,12 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       return;
     }
     if (editable && !editableDraft(record)) {
-      panel.replaceChildren(el('h2', `草稿 #${record.id} · 只读待核验`), el('pre', record.content, 'input-original'),
+      panel.replaceChildren(el('h2', `${draftLabel(record)} · 只读待核验`), el('pre', record.content, 'input-original'),
         el('p', '草稿版本、模式或提交状态不完整，不能确认仍可编辑。请返回列表重新读取或检查服务版本；不会重复提交、修改、取消或改投目标。', 'hint'));
       for (const reference of references) panel.append(el('p', reference.label || '引用', 'hint'), el('pre', reference.quote || '', 'input-quote'));
       return;
     }
-    panel.replaceChildren(el('h2', editable ? `草稿 #${record.id}` : `原始指令 ${inputNumber(record.id)}`), statusLine(record));
+    panel.replaceChildren(el('h2', editable ? draftLabel(record) : `原始指令 ${inputNumber(record.id)}`), statusLine(record));
     const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见，尚未授权执行。提交会先保存并可靠挂载执行授权，等待安全准入，不保证立即创建或投递。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
     message.setAttribute('role', 'status'); panel.append(message);
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
@@ -591,7 +592,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     if (editable && !append) {
       const profile = controlsButton('运行设置：提交时固定默认', async () => {
         if (!current() || editor.busy) return;
-        const chosen = await chooseCreationProfile({ profile: runProfile, ownsPage: current, title: `草稿 #${saved.id} 的工作运行设置` });
+        const chosen = await chooseCreationProfile({ profile: runProfile, ownsPage: current, title: `${draftLabel(saved)} 的工作运行设置` });
         if (!current() || editor.busy || !chosen.changed) return;
         runProfile = chosen.profile;
         profile.node.textContent = runProfile ? `运行设置：${runProfile.config_mode === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}` : '运行设置：提交时固定默认';
@@ -635,7 +636,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       setBusy(true); message.setAttribute('role', 'status');
       try {
         if (kind === 'remove') {
-          if (!await confirmDialog({ title: `删除草稿 #${saved.id}？`, message: '这条未发送草稿及其引用将被删除，无法恢复；不会删除任何已发送输入或 Worker。', confirmLabel: '删除草稿', danger: true,
+          if (!await confirmDialog({ title: `删除${draftLabel(saved)}？`, message: '这条未发送草稿及其引用将被删除，无法恢复；不会删除任何已发送输入或 Worker。', confirmLabel: '删除草稿', danger: true,
             confirmHelp: '永久删除这条未发送草稿与附属引用。' })) return;
           if (!current()) return;
           await action('draft.remove', { id: saved.id, expected_revision: saved.revision }, { refresh: !embedded });

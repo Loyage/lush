@@ -7,6 +7,7 @@ import { refresh } from './navigate.js';
 import { locateReference, locatable } from './context-references.js';
 import { ui } from './state.js';
 import { agentHelp } from './help.js';
+import { draftLabel } from './draft-label.js';
 
 /* ---------- 待提交意图（底部 composer 面板） ---------- */
 // Keep acknowledged revisions across late overview snapshots, scoped to this boot/document.
@@ -108,20 +109,20 @@ function draftItem(draft, state) {
       state.acknowledged.set(draft.id, { emitted: true, draft: { ...draft, revision: result.revision ?? draft.revision } });
       if (currentSession(state) && item.parentNode === $('drafts')) {
         ui.draftSignature = null;
-        item.replaceChildren(el('p', `草稿 #${draft.id} 已提交，等待安全准入；不代表 Worker 已创建。`, 'hint'), el('p', draft.content, 'goal'));
+        item.replaceChildren(el('p', `${draftLabel(draft)} 已提交，等待安全准入；不代表 Worker 已创建。`, 'hint'), el('p', draft.content, 'goal'));
       }
     } catch (error) { if (currentSession(state) && item.parentNode === $('drafts')) show(error.message, 'error'); }
     finally { state.pending.delete(draft.id); run.disabled = acknowledged; }
     if (acknowledged) void refreshAfterAck(state, '草稿已提交');
-  }, 'run', { agent: true, help: agentHelp(`只发送草稿 #${draft.id}，不触碰输入框或其它草稿。`) });
-  run.setAttribute('aria-label', `发送草稿 #${draft.id}`);
+  }, 'run', { agent: true, help: agentHelp(`只发送${draftLabel(draft)}，不触碰输入框或其它草稿。`) });
+  run.setAttribute('aria-label', `发送${draftLabel(draft)}`);
   const runHost = el('span', undefined, 'help-host'); runHost.setAttribute('data-help', run.getAttribute('data-help')); runHost.append(run);
   const edit = button('编辑', () => { if (writable()) startDraftEdit(draft, item, state); }, 'edit');
-  edit.setAttribute('aria-label', `编辑待提交意图 #${draft.id}`);
+  edit.setAttribute('aria-label', `编辑${draftLabel(draft)}`);
   const drop = button('移除', () => writable() && action('draft.remove', { id: draft.id, expected_revision: draft.revision }), 'drop');
-  drop.setAttribute('aria-label', `从待提交意图里移除 #${draft.id}`);
+  drop.setAttribute('aria-label', `移除${draftLabel(draft)}`);
   drop.setAttribute('data-help', '从待提交意图里移除这条输入（已提交的输入不可删）');
-  row.append(el('span', '○', 'dot c-queued'), el('span', `#${draft.id}`, 'tid'), el('span', '待规划'),
+  row.append(el('span', '○', 'dot c-queued'), el('span', draftLabel(draft), 'tid'), el('span', '待规划'),
     el('span', relative(draft.created_at), 'when'), runHost, edit, drop);
   const body = el('span', draft.content, 'goal');
   body.title = '点击就地编辑这条待提交意图';
@@ -136,7 +137,7 @@ function draftItem(draft, state) {
       label.setAttribute('data-help', canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote);
       const remove = button('×', () => writable() && action('draft.update', { id: draft.id, content: draft.content, expected_revision: draft.revision,
         references: draft.references.filter((_value, at) => at !== index) }), 'context-remove');
-      remove.setAttribute('aria-label', `从待提交意图 #${draft.id} 移除引用：${reference.label}`);
+      remove.setAttribute('aria-label', `从${draftLabel(draft)} 移除引用：${reference.label}`);
       remove.setAttribute('data-help', '从这条待提交意图移除该引用，不改动输入原文');
       chip.append(label, remove); references.append(chip);
     });

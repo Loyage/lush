@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { check, id, isPlainObject, text } from '../types.js';
-import { expectedRevision, checkDraftRevision } from './input-history.js';
+import { expectedRevision, checkDraftRevision, createBufferedDraft } from './input-history.js';
 import { inheritedRunProfile } from './internal.js';
 import { inputOptions, inputEmission, saveEmission, emissionLocked, normalizeInputOptions, requestKey,
   definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT, INPUT_OPTION_KEYS } from './input-emission-data.js';
@@ -13,14 +13,14 @@ export default {
   draftEmissionView(draft) {
     const options = inputOptions(draft), state = inputEmission(draft);
     const target = options.target_id ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', options.target_id) : null;
-    return { mode: options.mode, target_id: options.target_id ?? null, target_worker_number: target?.worker_number ?? null,
+    return { draft_number: draft.draft_number ?? null, mode: options.mode, target_id: options.target_id ?? null, target_worker_number: target?.worker_number ?? null,
       conditions: options.conditions, exclusive: options.exclusive,
       ...(Object.hasOwn(options, 'runner_node_id') ? { runner_node_id: options.runner_node_id } : {}), dispatch: publicDispatch(state) };
   },
 
   inputEmissionResult(draftId) {
     const draft = this.store.draft(draftId), options = inputOptions(draft);
-    return { emitted: true, draft_id: draft.id, mode: options.mode, parent_id: draft.parent_id,
+    return { emitted: true, draft_id: draft.id, draft_number: draft.draft_number ?? null, mode: options.mode, parent_id: draft.parent_id,
       ...(options.target_id ? { target_id: options.target_id } : {}),
       ...(Object.hasOwn(options, 'runner_node_id') ? { runner_node_id: options.runner_node_id } : {}), dispatch: publicDispatch(inputEmission(draft)), revision: draft.revision };
   },
@@ -59,7 +59,7 @@ export default {
         check(normalized.mode !== 'append' || references.length === 0, 'append references are not supported; retain the text and attachments');
         if (normalized.mode === 'append') this.assertAppendInputTarget(normalized.target_id);
         if (options.profile !== undefined && options.profile !== null) this.agentSettings.retryProfile('agent', options.profile);
-        draft = await this.addBufferedDraft(options.content, references, options.branch ?? 'main', fields);
+        draft = await createBufferedDraft(this, options.content, references, options.branch ?? 'main', fields);
         draft = this.store.draft(draft.id);
       }
       const normalized = inputOptions(draft), references = this.store.draftReferences(draft.id);

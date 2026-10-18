@@ -1,11 +1,13 @@
 import { $, button, el } from './dom.js';
 import { ui } from './state.js';
-import { api } from './api.js';
+import { api, action } from './api.js';
+import { confirmDialog } from './dialog.js';
 import { taskTitle } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { waitingFirstInput } from './worker-create.js';
 import { composerReferences, setComposerReferences } from './context-references.js';
 import { show } from './messages.js';
+import { draftLabel } from './draft-label.js';
 import { destinationKey, hasContent, loadComposerCache, cacheComposerWorkspace } from './composer-cache.js';
 
 const workspace = () => ui.composerWorkspace;
@@ -90,7 +92,7 @@ const liveEntry = entry => entry === currentEdit() ? { ...entry, content: $('inp
 function editStatus(entry) {
   if (entry.cached === false) return '浏览器自动保存失败 · 刷新前请暂存或复制';
   if (entry.saved) return entry.saved.content === entry.content && JSON.stringify(entry.saved.references) === JSON.stringify(entry.references)
-    ? `项目已暂存 · 草稿 #${entry.saved.id}` : `有本地修改 · 草稿 #${entry.saved.id}`;
+    ? `项目已暂存 · ${draftLabel(entry.saved)}` : `有本地修改 · ${draftLabel(entry.saved)}`;
   return entry.key === currentEdit()?.key && workspace().open ? '编辑中 · 收起时保留在本浏览器' : '已保留在本浏览器';
 }
 function entryTarget(entry) {
@@ -157,7 +159,10 @@ export function paintComposerWorkspace() {
   const management = active?.mode === 'management';
   $('composer-resume').hidden = management || Boolean(input.value.trim() || composerReferences().length || active?.saved);
   $('composer-choose-draft').hidden = management;
-  $('composer-draft-status').textContent = active?.cached === false ? '浏览器自动保存失败；本页编辑仍在，刷新前请手动暂存或复制原文' : active?.saved ? `草稿 #${active.saved.id} · 版本 ${active.saved.revision ?? '旧版'} · ${active.saved.content === input.value && JSON.stringify(active.saved.references) === JSON.stringify(composerReferences()) ? '正文与引用已保存' : '有本地修改，尚未保存'}`
+  $('composer-remove-draft-help').hidden = $('composer-remove-draft').hidden = management || !active?.saved;
+  $('composer-remove-draft').disabled = Boolean(ui.composerSubmitting);
+  $('composer-remove-draft-help').setAttribute('data-help', ui.composerSubmitting ? '请求正在处理，请稍后再删除；不会重复提交。' : '经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑会保留，不删除已发送输入或 Worker。');
+  $('composer-draft-status').textContent = active?.cached === false ? '浏览器自动保存失败；本页编辑仍在，刷新前请手动暂存或复制原文' : active?.saved ? `${draftLabel(active.saved)} · 版本 ${active.saved.revision ?? '旧版'} · ${active.saved.content === input.value && JSON.stringify(active.saved.references) === JSON.stringify(composerReferences()) ? '正文与引用已保存' : '有本地修改，尚未保存'}`
     : '未手动暂存；收起时自动保存到当前浏览器，不进入项目草稿';
   $('composer-draft-status').hidden = !space.open || !hasContent(liveEntry(active));
   const source = active?.saved || active?.localOptions;
@@ -251,12 +256,46 @@ export async function resumeComposerDraft(latest = true) {
     };
     if (latest && records.length) { await load(records[0]); return; }
     list.replaceChildren(el('p', records.length || local.length ? '选择草稿；当前编辑仍保留在本页，不会被覆盖。' : '已查完：此模式与目标没有可编辑的未发送草稿。授权等待、结果未知及已发送记录不在此列。', 'hint'));
-    for (const item of local) list.append(button(`本页未完成 · ${item.saved ? `草稿 #${item.saved.id}` : '未暂存'} · ${item.content.slice(0, 60)}`, () => {
+    for (const item of local) list.append(button(`本页未完成 · ${item.saved ? draftLabel(item.saved) : '未暂存'} · ${item.content.slice(0, 60)}`, () => {
       if (!current()) return; rememberComposer(); space.last.set(entry.destination, item.key); applyEntry(item); openComposer();
     }, 'ghost'));
-    for (const record of records) list.append(button(`草稿 #${record.id} · ${record.content.slice(0, 80)}`, () => load(record), 'ghost'));
+    for (const record of records) list.append(button(`${draftLabel(record)} · ${record.content.slice(0, 80)}`, () => load(record), 'ghost'));
   } catch (error) { if (current()) { list.replaceChildren(el('p', `草稿读取失败：${error.message}；未能确认是否有可续写内容。`, 'hint')); show(error.message, 'error'); } }
 }
+/** Delete only the confirmed server identity/version; new typing survives as a detached local edit. */
+export async function removeComposerDraft() {
+  const space = workspace(), entry = currentEdit(), saved = entry?.saved;
+  if (!saved || entry.mode === 'management' || ui.composerSubmitting || !space.open) return;
+  const input = $('input'), view = ui.view, read = ++space.read;
+  const revision = ui.composerEditRevision, refs = ui.composerReferenceRevision;
+  const content = input.value, signature = JSON.stringify(composerReferences()), profile = ui.composerProfile;
+  const current = () => workspace() === space && currentEdit() === entry;
+  space.history = null; $('composer-draft-list').hidden = true;
+  ui.composerSubmitting = true; ui.syncComposer?.();
+  try {
+    const { editableDraft, draftOptions } = await import('./draft-editor.js');
+    if (!current() || space.read !== read || ui.view !== view || !space.open) return;
+    if (!editableDraft(saved)) throw new Error('草稿已授权、已发送或版本不完整，不能删除；请先核验草稿状态');
+    const confirmed = await confirmDialog({ title: `删除${draftLabel(saved)}？`,
+      message: '永久删除这条未发送草稿、引用及对应浏览器恢复内容，无法恢复；当前未保存的修改也会清空。确认或请求期间产生的新编辑将保留，不删除已发送输入或 Worker。',
+      confirmLabel: '删除草稿', danger: true, confirmHelp: '永久删除当前草稿及对应浏览器恢复内容；不会调用 Agent。' });
+    if (!confirmed || !current() || space.read !== read || ui.view !== view || !space.open) return;
+    const result = await action('draft.remove', { id: saved.id, expected_revision: saved.revision }, { refresh: false });
+    if (!current()) return;
+    if (result.id !== saved.id) throw new Error('删除响应缺少可靠草稿身份；请核验草稿列表，本地内容保留，不会自动重试');
+    const untouched = ui.composerEditRevision === revision && ui.composerReferenceRevision === refs
+      && input.value === content && JSON.stringify(composerReferences()) === signature && ui.composerProfile === profile;
+    if (untouched) {
+      input.value = ''; ui.composerEditRevision++; setComposerReferences([]); ui.composerProfile = null;
+      finishComposerEdit({ consume: true });
+    } else finishComposerEdit({ detached: true, options: draftOptions(saved) });
+    rememberComposer();
+    show(`${draftLabel(saved)}已删除。${untouched ? '对应输入已清空。' : '新编辑已保留为未暂存输入，再次暂存会创建新草稿。'}${entry.cached === false ? '浏览器恢复内容未能更新，旧缓存可能仍存在；新编辑刷新前请复制保留。' : untouched ? '对应浏览器恢复内容已清空。' : ''}`, entry.cached === false ? 'error' : 'info');
+    ui.draftsPage?.added?.();
+  } catch (error) { if (current()) show(`删除失败：${error.message}；编辑内容已保留。`, 'error'); }
+  finally { if (workspace() === space) { ui.composerSubmitting = false; ui.syncComposer?.(); } }
+}
+
 export function finishComposerEdit({ consume, detached = false, saved = null, options = null } = {}) {
   const space = workspace(), entry = currentEdit(); if (!entry) return;
   if (consume || detached) {
@@ -289,5 +328,6 @@ export function initComposerWorkspace({ resetEditor }) {
   $('composer-menu').onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); space.menu = false; paintComposerWorkspace(); $('composer-launcher').focus(); } };
   $('composer-resume').onclick = () => resumeComposerDraft(true);
   $('composer-choose-draft').onclick = () => resumeComposerDraft(false);
+  $('composer-remove-draft').onclick = removeComposerDraft;
   paintComposerWorkspace();
 }

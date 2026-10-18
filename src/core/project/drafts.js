@@ -13,7 +13,7 @@ export default {
     const normalized = this.normalizeReferences(references);
     check(this.store.draftCount() < MAX_DRAFTS, 'too many buffered drafts; submit or remove some first');
     return this.store.transaction(() => {
-      const draft = this.store.addDraft(content);
+      const draft = this.store.addDraft(content, { numbered: true });
       this.store.setDraftReferences(draft.id, normalized);
       return { ...draft, references: normalized };
     });

@@ -26,8 +26,10 @@ function mutation(f, apply, assertion) {
 test('append-first draft -> real Input/O -> original successful dispatch remains a unique explicit source, including repeated emission', async () => {
   const f = await setup();
   try {
-    expect(source(f)).toBe(f.draft.id);
-    expect(f.project.inputGet('draft', f.draft.id)).toMatchObject({ mode: 'append', target_id: f.task.id,
+    expect(source(f)).toBe(f.draft.id); expect(f.draft.draft_number).toBe(1);
+    expect(f.project.inputGet('input', f.input).draft_number).toBeNull();
+    expect(f.project.inputEmissionResult(f.draft.id).draft_number).toBe(1);
+    expect(f.project.inputGet('draft', f.draft.id)).toMatchObject({ draft_number: 1, mode: 'append', target_id: f.task.id,
       dispatch: { state: 'succeeded', input_id: f.input, worker_id: f.task.id } });
     await f.project.emitBufferedInput({ draft_id: f.draft.id, expected_revision: f.draft.revision, client_request_id: 'first-source' });
     expect(source(f)).toBe(f.draft.id);

@@ -4,7 +4,7 @@ import { until } from '../helpers.js';
 const calls = [], reads = [];
 let records, failure, deferred, release, deferredRead, readFailure, deferredWorker, workerReadFailure, returnedWorker;
 const json = value => ({ ok: true, json: async () => structuredClone(value) });
-const draft = (id, fields = {}) => ({ kind: 'draft', id, mode: 'order', content: `正文 ${id}`, parent_id: 1, branch: 'main', revision: 3, references: [], status: 'draft', ...fields });
+const draft = (id, fields = {}) => ({ kind: 'draft', id, draft_number: id + 100, mode: 'order', content: `正文 ${id}`, parent_id: 1, branch: 'main', revision: 3, references: [], status: 'draft', ...fields });
 const worker = id => ({ id, worker_number: `W${id}`, task_kind: 'order', status: 'running', branch: `work/${id}`, workspace: `/tmp/${id}`, goal: `目标 ${id}` });
 const dom = installDom({ fetch: async (url, options = {}) => {
   const path = new URL(url, 'http://fixture'); path.pathname = path.pathname.replace(/^\/p\/[a-f0-9]{16}/, ''); reads.push(path.pathname + path.search);
@@ -28,6 +28,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     if (call.method === 'draft.update') {
       const row = records.find(row => row.id === call.params.id); Object.assign(row, call.params, { revision: row.revision + 1 }); return json(row);
     }
+    if (call.method === 'draft.remove') { records = records.filter(row => row.id !== call.params.id); return json({ id: call.params.id }); }
     if (call.method === 'draft.add') return json(draft(50, { ...call.params, revision: 1 }));
     if (call.method === 'management.submit') return json({ management: true, task: { id: 55 } });
     return json({ emitted: true, draft_id: call.params.draft_id || 50, revision: 5, dispatch: { state: 'queued' } });
@@ -35,7 +36,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   throw Error(`Unexpected ${url}`);
 } });
 const { initComposer, appendToWorker, buffer } = await import('../../src/ui/web/assets/composer.js');
-const { selectComposerMode, collapseComposer, resumeComposerDraft, currentEdit } = await import('../../src/ui/web/assets/composer-workspace.js');
+const { selectComposerMode, collapseComposer, resumeComposerDraft, currentEdit, removeComposerDraft } = await import('../../src/ui/web/assets/composer-workspace.js');
 const { appendInputBlocker, inputQueueText, inputWaitReason } = await import('../../src/ui/web/assets/worker-input.js');
 const { addComposerReference, composerReferences } = await import('../../src/ui/web/assets/context-references.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
@@ -48,6 +49,12 @@ const arrow = async (key = 'ArrowUp', fields = {}) => {
   let prevented = false;
   await dom.node('input').onkeydown({ key, ...fields, preventDefault() { prevented = true; } });
   return prevented;
+};
+const confirmRemoval = async (accepted = true) => {
+  const pending = removeComposerDraft();
+  await until(() => dom.node('modal').querySelector('.modal-confirm'));
+  await dom.node('modal').querySelector(accepted ? '.modal-confirm' : '.modal-cancel').click();
+  await pending;
 };
 const reference = { version: 1, kind: 'text', target: {}, label: '引用', quote: '看到的文字' };
 const reloadComposer = async () => { resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer(); };
@@ -144,6 +151,8 @@ test('empty-editor arrows traverse all matching editable drafts and return to th
   await arrow(); expect(currentEdit().saved.id).toBe(8); expect(composerReferences()).toEqual([reference]);
   expect(dom.node('input-buffer').textContent).toBe('保存草稿'); expect(dom.node('draft-commit').textContent).toBe('按条件提交');
   expect(reads.some(url => url.includes('cursor=next'))).toBe(true);
+  expect(dom.node('composer-draft-status').textContent).toContain('草稿 #108');
+  expect(dom.node('composer-draft-status').textContent).not.toContain('草稿 #8');
   await arrow(); expect(currentEdit().saved.id).toBe(7);
   await arrow(); expect(currentEdit().saved.id).toBe(7); // Oldest boundary does not wrap.
   await arrow('ArrowDown'); expect(currentEdit().saved.id).toBe(8);
@@ -196,12 +205,85 @@ test('arrow recall rechecks cached draft eligibility and reports read errors wit
   readFailure = false; records = [draft(3, { parent_id: 7, branch: 'work/7' })]; await arrow(); expect(currentEdit().saved.id).toBe(3);
 });
 
+test('composer delete confirms the display number but removes the exact internal identity and clears browser recovery only on success', async () => {
+  expect(dom.node('composer-remove-draft').hidden).toBe(true);
+  records = [draft(1, { references: [reference], conditions: [{ kind: 'parent_quiet' }], exclusive: true }), draft(2)];
+  selectComposerMode('order'); await arrow(); type('尚未保存的修改'); collapseComposer(); selectComposerMode('order');
+  expect(dom.node('composer-remove-draft').hidden).toBe(false);
+  expect(dom.node('composer-remove-draft').classList.contains('agent-call')).toBe(false);
+  await confirmRemoval(false); expect(calls).toHaveLength(0); expect(dom.node('input').value).toBe('尚未保存的修改');
+  const pending = dom.node('composer-remove-draft').onclick(); await until(() => dom.node('modal').querySelector('.modal-confirm'));
+  expect(deepText(dom.node('modal'))).toContain('删除草稿 #101？');
+  expect(dom.node('composer-remove-draft').disabled).toBe(true);
+  await dom.node('modal').querySelector('.modal-confirm').click(); await pending;
+  expect(calls).toEqual([{ method: 'draft.remove', params: { id: 1, expected_revision: 3 } }]);
+  expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeNull(); expect(composerReferences()).toEqual([]);
+  expect(dom.node('composer-remove-draft').hidden).toBe(true); expect(dom.node('composer-condition-summary').hidden).toBe(true);
+  await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeUndefined();
+  await arrow(); expect(currentEdit().saved.id).toBe(2); // The deleted draft is not kept in a stale keyboard cursor.
+});
+
+test('v2 continuation menu keeps numbered sibling edits and removes only the deleted draft across reload', async () => {
+  records = [draft(1), draft(2)]; selectComposerMode('order');
+  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(row => row.textContent.startsWith('草稿 #102')).click();
+  type('另一条草稿的本地修改');
+  await resumeComposerDraft(); openMenu();
+  expect(pendingRows('order')).toHaveLength(2);
+  expect(deepText(dom.node('composer-pending-order'))).toContain('项目已暂存 · 草稿 #101');
+  expect(deepText(dom.node('composer-pending-order'))).toContain('有本地修改 · 草稿 #102');
+  pendingRows('order').find(row => row.dataset.editKey === 'draft:1').click(); await confirmRemoval(); openMenu();
+  expect(pendingRows('order')).toHaveLength(1); expect(pendingRows('order')[0].dataset.editKey).toBe('draft:2');
+  expect(dom.node('composer-launcher').dataset.pending).toBe('true');
+  await reloadComposer(); openMenu(); expect(pendingRows('order')).toHaveLength(1);
+  pendingRows('order')[0].click(); expect(currentEdit().saved.id).toBe(2); expect(dom.node('input').value).toBe('另一条草稿的本地修改');
+  await confirmRemoval(); openMenu(); expect(pendingRows('order')).toHaveLength(0); expect(dom.node('composer-launcher').dataset.pending).toBe('false');
+  await reloadComposer(); openMenu(); expect(pendingRows('order')).toHaveLength(0);
+});
+
+test('successful deletion reports a browser-cache failure rather than claiming the old recovery was cleared', async () => {
+  records = [draft(1)]; selectComposerMode('order'); await arrow(); collapseComposer(); selectComposerMode('order');
+  const set = dom.localStorage.setItem; dom.localStorage.setItem = () => { throw Error('quota exceeded'); };
+  try {
+    await confirmRemoval(); expect(records).toEqual([]); expect(dom.node('input').value).toBe(''); expect(currentEdit().saved).toBeNull();
+    expect(dom.node('error').textContent).toContain('旧缓存可能仍存在');
+    expect(dom.node('error').textContent).not.toContain('浏览器恢复内容已清空');
+  } finally { dom.localStorage.setItem = set; }
+});
+
+test('delete failure keeps draft version, unsaved body and browser recovery; confirmation follows neither navigation nor a new target', async () => {
+  records = [draft(1)]; selectComposerMode('order'); await arrow(); type('不能丢'); failure = 'revision conflict';
+  await confirmRemoval(); expect(currentEdit().saved.revision).toBe(3); expect(dom.node('input').value).toBe('不能丢');
+  expect(dom.node('error').textContent).toContain('revision conflict'); expect(ui.composerSubmitting).toBe(false);
+  collapseComposer(); await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('不能丢');
+  failure = false; calls.length = 0;
+  const pending = removeComposerDraft(); await until(() => dom.node('modal').querySelector('.modal-confirm'));
+  activateDetailView({ view: 'overview' });
+  await dom.node('modal').querySelector('.modal-confirm').click(); await pending;
+  expect(calls).toHaveLength(0); expect(dom.node('input-form').hidden).toBe(true); expect(currentEdit().saved.id).toBe(1);
+  selectComposerMode('management'); await removeComposerDraft(); expect(dom.node('composer-remove-draft').hidden).toBe(true);
+});
+
+test('delete is single-flight and preserves new edits as a detached input without reopening navigation', async () => {
+  records = [draft(1, { mode: 'append', target_id: 8, conditions: [{ kind: 'parent_quiet' }], exclusive: true })];
+  selectComposerMode('append', worker(8)); await arrow(); deferred = true;
+  const pending = removeComposerDraft(); await until(() => dom.node('modal').querySelector('.modal-confirm'));
+  type('确认期间的新输入'); await removeComposerDraft(); // No second dialog or request.
+  await dom.node('modal').querySelector('.modal-confirm').click(); await until(() => release);
+  type('删除请求期间的新输入'); await submit(); selectComposerMode('management'); expect(ui.composerManagement).toBe(false);
+  activateDetailView({ view: 'overview' }); release(); await pending;
+  expect(calls).toHaveLength(1); expect(currentEdit().saved).toBeNull(); expect(dom.node('input').value).toBe('删除请求期间的新输入');
+  expect(dom.node('input-form').hidden).toBe(true); expect(ui.composerSubmitting).toBe(false);
+  await reloadComposer(); selectComposerMode('append', worker(8)); expect(dom.node('input').value).toBe('删除请求期间的新输入');
+  expect(currentEdit().saved).toBeNull(); deferred = false; await buffer();
+  expect(calls.at(-1)).toMatchObject({ method: 'draft.add', params: { target_id: 8, content: '删除请求期间的新输入', conditions: [{ kind: 'parent_quiet' }], exclusive: true } });
+});
+
 test('switching drafts keeps the previous local content; version conflicts do not fetch or overwrite it', async () => {
   records = [draft(1), draft(2)]; selectComposerMode('order'); type('未暂存');
-  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #1')).click();
-  type('草稿1本地修改'); await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #2')).click();
+  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #101')).click();
+  type('草稿1本地修改'); await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #102')).click();
   expect(dom.node('input').value).toBe('正文 2'); await resumeComposerDraft(false);
-  dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.includes('本页未完成 · 草稿 #1')).click(); expect(dom.node('input').value).toBe('草稿1本地修改');
+  dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.includes('本页未完成 · 草稿 #101')).click(); expect(dom.node('input').value).toBe('草稿1本地修改');
   failure = 'revision conflict'; const readCount = reads.filter(url => url.startsWith('/api/input/draft/')).length; await buffer();
   expect(dom.node('input').value).toBe('草稿1本地修改'); expect(currentEdit().saved.revision).toBe(3); expect(dom.node('error').textContent).toContain('revision conflict');
   expect(reads.filter(url => url.startsWith('/api/input/draft/')).length).toBe(readCount);
@@ -303,6 +385,15 @@ test('failed stash and in-flight edits stay recoverable; late success clears onl
   await reloadComposer(); selectComposerMode('order'); expect(dom.node('input').value).toBe('');
 });
 
+test('legacy draft labels remain explicit record ids, not new display numbers', async () => {
+  records = [draft(42, { draft_number: null })]; selectComposerMode('order'); await resumeComposerDraft(false);
+  const choice = dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿记录 #42'));
+  expect(choice).toBeDefined(); await choice.click();
+  expect(currentEdit().saved.id).toBe(42); expect(dom.node('composer-draft-status').textContent).toContain('草稿记录 #42');
+  type('修改旧草稿'); await buffer(); expect(calls.at(-1).params.id).toBe(42);
+  expect(dom.node('error').textContent).toContain('草稿记录 #42');
+});
+
 test('browser storage failures are visible and never discard the active text', () => {
   selectComposerMode('order'); type('不能丢失');
   const set = dom.localStorage.setItem; dom.localStorage.setItem = () => { throw Error('quota exceeded'); };
@@ -335,15 +426,15 @@ test('unfinished indicators follow live content, not expansion/settings, and sho
 
 test('reload discovers all targets and multiple same-target drafts, while restoration rechecks cached Worker metadata', async () => {
   records = [draft(1), draft(2)]; selectComposerMode('order'); type('独立本地编辑');
-  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #1')).click(); type('草稿1修改');
-  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #2')).click();
+  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #101')).click(); type('草稿1修改');
+  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #102')).click();
   selectComposerMode('append', { ...worker(8), worker_number: 'W88-2', auto_title: '明确的编号' }); type('原目标8');
   selectComposerMode('append', worker(9)); type('原目标9'); selectComposerMode('management'); type('管理'); collapseComposer();
   await reloadComposer(); dom.node('composer-launcher').click();
   expect(pendingRows('order')).toHaveLength(3); expect(pendingRows('append')).toHaveLength(2); expect(pendingRows('management')).toHaveLength(1);
   expect(dom.node('composer-menu-append').hidden).toBe(true); expect(dom.node('composer-pending-append-summary').hidden).toBe(false);
-  expect(deepText(dom.node('composer-pending-order'))).toContain('项目已暂存 · 草稿 #2');
-  expect(deepText(dom.node('composer-pending-order'))).toContain('有本地修改 · 草稿 #1');
+  expect(deepText(dom.node('composer-pending-order'))).toContain('项目已暂存 · 草稿 #102');
+  expect(deepText(dom.node('composer-pending-order'))).toContain('有本地修改 · 草稿 #101');
   const row = pendingRows('append').find(row => row.dataset.editKey === 'append:8'); expect(row.getAttribute('aria-label')).toContain('W88-2');
   deferredWorker = true; row.click(); await until(() => release);
   expect(dom.node('input').value).toBe('原目标8'); expect(dom.node('input').disabled).toBe(true); expect(dom.node('draft-commit').disabled).toBe(true);
