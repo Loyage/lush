@@ -65,6 +65,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-runners-page.test.js', // retired bookmarks, local forms and read-only legacy Worker actions
     'test/web/dom-project-automation.test.js', // automation page
     'test/web/settings.test.js', // settings entry
+    'test/web/dom-agent-settings.test.js', // default Agent header, explicit folding and retained draft
     'test/web/service-restart-controls.test.js', // quick/manual modes, shared single-flight and disposal
     'test/web/device-auto-select-action.test.js', // shared authorization lease, unknown-write gate, stale reads and pagehide
     'test/web/safe-restart-flow.test.js', // fixed scope, silent evidence and restart failure boundaries

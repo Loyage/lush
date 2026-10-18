@@ -1,5 +1,10 @@
 /* Agent configuration and on-demand legacy diagnostics. */
 .agent-default-summary{padding:14px 16px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;font-size:13px;font-weight:600;line-height:1.7;overflow-wrap:anywhere}
+/* The profile has no outer padding: common module headings' negative margin clips it. */
+.agent-profile.ui-module>.agent-profile-head{margin:0;padding:14px 16px;background:var(--panel-2)}
+.agent-profile-head>div{flex:1;min-width:0}
+.agent-profile-head>.badge{flex:none}
+@media(max-width:760px){.agent-profile.ui-module>.agent-profile-head{padding:11px 12px}}
 .agent-sources-link{margin:7px 0}
 .agent-config-section{min-width:0;margin:0;padding:12px 0;border-bottom:1px solid var(--line-soft)}
 .agent-config-section h4{font-size:13px;margin:0 0 5px}

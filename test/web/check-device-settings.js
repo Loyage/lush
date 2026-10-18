@@ -143,8 +143,15 @@ try {
     await execute('return window.openConfig()'); await waitFor('document.querySelector("[data-agent-field=append_prompt]")');
     await execute(`const p=document.querySelector('[data-agent-field=append_prompt]');p.value='device-draft';p.dispatchEvent(new Event('input',{bubbles:true}));`);
     assert(await execute(`const m=document.querySelector('.agent-profile');return m.classList.contains('module-fold')&&!m.classList.contains('module-preview')&&m.querySelector('.module-toggle').getAttribute('aria-controls')===m.querySelector('.module-body').id;`), 'Agent form did not adopt explicit-only common folding');
+    const checkAgentHeader = async state => {
+      const header = await execute(`const card=document.querySelector('[data-agent-target=default]'),head=card.querySelector('.agent-profile-head');head.scrollIntoView({block:'center'});const box=head.getBoundingClientRect(),outer=card.getBoundingClientRect(),style=getComputedStyle(head);return {padding:parseFloat(style.paddingLeft),margin:parseFloat(style.marginTop),background:style.backgroundColor,expected:getComputedStyle(document.querySelector('.agent-default-summary')).backgroundColor,inside:box.top>=outer.top+1&&[head.querySelector('h3'),head.querySelector('.settings-note'),head.querySelector('.badge'),head.querySelector('.module-toggle')].every(n=>{const r=n.getBoundingClientRect();return r.left>=box.left+12&&r.right<=box.right-12&&r.top>=box.top&&r.bottom<=box.bottom})};`);
+      assert(header.padding>=12 && header.margin===0 && header.background===header.expected && header.inside, `Default Agent header clipped or lost card spacing ${theme}/${width}/${state}: ${JSON.stringify(header)}`);
+    };
+    await checkAgentHeader('expanded');
     await execute(`return document.querySelector('.agent-profile .module-toggle').onclick()`);
     assert(await execute(`return document.querySelector('.agent-profile .module-body').hidden&&document.querySelector('[data-agent-field=append_prompt]').value==='device-draft';`), 'fold discarded an Agent draft');
+    await checkAgentHeader('collapsed');
+    await screenshot(`agent-header-collapsed-${theme}-${width}`);
     await execute(`return document.querySelector('.agent-profile .module-toggle').onclick()`);
     await execute(`return document.querySelector('[data-agent-tab=status]').onclick()`);
     await execute(`return document.querySelector('[data-agent-tab=settings]').onclick()`);
