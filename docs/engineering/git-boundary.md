@@ -6,7 +6,7 @@
 
 - 新指令：从父分支（main 或已绑定 owner）的已提交 tip 创建 `lush/<hash>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`，Agent cwd 就是这里。
 - 子 Worker：从父分支当前已提交 tip 创建独立的直接子分支与 worktree。
-- 手动容器：spawn 从真实父已提交 tip 创建；fork 从来源已提交 tip 创建，但交付父和登记分支 parent 仍是来源的直接父，不是来源。固定 source/commit 独立记录，不复制未提交文件，不绕过普通交付祖先与分歧安全门；[创建契约](../reference/rpc/tasks.md#手动创建与首条输入w337d698)。
+- 手动容器：spawn 从真实父已提交 tip 创建；fork 从来源已提交 tip 创建；省略 parent 时交付父为来源直接父，显式 parent 只可选来源自身（自复制子级）或来源直接父（复制直接子为同父新子）。登记分支 parent／target 始终是真实选定交付父，不由基线来源推算。固定 source/commit 独立记录，不复制未提交文件，不绕过普通交付祖先与分歧安全门；[创建契约](../reference/rpc/tasks.md#手动创建与首条输入w337d698)。
 - 当前 version 2 分歧：原 Worker 在自己的 worktree 吸收固定父提交、保留原源提交并测试；历史 version 1 的独立解分歧子 Worker 从源侧固定提交创建分支/worktree。
 - 归档与回收：`branch.archive` 与 `worker.cleanup`，见[分支谱系](branch-genealogy.md)与[工作区回收](cleanup.md)。
 

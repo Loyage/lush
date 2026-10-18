@@ -1,18 +1,20 @@
 import { button, el, kv } from './dom.js';
 import { workerKind } from './worker-kind.js';
+import { TERMINAL_STATUS } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
 
 export const waitingFirstInput = task => task?.creation?.waiting_first_input === true;
 export const FIRST_INPUT_HELP = '打开绑定此 Worker 的工作指令编辑器；现在不发送、不调用 Agent。提交首条输入才创建真实 Input 并授权 Agent 执行，无需另点开始。';
-export function workerCreateControl(source = null) {
-  if (source && (!['order', 'child'].includes(workerKind(source)) || source.execution_retired === true || source.archived || source.branch_info?.archived)) return null;
-  return button(source ? '复制创建' : '空白创建', async () => {
+export function workerCreateControl(parent = null) {
+  if (parent && (!['order', 'child'].includes(workerKind(parent)) || parent.execution_retired === true || parent.archived
+    || parent.branch_info?.archived || TERMINAL_STATUS.has(parent.status) || waitingFirstInput(parent))) return null;
+  return button(parent ? '创建子 Worker' : '空白创建', async () => {
     const view = ui.view, boot = ui.workerNumbers;
-    try { const { openWorkerCreate } = await import('./worker-create-form.js'); if (ui.view === view && ui.workerNumbers === boot) await openWorkerCreate({ source }); }
+    try { const { openWorkerCreate } = await import('./worker-create-form.js'); if (ui.view === view && ui.workerNumbers === boot) return await openWorkerCreate({ parent }); }
     catch (error) { show(`无法打开创建面板：${error.message}`, 'error'); }
-  }, 'ghost worker-create-entry', { help: source ? '从此 Worker 的当前已提交代码和有效 Pi 检查点复制创建同父独立 Worker；不复制未提交文件、消息或授权，不调用 Agent。' : '只创建独立 Worker 和工作区；不创建 Input、不调用 Agent，稍后输入工作指令才授权执行。' });
+  }, 'ghost worker-create-entry', { help: parent ? '在当前 Worker 下创建子 Worker：默认空白，也可复制自己或已有直接子 Worker；只创建、不调用 Agent，提交首条指令才授权执行。' : '只创建独立 Worker 和工作区；不创建 Input、不调用 Agent，稍后输入工作指令才授权执行。' });
 }
 export function workerCreationFacts(task) {
   const creation = task.creation;

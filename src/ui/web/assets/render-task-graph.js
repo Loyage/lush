@@ -331,7 +331,7 @@ function taskActionsMenu(node, inputWorkers) {
     close.setAttribute('autofocus', '');
     panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost', { worker: node }),
       ...(node.execution_retired === true ? [] : [workerRenameControl(node, { refresh: loadTaskGraph })]));
-    const copyCreate = workerCreateControl(node); if (copyCreate) panel.append(copyCreate);
+    const childCreate = workerCreateControl(node); if (childCreate) panel.append(childCreate);
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
       { worker: node }));
     const queueText = inputQueueText(node);

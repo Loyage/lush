@@ -24,10 +24,12 @@ export default {
         check(['order','child'].includes(source.task_kind) && source.branch, 'fork source must be an order/child with a local branch');
         check(this.store.branch(source.branch)?.status === 'active', 'fork source branch is archived or missing');
         this.assertBranchWritable(source.branch, 'fork this Worker');
-        check(options.parent === undefined || id(options.parent) === source.parent_id, 'fork parent must be the source direct parent');
+        check(options.parent === undefined || [source.id, source.parent_id].includes(id(options.parent)),
+          'fork parent must be the source itself or its direct parent');
       }
       const parentId = options.parent ?? source?.parent_id ?? (await this.ensureMainTask()).id;
       const parent = this.store.task(id(parentId));
+      const sourceIsParent = source?.id === parent.id;
       const admit = () => {
         this.assertWritable('create a Worker');
         const live = this.store.task(parent.id);
@@ -40,7 +42,9 @@ export default {
         if (source) {
           const current = this.store.task(source.id);
           assertTaskNotSyncing(this, current.id);
-          check(current.branch === source.branch && current.parent_id === parent.id
+          // Explicit self-copy creates a child of source; otherwise source must remain a direct child of target.
+          const relation = sourceIsParent ? current.id === live.id : current.parent_id === live.id;
+          check(current.branch === source.branch && relation
             && this.store.branch(current.branch)?.status === 'active', 'fork source changed');
           this.assertBranchWritable(current.branch, 'fork this Worker');
         }

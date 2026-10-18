@@ -2,6 +2,7 @@ import { $, el } from './dom.js';
 import { api, action, projectApi } from './api.js';
 import { formDialog, closeDialog, syncDialog } from './dialog.js';
 import { createEmissionWorkerPicker } from './emission-form.js';
+import { createChildSourcePicker } from './worker-child-source.js';
 import { createProfileForm } from './agent-profile-form.js';
 import { workerLabel } from './worker-label.js';
 import { taskTitle } from './format.js';
@@ -14,7 +15,7 @@ const field = (label, control) => {
   const node = el('label', undefined, 'worker-create-field'); node.append(el('span', label), control); return node;
 };
 /** One dialog owns the exact form for its lifetime. No nested settings dialog or write retry on reads. */
-export async function openWorkerCreate({ source = null } = {}) {
+export async function openWorkerCreate({ source = null, parent: parentWorker = null } = {}) {
   ui.disposeWorkerCreation?.();
   const view = ui.view, project = projectApi('/api/'), boot = ui.workerNumbers;
   let active = true, busy = false, created = null, profileForm = null, profileKey = null, profileReady = false, profileGeneration = 0;
@@ -24,7 +25,7 @@ export async function openWorkerCreate({ source = null } = {}) {
   const dispose = () => { active = false; if ($('modal')?.querySelector('.worker-create-form') === content) closeDialog(); };
   ui.disposeWorkerCreation = dispose;
   const mode = el('select'); mode.append(el('option', 'spawn · 空白创建'), el('option', 'fork · 复制创建'));
-  mode.children[0].value = 'spawn'; mode.children[1].value = 'fork'; mode.value = source ? 'fork' : 'spawn';
+  mode.children[0].value = 'spawn'; mode.children[1].value = 'fork'; mode.value = !parentWorker && source ? 'fork' : 'spawn';
   mode.dataset.createField = 'mode';
   const title = el('input'); title.type = 'text'; title.maxLength = 200; title.dataset.createField = 'title';
   const error = el('p', undefined, 'error worker-create-error'); error.setAttribute('role', 'alert');
@@ -32,7 +33,9 @@ export async function openWorkerCreate({ source = null } = {}) {
   const main = el('option', 'main（默认交付父）'); main.value = ''; parent.append(main);
   const parentField = field('交付父', parent), fixedParent = el('p', undefined, 'hint worker-create-parent');
   fixedParent.setAttribute('role', 'status');
-  const sourcePicker = createEmissionWorkerPicker({ label: 'fork 来源 Worker', initial: source, ownsPage: current, onChange: () => verifySource() });
+  const sourcePicker = parentWorker
+    ? createChildSourcePicker({ parent: parentWorker, ownsPage: current, onChange: () => verifySource() })
+    : createEmissionWorkerPicker({ label: 'fork 来源 Worker', initial: source, ownsPage: current, onChange: () => verifySource() });
   sourcePicker.select.dataset.createField = 'source';
   const advanced = el('details', undefined, 'worker-create-advanced');
   const override = el('input'); override.type = 'checkbox'; override.dataset.createField = 'override';
@@ -44,13 +47,16 @@ export async function openWorkerCreate({ source = null } = {}) {
   content.append(field('创建方式', mode), sourcePicker.node, parentField, fixedParent, field('标题（可选）', title), advanced, note, error);
   function paint() {
     const fork = mode.value === 'fork', selected = sourcePicker.value();
-    sourcePicker.node.hidden = !fork; parentField.hidden = fork; fixedParent.hidden = !fork;
+    sourcePicker.node.hidden = !fork; parentField.hidden = Boolean(parentWorker) || fork; fixedParent.hidden = !parentWorker && !fork;
     fixedParent.dataset.sourceState = sourceState;
     fixedParent.classList.toggle('error', sourceState === 'failed');
-    fixedParent.textContent = sourceState === 'ready' ? `交付父：${workerLabel(sourceDetails.parent_id, sourceDetails.parent_worker_number)}（固定为来源的直接父，与来源同父独立工作）`
+    const sourceStatus = sourceState === 'ready' ? `交付父：${workerLabel(sourceDetails.parent_id, sourceDetails.parent_worker_number)}（固定为来源的直接父，与来源同父独立工作）`
       : sourceState === 'loading' ? `正在读取来源 ${workerLabel(selected)} 的详情并核验交付父；完成前不能复制创建。`
-        : sourceState === 'failed' ? `来源详情读取失败：${sourceError}；交付父尚未核验，不能复制创建。请重新选择来源或按编号定位重试，表单保留。`
+        : sourceState === 'failed' ? `来源详情读取失败：${sourceError}；交付父尚未核验，不能复制创建。请${parentWorker ? '重新选择来源或加载直接子 Worker' : '重新选择来源或按编号定位'}重试，表单保留。`
           : '选择来源后读取真实详情并核验交付父；不能改投其它父 Worker。';
+    fixedParent.textContent = parentWorker
+      ? `父 Worker：${workerLabel(parentWorker)}（固定为当前 Worker）${fork ? sourceState === 'ready' ? ` · 复制来源：${workerLabel(sourceDetails)}（已核验为当前 Worker 或直接子 Worker）` : ` · ${sourceStatus}` : ' · 空白创建，不继承会话。'}`
+      : sourceStatus;
     profileNote.textContent = fork ? '默认继承来源 Worker 的有效运行参数；不读取并覆盖为项目默认。只有勾选自定义才提交完整覆盖。' : '默认沿用项目有效运行参数；只有勾选自定义才提交完整覆盖。';
     syncDialog(content);
   }
@@ -66,6 +72,8 @@ export async function openWorkerCreate({ source = null } = {}) {
       if (details.id !== selected.id || (selected.worker_number && details.worker_number !== selected.worker_number)
         || !['order', 'child'].includes(details.task_kind) || !Number.isSafeInteger(details.parent_id) || details.parent_id <= 0)
         throw new Error('来源身份或直接父信息不完整，请核对 Worker');
+      if (parentWorker && details.id !== parentWorker.id && details.parent_id !== parentWorker.id)
+        throw new Error('来源不再是当前 Worker 的直接子 Worker，请重新选择');
       sourceDetails = details; sourcePicker.update(details); sourceState = 'ready'; paint();
       if (override.checked) void loadProfile();
     } catch (failure) { if (ownsSource()) { sourceState = 'failed'; sourceError = failure.message; paint(); } }
@@ -91,7 +99,7 @@ export async function openWorkerCreate({ source = null } = {}) {
   override.onchange = () => { profileBox.hidden = !override.checked; if (override.checked) void loadProfile(); syncDialog(content); };
   void verifySource();
   // The default main choice is valid without this optional complete parent list. Read errors stay visible.
-  void api('/api/input-parents').then(data => {
+  if (!parentWorker) void api('/api/input-parents').then(data => {
     if (!current()) return;
     if (!Array.isArray(data.items)) throw new Error('父 Worker 列表格式不兼容');
     for (const worker of data.items) {
@@ -100,7 +108,7 @@ export async function openWorkerCreate({ source = null } = {}) {
     }
   }).catch(failure => { if (current()) error.textContent = `交付父列表读取失败：${failure.message}；现有字段保留，可取消后重新打开。`; });
   try {
-    await formDialog({ title: '创建 Worker', content, initialFocus: mode, cardClass: 'worker-create-modal', confirmLabel: '创建 Worker',
+    await formDialog({ title: parentWorker ? '创建子 Worker' : '创建 Worker', content, initialFocus: mode, cardClass: 'worker-create-modal', confirmLabel: parentWorker ? '创建子 Worker' : '创建 Worker',
       confirmHelp: '固定当前已提交代码并创建独立 Worker 与工作区，不创建 Input、不调用 Agent。',
       canConfirm: () => current() && !created && (mode.value !== 'fork' || (sourceState === 'ready' && sourceDetails?.id === sourcePicker.value()?.id)),
       onConfirm: async () => {
@@ -110,7 +118,8 @@ export async function openWorkerCreate({ source = null } = {}) {
         if (fork && (sourceState !== 'ready' || !selected || selected.id !== sourcePicker.value()?.id)) { error.textContent = 'fork 来源详情与交付父尚未核验，不能提交。'; return false; }
         if (override.checked && (!profileForm || !profileReady)) { error.textContent = '运行参数尚未读取完成，请检查高级设置。'; return false; }
         if (override.checked) { const invalid = profileForm.validate(); if (invalid) { error.textContent = invalid; return false; } }
-        const params = { mode: mode.value, ...(fork ? { source: selected.id } : parent.value ? { parent: Number(parent.value) } : {}),
+        const params = { mode: mode.value, ...(fork ? { source: selected.id } : {}),
+          ...(parentWorker ? { parent: parentWorker.id } : !fork && parent.value ? { parent: Number(parent.value) } : {}),
           ...(title.value.trim() ? { title: title.value.trim() } : {}), ...(override.checked ? { profile: profileForm.collect() } : {}) };
         busy = true;
         const controls = [...content.querySelectorAll('input'), ...content.querySelectorAll('select'), ...content.querySelectorAll('textarea'), ...content.querySelectorAll('button')];

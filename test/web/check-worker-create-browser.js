@@ -17,7 +17,8 @@ import {renderTaskGraph} from '/render-task-graph.js';
 import {renderTree} from '/render-tree.js';
 import {activateDetailView} from '/sidebar-ui.js';
 const source={id:208,worker_number:'W735-2',parent_id:19,parent_worker_number:'W735',role:'agent',task_kind:'order',status:'waiting',branch:'lush/source',target_branch:'lush/parent',base_commit:'a'.repeat(40),goal:'来源标题及工作上下文'.repeat(15),calls:1,agent_wakes:1,children:[],deps:[],dependents:[],notices:[],integration:'none'};
-let id=301;const tasks=new Map([[208,source]]);window.calls=[];
+const directChild={...source,id:209,worker_number:'W736',parent_id:208,parent_worker_number:source.worker_number,goal:'已有直接子 Worker'};
+let id=301;const tasks=new Map([[208,source],[209,directChild]]);window.calls=[];
 window.fetch=async(url,options={})=>{const path=new URL(url,location.href).pathname;
 if(path==='/api/worker-lookup')return Response.json({id:208,worker_number:'W735-2'});
 if(path==='/api/input-parents')return Response.json({items:[{id:1,branch:'main',worker_number:'W1'},{id:19,branch:'lush/parent',worker_number:'W735',goal:'交付父'}]});
@@ -26,15 +27,16 @@ if(path.endsWith('/run-settings'))return Response.json({profile:{agent:'pi',conf
 if(path==='/api/agent/packages')return Response.json({version:1,packages:[],resources:{}});
 if(path==='/api/agent/connections')return Response.json({connections:[]});
 if(path==='/api/action'){const call=JSON.parse(options.body);window.calls.push(call);
-if(call.method==='worker.create'){const fork=call.params.mode==='fork';const task={...source,id:id++,worker_number:'W999-'+id,parent_id:fork?19:call.params.parent||1,parent_worker_number:fork?'W735':'W1',status:'paused',goal:'',input_id:null,calls:0,agent_wakes:0,display_title:call.params.title||'空白 Worker',creation:{mode:call.params.mode,source_id:fork?208:null,source_worker_number:fork?'W735-2':null,commit:'b'.repeat(40),session_inherited:fork,warning:null,waiting_first_input:true}};tasks.set(task.id,task);return Response.json({task});}
+if(call.method==='worker.create'){const fork=call.params.mode==='fork';const task={...source,id:id++,worker_number:'W999-'+id,parent_id:call.params.parent||(fork?19:1),parent_worker_number:call.params.parent===208?source.worker_number:fork?'W735':'W1',status:'paused',goal:'',input_id:null,calls:0,agent_wakes:0,display_title:call.params.title||'空白 Worker',creation:{mode:call.params.mode,source_id:fork?call.params.source:null,source_worker_number:fork?(call.params.source===209?directChild.worker_number:source.worker_number):null,commit:'b'.repeat(40),session_inherited:fork,warning:null,waiting_first_input:true}};tasks.set(task.id,task);return Response.json({task});}
 if(call.method==='input.emit')return Response.json({emitted:true,draft_id:40,dispatch:{state:'queued'}});}
 const match=/^\\/api\\/worker\\/(\\d+)$/.exec(path);if(match){if(Number(match[1])===208&&window.holdSource)await new Promise(resolve=>window.releaseSource=resolve);return Response.json(tasks.get(Number(match[1])));}
 if(path.endsWith('/history-page'))return Response.json({events:[],has_more:false,cursor:null});
-if(path.endsWith('/relations'))return Response.json({children:{items:[],has_more:false},deps:[],dependents:[]});
+if(path.endsWith('/relations'))return Response.json({children:{items:path.includes('/208/')?[directChild]:[],has_more:false,cursor:209},deps:[],dependents:[]});
 return Response.json({});};
 registerNavigation({detail:loadDetail,refresh:async()=>{}});ui.view={id:'overview'};
 await initComposer();
 window.create=fork=>{void openWorkerCreate({source:fork?source:null});};
+window.createChild=()=>{void openWorkerCreate({parent:source});};
 window.page=()=>activateDetailView({view:'overview'});
 window.graph=()=>{ui.view={id:'task-graph'};ui.taskGraphMinimal=true;renderTaskGraph({nodes:[source],edges:[],total:1});};
 window.list=()=>{renderTree({tasks:[source],notices:[]});};
@@ -77,7 +79,7 @@ try {
   await resize(390, 844); assert(await wait('window.ready'), 'fixture load failed');
   await execute('window.list();window.graph();');
   assert(await execute(`return [...document.querySelectorAll('#detail button')].some(b=>b.textContent==='空白创建')&&[...document.querySelectorAll('#side-tasks button')].some(b=>b.textContent==='空白创建');`), 'missing permanent graph/list creation entry');
-  await click('.task-graph-more-trigger'); assert(await execute(`return [...document.querySelectorAll('.task-graph-actions-popover button')].some(b=>b.textContent==='复制创建'&&!b.classList.contains('agent-call'));`), 'missing non-Agent copy action');
+  await click('.task-graph-more-trigger'); assert(await execute(`return [...document.querySelectorAll('.task-graph-actions-popover button')].some(b=>b.textContent==='创建子 Worker'&&!b.classList.contains('agent-call'))&&!document.querySelector('.task-graph-actions-popover').textContent.includes('复制创建');`), 'missing unique non-Agent child action');
   await keys(['\uE00C']);
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await resize(width, 900); await execute(`window.page();document.documentElement.dataset.theme='${theme}';window.create(false);`);
@@ -121,6 +123,23 @@ try {
   await execute('window.page();window.create(false);'); await keys(['\uE00C']);
   assert(await execute(`return document.querySelector('#modal').hidden&&window.calls.filter(c=>c.method==='worker.create').length===6;`), 'keyboard cancellation created a Worker');
   console.log(`PASS Escape cancellation; screenshots and driver log: ${evidence}`);
+  for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
+    await resize(width, 900); await execute(`window.page();document.documentElement.dataset.theme='${theme}';window.createChild();`);
+    assert(await wait(`!document.querySelector('#modal').hidden`), 'child dialog did not open');
+    assert(await execute(`return document.querySelector('.modal-title').textContent==='创建子 Worker'&&document.querySelector('[data-create-field=mode]').value==='spawn'&&document.querySelector('.worker-create-parent').textContent.includes('W735-2')&&!document.querySelector('.worker-child-source').getClientRects().length&&!document.querySelector('#modal .emission-worker-picker')&&!document.querySelector('.modal-confirm').classList.contains('agent-call');`), 'child default/parent/source scope incorrect');
+    await execute(`const mode=document.querySelector('[data-create-field=mode]');mode.value='fork';mode.dispatchEvent(new Event('change'));`);
+    assert(await wait(`document.querySelector('.worker-create-parent').dataset.sourceState==='ready'`), 'self source not verified');
+    assert(await execute(`return document.querySelector('[data-create-field=source]').value==='208'&&document.querySelector('[data-create-field=source]').selectedOptions[0].textContent.includes('当前 Worker（默认）');`), 'copy did not default to current Worker');
+    await execute(`[...document.querySelectorAll('.worker-child-source button')].find(b=>b.textContent==='加载直接子 Worker').click();`);
+    assert(await wait(`document.querySelector('[data-create-field=source]').options.length===2`), 'direct child did not load');
+    await execute(`const source=document.querySelector('[data-create-field=source]');source.value='209';source.dispatchEvent(new Event('change'));`);
+    assert(await wait(`document.querySelector('.worker-create-parent').dataset.sourceState==='ready'`), 'direct child source not verified');
+    assert(await execute(`const card=document.querySelector('.worker-create-modal');return document.querySelector('.worker-create-parent').textContent.includes('父 Worker：W735-2')&&card.scrollWidth<=card.clientWidth+1&&document.documentElement.scrollWidth<=innerWidth;`), 'child parent drift or narrow overflow');
+    await Bun.write(join(evidence, theme+'-'+width+'-child.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+    await click('.modal-confirm'); assert(await wait(`document.querySelector('.worker-first-input')&&document.querySelector('#modal').hidden`), 'child creation did not navigate');
+    assert(await execute(`const call=window.calls.filter(c=>c.method==='worker.create').at(-1);const text=document.querySelector('.worker-creation-facts').textContent;return call.params.parent===208&&call.params.source===209&&text.includes('W735-2')&&![...document.querySelectorAll('.task-actions button')].some(b=>['空白创建','复制创建'].includes(b.textContent));`), 'actual child request/unique detail entry wrong');
+    console.log('PASS '+theme+' '+width+'px: child default spawn, fixed parent, self-copy default, direct child sources, no project lookup/overflow');
+  }
 } catch (error) {
   if (session) { try { await Bun.write(join(evidence, 'failure.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); } catch {} }
   throw error;

@@ -123,8 +123,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 
   const creationFacts = workerCreationFacts(task); if (creationFacts) panel.append(creationFacts);
   const actions = el('div', undefined, 'actions task-actions');
-  const blankCreate = workerCreateControl(); if (!readOnly) actions.append(blankCreate);
-  const copyCreate = workerCreateControl(task); if (!readOnly && copyCreate) actions.append(copyCreate);
+  const childCreate = workerCreateControl(task); if (!readOnly && childCreate) actions.append(childCreate);
   if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
     const help = waitingFirstInput(task) ? FIRST_INPUT_HELP : '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
     actions.append(guardedAction(button(waitingFirstInput(task) ? '输入工作指令' : '追加输入', () => appendToWorker(task), undefined, { help }), appendInputBlocker(task)));

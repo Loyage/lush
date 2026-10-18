@@ -5,7 +5,7 @@ import { repo, git, until, gate } from '../helpers.js';
 import { fetch as httpFetch, setup } from './harness.js';
 import { installDom, deepText, answerDialog, dialogButton } from '../dom-stub.js';
 
-let fixture, hold = null, emitHold = null, emitFailure = false, readFailure = false, createFailure = false, restoreNavigation;
+let fixture, hold = null, emitHold = null, emitFailure = false, readFailure = false, createFailure = false, restoreNavigation, relationLimit = null;
 const requests = [], runs = [], sourceReads = [], sourceBlocks = new Map(), sourceFailures = new Set();
 const dom = installDom({ fetch: async (url, options) => {
   if (options?.body) {
@@ -19,7 +19,8 @@ const dom = installDom({ fetch: async (url, options) => {
       if (createFailure) return { ok: false, json: async () => ({ error: 'creation rejected' }) };
     }
   }
-  const response = await httpFetch(fixture.url + url, options);
+  const route = relationLimit && String(url).includes('/relations?') ? String(url).replace('limit=100', `limit=${relationLimit}`) : url;
+  const response = await httpFetch(fixture.url + route, options);
   const sourceRead = /^\/api\/worker\/(\d+)$/.exec(String(url));
   if (sourceRead) {
     const id = Number(sourceRead[1]); sourceReads.push(id);
@@ -56,6 +57,7 @@ function checkpoint(source, invalid = false) {
 beforeEach(async () => {
   fixture = await setup(); await repo(fixture.root); fixture.project.kick = () => {}; fixture.project.scheduleInputEmissions = () => {};
   fixture.project.provider = { async run(args) { runs.push(args); return 'controlled response'; } };
+  relationLimit = null;
   resetUiState(); requests.length = runs.length = sourceReads.length = 0; sourceBlocks.clear(); sourceFailures.clear(); hold = emitHold = null; emitFailure = readFailure = createFailure = false;
   dom.node('input').value = ''; dom.node('input-parent').value = ''; dom.node('detail').replaceChildren(); dom.node('modal').replaceChildren(); dom.node('modal').hidden = true;
   ui.view = { id: 'overview' }; await initComposer();
@@ -85,7 +87,9 @@ async function submitFirst(task, content = 'first real user instruction') {
 test('real UI spawn -> waiting -> first Input/O -> draft receipt -> history; later append is Message/A, normal paused semantics unchanged', async () => {
   // Allocate an empty Worker first, deliberately decoupling W from O.
   const empty = (await fixture.project.createWorker({ mode: 'spawn' })).task; await loadDetail(empty.id);
-  const pending = button(dom.node('detail'), '空白创建').onclick(); await until(() => field('title')); field('title').value = '空白标题';
+  expect(button(dom.node('detail'), '空白创建')).toBeUndefined();
+  expect(button(dom.node('detail'), '创建子 Worker')).toBeUndefined(); // empty parent cannot create descendants before its first input
+  const pending = openWorkerCreate(); await until(() => field('title')); field('title').value = '空白标题';
   expect(dom.node('modal').querySelector('.worker-create-advanced').open).not.toBe(true);
   expect(dialogButton(dom, '创建 Worker').classList.contains('agent-call')).toBe(false);
   await answerDialog(dom, '创建 Worker'); await pending; const made = fixture.project.inspect(fixture.store.tasks().find(task => task.display_title === '空白标题').id);
@@ -166,7 +170,7 @@ test('real fork UI fixes sibling delivery parent, preserves source effective pro
   const source = (await fixture.project.order('source', parent.branch, [], null, false)).task;
   fixture.project.configureTask(source.id, { agent: 'pi', model: 'deepseek/deepseek-chat', append_prompt: 'source-specific' });
   const pointer = checkpoint(source); await loadDetail(source.id);
-  const pending = button(dom.node('detail'), '复制创建').onclick(); await until(() => field('mode'));
+  const pending = openWorkerCreate({ source }); await until(() => field('mode'));
   await readySource();
   expect(field('mode').value).toBe('fork'); expect(deepText(dom.node('modal'))).toContain('固定为来源的直接父');
   await answerDialog(dom, '创建 Worker'); await pending; const made = fixture.project.inspect(fixture.store.tasks().at(-1).id);
@@ -275,6 +279,77 @@ test('real fork strict errors retain mode/source/title, create nothing and never
   checkpoint(source, true); await answerDialog(dom, '创建 Worker'); expect(deepText(dom.node('modal'))).toContain('检查点无效');
   expect(fixture.store.tasks()).toHaveLength(count); expect(await git(fixture.root, 'for-each-ref', '--format=%(refname)')).toBe(refs);
   expect(runs).toHaveLength(0); await answerDialog(dom, '取消'); expect(await pending).toBeNull();
+});
+
+test('Worker detail has one child-create entry; blank is default, parent fixed, creation alone never invokes Agent', async () => {
+  const parent = (await fixture.project.order('current parent', 'main', [], null, false)).task;
+  await loadDetail(parent.id);
+  expect(button(dom.node('detail'), '空白创建')).toBeUndefined(); expect(button(dom.node('detail'), '复制创建')).toBeUndefined();
+  expect(dom.node('detail').querySelectorAll('.worker-create-entry')).toHaveLength(1);
+  const pending = button(dom.node('detail'), '创建子 Worker').onclick(); await until(() => field('mode'));
+  expect(field('mode').value).toBe('spawn'); expect(field('parent').parentNode.hidden).toBe(true);
+  expect(sourceStatus().textContent).toContain(`父 Worker：${parent.worker_number}`);
+  expect(dom.node('modal').querySelector('.worker-child-source').hidden).toBe(true);
+  expect(dom.node('modal').querySelector('.emission-worker-picker')).toBeNull();
+  expect(dialogButton(dom, '创建子 Worker').classList.contains('agent-call')).toBe(false);
+  await answerDialog(dom, '创建子 Worker'); await pending;
+  const made = fixture.project.inspect(fixture.store.tasks().at(-1).id);
+  expect(made.parent_id).toBe(parent.id); expect(made.target_branch).toBe(parent.branch);
+  expect(requests.find(call => call.method === 'worker.create').params).toEqual({ mode: 'spawn', parent: parent.id });
+  expect(fixture.store.all('SELECT * FROM inputs')).toHaveLength(1); expect(runs).toHaveLength(0);
+});
+
+test('child panel fork defaults to self and creates a real child with first O and inherited checkpoint', async () => {
+  const parent = (await fixture.project.order('copy myself', 'main', [], null, false)).task;
+  fixture.project.configureTask(parent.id, { agent: 'pi', model: 'deepseek/deepseek-chat' });
+  const pointer = checkpoint(parent); await loadDetail(parent.id);
+  const pending = button(dom.node('detail'), '创建子 Worker').onclick(); await until(() => field('mode'));
+  field('mode').value = 'fork'; await field('mode').onchange(); await readySource();
+  expect(field('source').value).toBe(String(parent.id)); expect(field('source').children[0].textContent).toContain('当前 Worker（默认）');
+  expect(sourceStatus().textContent).toContain(`父 Worker：${parent.worker_number}`);
+  await answerDialog(dom, '创建子 Worker'); await pending;
+  const made = fixture.project.inspect(fixture.store.tasks().at(-1).id);
+  expect(requests.find(call => call.method === 'worker.create').params).toEqual({ mode: 'fork', parent: parent.id, source: parent.id });
+  expect(made.parent_id).toBe(parent.id); expect(made.creation.source_id).toBe(parent.id);
+  expect(made.input_id).toBeNull(); expect(runs).toHaveLength(0);
+  const { receipt } = await submitFirst(made, 'new child first instruction');
+  expect(receipt.dispatch.input_id).toBeNumber(); fixture.project.pump(); await until(() => !fixture.project.running.size && runs.length === 1);
+  expect(runs[0].forkPointer).toEqual(pointer); expect(runs[0].task.parent_id).toBe(parent.id);
+});
+
+test('child copy sources paginate only real direct children; selecting one still fixes current Worker as parent', async () => {
+  const parent = (await fixture.project.order('current', 'main', [], null, false)).task;
+  const a = (await fixture.project.order('first direct', parent.branch, [], null, false)).task;
+  const b = (await fixture.project.order('second direct', parent.branch, [], null, false)).task;
+  const grandchild = (await fixture.project.order('grandchild', b.branch, [], null, false)).task;
+  const unrelated = (await fixture.project.order('unrelated', 'main', [], null, false)).task;
+  fixture.project.configureTask(b.id, { agent: 'pi', model: 'deepseek/deepseek-chat' }); checkpoint(b); relationLimit = 1;
+  const pending = openWorkerCreate({ parent }); field('mode').value = 'fork'; field('mode').onchange(); await readySource();
+  await button(dom.node('modal'), '加载直接子 Worker').onclick();
+  expect(field('source').children.map(option => option.value)).toEqual([String(parent.id), String(a.id)]);
+  await button(dom.node('modal'), '加载更多直接子 Worker').onclick();
+  expect(field('source').children.map(option => option.value)).toEqual([String(parent.id), String(a.id), String(b.id)]);
+  expect(field('source').children.some(option => [String(grandchild.id), String(unrelated.id)].includes(option.value))).toBe(false);
+  field('source').value = String(b.id); await field('source').onchange(); await readySource();
+  await answerDialog(dom, '创建子 Worker'); const made = await pending;
+  expect(made.parent_id).toBe(parent.id); expect(made.creation.source_id).toBe(b.id); expect(made.target_branch).toBe(parent.branch);
+  expect(runs).toHaveLength(0);
+});
+
+test('child source verification blocks moved children and stale details cannot override a newer self selection', async () => {
+  const parent = (await fixture.project.order('current', 'main', [], null, false)).task;
+  const child = (await fixture.project.order('direct', parent.branch, [], null, false)).task;
+  const pending = openWorkerCreate({ parent }); field('mode').value = 'fork'; field('mode').onchange(); await readySource();
+  await button(dom.node('modal'), '加载直接子 Worker').onclick();
+  const block = gate(); sourceBlocks.set(child.id, block); sourceReads.length = 0;
+  field('source').value = String(child.id); const late = field('source').onchange(); await until(() => sourceReads.includes(child.id));
+  field('source').value = String(parent.id); await field('source').onchange(); await readySource(); block.resolve(); await late;
+  expect(field('source').value).toBe(String(parent.id)); expect(sourceStatus().textContent).toContain(`复制来源：${parent.worker_number}`);
+  sourceBlocks.delete(child.id); fixture.store.run('UPDATE tasks SET parent_id=? WHERE id=?', parent.parent_id, child.id);
+  field('source').value = String(child.id); await field('source').onchange(); await until(() => sourceStatus().dataset.sourceState === 'failed');
+  expect(sourceStatus().textContent).toContain('不再是当前 Worker 的直接子'); expect(dialogButton(dom, '创建子 Worker').disabled).toBe(true);
+  await answerDialog(dom, '创建子 Worker'); expect(requests.filter(call => call.method === 'worker.create')).toHaveLength(0);
+  await answerDialog(dom, '取消'); await pending;
 });
 
 test('append advanced quiet control explains empty/paused self-wait without changing submitted conditions', async () => {

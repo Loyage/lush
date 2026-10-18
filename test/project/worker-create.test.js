@@ -134,7 +134,7 @@ test('unsupported modes, missing/invalid checkpoints and invalid arguments rejec
     await expect(f.project.createWorker({ mode: 'fork', source: source.id, profile: supported })).rejects.toThrow('检查点无效或不可用');
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(1);
     expect(fs.readdirSync(path.join(f.config.home, 'worktrees')).sort()).toEqual(dirs);
-    await expect(f.project.createWorker({ mode: 'fork', source: source.id, parent: source.id })).rejects.toThrow('direct parent');
+    await expect(f.project.createWorker({ mode: 'fork', source: source.id, parent: source.id + 1000 })).rejects.toThrow('direct parent');
     await expect(f.project.createWorker({ mode: 'spawn', profile: { agent: 'invalid' } })).rejects.toThrow();
     await expect(f.project.createWorker({ mode: 'spawn', source: source.id })).rejects.toThrow('does not accept');
     await expect(f.project.createWorker({ mode: 'fork' })).rejects.toThrow();
