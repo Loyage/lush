@@ -12,7 +12,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-built-loading-assets.test.js', // compiled app boots with shared state
     'test/web/dom-loading-assets.test.js', // lazy page boot
     'test/web/dom-detail.test.js', // Worker detail -> independent reader, without a Worker-return action
-    'test/web/dom-worker-cli-api.test.js', // detail -> authenticated user preview/confirmation -> real CLI -> result and lifecycle
+    'test/web/dom-worker-cli-api.test.js', // detail -> standalone CLI page -> Ctrl+Enter -> authenticated preview/confirmation -> real CLI and lifecycle
     'test/web/reading-conversation-integration.test.js', // input/output -> HTTP segmented raw copy
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
@@ -54,7 +54,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation main flow
     'test/web/dom-detail-layout-preferences.test.js', // confirmed detail hierarchy
-    'test/web/dom-worker-cli.test.js', // collapsed CLI editor, confirmation, plain results and request disposal
+    'test/web/dom-worker-cli.test.js', // visible CLI editor, keyboard/IME guards, inline results, confirmation and request disposal
     'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
     'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay

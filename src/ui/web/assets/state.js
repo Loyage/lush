@@ -90,6 +90,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null;
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;

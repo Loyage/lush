@@ -5,7 +5,6 @@ import { loadWorkerRelations } from './render-worker-relations.js';
 import { isValet, workTypeLabel } from './work-type.js';
 import { activateDetailView, selectNav, setViewChrome, toggleMobileNavigation } from './sidebar-ui.js';
 import { disposeWorkerVersions } from './render-versions.js';
-import { disposeWorkerCli } from './worker-cli-detail.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
 import { liveTarget } from './live.js';
@@ -14,7 +13,7 @@ import { routeContext } from './route.js';
 
 let detailRequest = 0, supplemental = null, lifetime = null, renderedExtras = null;
 export function disposeDetailRequests({ preserveVersions = false } = {}) {
-  if (!preserveVersions) { disposeWorkerVersions(); disposeWorkerCli(); }
+  if (!preserveVersions) disposeWorkerVersions();
   lifetime?.abort(); lifetime = null;
   supplemental?.dispose(); supplemental = null;
 }

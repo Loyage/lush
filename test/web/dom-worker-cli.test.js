@@ -22,15 +22,18 @@ function mount(options = {}, snapshot = task) {
   return { dom, root, input, run, requests, status: root.querySelector('.worker-cli-status'),
     edit(value) { input.value = value; for (const handler of input.listeners.input || []) handler(); },
     click() { return run.listeners.click?.[0]?.(); },
+    key(extra = {}) { return input.listeners.keydown?.[0]?.({ key: 'Enter', ctrlKey: true, preventDefault() {}, ...extra }); },
     cleanup() { root.dispose(); closeDialog(); dom.restore(); } };
 }
 
-test('CLI panel is collapsed, expanding performs zero requests, examples only fill, identity is explicit', async () => {
+test('CLI editor is directly visible, advanced help is collapsed, examples only fill, identity is explicit', async () => {
   const f = mount();
   try {
-    expect(f.root.open).toBe(false);
+    expect(f.root.tagName).toBe('SECTION');
+    expect(f.root.getAttribute('aria-label')).toBe('CLI 交互');
     expect(f.root.querySelector('.worker-cli-advanced').open).toBe(false);
-    f.root.open = true; await Promise.resolve();
+    expect(f.input.getAttribute('aria-keyshortcuts')).toBe('Control+Enter');
+    await Promise.resolve();
     expect(f.requests).toEqual([]); expect(f.run.disabled).toBe(true);
     expect(deepText(f.root)).toContain('W324-2');
     expect(deepText(f.root)).toContain(task.workspace);
@@ -55,6 +58,33 @@ test('read-only preview executes exactly once, passes only revision/command/conf
     expect(f.dom.node('modal').children).toHaveLength(0); expect(f.input.value).toBe('lush status');
     expect(f.root.querySelector('.worker-cli-result-meta').textContent).toContain('退出码：0');
   } finally { f.cleanup(); }
+});
+
+test('Ctrl+Enter shares submit guards; plain Enter, IME and repeated keydown cannot send', async () => {
+  const hold = gate();
+  const f = mount({ execute: async params => { f.requests.push(['execute', params]); await hold.promise; return outcome(); } });
+  let pending;
+  try {
+    await f.key(); expect(f.requests).toEqual([]);
+    f.edit('lush status');
+    for (const extra of [{ ctrlKey: false }, { isComposing: true }, { keyCode: 229 }, { repeat: true },
+      { shiftKey: true }, { altKey: true }, { metaKey: true }, { key: 'x' }]) await f.key(extra);
+    expect(f.requests).toEqual([]);
+    let prevented = false;
+    pending = f.key({ preventDefault() { prevented = true; } });
+    await Promise.resolve(); await f.key(); await f.click();
+    expect(prevented).toBe(true); expect(f.requests).toHaveLength(2);
+    const body = f.root.querySelector('.worker-cli-body'), result = f.root.querySelector('.worker-cli-result');
+    const children = [...body.children];
+    expect(children.indexOf(result)).toBe(children.indexOf(f.status) + 1);
+    expect(children.indexOf(f.root.querySelector('.worker-cli-advanced'))).toBe(children.indexOf(result) + 1);
+    expect(result.hidden).toBe(false);
+    expect(f.root.querySelector('.worker-cli-result-command').textContent).toContain('lush status');
+    expect(f.root.querySelector('.worker-cli-result-meta').textContent).toContain('等待输出');
+    f.edit('lush help'); hold.resolve(); await pending;
+    expect(f.input.value).toBe('lush help'); expect(f.status.textContent).toBe('执行成功。');
+    expect(f.root.querySelector('.worker-cli-result-command').textContent).toContain('lush status');
+  } finally { hold.resolve(); f.cleanup(); await pending; }
 });
 
 test('nonzero exit, signals, timeout, truncation and unknown are never presented as success', async () => {
@@ -198,14 +228,14 @@ test('same Worker refresh leaves confirmation intact and authoritative preview d
   } finally { f.cleanup(); await pending; }
 });
 
-test('same Worker update preserves exact nodes, input/output/collapse and in-flight request', async () => {
+test('same Worker update preserves exact nodes, input/output/advanced disclosure and in-flight request', async () => {
   const hold = gate(); const f = mount({ execute: async () => { await hold.promise; return outcome(); } });
   let pending;
   try {
-    f.root.open = true; f.root.querySelector('.worker-cli-advanced').open = true; f.edit('lush status');
+    f.root.querySelector('.worker-cli-advanced').open = true; f.edit('lush status');
     pending = f.click(); await Promise.resolve();
     f.root.update({ ...task, status: 'awaiting_acceptance' }); expect(f.root.querySelector('textarea')).toBe(f.input);
-    expect(f.input.value).toBe('lush status'); expect(f.root.open).toBe(true);
+    expect(f.input.value).toBe('lush status');
     expect(f.root.querySelector('.worker-cli-advanced').open).toBe(true); expect(f.run.disabled).toBe(true);
     hold.resolve(); await pending; const output = f.root.querySelectorAll('.worker-cli-output')[0];
     f.edit('lush help'); f.root.update({ ...task, status: 'running' });
@@ -221,9 +251,9 @@ test('changing Worker invalidates late preview and late execution without pollut
       execute: async () => { f.requests.push('execute'); await hold.promise; return outcome({ stdout: 'old worker secret' }); },
     }); let pending;
     try {
-      f.root.open = true; f.edit('lush status'); pending = f.click(); await Promise.resolve();
+      f.edit('lush status'); pending = f.click(); await Promise.resolve();
       f.root.update({ ...task, id: 884, worker_number: 'W324-3', workspace: '/new/workspace' });
-      f.root.open = true; f.edit('lush help'); hold.resolve(); await pending;
+      f.edit('lush help'); hold.resolve(); await pending;
       expect(f.input.value).toBe('lush help'); expect(f.status.textContent).toBe('');
       expect(deepText(f.root)).not.toContain('old worker secret'); expect(deepText(f.root)).not.toContain(task.workspace);
       if (phase === 'preview') expect(f.requests).toEqual([]);
@@ -260,7 +290,7 @@ test('workspace removal invalidates pending preview, fails closed and never fall
 
 test('missing workspace, non-development kind and absent adapters all have accessible disabled explanations', async () => {
   for (const snapshot of [{ ...task, workspace: null }, { ...task, workspace: ' ' }, { ...task, task_kind: 'management' },
-    { ...task, task_kind: 'owner' }, { ...task, task_kind: null }, { ...task, id: null }]) {
+    { ...task, task_kind: 'owner' }, { ...task, task_kind: null }, { ...task, id: null }, { ...task, execution_retired: true }]) {
     const f = mount({}, snapshot);
     try {
       f.edit('lush status'); await f.click(); expect(f.requests).toEqual([]);
@@ -281,7 +311,7 @@ test('dispose cleans handlers and invalidates late preview/execution; repeated d
       f.edit('lush status'); pending = f.click(); await Promise.resolve(); f.root.dispose(); f.root.dispose();
       const oldStatus = f.status.textContent; f.root.update({ ...task, id: 884 }); hold.resolve(); await pending;
       expect(f.status.textContent).toBe(oldStatus); expect(deepText(f.root)).not.toContain('late output');
-      expect(f.input.listeners.input).toHaveLength(0); expect(f.run.listeners.click).toHaveLength(0);
+      expect(f.input.listeners.input).toHaveLength(0); expect(f.input.listeners.keydown).toHaveLength(0); expect(f.run.listeners.click).toHaveLength(0);
       for (const node of f.root.querySelector('.worker-cli-examples').querySelectorAll('button')) expect(node.listeners.click).toHaveLength(0);
       expect(f.run.disabled).toBe(true); if (phase === 'preview') expect(f.requests).toEqual([]);
     } finally { hold.resolve(); f.cleanup(); await pending; }

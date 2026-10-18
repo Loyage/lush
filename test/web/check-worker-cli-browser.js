@@ -1,4 +1,4 @@
-// Standalone real Firefox layout/interaction check; callbacks are controlled fixtures.
+// Standalone real Firefox CLI page layout/interaction check; API responses are controlled fixtures.
 // Real authenticated HTTP/RPC/CLI execution is covered by dom-worker-cli-api.test.js.
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -10,14 +10,17 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="vi
 ${['styles.css','styles-core.css','styles-worker-cli.css'].map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
 </head><body style="margin:0;padding:12px;box-sizing:border-box"><div id="detail"></div><div id="modal" hidden></div><div id="error"></div>
 <script type="module">
-import { renderWorkerCli } from '/assets/worker-cli.js';
+import { openWorkerCliPage } from '/assets/worker-cli-page.js';
 window.errors=[]; addEventListener('error',e=>errors.push(e.message)); addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 window.calls=[];
 const task={id:77,worker_number:'W324',task_kind:'order',workspace:'/project/'+('very-long-worker-directory/').repeat(12)};
-window.panel=renderWorkerCli(task,{
- preview:async command=>{calls.push('preview');return {id:77,command,workspace:task.workspace,argv:['status'],executable:'lush',path:'status',kind:command.includes('order')?'agent':'read',requires_confirmation:command.includes('order'),revision:'revision'};},
- execute:async({command})=>{calls.push('execute');return {command,workspace:task.workspace,status:'succeeded',exit_code:0,stdout:'a'.repeat(4000)+'\\n<literal-output>',stderr:'warning',duration_ms:2};}
-}); document.querySelector('#detail').append(panel);window.task=task;window.ready=true;
+window.fetch=async(url,options)=>{
+ if(String(url).endsWith('/api/worker/77'))return Response.json(task);
+ const {method,params:{command}}=JSON.parse(options.body);
+ if(method==='worker.cli_preview'){calls.push('preview');return Response.json({id:77,command,workspace:task.workspace,argv:['status'],executable:'lush',path:'status',kind:command.includes('order')?'agent':'read',requires_confirmation:command.includes('order'),revision:'revision'});}
+ calls.push('execute');return Response.json({command,workspace:task.workspace,status:'succeeded',exit_code:0,stdout:'a'.repeat(4000)+'\\n<literal-output>',stderr:'warning',duration_ms:2});
+};
+location.hash='#worker-77-cli';window.panel=await openWorkerCliPage({taskId:77});window.task=task;window.ready=true;
 </script></body></html>`;
 const server = Bun.serve({ hostname:'127.0.0.1', port:0, fetch(req) {
   const path = new URL(req.url).pathname;
@@ -50,13 +53,11 @@ try {
   await rpc(`/session/${session}/window/rect`,{width:1600,height:1000});
   await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});await frame();
   assert(await untilScript('window.ready'),'fixture did not load');
-  assert(await execute('return !panel.open && calls.length===0 && !panel.querySelector("textarea").checkVisibility();'),'panel must start collapsed without requests');
-  await execute('panel.querySelector("summary").focus();');
-  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'}]}]});
-  assert(await execute('return panel.open && calls.length===0;'),'native Enter disclosure failed');
+  assert(await execute('return panel.tagName==="SECTION" && calls.length===0 && panel.querySelector("textarea").checkVisibility() && !panel.querySelector(".worker-cli-advanced").open;'),'CLI page must show input without requests and keep advanced help collapsed');
   await execute('panel.querySelector(".worker-cli-advanced").open=true;panel.querySelector(".worker-cli-examples button").click();');
   assert(await execute('return calls.length===0 && panel.querySelector("textarea").value==="lush help";'),'example executed instead of filling');
-  await execute('panel.querySelector(".worker-cli-run").click();');
+  await execute('panel.querySelector("textarea").focus();');
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'},{type:'keyUp',value:'\uE009'}]}]});
   assert(await untilScript('panel.querySelector(".worker-cli-status").textContent==="执行成功。"'),'fixture query did not complete');
   for(const theme of ['light','dark'])for(const width of [1440,900,600,390,320]){
     await rpc(`/session/${session}/frame`,{id:null});await execute(`document.querySelector('#viewport').style.width='${width}px';`);await frame();
@@ -65,6 +66,9 @@ try {
       const errors=[],input=panel.querySelector('textarea'),run=panel.querySelector('.worker-cli-run'),output=panel.querySelector('.worker-cli-output');
       const a=input.getBoundingClientRect(),b=run.getBoundingClientRect();
       if(innerWidth<=600 && b.top<a.bottom)errors.push('narrow controls not stacked');
+      const result=panel.querySelector('.worker-cli-result'),advanced=panel.querySelector('.worker-cli-advanced');
+      if(result.getBoundingClientRect().top<b.bottom || result.getBoundingClientRect().bottom>advanced.getBoundingClientRect().top)errors.push('result must follow input, before advanced help');
+      if(getComputedStyle(document.querySelector('.worker-cli-page')).maxWidth!=='none')errors.push('CLI page width capped');
       for(const control of [input,run,...panel.querySelectorAll('.worker-cli-examples button')]){const r=control.getBoundingClientRect();if(r.right>innerWidth+1||r.left<0)errors.push('clipped control');}
       if(b.height<44)errors.push('small touch target');
       if(document.documentElement.scrollWidth>innerWidth)errors.push('page overflow');
@@ -81,7 +85,7 @@ try {
   await execute(`const buttons=[...document.querySelectorAll('#modal button')];buttons.find(b=>b.textContent==='取消').click();`);
   assert(await untilScript(`panel.querySelector('.worker-cli-status').textContent==='已取消，未执行。'`),'cancel failed');
   assert(await execute('return calls.length===3;'),'cancel executed command');
-  passed=true;console.log('PASS keyboard disclosure, examples do not execute, explicit Agent confirmation/cancel; no real model calls');
+  passed=true;console.log('PASS standalone page, native Ctrl+Enter, inline result before advanced help, examples do not execute, explicit Agent confirmation/cancel; no real model calls');
 }catch(error){
   if(session)await Bun.write(join(temp,'failure.png'),Buffer.from(await rpc(`/session/${session}/screenshot`,undefined,'GET'),'base64')).catch(()=>{});
   console.error(`Worker CLI browser failure logs: ${temp}`);throw error;

@@ -8,11 +8,11 @@ const errorText = error => error?.message || String(error);
 
 /** Standalone UI: the adapter owns the fixed Worker id and authenticated user API.
  * No cwd, environment, credentials, shell or backend imports belong in this module.
- * Reuse update() for detail refresh; call dispose() before removing the node.
+ * Reuse update() for page refresh; call dispose() before removing the node.
  */
 export function renderWorkerCli(initialTask, { preview, execute } = {}) {
-  const root = el('details', undefined, 'worker-cli');
-  root.append(el('summary', 'CLI 试用'));
+  const root = el('section', undefined, 'worker-cli');
+  root.setAttribute('aria-label', 'CLI 交互');
   const body = el('div', undefined, 'worker-cli-body'); root.append(body);
   const identity = el('div', undefined, 'worker-cli-identity');
   const worker = el('strong'), workspace = el('code', undefined, 'worker-cli-workspace');
@@ -24,7 +24,9 @@ export function renderWorkerCli(initialTask, { preview, execute } = {}) {
   const label = el('label', undefined, 'worker-cli-field'); label.append(el('span', '单次 Lush 命令'));
   const input = el('textarea', undefined, 'worker-cli-input'); input.rows = 2; input.placeholder = 'lush status';
   input.setAttribute('aria-label', '单次 Lush 命令'); input.spellcheck = false;
-  label.append(input);
+  input.setAttribute('aria-keyshortcuts', 'Control+Enter');
+  const shortcut = el('span', 'Ctrl+Enter 执行 · 有副作用的命令仍需确认', 'worker-cli-shortcut');
+  label.append(input, shortcut);
   const runHost = el('span', undefined, 'help-host');
   const run = el('button', '执行', 'worker-cli-run'); run.type = 'button';
   run.dataset.help = '先预览命令与真实工作目录；有副作用或调用 Agent 时确认后才执行，不会自动重试。';
@@ -36,20 +38,19 @@ export function renderWorkerCli(initialTask, { preview, execute } = {}) {
   const examples = el('div', undefined, 'worker-cli-examples'); advanced.append(examples);
   advanced.append(el('p', '示例只填入命令，不执行。仅支持单次 Lush CLI 命令，不是交互式终端；不支持任意 shell、管道或重定向。目录、环境与身份由服务端固定，不能在此选择。'));
   advanced.append(el('p', '输出、耗时和执行上限以服务端返回为准。超时、信号、截断或连接中断不代表命令没有产生副作用；结果未知时请先核查，勿盲目再次执行。'));
-  body.append(advanced);
   const result = el('section', undefined, 'worker-cli-result'); result.hidden = true;
   result.setAttribute('aria-label', 'CLI 执行结果');
   const resultMeta = el('p', undefined, 'worker-cli-result-meta');
   const resultCommand = el('pre', undefined, 'worker-cli-result-command');
   const stdout = el('pre', undefined, 'worker-cli-output'); stdout.setAttribute('aria-label', 'stdout');
   const stderr = el('pre', undefined, 'worker-cli-output'); stderr.setAttribute('aria-label', 'stderr');
-  result.append(el('h3', '执行结果'), resultMeta, resultCommand, el('h4', 'stdout'), stdout, el('h4', 'stderr'), stderr); body.append(result);
+  result.append(el('h3', '执行结果'), resultCommand, resultMeta, el('h4', 'stdout'), stdout, el('h4', 'stderr'), stderr); body.append(result, advanced);
 
   let task, disposed = false, busy = false, generation = 0, draftVersion = 0, confirmation = null;
   const exampleHandlers = [];
   function reason() {
-    if (disposed) return '面板已离开，请重新打开 Worker 详情。';
-    if (!['order', 'child'].includes(task?.task_kind)) return '仅开发指令或子 Worker 可以试用 CLI。';
+    if (disposed) return '页面已离开，请重新打开 CLI 交互。';
+    if (!['order', 'child'].includes(task?.task_kind) || task?.execution_retired === true) return '仅本机开发指令或子 Worker 可以使用 CLI 交互。';
     if (!Number.isSafeInteger(task?.id) || task.id <= 0) return 'Worker 身份不可用。';
     if (!present(task?.workspace)) return 'Worker 工作区不存在或不可用；不会回落到项目目录。';
     if (typeof preview !== 'function' || typeof execute !== 'function') return 'CLI 执行接口尚未连接。';
@@ -120,7 +121,11 @@ export function renderWorkerCli(initialTask, { preview, execute } = {}) {
         if (!accepted) { status.textContent = '已取消，未执行。'; return; }
       }
       if (!unchanged()) return;
-      started = true; executionWorkspace = plan.workspace; clearResult(); status.textContent = '正在真实执行，请勿重复提交…';
+      started = true; executionWorkspace = plan.workspace; clearResult();
+      result.hidden = false;
+      resultCommand.textContent = `命令：${command}\n目录：${plan.workspace}`;
+      resultMeta.textContent = '正在真实执行，等待输出…';
+      status.textContent = '正在真实执行，请勿重复提交…';
       const outcome = await execute({ command, revision: plan.revision, confirm: needsConfirmation });
       if (!current()) return;
       result.hidden = false;
@@ -146,14 +151,20 @@ export function renderWorkerCli(initialTask, { preview, execute } = {}) {
       if (current()) { busy = false; sync(); }
     }
   }
-  input.addEventListener('input', edited); run.addEventListener('click', submit);
+  function keydown(event) {
+    if (event.key !== 'Enter' || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+      || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (!event.repeat) return submit();
+  }
+  input.addEventListener('input', edited); input.addEventListener('keydown', keydown); run.addEventListener('click', submit);
   root.update = next => {
     if (disposed) return root;
     const changed = !task || task.id !== next?.id;
-    const contextChanged = changed || task.workspace !== next?.workspace || task.task_kind !== next?.task_kind;
+    const contextChanged = changed || task.workspace !== next?.workspace || task.task_kind !== next?.task_kind || task.execution_retired !== next?.execution_retired;
     if (contextChanged) { generation++; busy = false; dismissConfirmation(); }
     task = { ...next };
-    if (changed) { input.value = ''; draftVersion++; clearResult(); status.textContent = ''; root.open = false; advanced.open = false; }
+    if (changed) { input.value = ''; draftVersion++; clearResult(); status.textContent = ''; advanced.open = false; }
     else if (contextChanged) status.textContent = '工作区或 Worker 类型已变化，旧请求不再更新此面板；已发出的命令仍可能执行，请先核查。';
     worker.textContent = workerNumber(task);
     if (contextChanged) workspace.textContent = present(task.workspace) ? task.workspace : '工作区不可用';
@@ -162,7 +173,7 @@ export function renderWorkerCli(initialTask, { preview, execute } = {}) {
   root.dispose = () => {
     if (disposed) return;
     disposed = true; generation++; busy = false; dismissConfirmation();
-    input.removeEventListener('input', edited); run.removeEventListener('click', submit);
+    input.removeEventListener('input', edited); input.removeEventListener('keydown', keydown); run.removeEventListener('click', submit);
     for (const [node, handler] of exampleHandlers.splice(0)) node.removeEventListener('click', handler);
     sync();
   };

@@ -4,6 +4,35 @@ import { makeWorld } from './dom-world.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { openTranscriptView, closeTranscriptView } from '../../src/ui/web/assets/transcript-view.js';
 
+test('CLI bookmark boots lazily, survives same-page navigation and disposes on leave/reboot', async () => {
+  const world = makeWorld(), calls = [];
+  const dom = installDom({ fetch: (url, options) => {
+    calls.push(String(url));
+    const id = /\/api\/worker\/([12])$/.exec(String(url))?.[1];
+    if (id) return Response.json({ id: Number(id), worker_number: `W33${id}`, task_kind: 'order', workspace: `/tmp/worker-${id}` });
+    return world.fetchImpl(url, options);
+  } });
+  try {
+    const { boot } = await import('../../src/ui/web/assets/app.js');
+    dom.location.hash = '#worker-1-cli'; await boot();
+    expect(ui.view.id).toBe('worker-cli'); expect(ui.selected).toBeNull();
+    const root = dom.node('detail').querySelector('.worker-cli'), input = root.querySelector('textarea');
+    expect(root.tagName).toBe('SECTION'); input.value = 'lush status';
+    await dom.fire('hashchange');
+    expect(dom.node('detail').querySelector('.worker-cli')).toBe(root); expect(input.value).toBe('lush status');
+    dom.location.hash = '#worker-2-cli'; await dom.fire('hashchange');
+    expect(root.querySelector('.worker-cli-run').disabled).toBe(true);
+    const next = dom.node('detail').querySelector('.worker-cli'); expect(next).not.toBe(root);
+    expect(next.querySelector('textarea').value).toBe('');
+    await boot(); expect(next.querySelector('.worker-cli-run').disabled).toBe(true);
+    const fresh = dom.node('detail').querySelector('.worker-cli');
+    dom.location.hash = '#drafts'; await dom.fire('hashchange');
+    expect(fresh.querySelector('.worker-cli-run').disabled).toBe(true); expect(ui.view.id).toBe('drafts');
+    expect(calls.some(path => path.endsWith('/api/action'))).toBe(false);
+    expect(calls.some(path => /\/(transcript|diff|history|usage)(\?|$)/.test(path))).toBe(false);
+  } finally { ui.disposeWorkerCli?.(); dom.restore(); }
+});
+
 test('new-tab reader has no Worker return entry and stays open across code/transcript and Escape', async () => {
   const world = makeWorld(), reads = [];
   const dom = installDom({ fetch: (url, options) => {

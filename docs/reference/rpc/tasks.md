@@ -1,14 +1,16 @@
 # Worker、Run 与 Artifact
 
-## Worker CLI 试用
+## Worker CLI 交互
 
-Worker 详情底部提供默认收起的「CLI 试用」面板，展开后输入命令，预览后按分类确认真实执行；示例只填入，不自动运行。面板展示真实目录、stdout／stderr、退出码与耗时，同 Worker 刷新保留草稿和结果，离页作废迟到响应；执行 ACK 与页面刷新分离，不因读取失败重发命令。长输出独立横向滚动，窄屏控件上下排列。
+Worker 详情提供「打开 CLI 交互」原生新标签链接，保留来源项目，进入可直接打开／重载的 `#worker-ID-cli` 独立页面。输入框默认可见，点击「执行」或 Ctrl+Enter 共用预览及按分类确认流程；普通 Enter 不发送，输入法确认与按键长按不触发执行，请求在途不重复提交。已发送命令、真实目录与 stdout／stderr、退出码、耗时紧接输入框下方；命令执行中仍可编辑下一条草稿。示例和详细限制默认折叠，示例只填入、不自动执行。页面使用可用宽度、长输出独立横向滚动，窄屏控件上下排列。
+
+同 Worker 页内刷新保留草稿和结果，不跨离页、项目切换或浏览器重载保存命令会话；离页作废迟到响应并关闭本页确认框。执行 ACK 与页面刷新分离，不因读取失败重发命令；离页不代表取消已发出的真实命令。
 
 用户专属 `worker.cli_preview {id,command}` 与 `worker.cli_execute {id,command,revision,confirm?}` 只经项目 `POST /api/action` 开放；普通 Agent 和 Valet 均不可调用，无新增 CLI 命令。命令为单行 `lush ...` 或 `lushw ...`，引号仅分组字面参数，不执行 Shell 展开、管道或重定向。入口、路径与 kind 来自代码 CLI catalog；不允许自选程序、环境或 `--project`。
 
 preview 返回 `{id,workspace,command,argv,executable,path,kind,requires_confirmation,revision,limits}`。revision 为五分钟有效、至多保留最近 128 项的进程内单次凭据，固定解析结果、工作区 inode／真实 Git 仓库与分支、HEAD、Worker 生命周期和冻结状态；过期、重启、执行过或状态变化须重新预检。它不冻结外部文件编辑，也不是文件内容快照。execute 重新核验，修改／Agent／破坏性分类必须显式 `confirm:true`，原 CLI／RPC 的预检、revision、权限与生命周期安全门仍适用。
 
-cwd 必须是指定 order/child 仍存在、非软链接的真实专属 worktree，不能回落 canonical/main 或其它目录。活动或冻结的源工作区拒绝修改；修改试用还要求整个项目没有活动调用／Git／后台写入，领取短时项目写准入位，暂缓新调度并拒绝外来操作，避免与交付、同步和回收并发。只读命令仍可用于活动 Worker；试用期间不得回收／同步正在使用的目录或其祖先。非交互单次 CLI 以 daemon 所属登录系统用户权限运行，不是 OS 沙箱，也不限制标准 CLI 对其它合法目标的访问。
+cwd 必须是指定 order/child 仍存在、非软链接的真实专属 worktree，不能回落 canonical/main 或其它目录。活动或冻结的源工作区拒绝修改；修改命令还要求整个项目没有活动调用／Git／后台写入，领取短时项目写准入位，暂缓新调度并拒绝外来操作，避免与交付、同步和回收并发。只读命令仍可用于活动 Worker；执行期间不得回收／同步正在使用的目录或其祖先。非交互单次 CLI 以 daemon 所属登录系统用户权限运行，不是 OS 沙箱，也不限制标准 CLI 对其它合法目标的访问。
 
 只使用随代码的固定 bin，关闭 stdin，清除 Agent invocation 身份和运行时 preload 环境，不注入 Agent token；内部短时关联只将该用户 CLI 的 catalog RPC 绑定到准入位，不能变为 Agent 身份或额外权限。禁用工作区 `.env`／Bun 配置自动加载。help 也实际运行 CLI。watch/wait、服务启停／重启、交互认证明确拒绝；已有命令自身仍可因标准安全门拒绝操作。
 

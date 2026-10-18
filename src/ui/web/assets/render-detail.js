@@ -22,7 +22,7 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
 import { renderWorkerVersions, disposeWorkerVersions } from './render-versions.js';
 import { renderWorkerRelations } from './render-worker-relations.js';
-import { detailWorkerCli, disposeWorkerCli } from './worker-cli-detail.js';
+import { workerCliLink } from './worker-cli-route.js';
 import { deliveryControls } from './render-delivery.js';
 import { integrationControl, integrationSummary, integrationDetails } from './render-integration.js';
 import { workerHooks } from './render-hooks.js';
@@ -80,8 +80,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
   const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
-  const cliInput = sameTask ? panel.querySelector('.worker-cli-input') : null;
-  const cliFocus = cliInput && cliInput === document.activeElement ? cliInput : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
@@ -391,12 +389,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     panel.append(record);
   }
   panel.append(...(relations ? [relations] : []), stats, ...supplemental);
-  const cli = detailWorkerCli(task);
+  const cli = workerCliLink(task);
   if (cli) panel.append(cli);
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
-  if (cli && cliFocus && cli.querySelector('.worker-cli-input') === cliFocus) cliFocus.focus({ preventScroll: true });
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
   conversation?.bindConversationLifetime(progressive.signal, progressive.current);
@@ -523,7 +520,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 }
 export function renderDetailError(taskId, message) {
   disposeWorkerVersions();
-  disposeWorkerCli();
   const panel = $('detail');
   progressivePanels.get(panel)?.dispose(); progressivePanels.delete(panel);
   disposeDetailModules(panel);

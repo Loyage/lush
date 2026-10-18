@@ -41,5 +41,9 @@ test('compiled project boot owns work pages and opens device settings separately
     await project.node('settings-open').onclick();
     expect(project.node('settings-open').href).toBe('/#settings'); expect(project.node('settings-open').target).toBe('_blank');
     expect(project.node('input').value).toBe('unsent'); expect(project.node('detail').scrollTop).toBe(120);
+    project.location.hash = '#worker-1-cli'; await project.fire('hashchange');
+    expect(project.node('detail').dataset.view).toBe('worker-cli');
+    expect(project.node('detail').querySelector('.worker-cli-page')).not.toBeNull();
+    expect(project.node('detail').querySelector('.nav-back').href).toBe('/p/aaaaaaaaaaaaaaaa/#worker-1');
   } finally { project.restore(); await boot(); }
 });
