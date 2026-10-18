@@ -393,6 +393,7 @@ export default {
         ...(call.method === 'management.permission_set' ? { method: result.method, access: result.access, revision: result.revision } : {}),
         ...(call.method === 'hooks.register' ? { registered: result.registered, command_id: result.command_id,
           template_id: result.template_id, template_version: result.template_version } : {}),
+        ...(call.method === 'worker.merge_after' ? { worker_id: result.worker_id, revision: result.revision, state: result.state } : {}),
         ...(call.method === 'worker.hook_attach' ? { worker_id: result.worker_id,
           hook_id: result.mounts.filter(mount => mount.registry_id === call.params.hook.template_id && mount.registry_version === call.params.hook.template_version).at(-1)?.id } : {}),
         ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),

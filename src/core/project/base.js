@@ -33,6 +33,7 @@ export class ProjectBase {
       agents: () => this.pump(),
       hooks: () => this.observeTaskHooks(),
       inputs: () => this.drainInputEmissions(),
+      merge_conditions: () => this.drainMergeConditions(),
     }, {
       canRun: () => !this.stopping && !this.cliMutation,
       onError: (name, error) => console.error(`runtime check ${name}:`, error.message),

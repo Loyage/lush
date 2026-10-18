@@ -49,6 +49,8 @@ const workers = [
   ['hooks','ID|Wn','读取实际挂载与修改 revision。','W5','worker.hooks'],
   ['completion','ID|Wn off|merge|accept --revision REV','设置最高自动环节；验收含资源回收。','W5 merge --revision REV','worker.completion','write'],
   ['auto-merge','ID|Wn on|off','设置持久自动合并开关；child 锁定。','W5 on','worker.auto_merge','write'],
+  ['merge-conditions','ID|Wn','读取本轮条件合并及配置 revision。','W5','worker.merge_conditions'],
+  ['merge-after','ID|Wn --after-settled ID|Wn|--after-merged ID|Wn --revision REV','配置 AND 条件并提交本轮合并意图；merged 指直接父。','W5 --after-settled W6 --after-merged W7 --revision REV','worker.merge_after','write'],
   ['merge','ID|Wn','请求一次合并，不改变持久开关。','W5','worker.reserve','write'],
   ['merge-all','BRANCH','将分支下静息待合并 Worker 逐条入队。','main','worker.reserve_all','write'],
   ['merge-cancel','ID|Wn','撤销未发出的单次合并请求。','W5','worker.unreserve','write'],

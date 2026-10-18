@@ -27,7 +27,7 @@ function target(project, branch) {
 function fingerprint(project, task) {
   return { id: task.id, parent_id: task.parent_id, target_branch: task.target_branch, branch: task.branch,
     status: task.status, head_commit: task.head_commit, reservation: task.reservation, result: task.result,
-    iteration_base_commit: task.iteration_base_commit, running: project.running.has(task.id),
+    iteration_base_commit: task.iteration_base_commit, merge_conditions: project.taskMergeConditions(task.id), running: project.running.has(task.id),
     inbox: project.store.get('SELECT count(*) AS n,max(id) AS last FROM messages WHERE task_id=? AND consumed=0', task.id),
     questions: project.store.get("SELECT count(*) AS n,max(id) AS last FROM notices WHERE task_id=? AND status='open'", task.id),
     children: project.store.children(task.id).map(row => [row.id, row.status, row.integration, row.head_commit]),
@@ -132,7 +132,10 @@ export default {
       check(plan.view.revision === expectedRevision, 'integration plan revision changed; reload before starting');
       check(plan.view.ready, plan.view.reason);
       check(await readTip(this, branch) === plan.baseline, 'integration target moved during preflight');
-      for (const member of plan.members) check(await readTip(this, member.source_branch) === member.source_commit, 'integration source moved during preflight');
+      for (const member of plan.members) {
+        check(await this.refreshMergeConditions(member.task_id), 'integration source merge conditions changed');
+        check(await readTip(this, member.source_branch) === member.source_commit, 'integration source moved during preflight');
+      }
       let run;
       this.store.transaction(() => {
         const liveParent = target(this, branch);

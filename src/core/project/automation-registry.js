@@ -9,6 +9,7 @@ export const SYSTEM_AUTOMATIONS = Object.freeze([
   { id: 'builtin:completion', name: '成果自动合并与验收', origin: 'builtin', purpose: '交付就绪后按已授权最高级别推进；child 流程锁定。' },
   { id: 'builtin:acceptance-notice', name: '待验收告知', origin: 'builtin', purpose: '真实进入待验收时告知。' },
   { id: 'system:delivery-handler', name: '交付处理器', origin: 'system', purpose: '串行处理已授权交付，不产生来源授权。' },
+  { id: 'system:merge-conditions', name: '本轮条件合并', origin: 'system', purpose: '本轮安全交付或确实合入直接父的 AND 门禁；仅专用授权接口可配置。' },
   { id: 'system:input-signal', name: '输入条件信号', origin: 'system', purpose: '输入意图的受保护条件信号，不直接执行输入。' },
   { id: 'system:interruption-notice', name: '中断完成告知', origin: 'system', purpose: '维护批次真实安全退出后的受保护告知。' },
   { id: 'system:deferred-order', name: '预约发射 Worker', origin: 'system', purpose: '内部输入接缝保存的精确预约参数。' },
@@ -79,6 +80,8 @@ export function automationRegistry(project) {
     if (list.items.length < 100) list.items.push({ worker_id: task.id, worker_number: task.worker_number ?? null, hook_id: hookId, version });
   };
   for (const task of project.store.all('SELECT id,worker_number,task_kind,status,branch,auto_merge,hooks FROM tasks ORDER BY id')) {
+    const mergeConditions = JSON.parse(task.auto_merge ?? '{}').merge_conditions;
+    if (mergeConditions && mergeConditions.state !== 'consumed') add('system:merge-conditions', task, 'merge-conditions', 1);
     if (builtinAutomationMounted(task, 'completion')) add('builtin:completion', task, 'auto-merge', 1);
     if (builtinAutomationMounted(task, 'acceptance_notice')) add('builtin:acceptance-notice', task, 'acceptance-notice', 1);
     if (project.taskConvergenceView(task)) add('system:delivery-handler', task, 'delivery-handler', 1);

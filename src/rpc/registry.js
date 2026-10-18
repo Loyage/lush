@@ -3,6 +3,7 @@ import { normalizeConfigurationScope } from '../core/device-config.js';
 import { INPUT_OPTION_KEYS as ALL_INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
 import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
+import { MERGE_CONDITION_PARAMETERS, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
 
 const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_node_id');
@@ -10,6 +11,7 @@ const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_no
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
+  ...MERGE_CONDITION_PARAMETERS,
   'cli.catalog': [],
   'worker.cli_preview': ['id','command'], 'worker.cli_execute': ['id','command','revision','confirm'],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
@@ -100,6 +102,7 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
+  ...Object.keys(MERGE_CONDITION_PARAMETERS),
   'cli.catalog','worker.cli_preview','worker.cli_execute','worker.delivery_graph',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
@@ -152,5 +155,9 @@ export function assertAllowed(method, params, actor) {
   }
   check(who === null || !USER_ONLY.has(method), `${method} requires user approval, not an agent`);
   check(!(who === null && AGENT_ONLY.has(method)), `${method} is agent only`);
+  if (Object.hasOwn(MERGE_CONDITION_PARAMETERS, method)) {
+    const { _token, ...publicParams } = params;
+    validateMergeConditionCall(method, publicParams);
+  }
   return who;
 }

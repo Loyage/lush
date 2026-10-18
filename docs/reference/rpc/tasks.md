@@ -65,6 +65,8 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker auto-merge ID on\|off` | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
 | `worker completion ID off\|merge\|accept --revision REV` | `worker.completion` | `{id,level,expected_revision}`；用户专属，串行最高级别与安全投影见 [Hooks 接口](hooks.md#最高自动级别) |
 | `worker merge ID` | `worker.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
+| `worker merge-conditions ID` | `worker.merge_conditions` | `{id}`；读取本轮条件合并状态和专用 revision，见[条件合并](#条件合并) |
+| `worker merge-after ID --after-settled ID --revision REV` | `worker.merge_after` | `{id,conditions,expected_revision}`；用户或 Valet 受控代理配置本轮合并门禁并提交合并意图；条件参数可重复，也支持 `--after-merged ID` |
 | `worker merge-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
 | `worker merge-cancel ID` | `worker.unreserve` | `{id}`；用户专属 |
 | —（旧协议后端兼容，CLI 已删除） | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
@@ -156,6 +158,27 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 `merge_readiness:{ready,reason}` 是执行屏障与登记提交的只读投影，不承诺 Git 准入。ready 为真时 Web 提供显式「合并」，旧自动合并开关按原就绪门禁只读，最高自动级别另据 `completion.editable` 和 revision 授权；已有请求或已合并则显示进度或结果，不能重复发起。缺少设置投影时保守只读，不假装可编辑。历史 version 1 预约继续原审批口径，不改造成自动合并。
 
 自定义受控规则与预约创建入口见 [Hooks 与预约接口](hooks.md)；内置自动合并与历史预约仍用本节原交付协议。
+
+## 条件合并
+
+D691：可提前安排“A 在 B 本轮工作安全交付就绪／合入直接父 Worker 后，再合入 A 的直接父 Worker”。这是一次性的**统一合并门禁**，不是给 Agent 发送提醒，也不改变 child 锁定的自动合并配置。
+
+- `worker.merge_conditions {id}` 读取状态及专用 `revision`；配置必须用该 revision，不能使用 `worker.hooks` 的 revision。
+- `worker.merge_after {id,conditions,expected_revision}` 配置条件并提交本轮合并意图。`conditions` 为 1–16 项 `{kind:'worker_settled'|'worker_merged',worker_id:整数}`，全部满足才放行；条件来源必须是当前项目合法开发 Worker，禁止自依赖、循环及父子收口死锁。
+- `worker_settled` 要求依赖 Worker 本轮安全交付就绪，不以一次 Agent 返回、失败或取消当成功。`worker_merged` 要求该轮成果的精确收据证明已合入它的**直接父 Worker**；这与输入条件发射中“成果到 main”的同名条件不同。
+- 用户可经 CLI 配置；Valet 经 `manager.call` 使用同一接口，遵守最新接口权限及需要时的精确用户确认。普通开发 Agent 不获得配置或请求合并权限。
+- 条件约束自动、显式及批量合并等入口；满足条件后仍复核 A 自身交付就绪、Git、父分支和冻结安全门。等待不占父合并执行位、不冻结 A 的普通开发，也不要求管家循环调用。
+- 规则绑定 A/B 本轮身份，不能用历史轮次成功放行新成果。尚未交付时的新输入等轮次变化会使规则过期并保守阻塞，须重新读取 revision 和配置；A 本轮成功合并后不把规则沿用给后续开发。
+- 已进入固定交付尝试后不得事后添加或改写条件。重复请求、重启和未知副作用仍受原有精确收据与禁止盲目重放约束。当前没有专用撤销条件接口；`worker merge-cancel` 不移除条件，不能借保留的自动 Hook 提前合并。
+
+以下编号仅为示例：先读取 A（W5）的专用 revision，再安排它等待 B（W6）安全交付就绪：
+
+```bash
+bun run lush worker merge-conditions W5
+bun run lush worker merge-after W5 --after-settled W6 --revision REV
+```
+
+若须等待 B 合并落地，改用 `--after-merged W6`。重复两个参数可表达多个 AND 条件。CLI 接受真实 W 编号，RPC 的 `id`／`worker_id` 始终为内部整数。配置成功仅说明意图已保存，不证明代码已合入；使用专用读取核对等待或过期原因，并以实际合并状态判断落地。
 
 ## 多轮交付、验收与父同步
 

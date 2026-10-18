@@ -122,6 +122,12 @@ Valet 使用独立提示词、专属非 Git 目录和仅管理工具，不写项
 
 当前受限管理工具使用 Pi 后端，可选择 Pi 中的 Codex 模型；旧独立 Codex CLI 后端没有受限管理工具适配，不能用于管理调用。接口、隔离与恢复规则见[时间信号与管理契约](engineering/hook-signals-management.md)。
 
+## 等另一个 Worker 完成后再合并
+
+在「管理 Lush」中可明确要求：“让 A 等 B 本轮安全交付就绪后，合入 A 的直接父 Worker”；若依赖 B 的落地顺序，改为“等 B 本轮合入 B 的直接父 Worker 后再合并 A”。管家保存条件合并意图，而不是持续调用模型等待。
+
+也可使用 CLI `worker merge-conditions` 和 `worker merge-after`。条件是本轮一次性门禁，约束 A 原有的自动与显式合并；追加新工作使规则过期时须重新配置，不会借 B 的历史成功放行。参数、权限、状态检查与限制统一见[条件合并接口](reference/rpc/tasks.md#条件合并)。这与“等 B 完成后新建／追加开发输入”的条件发射不同，不恢复独立信号编辑页面。
+
 ## 统一系统工具与操作结果
 
 后台保留三个系统工具：来源 request_merge 请求合并，目标 integrate_deliveries 处理已授权请求，accept_worker 按明确授权安全验收。它们不授予任意工具调用或来源验收权限，来源自动授权与一次性整合仍各自受检。

@@ -47,6 +47,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
     'test/project/force-acceptance.test.js', // real CLI/RPC, user-only exact scope and unchanged acceptance safety/recovery
     'test/project/merge-queue.test.js', // local child -> parent -> main Squash and acceptance
+    'test/project/merge-conditions.test.js', // one-shot AND evidence, all merge gates, round/Git/restart races
+    'test/project/merge-conditions-integration.test.js', // fixed one-shot collection -> guarded publication, consumption and stale refusal
+    'test/project/merge-conditions-bridge.test.js', // real CLI/controlled Provider -> manager permissions -> parent queue landing
   ]),
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation main flow
@@ -77,6 +80,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/agent/capabilities.test.js', // shipped Skills/guides and invocation prompt agree on the fixed development CLI
     'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
     'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount
+    'test/project/merge-conditions-bridge.test.js', // true W-number flags and current manager tool/schema/permission set
     'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
     'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer

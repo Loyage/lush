@@ -239,6 +239,13 @@ export default {
         operation, state: operation?.status ?? 'idle', last_execution: null,
         reason: '普通单项与自动合并始终串行处理；持续归并策略已退休，多来源请显式启动一次性整合。' });
     }
+    const mergeConditions = ['order','child'].includes(task.task_kind) ? this.taskMergeConditions(task.id) : null;
+    if (mergeConditions && !['idle','consumed'].includes(mergeConditions.state)) mounts.push({ id: 'merge-conditions', kind: 'merge_conditions',
+      registry_id: 'system:merge-conditions', registry_version: 1, name: '本轮条件合并', trigger: 'worker.delivery_ready', mode: 'once',
+      enabled: true, builtin: true, locked: true, editable: false, removable: false, conditions: {}, merge_conditions: mergeConditions,
+      actions: [{ type: 'request_merge' }], state: mergeConditions.state === 'stale' ? 'failed' : 'waiting',
+      reason: mergeConditions.reason ?? '本轮 AND 条件已满足；仍须通过来源就绪与父合并安全门。通过 worker.merge_conditions 读取精确条件。',
+      last_execution: null });
     const pushIdentity = this.commandHookExampleIdentity();
     return { version: 1, worker_id: task.id, revision: revision(this, task), mounted_features: mountedFeatures(this, task, data, convergence), completion, convergence,
       push: pushIdentity ? { worker_id: pushIdentity.worker_id, hook_id: pushIdentity.hook_id } : null,
@@ -545,6 +552,7 @@ export default {
       if (current.parent && (parentBoundary || !this.taskMergeBusy?.has(task.id))) this.emitTaskHook(task.id, 'worker.parent_ready', null, previous.parent === true);
     }
     this.scheduleInputEmissions();
+    this.scheduleMergeConditions();
     this.observeScheduledTaskHooks(taskId);
     for (const task of tasks) for (const mount of parse(this.store.task(task.id)).mounts) {
       if (hasCommand(mount)) this.queueCommandTaskHook(task.id, mount.id);

@@ -1,3 +1,4 @@
+import { normalizeMergeConditions } from '../../core/merge-conditions.js';
 import { check, TERMINAL } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { option, exact } from '../args.js';
@@ -37,6 +38,24 @@ export async function run(command, args, ctx) {
     else if (verb === 'hooks') {
       check(!client.token, 'Hooks configuration is user only, not an agent operation');
       exact(args, 1); value = await client.request('worker.hooks', { id: await resolveWorkerId(client, args[0]) });
+    }
+    else if (verb === 'merge-conditions' || verb === 'merge-after') {
+      check(!client.token, 'merge conditions are user only; Valet must use manager.call');
+      if (verb === 'merge-conditions') {
+        exact(args, 1); value = await client.request('worker.merge_conditions', { id: await resolveWorkerId(client, args[0]) });
+      } else {
+        const revision = option(args, '--revision'), conditions = [];
+        for (let index = 0; index < args.length;) {
+          if (!['--after-settled','--after-merged'].includes(args[index])) { index++; continue; }
+          const flag = args[index], worker = args[index + 1];
+          check(worker && !worker.startsWith('--'), `${flag} requires a Worker`);
+          conditions.push({ kind: flag === '--after-settled' ? 'worker_settled' : 'worker_merged', worker_id: await resolveWorkerId(client, worker) });
+          args.splice(index, 2);
+        }
+        exact(args, 1);
+        check(typeof revision === 'string' && revision.length > 0, 'merge-after requires --revision REV');
+        value = await client.request('worker.merge_after', { id: await resolveWorkerId(client, args[0]), conditions: normalizeMergeConditions(conditions), expected_revision: revision });
+      }
     }
     else if (verb === 'hook') { value = await runWorkerHook(args, client); }
     else if (verb === 'completion') { value = await runWorkerCompletion(args, client); }

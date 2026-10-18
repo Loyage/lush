@@ -8,6 +8,8 @@ Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。
 
 新式 指令/child 的预约由父 Worker 自有队列的 runtime 串行 Squash（`queue_protocol=1`），包括 main / owner，不创建 `task_kind='merge'`、不改源 Worker 的 `parent_id`，不额外调用父 Agent 或要求 `worker.integrate`。指令默认关闭自动合并，由用户开启跨轮 hook 或显式请求；新 child 默认开启且锁定。无提交的干净 child 直接交付结果、等父确认，不产生合并提交。
 
+[本轮条件合并](../reference/rpc/tasks.md#条件合并)在固定交付前增加统一门禁：条件等待不占父执行位、不关闭 child 自动合并，所有实际交付入口仍须经过同一条件与原有 Git 安全检查；配置成功不等于已合入。
+
 ### 请求与尝试分开
 
 - `tasks.reservation` 是持久交付事实，结构化 Message/Event 仅通知。真实源安全点须确认 invocation 已退出、后代交付收敛、待决与消息已处理、工作区干净，才固定 `delivery_id`、`enqueue_seq`、源 `commit` 与 `parent_id`。

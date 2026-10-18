@@ -1,6 +1,7 @@
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
 import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
+import { MERGE_CONDITION_CAPABILITIES, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-query.js';
 import { CLI_COMMANDS, LUSHW_PATHS, LUSHW_METHODS } from '../cli/catalog.js';
 
@@ -13,7 +14,7 @@ const codeReads = new Set(codeEntries.filter(entry => entry.kind === 'read').fla
 const reads = new Set([
   'manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
   'worker.graph','worker.relations','worker.progress_history','branch.tree','branch.show','graph.get',
-  'hooks.list','worker.hooks','hooks.command_history','input.history','input.get','input.parents',
+  'worker.merge_conditions','hooks.list','worker.hooks','hooks.command_history','input.history','input.get','input.parents',
   'notice.list','notice.page','branch.convergence','branch.convergence_list','branch.convergence_runs',
   'branch.convergence_defaults','branch.history','branch.version_graph','worker.delete_preview',
   'agent.connections.list','agent.connections.history','agent.connections.models','agent.usage.config','agent.usage.history',
@@ -112,6 +113,7 @@ const actionLabels = {
   code_tree: '代码目录', code_file: '代码文件', transcript: '原始执行记录', transcript_latest: '最近执行记录',
   transcript_page: '执行记录分页', transcript_step: '执行步骤', transcript_search: '搜索执行记录', runs_page: '调用分页',
   artifacts_page: '产物分页', artifact: '产物', spawn: '派生子工作', integrate: '旧交付入口', reserve: '请求合并',
+  merge_conditions: '读取本轮合并条件', merge_after: '配置本轮条件并请求合并',
   reserve_all: '批量请求合并', auto_merge: '自动合并开关', resolve: '处理合并', resolve_divergence: '处理合并分歧',
   accept: '验收与回收', reopen: '重新打开', sync_parent: '同步父基线', resolve_sync: '处理同步分歧',
   resolve_child_divergence: '子工作分歧回复', unreserve: '撤销预约', approve_merge: '确认旧合并', message: '追加消息',
@@ -154,7 +156,7 @@ export function managementCatalog(snapshot = null, legacy = false) {
   return { scope: 'current_project', groups: MANAGEMENT_GROUPS.map(group => ({ ...group })),
     methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
       parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])],
-      ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}) })),
+      ...(MERGE_CONDITION_CAPABILITIES[item.method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}) })),
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
 }
@@ -164,6 +166,7 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   const policy = effectiveManagementPolicy(method, snapshot);
   check(policy.access !== 'unavailable', policy.reason);
   validateWorkerQuery(method, params);
+  validateMergeConditionCall(method, params);
   check(isPlainObject(params) && Object.keys(params).every(key => PARAMS[method].includes(key)
     || key === 'scope' && MANAGEMENT_DEVICE_ALIASES.has(method)), 'unknown management parameter');
   // Auth identities and secret-bearing payloads must never be model-controlled, including nested dictionaries.

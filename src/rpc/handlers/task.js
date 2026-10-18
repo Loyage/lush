@@ -101,6 +101,8 @@ export const handlers = {
     return p.spawn(parent, params.goal, 'agent', [], params.name ?? null);
   },
   'worker.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
+  'worker.merge_conditions'(p, params) { return p.taskMergeConditions(params.id); },
+  'worker.merge_after'(p, params) { return p.mergeTaskAfter(params.id, params.conditions, params.expected_revision); },
   'worker.reserve'(p, params) { check(params.kind === 'merge', 'only merge delivery is supported'); return p.reserveTask(params.id, 'merge'); },
   'worker.reserve_all'(p, params) { return p.reserveMergeAll(params.branch); },
   'worker.auto_merge'(p, params) { return p.setTaskAutoMerge(params.id, params.enabled); },

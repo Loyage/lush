@@ -46,6 +46,8 @@ Valet 可向当前项目任意合法开发目标发消息，保存真实 Valet s
 
 `worker.inspect`／`worker.tree` 的管理调用返回 `coverage:'worker_metadata_only'`，剔除原始 Run 结果／错误、收件箱正文、Artifact 与 Notice 正文，避免绕过执行记录的安全读面。`worker.history`／`worker.transcript` 返回有界、可续读的 `event_metadata_only`／`step_metadata_only` 投影。条数预算与通用安全出口同源，最多 100 条；`next` 固定在末个实际返回记录，`has_more` 包含本层未返回记录，不能按请求 limit 推算游标。`steps_truncated`／`events_truncated` 标明本层条数裁剪，`truncated` 保留上游字节预算事实，不混为同一原因。inspect／tree 的 `goal_truncated`／`goal_length`（UTF-16 长度）标明目标摘要范围，不能把已有树摘要当完整目标；不返回原始事件正文、提示词、工具参数／输出或会话路径，不把安全摘要冒充完整执行记录。Valet 发布自身决策问题后结束调用，同一 occurrence 挂起并保留项目串行执行位；用户答复后受控恢复，答案来自 `context.management.decisions` 的真实 Notice 来源与截断标志，不开放任意管理收件箱。这是当前事项的决策恢复，不是新一轮追加授权，也不重放已执行动作；设为 confirmation 的动作仍采用独立的精确确认收据。
 
+Valet 可经 `manager.call` 读取和配置[本轮条件合并](../reference/rpc/tasks.md#条件合并)：先读取专用 revision，再提交明确依赖条件与目标。配置受最新接口权限及原安全门约束，不扩大普通开发 Agent 权限；持久等待由项目 runtime 处理，不靠管家轮询，也不把受控调用成功当作代码已合入。
+
 ### 历史订阅刷新时间辅助实现
 
 Web 时间信号设置入口已退休；下述保留辅助函数的缓存、时间与迟到保护语义不代表仍有页面入口，也不迁往其他设置。历史时间信号编辑器按需 GET `/api/agent/connections`，仅读取当前项目有效模型来源与本地观测，不调用 `query`。候选为当前 `available|partial` 观测中 `kind:'quota',scope:'account'` 的资源；显示账号名称、指标、结构化窗口与刷新时刻，填入后显示 `checked_at`。缺失／无效／已到期 `reset_at` 不可选，失败或 unknown 不从 `last_success` 补候选。不按来源启停推断额度已恢复，停用来源明确标注。

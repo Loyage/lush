@@ -48,8 +48,10 @@ export default {
           'convergence member verification mode changed');
       }
       check(!this.running.has(task.id) && !this.taskSyncBusy?.has(task.id) && !this.commandHookRunning?.has(task.id)
-        && !this.workerDeleteIds?.has(task.id) && !this.reservationWaitReason(task)
+        && !this.workerDeleteIds?.has(task.id) && !this.reservationWaitReason(task, !run.landing_receipt)
         && !taskSyncDeliveryPaused(this, task.id), 'convergence source is not safely idle');
+      if (run.landing_receipt) this.assertMergeConditionPublicationEvidence(task.id,
+        convergenceJSON(run.data, {}).merge_conditions_evidence?.find(entry => entry.task_id === task.id)?.evidence);
       assertTaskAncestorsOpen(this, task);
       const record = this.store.branch(task.branch);
       check(record?.status === 'active' && record.task_id === task.id && record.parent === parent.branch,

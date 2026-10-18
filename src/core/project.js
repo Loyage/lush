@@ -21,6 +21,7 @@ import inputQueueMethods from './project/input-queue.js';
 import choiceSnapshotMethods from './project/choice-snapshots.js';
 import mergeMethods from './project/merge.js';
 import mergeQueueMethods from './project/merge-queue.js';
+import mergeConditionMethods from './project/merge-conditions.js';
 import mergeAllMethods from './project/merge-all.js';
 import orchestrateMethods from './project/orchestrate.js';
 import graphMethods from './project/graph.js';
@@ -72,7 +73,7 @@ import oneShotIntegrationMethods from './project/one-shot-integration.js';
  * 这是有意为之：运行时与各 mixin 都不依赖可枚举性，故意不为「更像 class」而改成 defineProperty。
  */
 const MIXINS = [
-  ['inputEmissions', inputEmissionMethods], ['inputEmissionSafety', inputEmissionSafetyMethods],
+  ['mergeConditions', mergeConditionMethods], ['inputEmissions', inputEmissionMethods], ['inputEmissionSafety', inputEmissionSafetyMethods],
   ['deliveryRead', deliveryReadMethods], ['convergencePolicy', convergencePolicyMethods], ['convergenceQueue', convergenceQueueMethods],
   ['convergencePrepare', convergencePrepareMethods], ['convergenceLand', convergenceLandMethods], ['convergenceSafety', convergenceSafetyMethods],
   ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods], ['oneShotIntegration', oneShotIntegrationMethods],

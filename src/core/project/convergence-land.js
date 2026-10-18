@@ -71,7 +71,9 @@ export default {
         const event = this.store.event(task.id, 'task.merge_integrated', { convergence: true, run_id: runId, generation,
           source_commit: member.source_commit, commit: receipt.commit, tree: receipt.tree, parent_head: parentHead,
           parent_id: parent.id, delivery_id: member.delivery_id, squash: true, batch_receipt: receipt });
-        this.recordCompletionDelivery(task.id, event); memberEvents.push({ task_id: task.id, event_id: event });
+        this.recordCompletionDelivery(task.id, event);
+        this.consumeMergeConditions(task.id, event, convergenceJSON(run.data, {}).merge_conditions_evidence?.find(entry => entry.task_id === task.id)?.evidence);
+        memberEvents.push({ task_id: task.id, event_id: event });
         this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_type='merge.requested'", parent.id, task.id);
       }
       this.store.update(parent.id, { head_commit: parentHead });
@@ -119,12 +121,16 @@ export default {
           check(receipt?.commit === run.candidate_commit && receipt.tree === run.candidate_tree && receipt.baseline === run.baseline
             && receipt.run_id === runId && receipt.generation === run.generation, 'prepared publication receipt changed');
           // Persist exact parent object and all fixed members before the first target-side mutation.
-          this.setConvergenceState(runId, run.generation, 'landing', { landing_receipt: JSON.stringify(receipt) });
+          const mergeEvidence = members.map(member => ({ task_id: member.task_id, evidence: this.pinMergeConditionEvidence(member.task_id) }));
+          this.setConvergenceState(runId, run.generation, 'landing', { landing_receipt: JSON.stringify(receipt),
+            data: { ...convergenceJSON(run.data, {}), merge_conditions_evidence: mergeEvidence } });
           this.store.event(parent.id, 'convergence.landing_prepared', { run_id: runId, generation: run.generation, receipt });
+          for (const member of members) check(await this.refreshMergeConditions(member.task_id), 'merge conditions changed at final publication gate');
           await this.workspaces.applyConvergencePublishUnsafe(receipt, () => {
             this.assertConvergenceRun(runId, run.generation, ['landing']);
             this.assertConvergenceCommand(this.store.deliveryRun(runId));
             check(this.convergenceCanPublish(this.store.deliveryRun(runId)), 'parent publication gate changed');
+            for (const member of members) check(!this.mergeConditionsWaitReason(this.store.task(member.task_id)), 'merge conditions changed before publication write');
           });
         }
         // Recovery proves the exact prepared object. Never repeat an unknown apply.
