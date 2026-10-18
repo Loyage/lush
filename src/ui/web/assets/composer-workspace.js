@@ -6,45 +6,26 @@ import { workerLabel } from './worker-label.js';
 import { waitingFirstInput } from './worker-create.js';
 import { composerReferences, setComposerReferences } from './context-references.js';
 import { show } from './messages.js';
-import { readStored, writeStored, scopedKey } from './prefs.js';
+import { destinationKey, hasContent, loadComposerCache, cacheComposerWorkspace } from './composer-cache.js';
 
 const workspace = () => ui.composerWorkspace;
 export const currentEdit = () => workspace()?.active;
-const destinationKey = ({ mode, target_id, branch = 'main' }) => mode === 'append' ? `append:${target_id}` : mode === 'order' ? `order:${branch}` : 'management';
-const hasContent = entry => Boolean(entry?.content?.trim() || entry?.references?.length || entry?.saved || entry?.localOptions?.conditions?.length || entry?.localOptions?.exclusive || entry?.profile || entry?.expanded);
-const cacheKey = destination => scopedKey(`lush.composer.edit.v1:${encodeURIComponent(destination)}`);
-function cacheEntry(entry) {
-  const { content, references, profile, expanded, scroll, selection, panelScroll, saved, localOptions, request } = entry;
-  const ok = writeStored(cacheKey(entry.destination), JSON.stringify(hasContent(entry)
-    ? { version: 1, content, references, profile, expanded, scroll, selection, panelScroll, saved, localOptions, request } : null));
-  if (!ok) show('浏览器自动保存失败；编辑仍保留在本页，刷新前请手动暂存或复制原文。', 'error');
-  entry.cached = ok;
-}
 function createEntry(spec) {
   const destination = destinationKey(spec);
-  const entry = { ...spec, key: destination, destination, content: '', references: [], request: {} };
-  try {
-    const value = JSON.parse(readStored(cacheKey(destination)) || 'null');
-    if (!value) return entry;
-    if (value.version !== 1 || typeof value.content !== 'string' || value.content.length > 32000 || !Array.isArray(value.references))
-      throw new Error('自动保存格式不完整');
-    if (value.saved && (!Number.isSafeInteger(value.saved.id) || value.saved.id <= 0 || destinationKey(value.saved) !== destination))
-      throw new Error('自动保存的草稿去向不匹配');
-    Object.assign(entry, value, { cached: true, key: value.saved ? `draft:${value.saved.id}` : destination });
-  } catch { show('浏览器自动保存读取失败；不会覆盖当前输入或改投其他目标。', 'error'); }
-  return entry;
+  return { ...spec, key: destination, destination, content: '', references: [], request: {} };
 }
 export function rememberComposer() {
   const entry = currentEdit(); if (!entry) return;
   Object.assign(entry, { content: $('input').value, references: composerReferences(), profile: ui.composerManagement ? ui.composerManagementProfile : ui.composerProfile,
     expanded: ui.composerExpanded, scroll: $('input').scrollTop,
     selection: [$('input').selectionStart, $('input').selectionEnd], panelScroll: $('composer-shell').scrollTop });
-  cacheEntry(entry);
+  if (entry.mode === 'order') entry.parent = ui.composerParents?.find(parent => parent.branch === entry.branch) || entry.parent;
+  cacheComposerWorkspace(workspace());
 }
 function applyEntry(entry) {
   const space = workspace(), changed = space.active !== entry; space.active = entry; space.menu = false; space.read++;
   ui.composerManagement = entry.mode === 'management';
-  ui.composerAppendTarget = entry.mode === 'append' ? { id: entry.target_id, task: entry.task } : null;
+  ui.composerAppendTarget = entry.mode === 'append' ? { id: entry.target_id, task: entry.taskFresh === false ? null : entry.task } : null;
   ui.composerProfile = entry.mode === 'order' ? entry.profile : null;
   ui.composerManagementProfile = entry.mode === 'management' ? entry.profile : null;
   ui.composerExpanded = Boolean(entry.expanded);
@@ -55,6 +36,21 @@ function applyEntry(entry) {
   if (entry.selection?.every(Number.isInteger)) $('input').setSelectionRange?.(...entry.selection);
   $('composer-shell').scrollTop = entry.panelScroll || 0;
   $('composer-draft-list').hidden = true; ui.syncComposer?.();
+  if (entry.mode === 'append' && entry.taskFresh === false) void refreshEntryTarget(space, entry);
+}
+async function refreshEntryTarget(space, entry) {
+  const target = ui.composerAppendTarget, read = space.read;
+  const current = () => workspace() === space && space.active === entry && space.read === read && ui.composerAppendTarget === target;
+  try {
+    const task = await api(`/api/worker/${entry.target_id}`);
+    if (!current()) return;
+    if (task?.id !== entry.target_id) throw Error('Worker 身份不匹配');
+    entry.task = task; entry.taskFresh = true; target.task = task; ui.syncComposer?.();
+  } catch (error) {
+    if (!current()) return;
+    target.error = `原目标读取失败：${error.message}；内容保留，不会改投。请重新选择此条目重试。`;
+    ui.syncComposer?.(); show(target.error, 'error');
+  }
 }
 export function selectComposerMode(mode, task = null, branch = 'main', { open = true } = {}) {
   if (ui.composerSubmitting) { show('请求正在处理；编辑内容仍可修改，请稍后切换去向。'); return; }
@@ -63,7 +59,7 @@ export function selectComposerMode(mode, task = null, branch = 'main', { open = 
   const space = workspace(), spec = { mode, branch, ...(task ? { target_id: task.id, task } : {}) }, dest = destinationKey(spec);
   let entry = space.entries.get(space.last.get(dest) || dest);
   if (!entry) { entry = createEntry(spec); space.entries.set(entry.key, entry); space.last.set(dest, entry.key); }
-  if (task) entry.task = task;
+  if (task) { entry.task = task; entry.taskFresh = true; }
   applyEntry(entry); if (open) openComposer();
 }
 export function openComposer({ focus = true } = {}) {
@@ -84,11 +80,62 @@ function currentWorker() {
   return task && ui.selected === task.id && (ui.view?.id === 'task' || ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id)) ? task : null;
 }
 // Away from Worker detail, an explicitly pinned inbox remains a valid named menu destination.
-const menuWorker = () => currentWorker() || (currentEdit()?.mode === 'append' ? currentEdit().task : null);
+const menuWorker = () => currentWorker() || (currentEdit()?.mode === 'append' && currentEdit().taskFresh !== false ? currentEdit().task : null);
 export function toggleComposerMenu() {
   const space = workspace(); if (!space) return;
   space.menu = !space.menu; paintComposerWorkspace();
   if (space.menu) $('composer-menu').querySelector('button:not([hidden])')?.focus?.();
+}
+const liveEntry = entry => entry === currentEdit() ? { ...entry, content: $('input').value, references: composerReferences() } : entry;
+function editStatus(entry) {
+  if (entry.cached === false) return '浏览器自动保存失败 · 刷新前请暂存或复制';
+  if (entry.saved) return entry.saved.content === entry.content && JSON.stringify(entry.saved.references) === JSON.stringify(entry.references)
+    ? `项目已暂存 · 草稿 #${entry.saved.id}` : `有本地修改 · 草稿 #${entry.saved.id}`;
+  return entry.key === currentEdit()?.key && workspace().open ? '编辑中 · 收起时保留在本浏览器' : '已保留在本浏览器';
+}
+function entryTarget(entry) {
+  if (entry.mode === 'management') return '继续管理 · 当前项目';
+  if (entry.mode === 'append') return `继续追加 ${workerLabel(entry.task || entry.target_id)}`;
+  const parent = ui.composerParents?.find(parent => parent.branch === entry.branch) || entry.parent;
+  return `继续新建 · 父 ${entry.branch === 'main' ? 'main' : parent ? workerLabel(parent) : entry.branch}`;
+}
+function paintPendingMenu(space, pending, task) {
+  const modes = ['append', 'order', 'management'];
+  const labels = [task ? `${waitingFirstInput(task) ? '输入工作指令' : '追加'} ${workerLabel(task)} · ${taskTitle(task)}` : '追加输入', '新建工作 · 默认 main', '管理 Lush · 当前项目'];
+  modes.forEach((mode, index) => {
+    const items = pending.filter(entry => entry.mode === mode), category = $(`composer-menu-${mode}`), list = $(`composer-pending-${mode}`);
+    const text = `${labels[index]}${items.length ? ` · ${items.length} 条未完成` : ''}`;
+    category.dataset.pending = String(Boolean(items.length));
+    category.setAttribute('aria-label', text);
+    if (category.dataset.label !== text) {
+      category.dataset.label = text;
+      const count = el('span', items.length ? `${items.length} 条未完成` : '', 'composer-pending-count'); count.hidden = !items.length;
+      category.replaceChildren(el('span', labels[index]), count);
+    }
+    if (mode === 'append') {
+      category.hidden = !task;
+      const summary = $('composer-pending-append-summary'); summary.hidden = Boolean(task) || !items.length;
+      summary.textContent = `追加输入 · ${items.length} 条未完成`;
+    }
+    list.hidden = !items.length;
+    const signature = JSON.stringify([ui.composerSubmitting, items.map(entry => [entry.key, entryTarget(entry), entry.content, entry.references.length, editStatus(entry)])]);
+    if (list.dataset.signature === signature) return;
+    list.dataset.signature = signature; list.replaceChildren();
+    for (const entry of items) {
+      const row = button('', () => {
+        if (ui.composerSubmitting || workspace() !== space) return;
+        const chosen = space.entries.get(entry.key); if (!chosen) return;
+        rememberComposer(); space.last.set(chosen.destination, chosen.key); applyEntry(chosen); openComposer();
+      }, 'ghost composer-pending-entry', { help: '恢复此条编辑及其原目标、引用和设置；当前编辑会保留，不提交或调用 Agent。' });
+      row.dataset.editKey = entry.key;
+      const status = editStatus(entry), title = entryTarget(entry);
+      const body = entry.content.trim().replace(/\s+/g, ' ') || (entry.references.length ? `${entry.references.length} 条引用` : '空正文草稿');
+      row.setAttribute('aria-label', `${title} · ${body.slice(0, 80)} · ${status}`);
+      row.append(el('strong', title), el('span', body, 'composer-pending-preview'), el('span', status, entry.cached === false ? 'composer-pending-status failed' : 'composer-pending-status'));
+      row.disabled = Boolean(ui.composerSubmitting); list.append(row);
+    }
+  });
+  $('composer-menu-note').hidden = !pending.length;
 }
 export function paintComposerWorkspace() {
   const space = workspace(); if (!space) return;
@@ -96,22 +143,23 @@ export function paintComposerWorkspace() {
   shell.dataset.open = String(space.open);
   $('input-form').hidden = !space.open;
   $('composer-menu').hidden = !space.menu;
-  const task = menuWorker(), append = $('composer-menu-append');
-  append.hidden = !task; append.textContent = task ? `${waitingFirstInput(task) ? '输入工作指令' : '追加'} ${workerLabel(task)} · ${taskTitle(task)}` : '追加当前 Worker';
+  const task = menuWorker();
+  const pendingEntries = [...space.entries.values()].map(liveEntry).filter(hasContent);
+  paintPendingMenu(space, pendingEntries, task);
   const launcher = $('composer-launcher');
   launcher.textContent = space.open ? '⌄' : space.menu ? '×' : '＋';
   launcher.setAttribute('aria-expanded', String(space.open || space.menu));
-  const pending = Boolean(input.value.trim() || composerReferences().length || active?.saved || [...space.entries.values()].some(hasContent));
+  const pending = pendingEntries.length > 0;
   launcher.dataset.pending = String(pending);
-  launcher.setAttribute('aria-label', space.open ? '收起输入' : '选择输入方式');
-  launcher.setAttribute('data-help', space.open ? '收起面板并隐藏软键盘；自动保存文字、引用、设置与位置到当前浏览器，不提交或调用 Agent。' : '选择新建工作、追加当前 Worker 或管理 Lush；按类别和目标恢复浏览器自动保存的编辑，不提交或调用 Agent。');
+  launcher.setAttribute('aria-label', `${space.open ? '收起输入' : '选择输入方式'}${pending ? ` · 有 ${pendingEntries.length} 条未完成输入` : ''}`);
+  launcher.setAttribute('data-help', space.open ? '收起面板并隐藏软键盘；自动保存文字、引用、设置与位置到当前浏览器，不提交或调用 Agent。' : '选择输入方式；黄点表示有未完成输入，菜单按类别列出原目标、摘要与保存状态。只恢复编辑，不提交或调用 Agent。');
   $('composer-project').textContent = `项目：${$('project')?.textContent || '当前项目'}`;
   const management = active?.mode === 'management';
   $('composer-resume').hidden = management || Boolean(input.value.trim() || composerReferences().length || active?.saved);
   $('composer-choose-draft').hidden = management;
   $('composer-draft-status').textContent = active?.cached === false ? '浏览器自动保存失败；本页编辑仍在，刷新前请手动暂存或复制原文' : active?.saved ? `草稿 #${active.saved.id} · 版本 ${active.saved.revision ?? '旧版'} · ${active.saved.content === input.value && JSON.stringify(active.saved.references) === JSON.stringify(composerReferences()) ? '正文与引用已保存' : '有本地修改，尚未保存'}`
     : '未手动暂存；收起时自动保存到当前浏览器，不进入项目草稿';
-  $('composer-draft-status').hidden = !space.open || !pending;
+  $('composer-draft-status').hidden = !space.open || !hasContent(liveEntry(active));
   const source = active?.saved || active?.localOptions;
   const options = source ? { conditions: source.conditions || [], exclusive: source.exclusive } : null;
   $('composer-condition-summary').hidden = !options || !options.conditions.length && !options.exclusive;
@@ -224,8 +272,9 @@ export function finishComposerEdit({ consume, detached = false, saved = null, op
   }
 }
 export function initComposerWorkspace({ resetEditor }) {
-  ui.composerWorkspace = { entries: new Map(), last: new Map(), active: null, open: false, menu: false, read: 0, serial: 0, resetEditor };
-  const space = workspace(), entry = createEntry({ mode: 'order', branch: 'main' });
+  ui.composerWorkspace = { ...loadComposerCache(), active: null, open: false, menu: false, read: 0, resetEditor };
+  for (const mode of ['append', 'order', 'management']) $(`composer-pending-${mode}`).dataset.signature = '';
+  const space = workspace(), entry = space.entries.get(space.last.get('order:main') || 'order:main') || createEntry({ mode: 'order', branch: 'main' });
   if ($('input').value || composerReferences().length) Object.assign(entry, { content: $('input').value, references: composerReferences() });
   space.entries.set(entry.key, entry); space.last.set(entry.destination, entry.key); applyEntry(entry);
   ui.openComposer = openComposer; ui.collapseComposer = collapseComposer;

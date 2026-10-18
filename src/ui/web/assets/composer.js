@@ -141,7 +141,7 @@ function destination() {
   // Page detail is only a freshness hint, never the owner of the pinned editor target.
   const task = ui.composerTask?.id === id ? ui.composerTask : ui.composerAppendTarget.task;
   if (task) ui.composerAppendTarget.task = task;
-  if (!task) return { id, reason: ui.composerError || '正在读取 Worker；加载成功后才能输入。' };
+  if (!task) return { id, reason: ui.composerAppendTarget.error || ui.composerError || '正在读取 Worker；加载成功后才能输入。' };
   return { id, task, reason: appendInputBlocker(task), wait: inputWaitReason(task), queueText: inputQueueText(task) };
 }
 function selectedParentLabel() {

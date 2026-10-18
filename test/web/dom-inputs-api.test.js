@@ -1,11 +1,11 @@
 import { test, expect, afterAll } from 'bun:test';
-import { repo } from '../helpers.js';
+import { repo, until } from '../helpers.js';
 import { fetch as httpFetch, setup } from './harness.js';
 import { installDom } from '../dom-stub.js';
 
 let fixture;
-const requests = [];
-const dom = installDom({ fetch: (url, options) => { if (options?.body) requests.push(JSON.parse(options.body)); return httpFetch(fixture.url + url, options); } });
+const requests = [], reads = [];
+const dom = installDom({ fetch: (url, options) => { reads.push(url); if (options?.body) requests.push(JSON.parse(options.body)); return httpFetch(fixture.url + url, options); } });
 const { resetUiState } = await import('../../src/ui/web/assets/state.js');
 const { initComposer, buffer } = await import('../../src/ui/web/assets/composer.js');
 const { selectComposerMode, resumeComposerDraft, currentEdit, collapseComposer } = await import('../../src/ui/web/assets/composer-workspace.js');
@@ -18,7 +18,7 @@ test('real detail DOM submits an explicit append through HTTP/RPC and returns co
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {}, detail: loadDetail });
   try {
-    resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
+    dom.localStorage.clear(); resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
     const { task } = await fixture.project.order('初始要求', 'main', [], null, false);
     await loadDetail(task.id);
     expect(dom.node('input-form').dataset.mode).toBe('create');
@@ -38,6 +38,7 @@ for (const mode of ['order', 'append']) test(`real floating composer resumes, up
   const restore = registerNavigation({ refresh: async () => {} });
   try {
     // Disable automatic scheduling, not the real authorization or dispatch path. No model is called.
+    dom.localStorage.clear(); reads.length = 0;
     fixture.project.kick = () => {}; fixture.project.scheduleInputEmissions = () => {};
     const worker = mode === 'append' ? (await fixture.project.order('追加目标', 'main', [], null, false)).task : null;
     const refs = mode === 'order' ? [{ version: 1, kind: 'text', target: {}, label: '快照', quote: '引用原文', location: {}, captured_at: '2026-01-01T00:00:00.000Z' }] : [];
@@ -50,7 +51,12 @@ for (const mode of ['order', 'append']) test(`real floating composer resumes, up
     expect(currentEdit().saved).toMatchObject({ id: draft.id, revision: 1, references: refs });
     input.value = '原位续写后的正文'; input.oninput(); requests.length = 0;
     collapseComposer(); expect(requests).toHaveLength(0); // Automatic save is browser-only, not an RPC or authorization.
-    resetUiState(); input.value = ''; dom.node('input-parent').value = ''; await initComposer(); selectComposerMode(mode, worker);
+    resetUiState(); input.value = ''; dom.node('input-parent').value = ''; await initComposer();
+    dom.node('composer-launcher').click();
+    const continuation = dom.node(`composer-pending-${mode}`).querySelectorAll('button').find(row => row.dataset.editKey === `draft:${draft.id}`);
+    expect(continuation.getAttribute('aria-label')).toContain('有本地修改'); continuation.click();
+    if (worker) { await until(() => !input.disabled); expect(reads.some(url => url.endsWith(`/api/worker/${worker.id}`))).toBe(true); }
+    expect(requests).toHaveLength(0);
     expect(input.value).toBe('原位续写后的正文'); expect(currentEdit().saved.id).toBe(draft.id);
     await buffer(); expect(input.value).toBe(''); expect(currentEdit().saved).toBeNull();
     expect(fixture.store.draft(draft.id).content).toBe('原位续写后的正文');

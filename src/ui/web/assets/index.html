@@ -140,9 +140,14 @@
 <div class="composer" id="composer-shell" data-open="false">
   <button type="button" id="composer-launcher" class="composer-launcher" aria-label="选择输入方式" aria-expanded="false" aria-controls="input-form composer-menu" data-help="选择输入类别和目标，恢复当前浏览器自动保存的编辑，不提交或调用 Agent。">＋</button>
   <div id="composer-menu" class="composer-menu" role="group" aria-label="输入方式" hidden>
-    <button type="button" id="composer-menu-append" hidden>追加当前 Worker</button>
-    <button type="button" id="composer-menu-order">新建工作 · 默认 main</button>
-    <button type="button" id="composer-menu-management">管理 Lush · 当前项目</button>
+    <button type="button" id="composer-menu-append" class="composer-category" hidden>追加当前 Worker</button>
+    <p id="composer-pending-append-summary" class="composer-pending-heading" hidden></p>
+    <div id="composer-pending-append" class="composer-pending-list" hidden></div>
+    <button type="button" id="composer-menu-order" class="composer-category">新建工作 · 默认 main</button>
+    <div id="composer-pending-order" class="composer-pending-list" hidden></div>
+    <button type="button" id="composer-menu-management" class="composer-category">管理 Lush · 当前项目</button>
+    <div id="composer-pending-management" class="composer-pending-list" hidden></div>
+    <p id="composer-menu-note" class="composer-menu-note" hidden>黄点表示有未完成输入，不代表保存失败。浏览器保留不等于项目暂存或提交。</p>
   </div>
   <form id="input-form" data-mode="create" data-expanded="false" hidden>
   <div class="composer-toolbar">

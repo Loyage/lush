@@ -170,7 +170,8 @@ export function installDom({ fetch: fetchImpl } = {}) {
   };
   const makeStorage = () => {
     const store = new Map();
-    return { getItem: key => store.get(String(key)) ?? null, setItem: (key, value) => store.set(String(key), String(value)),
+    return { get length() { return store.size; }, key: index => [...store.keys()][index] ?? null,
+      getItem: key => store.get(String(key)) ?? null, setItem: (key, value) => store.set(String(key), String(value)),
       removeItem: key => store.delete(String(key)), clear: () => store.clear() };
   };
   const localStorage = makeStorage(), sessionStorage = makeStorage();

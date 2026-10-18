@@ -31,6 +31,7 @@ const dom = installDom({ fetch: async (url, options) => {
 } });
 const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js');
 const { initComposer, syncComposer } = await import('../../src/ui/web/assets/composer.js');
+const { collapseComposer } = await import('../../src/ui/web/assets/composer-workspace.js');
 const { openWorkerCreate } = await import('../../src/ui/web/assets/worker-create-form.js');
 const { createEmissionConditions } = await import('../../src/ui/web/assets/emission-form.js');
 const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
@@ -70,7 +71,7 @@ async function submitFirst(task, content = 'first real user instruction') {
   await loadDetail(task.id);
   expect(button(dom.node('detail'), '开始')).toBeUndefined(); expect(button(dom.node('detail'), '继续')).toBeUndefined();
   const edit = button(dom.node('detail'), '输入工作指令'); expect(edit.classList.contains('agent-call')).toBe(false); await edit.onclick();
-  expect(dom.node('composer-menu-append').textContent).toContain('输入工作指令');
+  expect(deepText(dom.node('composer-menu-append'))).toContain('输入工作指令');
   expect(dom.node('composer-mode-title').textContent).toBe('输入工作指令');
   expect(dom.node('composer-target-status').textContent).not.toContain('需开始');
   expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(true);
@@ -297,6 +298,31 @@ test('Worker detail has one child-create entry; blank is default, parent fixed, 
   expect(made.parent_id).toBe(parent.id); expect(made.target_branch).toBe(parent.branch);
   expect(requests.find(call => call.method === 'worker.create').params).toEqual({ mode: 'spawn', parent: parent.id });
   expect(fixture.store.all('SELECT * FROM inputs')).toHaveLength(1); expect(runs).toHaveLength(0);
+});
+
+test('unfinished child first instruction survives reload and resumes its exact parent-bound target without authorizing on open', async () => {
+  dom.localStorage.clear();
+  const parent = (await fixture.project.order('current parent', 'main', [], null, false)).task;
+  const pending = openWorkerCreate({ parent }); await answerDialog(dom, '创建子 Worker'); const made = await pending;
+  expect(made.parent_id).toBe(parent.id); expect(made.creation.waiting_first_input).toBe(true);
+  await button(dom.node('detail'), '输入工作指令').onclick();
+  const input = dom.node('input'); input.value = '保留的新子 Worker 首条指令'; input.oninput(); collapseComposer();
+  resetUiState(); input.value = ''; dom.node('input-parent').value = ''; await initComposer();
+  dom.node('composer-launcher').click();
+  const row = dom.node('composer-pending-append').querySelectorAll('button').find(node => node.dataset.editKey === `append:${made.id}`);
+  expect(row.getAttribute('aria-label')).toContain(made.worker_number);
+  requests.length = sourceReads.length = 0; row.click();
+  await until(() => sourceReads.includes(made.id) && !input.disabled);
+  expect(dom.node('composer-mode-title').textContent).toBe('输入工作指令');
+  expect(dom.node('composer-mode-target').textContent).toContain(made.worker_number);
+  expect(deepText(dom.node('composer-menu-append'))).toContain('输入工作指令');
+  expect(input.value).toBe('保留的新子 Worker 首条指令'); expect(requests).toHaveLength(0); expect(runs).toHaveLength(0);
+  await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+  expect(requests[0].params).toMatchObject({ mode: 'append', target_id: made.id, content: '保留的新子 Worker 首条指令' });
+  await fixture.project.drainInputEmissions();
+  const after = fixture.project.inspect(made.id); expect(after.parent_id).toBe(parent.id); expect(after.target_branch).toBe(parent.branch);
+  expect(after.input_id).toBeNumber(); expect(fixture.store.all('SELECT * FROM messages WHERE task_id=?', made.id)).toHaveLength(0);
+  expect(runs).toHaveLength(0);
 });
 
 test('child panel fork defaults to self and creates a real child with first O and inherited checkpoint', async () => {

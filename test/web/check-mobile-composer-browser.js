@@ -24,6 +24,7 @@ window.calls=[];window.fail=false;window.defer=false;window.fixtureDraft={kind:'
 window.fetch=async(url,options)=>{if(String(url).endsWith('/api/input-parents'))return Response.json({items:[{id:1,branch:'main'}]});
 if(String(url).includes('/api/inputs?'))return Response.json({items:[window.fixtureDraft],next_cursor:null});
 if(String(url).endsWith('/api/input/draft/40'))return Response.json(window.fixtureDraft);
+if(String(url).endsWith('/api/worker/8'))return Response.json({id:8,worker_number:'W8',task_kind:'order',status:'waiting',branch:'feature',workspace:'/tmp/fixture',goal:'追加目标'});
 const body=JSON.parse(options.body);window.calls.push(body);if(window.defer)await new Promise(r=>window.release=r);
 if(window.fail)return Response.json({error:'fixture failure'},{status:500});
 if(body.method==='draft.update'){Object.assign(window.fixtureDraft,body.params,{revision:window.fixtureDraft.revision+1});return Response.json(window.fixtureDraft);}
@@ -198,11 +199,28 @@ try{
   await rpc(`/session/${session}/frame`,{id:null});
   await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});
   await resize(390,844);assert(await wait('window.ready'),'reload fixture failed');
-  await click('#composer-launcher'); await click('#composer-menu-management');
+  await click('#composer-launcher');
+  assert(await execute(`return document.querySelector('#composer-launcher').getAttribute('aria-label').includes('3 条未完成输入')&&['order','append','management'].every(m=>document.querySelector('#composer-pending-'+m).querySelectorAll('button').length===1)&&!document.querySelector('#composer-pending-append-summary').hidden;`),'reload did not discover all unfinished destinations or expose targetless append continuations');
+  await click('#composer-pending-management button');
   assert(await execute(`return document.querySelector('#input').value==='重开管理'&&window.calls.length===0;`),'management browser edit did not survive reload');
   await execute(`window.selectComposer('order');`);assert(await execute(`return document.querySelector('#input').value==='重开新建';`),'new-work browser edit did not survive reload');
   await execute(`window.append();`);assert(await execute(`return document.querySelector('#input').value==='重开追加'&&window.calls.length===0;`),'append browser edit did not survive reload');
-  console.log('PASS real page reload restores three independent browser edits without RPC or Agent calls');
+  console.log('PASS real page reload discovers three independent browser edits without mutation or Agent calls');
+  await execute(`window.page();document.querySelector('#composer-launcher').click();window.menuText='很长的未完成正文'.repeat(100);`);
+  for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
+    await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';window.selectComposer('order');document.querySelector('#input').value=window.menuText;document.querySelector('#input').dispatchEvent(new Event('input'));document.querySelector('#composer-launcher').click();document.querySelector('#composer-launcher').click();`);
+    assert(await execute(`const menu=document.querySelector('#composer-menu'),r=menu.getBoundingClientRect(),rows=Array.from(menu.querySelectorAll('.composer-pending-entry'));return !menu.hidden&&document.documentElement.scrollWidth<=innerWidth&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&rows.length===3&&rows.every(n=>{const b=n.getBoundingClientRect();return b.height>=44&&b.width<=r.width})&&document.querySelector('#composer-menu-order').dataset.pending==='true'&&getComputedStyle(document.querySelector('.composer-pending-count'),'::before').backgroundColor!=='rgba(0, 0, 0, 0)';`),`unfinished menu geometry/counts/dots failed ${theme}/${width}`);
+    assert(await execute(`const n=document.querySelector('#composer-pending-order .composer-pending-preview');return n.scrollWidth>n.clientWidth&&getComputedStyle(n).textOverflow==='ellipsis';`),`long preview is not truncated ${theme}/${width}`);
+    await execute(`const menu=document.querySelector('#composer-menu');menu.scrollTop=menu.scrollHeight;window.lastRow=menu.querySelector('#composer-pending-management button');window.lastRow.focus();`);
+    assert(await execute(`const r=window.lastRow.getBoundingClientRect(),m=document.querySelector('#composer-menu').getBoundingClientRect();return document.activeElement===window.lastRow&&r.top>=m.top&&r.bottom<=m.bottom&&window.lastRow.getAttribute('aria-label').includes('已保留在本浏览器');`),`continuation keyboard focus or status failed ${theme}/${width}`);
+    if(width===390||width===320)await Bun.write(`/tmp/lush-w338-validation/menu-${theme}-${width}.png`,Buffer.from(await rpc(`/session/${session}/screenshot`,undefined,'GET'),'base64'));
+    await keys(['\uE00C']);
+    assert(await execute(`return document.querySelector('#composer-menu').hidden&&document.activeElement===document.querySelector('#composer-launcher')`),`menu Escape lost focus ${theme}/${width}`);
+    console.log(`PASS unfinished category indicators, direct continuations, long previews, keyboard focus and menu bounds ${theme} ${width}`);
+  }
+  await execute(`document.querySelector('#composer-launcher').click();`);await click('#composer-pending-append button');
+  assert(await wait(`!document.querySelector('#input').disabled&&document.querySelector('#input').value==='重开追加'`),'cached append continuation did not re-read and restore original target');
+  assert(await execute(`return window.calls.length===0&&document.querySelector('#composer-mode-target').textContent.includes('W8')`),'continuation mutated data or changed target');
   passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});driver.kill();await driver.exited;server.stop(true);

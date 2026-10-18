@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { until } from '../helpers.js';
 const calls = [], reads = [];
-let records, failure, deferred, release, deferredRead, readFailure;
+let records, failure, deferred, release, deferredRead, readFailure, deferredWorker, workerReadFailure, returnedWorker;
 const json = value => ({ ok: true, json: async () => structuredClone(value) });
 const draft = (id, fields = {}) => ({ kind: 'draft', id, mode: 'order', content: `正文 ${id}`, parent_id: 1, branch: 'main', revision: 3, references: [], status: 'draft', ...fields });
 const worker = id => ({ id, worker_number: `W${id}`, task_kind: 'order', status: 'running', branch: `work/${id}`, workspace: `/tmp/${id}`, goal: `目标 ${id}` });
@@ -16,6 +16,11 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     return json(cursor ? { items: records.slice(1), next_cursor: null } : { items: records.slice(0, 1), next_cursor: records.length > 1 ? 'next' : null });
   }
   if (path.pathname.startsWith('/api/input/draft/')) return json(records.find(row => row.id === Number(path.pathname.split('/').at(-1))));
+  if (path.pathname.startsWith('/api/worker/')) {
+    if (deferredWorker) await new Promise(resolve => { release = resolve; });
+    if (workerReadFailure) throw Error('目标读取失败');
+    return json(returnedWorker || worker(Number(path.pathname.split('/').at(-1))));
+  }
   if (path.pathname === '/api/action') {
     const call = JSON.parse(options.body); calls.push(call);
     if (deferred) await new Promise(resolve => { release = resolve; });
@@ -46,8 +51,12 @@ const arrow = async (key = 'ArrowUp', fields = {}) => {
 };
 const reference = { version: 1, kind: 'text', target: {}, label: '引用', quote: '看到的文字' };
 const reloadComposer = async () => { resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer(); };
+const pendingRows = mode => dom.node(`composer-pending-${mode}`).querySelectorAll('button');
+const openMenu = () => { collapseComposer(); dom.node('composer-launcher').click(); };
+const { scopedKey } = await import('../../src/ui/web/assets/prefs.js');
 beforeEach(async () => {
   resetUiState(); dom.localStorage.clear(); dom.location.pathname = '/'; calls.length = reads.length = 0; records = []; failure = deferred = deferredRead = readFailure = false; release = null;
+  deferredWorker = workerReadFailure = false; returnedWorker = null;
   dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
 });
 afterAll(() => { restore(); dom.restore(); });
@@ -299,4 +308,90 @@ test('browser storage failures are visible and never discard the active text', (
   const set = dom.localStorage.setItem; dom.localStorage.setItem = () => { throw Error('quota exceeded'); };
   try { collapseComposer(); expect(dom.node('input').value).toBe('不能丢失'); expect(dom.node('error').textContent).toContain('自动保存失败'); }
   finally { dom.localStorage.setItem = set; collapseComposer(); }
+});
+
+test('unfinished indicators follow live content, not expansion/settings, and show each category with an exact continuation', async () => {
+  selectComposerMode('order'); ui.composerExpanded = true; ui.composerProfile = { config_mode: 'pi' }; ui.syncComposer(); openMenu();
+  expect(dom.node('composer-launcher').dataset.pending).toBe('false'); expect(pendingRows('order')).toHaveLength(0);
+  selectComposerMode('order'); type('只有正文'); expect(dom.node('composer-launcher').dataset.pending).toBe('true');
+  expect(dom.node('composer-launcher').getAttribute('aria-label')).toContain('1 条未完成输入');
+  type(''); expect(dom.node('composer-launcher').dataset.pending).toBe('false');
+  addComposerReference(reference); expect(dom.node('composer-launcher').dataset.pending).toBe('true');
+  selectComposerMode('order', null, 'work/7'); type('父7的工作');
+  selectComposerMode('append', worker(8)); type('给8'); selectComposerMode('append', worker(9)); type('给9');
+  selectComposerMode('management'); type('管理需求'); openMenu();
+  for (const [mode, count] of [['order', 2], ['append', 2], ['management', 1]]) {
+    expect(dom.node(`composer-menu-${mode}`).dataset.pending).toBe('true'); expect(pendingRows(mode)).toHaveLength(count);
+    expect(dom.node(`composer-menu-${mode}`).getAttribute('aria-label')).toContain(`${count} 条未完成`);
+  }
+  expect(deepText(dom.node('composer-pending-order'))).toContain('1 条引用');
+  expect(deepText(dom.node('composer-pending-management'))).toContain('已保留在本浏览器');
+  pendingRows('append').find(row => row.dataset.editKey === 'append:8').click();
+  expect(dom.node('input').value).toBe('给8'); expect(ui.composerAppendTarget.id).toBe(8); expect(dom.node('input-form').hidden).toBe(false);
+  openMenu(); expect(dom.node('composer-launcher').dataset.pending).toBe('true'); // Merely viewing is not acknowledgment.
+  pendingRows('order').find(row => row.dataset.editKey === 'order:work/7').click();
+  expect(dom.node('input').value).toBe('父7的工作'); expect(dom.node('input-parent').value).toBe('work/7'); expect(calls).toHaveLength(0);
+});
+
+test('reload discovers all targets and multiple same-target drafts, while restoration rechecks cached Worker metadata', async () => {
+  records = [draft(1), draft(2)]; selectComposerMode('order'); type('独立本地编辑');
+  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #1')).click(); type('草稿1修改');
+  await resumeComposerDraft(false); await dom.node('composer-draft-list').querySelectorAll('button').find(node => node.textContent.startsWith('草稿 #2')).click();
+  selectComposerMode('append', { ...worker(8), worker_number: 'W88-2', auto_title: '明确的编号' }); type('原目标8');
+  selectComposerMode('append', worker(9)); type('原目标9'); selectComposerMode('management'); type('管理'); collapseComposer();
+  await reloadComposer(); dom.node('composer-launcher').click();
+  expect(pendingRows('order')).toHaveLength(3); expect(pendingRows('append')).toHaveLength(2); expect(pendingRows('management')).toHaveLength(1);
+  expect(dom.node('composer-menu-append').hidden).toBe(true); expect(dom.node('composer-pending-append-summary').hidden).toBe(false);
+  expect(deepText(dom.node('composer-pending-order'))).toContain('项目已暂存 · 草稿 #2');
+  expect(deepText(dom.node('composer-pending-order'))).toContain('有本地修改 · 草稿 #1');
+  const row = pendingRows('append').find(row => row.dataset.editKey === 'append:8'); expect(row.getAttribute('aria-label')).toContain('W88-2');
+  deferredWorker = true; row.click(); await until(() => release);
+  expect(dom.node('input').value).toBe('原目标8'); expect(dom.node('input').disabled).toBe(true); expect(dom.node('draft-commit').disabled).toBe(true);
+  returnedWorker = { ...worker(8), worker_number: 'W88-2', archived: true }; release();
+  await until(() => dom.node('composer-target-status').textContent.includes('分支已归档'));
+  expect(dom.node('input').disabled).toBe(true); expect(ui.composerAppendTarget.id).toBe(8);
+  openMenu(); pendingRows('order').find(row => row.dataset.editKey === 'draft:1').click();
+  expect(dom.node('input').value).toBe('草稿1修改'); expect(currentEdit().saved.id).toBe(1); expect(currentEdit().saved.revision).toBe(3);
+  expect(calls).toHaveLength(0);
+});
+
+test('late or failed cached-target reads never replace another destination or enable an unverified target', async () => {
+  selectComposerMode('append', worker(8)); type('目标8'); selectComposerMode('management'); type('管理'); collapseComposer();
+  await reloadComposer(); openMenu(); deferredWorker = true;
+  pendingRows('append')[0].click(); await until(() => release); selectComposerMode('management'); release();
+  await Promise.resolve(); await Promise.resolve(); expect(ui.composerManagement).toBe(true); expect(dom.node('input').value).toBe('管理');
+  deferredWorker = false; workerReadFailure = true; openMenu(); pendingRows('append')[0].click();
+  await until(() => dom.node('composer-target-status').textContent.includes('原目标读取失败'));
+  expect(dom.node('input').value).toBe('目标8'); expect(dom.node('input').disabled).toBe(true); expect(calls).toHaveLength(0);
+  workerReadFailure = false; returnedWorker = worker(9); openMenu(); pendingRows('append')[0].click();
+  await until(() => dom.node('composer-target-status').textContent.includes('身份不匹配')); expect(ui.composerAppendTarget.id).toBe(8);
+  returnedWorker = worker(8); openMenu(); pendingRows('append')[0].click(); await until(() => !dom.node('input').disabled);
+  expect(dom.node('input').value).toBe('目标8'); expect(calls).toHaveLength(0);
+});
+
+test('legacy browser snapshots are discovered by exact project scope and consumed edits never resurrect them', async () => {
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
+  const legacy = (destination, content) => dom.localStorage.setItem(scopedKey(`lush.composer.edit.v1:${encodeURIComponent(destination)}`), JSON.stringify({ version: 1, content, references: [] }));
+  legacy('order:work/7', '旧父7'); legacy('append:8', '旧追加8'); legacy('management', '旧管理');
+  dom.localStorage.setItem('lush.composer.edit.v1:management:bbbbbbbbbbbbbbbb', JSON.stringify({ version: 1, content: '另一个项目', references: [] }));
+  await reloadComposer(); openMenu();
+  expect(pendingRows('order')).toHaveLength(1); expect(pendingRows('append')).toHaveLength(1); expect(pendingRows('management')).toHaveLength(1);
+  expect(deepText(dom.node('composer-pending-management'))).not.toContain('另一个项目');
+  pendingRows('order')[0].click(); expect(dom.node('input').value).toBe('旧父7'); await buffer(); collapseComposer();
+  await reloadComposer(); openMenu(); expect(pendingRows('order')).toHaveLength(0); expect(pendingRows('append')).toHaveLength(1);
+  dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/'; await reloadComposer(); openMenu();
+  expect(pendingRows('append')).toHaveLength(0); expect(deepText(dom.node('composer-pending-management'))).toContain('另一个项目');
+});
+
+test('failed persistence is explicit on continuation rows and successful stash clears only its own indicator', async () => {
+  selectComposerMode('management'); type('保留管理'); selectComposerMode('order'); type('要暂存的工作');
+  const set = dom.localStorage.setItem; dom.localStorage.setItem = () => { throw Error('quota'); };
+  try {
+    openMenu(); expect(pendingRows('order')[0].getAttribute('aria-label')).toContain('自动保存失败');
+    expect(dom.node('composer-launcher').dataset.pending).toBe('true');
+  } finally { dom.localStorage.setItem = set; }
+  pendingRows('order')[0].click(); await buffer(); openMenu();
+  expect(dom.node('composer-menu-order').dataset.pending).toBe('false'); expect(pendingRows('order')).toHaveLength(0);
+  expect(dom.node('composer-menu-management').dataset.pending).toBe('true'); expect(pendingRows('management')).toHaveLength(1);
+  pendingRows('management')[0].click(); type(''); openMenu(); expect(dom.node('composer-launcher').dataset.pending).toBe('false');
 });

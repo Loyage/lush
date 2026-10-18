@@ -9,6 +9,17 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 .composer-launcher[data-pending="true"]::after { content:''; position:absolute; top:2px; right:2px; width:10px; height:10px; border-radius:50%; background:var(--waiting); border:2px solid var(--bg); }
 #composer-shell .composer-menu { position:fixed; bottom:max(80px,calc(env(safe-area-inset-bottom) + 72px)); right:16px; z-index:9; width:min(320px,calc(100vw - 32px)); padding:8px; border:1px solid var(--line); border-radius:14px; background:var(--panel); box-shadow:0 6px 24px #0003; display:flex; flex-direction:column; gap:6px; max-height:55dvh; overflow:auto; }
 #composer-shell .composer-menu button { min-height:44px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+#composer-shell .composer-category { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 8px; }
+.composer-pending-count { font-size:11px; font-weight:normal; white-space:nowrap; }
+.composer-pending-count::before, .composer-pending-heading::before { content:''; display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:50%; background:var(--waiting); }
+#composer-shell .composer-pending-heading { margin:4px 8px 0; font-size:12px; }
+#composer-shell .composer-pending-list { display:grid; gap:4px; padding:0 0 4px 8px; border-left:2px solid var(--line); }
+#composer-shell .composer-pending-entry { display:flex; flex-direction:column; gap:3px; min-width:0; width:100%; }
+.composer-pending-entry strong { font-size:12px; font-weight:600; }
+.composer-pending-preview { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.composer-pending-status, #composer-shell .composer-menu-note { font-size:11px; color:var(--muted); }
+.composer-pending-status.failed { color:var(--failed); }
+#composer-shell .composer-menu-note { margin:2px 4px; line-height:1.5; }
 #composer-shell .composer-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-right:48px; margin-bottom:4px; }
 #composer-shell .composer-toolbar button { min-height:44px; }
 #composer-project { overflow-wrap:anywhere; min-width:0; }

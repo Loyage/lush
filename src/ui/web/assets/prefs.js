@@ -136,6 +136,12 @@ function removeRaw(key) { memory.delete(key); try { localStorage.removeItem(key)
 
 /** 非偏好类的持久键（如提醒去重）也统一走这里，其它模块不直接拼 localStorage。 */
 export function readStored(key) { return readRaw(key); }
+/** Discover legacy project caches through the same storage boundary, including memory fallback. */
+export function storedKeys() {
+  const keys = new Set(memory.keys());
+  for (let i = 0; i < localStorage.length; i++) keys.add(localStorage.key(i));
+  return [...keys].filter(key => typeof key === 'string');
+}
 export function writeStored(key, value) { try { localStorage.setItem(key, String(value)); memory.delete(key); return true; } catch { memory.set(key, String(value)); return false; } }
 function defaultValue(def) { return typeof def.default === 'function' ? def.default() : def.default; }
 
