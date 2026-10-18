@@ -18,6 +18,7 @@ export function managementInstruction(project, task, state = managementState(tas
 }
 export function managementAppendReason(project, task, state = managementState(task)) {
   if (task.role !== 'manager' || task.task_kind !== 'management' || !state) return '不是有效的管家身份。';
+  if (state.emergency) return '此管家已急救隔离，旧授权永久失效；请另建管理指令。';
   if (project.store.executionRetired(task.id)) return '执行环境已退役，历史只读。';
   if (!['completed','waiting'].includes(task.status) || !['succeeded','skipped'].includes(state.last_execution?.status)
     || !state.last_execution?.started_at
@@ -34,7 +35,10 @@ export function managementAppendReason(project, task, state = managementState(ta
 export const managementRevision = (task, state = managementState(task)) => hookRevision({ id: task.id, revision: state?.config_revision ?? 0 });
 export function saveManagement(project, taskId, state) {
   const encoded = JSON.stringify(state);
-  check(Buffer.byteLength(encoded) <= MANAGEMENT_LIMITS.bytes, 'management state exceeds 128 KiB');
+  // Reserve fixed internal revocation diagnostics for the <=32 receipts plus the
+  // emergency marker even on a pre-existing full state. No new user material is
+  // admitted on an isolated Worker; never discard old receipts to make room.
+  check(Buffer.byteLength(encoded) <= MANAGEMENT_LIMITS.bytes + (state.emergency ? 16 * 1024 : 0), 'management state exceeds 128 KiB');
   project.store.update(taskId, { management: encoded });
 }
 /** Runtime ownership outlives model return, disabling and terminal Worker status. */
@@ -57,6 +61,7 @@ export function managementModel(project, task) {
 }
 export function managementEnableReason(project, task, state = managementState(task)) {
   if (!state || task.role !== 'manager' || task.task_kind !== 'management') return '不是 Valet。';
+  if (state.emergency) return '此管家已急救隔离，旧授权永久失效；请另建管理指令。';
   if (TERMINAL.has(task.status) || state.consumed || ['failed','unknown'].includes(state.state))
     return '一次性绑定已消费或管理调用已中断，不能重新启用旧授权；正常收口后可追加新一轮，失败或未知结果须另建管理指令。';
   if (!state.enabled && (project.running.has(task.id) || state.pending_signal)) return '当前管理调用或操作尚未收口，等待实际退出后再启用。';
@@ -91,6 +96,8 @@ export function managementView(task, project) {
     can_append: appendReason === null, append_reason: appendReason,
     origin: state.origin ?? 'signal',
     enabled: state.enabled, can_enable: enableReason === null, state: state.state,
+    emergency: state.emergency ? { status: state.emergency.status, requested_at: state.emergency.requested_at,
+      isolated_at: state.emergency.isolated_at ?? null } : null,
     reason: ['failed','unknown'].includes(state.state) ? state.reason ?? enableReason
       : !state.enabled && enableReason ? enableReason : state.reason ?? null,
     pending_signal: execution(state.pending_signal ? { ...state.pending_signal, actions: state.receipts, control_calls: state.control_calls ?? [] } : null),

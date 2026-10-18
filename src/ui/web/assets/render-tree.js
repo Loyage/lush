@@ -15,6 +15,8 @@ import { workerLabel, rememberWorkers } from './worker-label.js';
 import { listEntry } from './list-surface.js';
 import { isDevelopmentWorker, isValet, workTypeLabel } from './work-type.js';
 import { workerCreateControl, waitingFirstInput } from './worker-create.js';
+import { valetEmergencyControl } from './valet-emergency.js';
+import { managementEmergencyLabel } from './management-state.js';
 
 // DOM-owned state is discarded with the node on boot/project changes. Signatures describe
 // rendered dependencies, not updated_at (child status/progress/config can change independently).
@@ -66,7 +68,7 @@ function depChips(task) {
 }
 /** 已知等待原因优先；queued 可能受依赖、冻结或安全准入门限制。 */
 function whyLine(task, index) {
-  if (isValet(task)) return task.management?.reason || ({ waiting_actions: '操作已提交，等待安全点', unknown: '结果未知，不自动重放', idle: '等待时间信号', consumed: '一次性授权已用完' }[task.management?.state]) || null;
+  if (isValet(task)) return managementEmergencyLabel(task.management) || task.management?.reason || ({ waiting_actions: '操作已提交，等待安全点', unknown: '结果未知，不自动重放', idle: '等待时间信号', consumed: '一次性授权已用完' }[task.management?.state]) || null;
   const interruptHint = interruptReason(task);
   if (interruptHint) return interruptHint;
   const waiting = waitingDeps(task);
@@ -93,6 +95,8 @@ export function renderTree(data) {
   rememberWorkers(data.tasks);
   const hero = $('side-tasks')?.querySelector('.resource-hero');
   if (hero && !hero.querySelector('.worker-create-entry')) { const control = workerCreateControl(); control.classList.add('worker-create-entry'); hero.append(control); }
+  const valetHero = $('side-valets')?.querySelector('.resource-hero');
+  if (valetHero && !valetHero.querySelector('.valet-emergency-control')) valetHero.append(valetEmergencyControl());
   renderWorkList(data, 'tasks');
   renderWorkList(data, 'valets');
 }

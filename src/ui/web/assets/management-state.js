@@ -9,6 +9,12 @@ const stateLabel = state => STATES[state] || state || '暂无记录';
 const CAPABILITIES = { pending_confirmation: '待用户确认（尚未执行）', approved: '授权已通过，等待安全点',
   running: '正在执行', succeeded: '已执行', rejected: '未获授权', failed: '未执行，预检或授权已变化', unknown: '结果待核验，不自动重放' };
 
+export function managementEmergencyLabel(binding) {
+  if (binding?.emergency?.status === 'isolated') return '已急救隔离，历史占位已解除；旧授权永久失效，未知结果仍需核对。';
+  if (binding?.emergency?.status === 'stopping') return '急救终结中，等待真实进程及在途操作退出；尚未解除占位。';
+  return null;
+}
+
 /** Only display safe projection fields; never stringify private receipt parameters. */
 export function managementReceipts(binding) {
   const area = el('div', undefined, 'management-receipts');
@@ -49,10 +55,12 @@ export function renderManagementState(task) {
   if (!binding || binding.version !== 1) {
     section.append(el('p', '绑定状态暂不可用；不会默认启用或重放。', 'hint')); return section;
   }
+  const emergency = managementEmergencyLabel(binding);
+  if (emergency) section.append(el('p', emergency, 'hint management-emergency-state'));
   section.append(el('p', `${stateLabel(binding.state)} · ${binding.enabled ? '授权启用' : '授权停用'} · ${binding.mode === 'persistent' ? '持续绑定' : '一次性'}`));
   section.append(el('p', binding.origin === 'input' ? '来源：即时 Valet 输入，不等待时间信号。' : `绑定信号：${binding.signal_id || '未知'}；Web 绑定设置入口已移除，已有授权保留。`, 'hint'));
   if (binding.reason) section.append(el('p', binding.reason, ['failed', 'unknown'].includes(binding.state) ? 'error' : 'hint'));
-  if (binding.pending_signal) section.append(el('p', ['failed','unknown'].includes(binding.state)
+  if (binding.pending_signal) section.append(el('p', binding.emergency || ['failed','unknown'].includes(binding.state)
     ? `原事项：${absolute(binding.pending_signal.due_at)}；仅保留诊断身份，不会再次排队。`
     : `已提交待处理：${absolute(binding.pending_signal.due_at)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
   const last = binding.last_execution;

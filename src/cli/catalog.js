@@ -98,6 +98,10 @@ for (const verb of ['save','remove']) add(`hooks signal ${verb}`, verb === 'save
 for (const verb of ['create','enable','disable']) add(`hooks management ${verb}`, verb === 'create' ? '--file PATH' : 'ID|Vn --revision REV',
   verb === 'create' ? '创建并绑定 Valet，到信号时才调用 Agent。' : `${verb === 'enable' ? '启用' : '停用'} Valet 信号绑定。`,
   verb === 'create' ? '--file valet.json' : 'V1 --revision REV', [verb === 'create' ? 'management.create' : 'management.binding_update'], 'write', '保存不立即调用 Agent；默认一次性，持续复用原 Valet。启停使用该管家 management.revision，不是信号库 revision。未知副作用不重放，不能自复制或自提权。');
+add('hooks management emergency-preview', '', '只读预检当前项目全部管家的急救影响范围。', '',
+  ['management.emergency_preview'], 'read', '仅真实用户；提供全量总数与有界摘要、精确 revision，不暴露私有状态。');
+add('hooks management emergency-stop', '--revision REV --confirm', '永久撤销当前项目全部旧管家授权并强制中止模型，实际退出后隔离历史占位。', '--revision REV --confirm',
+  ['management.emergency_stop'], 'destructive', '先读 emergency-preview 并确认精确 revision；只影响当前项目管家，不中止开发 Worker、不重启后台。unknown 历史和收据保留，不重放或回滚副作用；stopping 仍阻止新管家，后台实际退出后自动释放占位。');
 add('hooks management permission-get', 'METHOD --scope device', '查询一个接口的设备全局管家权限及全局修订。',
   'worker.cancel --scope device', ['management.permission_get'], 'read', '仅用户 CLI；管家只能通过 manager.call 读取，设备操作仍须用户指令明确。无配置时内建默认已生效。');
 add('hooks management permission-set', 'METHOD ACCESS --revision REV --scope device', '逐项 CAS 修改设备全局管家权限。',

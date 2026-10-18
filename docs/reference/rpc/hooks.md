@@ -31,6 +31,8 @@
 | `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `hooks management create --file PATH` |
 | `management.submit` | `{instruction,profile?,client_request_id?}` | `order '管理需求' --management`（即时管理，无需时间信号） |
 | `management.binding_update` | `{id,enabled,expected_revision}` | `hooks management enable\|disable ID --revision REV` |
+| `management.emergency_preview` | `{}`（真实用户专属只读急救预检） | `hooks management emergency-preview` |
+| `management.emergency_stop` | `{revision,confirm:true}`（真实用户专属） | `hooks management emergency-stop --revision REV --confirm` |
 | `worker.hooks` | `{id}` | `worker hooks ID` |
 | `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept --revision REV` |
 | `worker.hook_attach` | `{id,hook,expected_revision}` | `worker hook attach ID --file PATH --revision REV` |
@@ -121,6 +123,8 @@ Valet 通过真实 manager.call 先请求 hooks.register；必须取得登记成
 `management.permissions` 为用户专属兼容读取：返回当前有效设备权限；旧 `management.permissions_update` 保留注册但拒绝写入。Host 根 `GET/POST /api/host/management/permissions` 仍仅供用户页面读取／保存完整映射；新增 `management.permission_get`／`management.permission_set` 供用户 CLI 及 Valet 的 `manager.call` 逐项查询／审核修改，普通开发 Agent 不可直调。permission_set 始终 confirmation／unavailable，真实用户批准前不写入，revision 变化拒绝旧批准；返回 `{method,access,revision}`。默认开放、旧限制退出授权、文件保留、读模型及跨进程排序统一见[全局管家权限契约](../../engineering/hook-signals-management.md#设备全局管家权限)。历史 permissions_snapshot 不作为新操作授权，client_request_id 去重仍返回原身份。
 
 未开始的排队／waiting／pending_confirmation 操作在执行前按最新权限复核，异步预检及写入准入等待不能使用旧授权。unavailable 阻止执行；automatic→confirmation 的旧 approved／waiting 若无用户精确批准则 failed／skipped，需重新请求确认。未答 pending_confirmation 放宽为 automatic 时关闭 Notice并继续原精确请求，变 unavailable 时 rejected 并关闭 Notice；参数、目标、资源及原安全门保持。已经 running 的操作固定开始授权，不因后续修改权限强制中断，完成操作不撤销；放宽不重放失败、拒绝、取消或 skipped 请求。私有历史快照与开始授权不进入公开 inspect；完整安全及恢复契约见[全局管家权限](../../engineering/hook-signals-management.md#设备全局管家权限)。
+
+急救入口只处理当前项目全部管家，永久撤销旧授权并经真实退出安全点隔离历史占位；不终止开发 Worker、不重启后台、不删除或重放 unknown。普通 Agent 与 Valet（包括 manager.call）均不可用。HTTP 接线、精确预检响应 schema、有界总数／截断、stopping／isolated、重试和持久恢复规则的单一权威见[用户专属项目急救](../../engineering/hook-signals-management.md#用户专属项目急救)。
 
 专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，并提供 `manager.catalog {}`、`manager.history {id?,before?,limit?}`、`manager.call {method,params,request_id?}`；均不在 Web POST action 或用户 CLI 管理执行入口开放。能力分级与用户精确确认见[管理契约](../../engineering/hook-signals-management.md)。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析明确的 W／V 编号；查找不扩大开始／重试等目标准入。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
 

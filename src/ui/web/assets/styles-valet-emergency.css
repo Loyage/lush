@@ -1,0 +1,13 @@
+.valet-emergency-control{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px;min-width:0}
+.valet-emergency-control button{min-height:44px;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.valet-emergency-status{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
+.valet-emergency-status:empty{display:none}
+.valet-emergency-status p{max-width:none}
+.valet-emergency-modal{min-width:0;overflow-wrap:anywhere}
+.valet-emergency-form{min-width:0;font-size:13px;line-height:1.8}
+.valet-emergency-details{margin:14px 0;border-top:1px solid var(--line);padding-top:8px}
+.valet-emergency-details summary{min-height:44px;cursor:pointer;display:list-item;align-content:center}
+.valet-emergency-details p{margin:8px 0;overflow-wrap:anywhere}
+.valet-emergency-modal .modal-actions{flex-wrap:wrap}
+.valet-emergency-modal .modal-actions button{min-height:44px;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+@media(max-width:600px){.valet-emergency-control>.help-host{width:100%}.valet-emergency-control button{width:100%}.valet-emergency-modal .modal-actions>.help-host{width:100%}.valet-emergency-modal .modal-actions button{width:100%}}

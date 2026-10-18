@@ -5,6 +5,7 @@ import { inheritedRunProfile } from './internal.js';
 import { assertManager } from './management-auth.js';
 import controlMethods, { managementControlPending, trackControlJob } from './management-control.js';
 import permissionMethods from './management-permissions.js';
+import emergencyMethods, { managementEmergencyBlockers } from './management-emergency.js';
 import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
 import { safeInvocationMessage } from '../../agent/invocation-error.js';
 import { hasManagementConfirmation } from './management-code.js';
@@ -74,6 +75,7 @@ function queryView(project, target, snapshot) {
 export default {
   ...controlMethods,
   ...permissionMethods,
+  ...emergencyMethods,
   assertManagementPermission(actorId, method) {
     return this.withManagementPermissionAdmission(() => {
       const actor = assertManager(this, actorId);
@@ -113,10 +115,16 @@ export default {
     const activeIds = [...new Set([...this.running.keys(), ...(this.managementControlOwners?.keys() ?? [])])];
     return this.store.all(`SELECT * FROM tasks WHERE task_kind='management' AND
       (json_extract(management,'$.pending_signal') IS NOT NULL
+        OR json_extract(management,'$.emergency.status')='stopping'
         OR EXISTS (SELECT 1 FROM json_each(tasks.management,'$.control_calls') WHERE json_extract(value,'$.status') IN ('pending_confirmation','approved','running','unknown'))
         OR EXISTS (SELECT 1 FROM json_each(tasks.management,'$.receipts') WHERE json_extract(value,'$.status') IN ('waiting','running','unknown'))
         ${activeIds.length ? ` OR id IN (${activeIds.map(() => '?').join(',')})` : ''}) ORDER BY id`, ...activeIds)
-      .filter(task => managementUnsettled(this, task)).sort((a, b) => {
+      .filter(task => {
+        const state = managementState(task);
+        // Isolation releases only historical lane barriers, never actual runtime ownership.
+        return state?.emergency ? state.emergency.status !== 'isolated' || managementEmergencyBlockers(this, task, state).length > 0
+          : managementUnsettled(this, task, state);
+      }).sort((a, b) => {
         const priority = task => this.running.has(task.id) || managementState(task)?.pending_signal?.phase !== 'pending' ? 0 : 1;
         return priority(a) - priority(b)
           || (managementState(a)?.pending_signal?.id ?? a.id) - (managementState(b)?.pending_signal?.id ?? b.id) || a.id - b.id;
@@ -206,7 +214,7 @@ export default {
     check(typeof enabled === 'boolean', 'management enabled must be boolean');
     check(typeof expectedRevision === 'string' && expectedRevision === managementRevision(task, state), 'management revision changed; reload before editing');
     if (enabled) {
-      check(!TERMINAL.has(task.status) && !state.consumed && !['failed','unknown'].includes(state.state), 'consumed or interrupted management binding cannot be replayed; create a new instruction');
+      check(!state.emergency && !TERMINAL.has(task.status) && !state.consumed && !['failed','unknown'].includes(state.state), 'consumed or interrupted management binding cannot be replayed; create a new instruction');
       check(state.enabled || (!this.running.has(task.id) && !state.pending_signal), 'wait for the current management occurrence to settle before re-enabling');
       const signal = this.hookSignals().items.find(item => item.id === state.signal_id);
       check(signal?.enabled && signal.next_run_at && Date.parse(signal.next_run_at) > this.hookClock(), 'signal is not enabled for a future occurrence');
@@ -438,7 +446,7 @@ export default {
 
   completeManagementInvocation(taskId, runId) {
     const state = managementState(this.store.task(taskId));
-    if (state?.pending_signal?.run_id !== runId || state.pending_signal.phase !== 'started') return;
+    if (state?.emergency || state?.pending_signal?.run_id !== runId || state.pending_signal.phase !== 'started') return;
     state.pending_signal.phase = 'returned'; state.state = 'waiting_actions';
     state.reason = '管理调用已返回；受阻操作仍由后台等待安全点。';
     saveManagement(this, taskId, state);
@@ -448,6 +456,7 @@ export default {
 
   settleManagementOccurrence(taskId) {
     const task = this.store.task(taskId), state = managementState(task);
+    if (state?.emergency) return this.settleManagementEmergency(taskId);
     if (!this.running.has(taskId) && state?.state === 'stopping' && state.pending_signal?.phase === 'started') {
       state.pending_signal.phase = 'returned';
       saveManagement(this, taskId, state);
@@ -483,7 +492,7 @@ export default {
     const task = this.store.task(taskId), state = managementState(task);
     // A later Provider exception must not downgrade an already durable unknown effect to failed,
     // replace its receipt diagnostics, or emit a second occurrence-failure decision.
-    if (!state || (!state.enabled && ['failed','unknown'].includes(state.state))) return;
+    if (!state || state.emergency || (!state.enabled && ['failed','unknown'].includes(state.state))) return;
     this.store.transaction(() => {
       const diagnostic = safeInvocationMessage(error);
       state.enabled = false; state.state = outcome;
@@ -501,9 +510,10 @@ export default {
 
   recoverManagementWorkers() {
     for (const task of this.store.all(`SELECT id,management FROM tasks WHERE task_kind='management'
-      AND json_extract(management,'$.pending_signal') IS NOT NULL ORDER BY id`)) {
+      AND (json_extract(management,'$.pending_signal') IS NOT NULL OR json_extract(management,'$.emergency.status')='stopping') ORDER BY id`)) {
       this.recoverManagementCapabilities(task.id);
       const state = managementState(this.store.task(task.id));
+      if (state.emergency) { this.settleManagementEmergency(task.id); continue; }
       if (!state.pending_signal || ['failed','unknown'].includes(state.state)) continue;
       let unknown = (state.control_calls ?? []).some(call => call.status === 'unknown');
       for (const receipt of state.receipts) if (receipt.status === 'running') {

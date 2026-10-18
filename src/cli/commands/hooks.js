@@ -106,8 +106,15 @@ async function runSignal(args, client) {
 
 async function runManagement(args, client) {
   const verb = args.shift();
-  check(['create','enable','disable','permission-get','permission-set'].includes(verb),
-    'hooks management requires create|enable|disable|permission-get|permission-set; run lush help');
+  check(['create','enable','disable','permission-get','permission-set','emergency-preview','emergency-stop'].includes(verb),
+    'hooks management requires create|enable|disable|permission-get|permission-set|emergency-preview|emergency-stop; run lush help');
+  if (verb === 'emergency-preview') { exact(args, 0); return client.request('management.emergency_preview'); }
+  if (verb === 'emergency-stop') {
+    const revision = readRevision(args), confirmIndex = args.indexOf('--confirm');
+    check(confirmIndex !== -1, 'management emergency-stop requires --confirm after reading emergency-preview');
+    args.splice(confirmIndex, 1); exact(args, 0);
+    return client.request('management.emergency_stop', { revision, confirm: true });
+  }
   if (verb === 'permission-get' || verb === 'permission-set') {
     const scope = option(args, '--scope');
     check(scope === 'device', 'management permissions require --scope device');

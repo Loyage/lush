@@ -144,6 +144,8 @@ export const handlers = {
       ...(params.mode === undefined ? {} : { mode: params.mode }), ...(params.profile === undefined ? {} : { profile: params.profile }),
       ...(client_request_id === undefined ? {} : { client_request_id }) }) };
   },
+  'management.emergency_preview'(p) { return p.managementEmergencyPreview(); },
+  'management.emergency_stop'(p, params) { return p.managementEmergencyStop(params.revision, params.confirm); },
   'management.submit'(p, params) {
     const { _token: _privateToken, ...options } = params;
     return p.submitManagementInstruction(options);

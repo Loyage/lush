@@ -68,7 +68,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 ## 数据与时间
 
-项目时间信号采用 meta 中 versioned JSON 附属配置，管理绑定／occurrence／受控动作收据采用 tasks.management 附属 JSON。不改写历史行／分支。最多 64 个信号、64 个启用管理绑定，每个 occurrence 最多 32 项动作；信号库与单 Worker 私有状态分别最多 128 KiB，管理列表最多 512 KiB。revision 与运行动态分离，读取无副作用。
+项目时间信号采用 meta 中 versioned JSON 附属配置，管理绑定／occurrence／受控动作收据采用 tasks.management 附属 JSON。不改写历史行／分支。最多 64 个信号、64 个启用管理绑定，每个 occurrence 最多 32 项动作；信号库与单 Worker 私有状态分别最多 128 KiB，管理列表最多 512 KiB。急救隔离后的旧 Worker 仅为固定隔离标记与至多 32 项撤权诊断预留额外 16 KiB，不再接纳用户材料，也不裁掉原有历史来腾空间。revision 与运行动态分离，读取无副作用。
 
 信号定义 `{id?:UUID,name,enabled?:boolean,schedule}`，schedule 复用 normalizeHookSchedule / nextHookRun。一次性创建／改时间／重新启用须在未来；已错过或已发出的同一一次性规则不能靠回拨重放。每日 DST 重叠取首次，缺失跳过。停用／停机未提交过期项不补跑。一次性信号显式改为新的未来时刻时保留旧发出历史，但旧历史不消费新时刻；仍不重放已消费的绑定，需另建管理指令或使用此前授权的持续绑定。
 
@@ -81,6 +81,24 @@ W323／D686：用户可通过 `worker.message {id,body}` 向正常返回且安�
 追加正文仅保存在真实 Message 中，pending occurrence 固定其 message_id；`management.instruction` 是本轮唯一管理指令来源，设备／全局作用域校验也只看本轮，不沿用最初 goal 的授权。新 occurrence 使用最新权限、独立收据和去重范围，不重放旧操作；历史 Run／Event 保留旧结果。显式追加只授权当前一轮，不重新启用原先停用的未来信号绑定。自身决策答复及安全维护暂停仍继续原 occurrence；未开始的追加可恢复，已开始但未知的调用仍停止、不重放。
 
 持续绑定每个 occurrence 使用同一个管理 Worker，完整收口后才可准入下一项。一次性绑定执行后停止。失败不以新一天为理由自动重试。`management.binding_update enabled:false` 撤销未开始的未来／待执行动作及危险操作确认（关闭对应 Notice），不强杀正在运行的 Agent，但立即拒绝新管理操作。`worker.cancel` 同样撤销未执行授权并请求中止模型；返回 cancelled 只表示停止已请求，`running` 真实退出及已开始的受控操作仍须独立收尾。已经完成的操作不撤回，running／unknown 副作用不伪装成已撤销。重新启用不重放 consumed / unknown 的 occurrence。
+
+### 用户专属项目急救
+
+W342／D716：用户可精确确认“终结当前项目全部管家并解除历史未知占位”，与普通停用／取消不同。这是不可委派的真实用户能力：开发 Agent、Valet 直调和 `manager.call` 均拒绝，目录固定 unavailable，不能通过权限配置提升。仅当前 canonical 项目的 Valet；不杀开发 Worker、不操作 Git、不重启 daemon、不改变设备权限或删除项目时间信号。
+
+预检覆盖所有尚未急救隔离的管家，包括历史 unknown、排队、未来绑定及前次仍在 stopping 的身份，不用最近 100 条历史冒充全部。执行先在同步事务内校验完整 revision 并永久撤销旧授权、未来信号绑定、未开始动作及待确认请求，关闭该身份所有 open 自身决策／授权 Notice（不消除 info）；然后使用既有 Provider abort/guarded 进程组强杀模型。已完成副作用不回滚；已经开始的受控操作保留真实 owner 和结果收据，不伪装成撤销。旧 Worker 变 cancelled 仅表示终结请求已持久，不证明进程退出。
+
+`tasks.management.emergency` 持久区分 `stopping` 与 `isolated`：前者保留全部实际 `running`、`managementControlOwners` 与 `managementControlBusy` 占位，不能清空 Map 或提前放行新管家；只有 Provider 实际退出清理、异步控制 job 及 busy 全部释放后，原安全点自动保存 isolated 并释放该身份的**历史管理串行占位**。无存活进程／控制 owner 的历史 unknown 可在同次请求隔离，不要求用户重发写请求或轮询才能完成。未观察到完成证明的 running 收据在真实 owner 退出后记 unknown；既有 unknown、pending occurrence 身份、last_execution、Run／Event／Message 及操作历史保留，不改成功、不删除、不重放。正常收口不能覆盖急救标记；重启恢复先保守收口已开始收据，再完成隔离，不恢复旧授权。隔离不把 unknown 变成可安全删除的证明，原删除门禁不因此豁免。
+隔离后的旧身份永久不可启用、追加、重试或通过旧 client_request_id 恢复；同 key 的原创建重试仍返回已撤权身份，不新建授权。只有新显式管理输入可创建新管家；仍有任一真实旧 owner 时继续拒绝。一次新的精确急救可包含之前仍 stopping 的身份，不因“已撤权”返回假 isolated。
+
+管家列表顶部提供用户专属「强制终结全部管家」危险按钮，空列表及历史筛选不隐藏入口。点击先只读预检，默认展示当前项目全部影响总数、授权／在途／未开始／待答／未知汇总，最多 100 项明细按需展开并明示截断；用户明确确认后才执行。按钮及确认均不调用 Agent。结果区分 stopping 的真实阻塞与 isolated 的历史占位解除，旧详情／列表保留未知结果并标明急救状态，不把旧事项展示为待重跑。用户可只读「核对当前急救状态」，无需重发终结请求；未知写结果先核对再重新预检确认，成功后列表刷新失败不重发。离页、换项目及重启前端后，迟到结果不得打开确认、覆盖新页面或关闭替代弹窗；窄屏单列换行且触控目标至少 44px。完成后仍由用户通过原管理输入框明确提交救援管家，不自动调用模型。\n\n接口及前端接线（均复用用户鉴权、Origin、JSON、no-store）：
+
+- 用户只读 RPC `management.emergency_preview {}`；HTTP `GET /api/management/emergency-preview`，不接受 query；CLI `lush hooks management emergency-preview`。
+- 用户写 RPC `management.emergency_stop {revision,confirm:true}`；HTTP `POST /api/action`，正文仅 `{method:'management.emergency_stop',params:{revision,confirm:true}}`，不接受 query、额外字段、Agent token 或 CLI 私有凭据；CLI `lush hooks management emergency-stop --revision REV --confirm`。
+- 预检返回 `{version:1,scope:'current_project',revision,total,affected_total,already_isolated_total,stopping_total,items,items_truncated,totals,history_preserved:true}`。total 为项目全部 Valet 数；affected_total 为未 isolated 数（含 stopping）；items 仅前 100 项 `{id,worker_number,enabled,pending_occurrences,unstarted_actions,unstarted_calls,started_receipts,unknown_receipts,open_decisions,live_workers,blockers}`。这些计数为当前附属状态的事实，不从旧 last_execution 复制重复计算；未知历史仍完整保留。totals 对**全部受影响项**汇总相同计数；live_workers 表示至少一种真实 owner，blockers 为 `provider_cleanup|control_owner|control_busy` 数组。没有指令、名称、参数、私有 JSON、路径或凭证；超长编号返回 null，不截成另一个合法编号。
+- 执行返回 `{version:1,scope:'current_project',request_revision,status:'stopping'|'isolated',affected_total,isolated_total,stopping_total,blockers,blockers_total,blockers_truncated,history_preserved:true}`。blockers 最多 100 项 `{id,worker_number,kinds:[上述 blocker 枚举]}`，blockers_total 覆盖本次全部实际阻塞身份。status 只表示本次确认集合，不承诺之后没有新输入。`worker.inspect.management.emergency` 另给 `{status,requested_at,isolated_at}`（未急救为 null）；前端不能将 cancelled 或无 PID 当退出证明。
+
+revision 对全部私有附属状态、状态／调用、真实 owner／busy 和 open 决策计算，不受摘要裁剪影响；任何变化均拒绝旧预检，用户须重新读取并精确确认。参数／revision／确认失败沿既有校验错误（HTTP 400）；未登录／跨站沿 401／403；请求成功是 HTTP 200，`stopping` 不是异常或完成证明。同一**最近请求** revision 的响应丢失重试只返回原确认集合当前结果，不重新撤权、不触碰后来创建的管家；已有更新的急救请求后旧 revision 拒绝，不能以旧请求推进新请求。读取预检无副作用；后台收尾不依赖再次调用 stop。UI 展示完整总数、截断事实、不可逆撤权与历史保留，确认后分别说明 stopping／具体 blockers 或 isolated；已发生副作用仍需用户自行核对。
 
 临时冻结、同步、清理、正在退出的旧目标调用只阻塞受控请求。管理工具返回已提交待安全点，不要求模型等待／轮询；后端持久请求在首个安全点执行，不再次调用模型来重发。目标状态不适用／永久不可用记录 skipped。安全门通过后动作异常不是可自动重试的临时 gate。开始／重试沿用目标已保存配置，不接收 profile、不切账号；仍通过原生命周期入口。
 

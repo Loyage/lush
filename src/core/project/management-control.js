@@ -294,6 +294,9 @@ export default {
   resolveManagementConfirmation(noticeId) {
     if (!this.isManagementConfirmationNotice(noticeId)) return false;
     const notice = this.store.get('SELECT task_id,status FROM notices WHERE id=?', noticeId);
+    // A late answer/callback still belongs to this historical confirmation, but
+    // must not create a new control owner after permanent emergency isolation.
+    if (managementState(this.store.task(notice.task_id))?.emergency) return true;
     if (notice.status === 'open') return true; // Await the real user event, not a no-op async job/pump loop.
     const job = this.resolveManagementConfirmationUnsafe(noticeId).catch(() => {
       try {
@@ -338,6 +341,7 @@ export default {
   },
 
   executeManagementCapability(taskId, receiptId) {
+    if (managementState(this.store.task(taskId))?.emergency) return Promise.resolve();
     return trackControlJob(this, taskId, this.executeManagementCapabilityUnsafe(taskId, receiptId));
   },
 

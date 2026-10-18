@@ -21,6 +21,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
     'test/web/skills-page-integration.test.js', // Skills -> authenticated Host/device writer -> next invocation snapshot; failures and late replies
     'test/web/dom-valet-append-api.test.js', // settled Valet detail -> authenticated HTTP/RPC -> fresh serial occurrence; busy rejection retains input
+    'test/web/dom-valet-emergency-api.test.js', // empty list -> exact user emergency -> real HTTP/RPC -> actual cleanup/unknown isolation -> fresh rescue input
     'test/web/force-acceptance-page.test.js', // shared control -> authenticated HTTP -> exact terminal-receipt confirmation/reclamation
     'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
     'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
@@ -48,6 +49,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC, including user-authorized fresh Valet rounds
     'test/project/management-calls.test.js', // real Provider/bridge -> safe audit Events -> user-only bounded HTTP stream
+    'test/project/management-emergency.test.js', // user-only HTTP/CLI -> exact emergency revocation -> real Provider/control exit -> preserved unknown isolation -> fresh submit
     'test/project/management-append.test.js', // settled Valet -> user RPC append, serial admission, failure protection and recovery
     'test/project/management-append-size.test.js', // full-size immutable Message bodies and missing-instruction fail-closed
     'test/project/management-query.test.js', // typed CLI/manager queries -> real bridge, scope separation and safe rejection
@@ -69,6 +71,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-management-calls.test.js', // bounded Valet RPC stream, exact pairing, pagination, unknown projection and retained refresh
     'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
+    'test/web/dom-valet-emergency.test.js', // project emergency preview/confirmation, stopping vs isolation, single-flight and late-response isolation
     'test/web/dom-inputs.test.js', // draft editor
     'test/web/dom-floating-composer.test.js', // isolated destinations, inline recovery, versions and late responses
     'test/web/dom-transcript-sidebar.test.js', // reader step navigation
