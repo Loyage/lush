@@ -23,7 +23,7 @@ import { progressReportingEnabled, progressStats, renderGraphProgress } from './
 import { deliveryControls } from './render-delivery.js';
 import { sourceDelivery } from './delivery-ui.js';
 import { deliveryStage } from './delivery-model.js';
-import { integrationControl, integrationSummary } from './render-integration.js';
+import { integrationControl, integrationStatus } from './render-integration.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText } from './worker-input.js';
@@ -100,7 +100,8 @@ function taskVisualState(node) {
 
 /** Keep every delivery stage beside usage; tracking below retains only diagnostics and relations. */
 function graphMergeStatus(node) {
-  const summary = node.merge_operation ? null : node.delivery_summary;
+  if (node.merge_operation) return integrationStatus(node);
+  const summary = node.delivery_summary;
   if (summary && !['pending', 'integrated'].includes(summary.stage))
     return badge(deliveryStage(summary.stage, summary.version), 'b-awaiting');
   const pending = node.reservation?.status === 'pending' && [2, 3].includes(node.reservation.version);
@@ -139,7 +140,7 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   if (!minimal) head.append(taskActionsMenu(node, inputWorkers));
   row.append(head);
-  const tracking = node.merge_operation ? integrationSummary(node, { showMerged: false })
+  const tracking = node.merge_operation ? null
     : sourceDelivery(node.delivery_summary, { showStage: false, showInputQueue: false });
   if (tracking) row.append(tracking);
   if (minimal) {

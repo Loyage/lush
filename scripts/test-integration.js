@@ -12,6 +12,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-built-loading-assets.test.js', // compiled app boots with shared state
     'test/web/dom-loading-assets.test.js', // lazy page boot
     'test/web/dom-detail.test.js', // Worker detail -> independent reader, without a Worker-return action
+    'test/web/dom-task-graph-integration.test.js', // tree keeps only merge status; full scope/helper/diagnostics remain in Worker details
     'test/web/dom-worker-cli-api.test.js', // detail -> standalone CLI page -> Ctrl+Enter -> authenticated preview/confirmation -> real CLI and lifecycle
     'test/web/reading-conversation-integration.test.js', // input/output -> HTTP segmented raw copy
     'test/web/dom-navigation-links.test.js', // independent reader links

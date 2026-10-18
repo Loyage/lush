@@ -86,12 +86,15 @@ try {
   const source = `[data-task-id="${f.sources[0].id}"]`;
   // The heavy graph has its own slow sampling cadence; use its ordinary read-only refresh.
   await execute(`Array.from(document.querySelectorAll('.task-graph-hero button')).find(node=>node.textContent==='刷新').click()`);
-  await until(`document.querySelector('${source} .integration-summary')`);
+  await until(`document.querySelector('${source} .task-graph-integration-status')`);
   await click(more);
-  assert(await execute(`return document.querySelector('${source} .integration-summary').textContent.includes('整合中') && document.querySelector('${start}')?.disabled===true`), 'active summary/start duplicate guard incorrect');
+  assert(await execute(`return document.querySelector('${source} .task-graph-integration-status').textContent==='合并处理中' && !document.querySelector('.task-graph-card > .integration-summary') && document.querySelector('${start}')?.disabled===true`), 'compact status/start duplicate guard incorrect');
   await execute(`document.querySelector('${panel}').hidePopover()`);
   assert(await git(f.root, 'rev-parse', 'main') === f.baseline, 'target changed before complete verification');
-  await click(`${source} .integration-summary a`);
+  for (const width of [1440, 390, 320]) { await resize(width); await layout(source, width, `merging-tree-${width}`); }
+  await click(`${source} .task-graph-title`);
+  await until(`document.querySelector('.integration-summary a')`);
+  await click('.integration-summary a');
   await until(`location.hash==='#worker-${run.integration_worker_id}' && document.querySelector('.integration-details')`);
   assert(await execute(`return !document.querySelector('.integration-evidence').open && !document.querySelector('.integration-details').textContent.includes('交付')`), 'detail advanced defaults/product wording incorrect');
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {

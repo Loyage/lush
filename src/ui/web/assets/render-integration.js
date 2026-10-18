@@ -43,7 +43,20 @@ function notice(root, message, error = false) {
   const node = el('p', message, `${error ? 'error' : 'hint'} integration-feedback`); node.setAttribute('role', 'status'); root.append(node);
 }
 
-/** Same bounded operation facts on source cards and target cards; no delivery-page dependency. */
+/** Tree cards disclose only the current phase; full operation facts stay in Worker details. */
+export function integrationStatus(task) {
+  const operation = task.merge_operation;
+  if (!operation || ENDED.has(operation.state)) return null;
+  const warning = !valid(operation) || ['awaiting', 'failed', 'blocked'].includes(operation.state) || !STAGES[operation.state];
+  const label = !valid(operation) ? '合并状态待核查' : ({ awaiting: '合并等待处理', failed: '合并失败', blocked: '落地待核验' }[operation.state]
+    || (STAGES[operation.state] ? '合并处理中' : '合并状态待核查'));
+  const status = badge(label, `${warning ? 'warn' : 'b-awaiting'} task-graph-integration-status`);
+  status.setAttribute('data-help', `${valid(operation) ? stage(operation) : '整合状态不完整'}；请打开当前 Worker 详情查看完整合并信息。`);
+  status.tabIndex = 0;
+  return status;
+}
+
+/** Bounded operation facts for Worker details and explicit operation controls. */
 export function integrationSummary(task, { showMerged = true } = {}) {
   const operation = task.merge_operation;
   if (!operation) return null;
