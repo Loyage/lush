@@ -1,4 +1,7 @@
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
+import { MANAGEMENT_RECEIPT_CAPABILITIES, validManagementReceiptParams } from '../core/management-diagnostic.js';
+import { INPUT_EMIT_CAPABILITY, validateInputEmissionRequest } from '../core/input-emission-protocol.js';
+import { managementPhase } from '../core/project/management-diagnostic.js';
 import { check, isPlainObject } from '../core/types.js';
 import { managementScopeError, managementScopeAuthorization, MANAGEMENT_RECOVERY_GUIDANCE, DEVICE_SCOPE_GUIDANCE } from '../core/management-guidance.js';
 import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
@@ -10,7 +13,7 @@ import { MANAGEMENT_CODE_METHODS, MANAGEMENT_CODE_READS } from './management-cod
 export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install']);
 
 const reads = new Set([
-  'manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
+  'management.receipt','manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
   'worker.graph','worker.relations','worker.progress_history','branch.tree','branch.show','graph.get',
   'worker.merge_conditions','hooks.list','worker.hooks','hooks.command_history','input.history','input.get','input.parents',
   'notice.list','notice.page','branch.convergence','branch.convergence_list','branch.convergence_runs',
@@ -165,16 +168,21 @@ export function managementCatalog(snapshot = null, legacy = false) {
     methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
       parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])],
       ...(managementAuthorization(item.method) ? { authorization: managementAuthorization(item.method) } : {}),
-      ...(MERGE_CONDITION_CAPABILITIES[item.method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}), ...(CONTEXT_CAPABILITIES[item.method] ?? {}) })),
+      ...(MERGE_CONDITION_CAPABILITIES[item.method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}), ...(CONTEXT_CAPABILITIES[item.method] ?? {}), ...(MANAGEMENT_RECEIPT_CAPABILITIES[item.method] ?? {}), ...(item.method === 'input.emit' ? INPUT_EMIT_CAPABILITY : {}) })),
     help: `${MANAGEMENT_RECOVERY_GUIDANCE}\n${DEVICE_SCOPE_GUIDANCE}`,
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
 }
 
 export function validateManagementCall(method, params, instruction = '', snapshot = null) {
+  managementPhase('parameters', 'not_started', 'trusted_pre_dispatch', 'invalid_parameters');
   check(typeof method === 'string' && Object.hasOwn(PARAMS, method), 'unknown management capability');
   const policy = effectiveManagementPolicy(method, snapshot);
+  managementPhase('authorization', 'not_started', 'trusted_pre_dispatch', 'permission_denied');
   check(policy.access !== 'unavailable', policy.reason);
+  managementPhase('parameters', 'not_started', 'trusted_pre_dispatch', 'invalid_parameters');
+  if (method === 'management.receipt') check(validManagementReceiptParams(params), 'invalid management receipt parameters');
+  if (method === 'input.emit') validateInputEmissionRequest(params);
   validateWorkerQuery(method, params);
   validateMergeConditionCall(method, params);
   check(isPlainObject(params) && Object.keys(params).every(key => PARAMS[method].includes(key)
@@ -198,12 +206,16 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   const projectMountScope = method === 'branch.convergence_defaults_set';
   if (!queryScope && !projectMountScope && Object.hasOwn(params, 'scope')) {
     if (params.scope !== 'device') throw managementScopeError('invalid_scope');
-    if (!/设备|全局|device/i.test(instruction)) throw managementScopeError('user_authorization_required');
+    if (!/设备|全局|device/i.test(instruction)) {
+      managementPhase('authorization', 'not_started', 'trusted_pre_dispatch', 'authorization_required');
+      throw managementScopeError('user_authorization_required');
+    }
   } else if (managementAuthorization(method)) {
     throw managementScopeError('scope_required');
   }
   // Validate registration before asking for authorization; mounting is a separate exact request.
   if (method === 'hooks.register') validateHookRegistration(params);
   // Strict registry validation still runs at the trusted dispatch boundary; never accept a replacement actor.
+  managementPhase('preflight', 'not_started', 'trusted_pre_dispatch', 'preflight_rejected');
   return policy;
 }

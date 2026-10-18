@@ -4,6 +4,7 @@ import { isWorkerNumber } from '../core/worker-number.js';
 import { MANAGER_METHODS } from '../rpc/management-methods.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
 import { safeManagementPreflightError } from '../core/management-guidance.js';
+import { safeManagementDiagnosticError } from '../core/management-diagnostic.js';
 
 export const MANAGEMENT_RPC_METHODS = Object.freeze([...MANAGER_METHODS]);
 
@@ -70,7 +71,7 @@ if (import.meta.main) {
   } catch (error) {
     // Only code-owned query/scope preflight diagnostics may cross this boundary. Never
     // expose arbitrary handler/auth errors, input values, paths or credentials.
-    process.stdout.write(JSON.stringify(safeWorkerQueryError(error) ?? safeManagementPreflightError(error) ?? {
+    process.stdout.write(JSON.stringify(safeManagementDiagnosticError(error) ?? safeWorkerQueryError(error) ?? safeManagementPreflightError(error) ?? {
       error: '管理请求被拒绝或未确认完成；不能换身份或自动重试。',
       ...(Number.isInteger(error.code) ? { code: error.code } : {}) }));
     process.exitCode = 1;

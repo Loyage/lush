@@ -20,7 +20,9 @@ const drain = async f => { while (f.project.managementControlJobs?.size) await P
 const approve = { answers: [{ selected: [1] }] };
 
 async function manager(f, plan, instruction = '修改设备全局管家权限') {
-  const cli = managementToolCLI(f.root, 'node');
+  // The richer input schema still fits one real bridge response. Do not echo
+  // text+details twice into the controlled Provider's unchanged final-result cap.
+  const cli = managementToolCLI(f.root, 'node', { compactCatalog: true });
   cli.plan(plan);
   f.config.env.LUSH_PI_COMMAND = cli.command;
   f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
@@ -181,6 +183,7 @@ for (const outcome of ['approve','automatic-answer','stale-revision','self-restr
       { name: 'manager_call', params: request, callId: 'fixed-permission-change' },
     ]);
     for (const reply of replies) expect(reply.error).toBeUndefined();
+    expect(replies[0].catalogContentVerified).toBe(true);
     expect(replies[0].response.details.methods.find(item => item.method === request.method)).toMatchObject({ access: 'confirmation', allowed_access: ['confirmation','unavailable'] });
     expect(replies[1].response.details).toMatchObject({ status: 'succeeded', result: { method: initial.method, access: initial.access, revision: initial.revision } });
     const pending = replies[2].response.details;

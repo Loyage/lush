@@ -32,7 +32,7 @@ W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设�
 
 capability 仅在真正进入执行回调、完成最新权限及精确确认校验后标 running，私有 `execution_authorization` 固定该方法开始时的权限，后续真实 bridge／receipt 校验不因项目权限变化误拦截。已经开始的操作不因之后修改权限被强制中断，完成的副作用不撤销；历史 running 收据保留原开始授权及既有 unknown／精确完成证明恢复规则。开始／重试返回的 waiting 动作仍是**未开始**：capability succeeded 仅表示提交，动作真正执行前还须用最新权限和原精确批准重新核验。
 
-查询契约由 `src/core/worker-query.js` 同源供给 CLI 学习目录、管家目录及校验，包含类型、枚举、默认值、分页说明与参数示例。`worker.graph.scope` 是 `all|tree`，`worker.activity/page.scope` 是 `work|all`；这些是当前项目的查询范围，不要求设备指令或 `scope:'device'`，也不接受自造 `development`。设备设置仍须显式指令与设备作用域，不能以查询例外扩权。这组契约在执行前产生的固定参数错误使用 `-32030`，可信 bridge 双端按代码和固定消息白名单投影为 `kind:'invalid_parameters',execution:'not_started'`，不回显错误参数值、路径或任意异常；可修正参数后重新提交只读查询。设备 scope 的固定前置错误另用 `-32031`，仅在进入业务 dispatch 前校验：缺参／范围值不对为 `invalid_parameters/recovery:'read_catalog'`，缺少本轮用户明确授权为 `authorization_required/recovery:'ask_user'`，均标 `execution:'not_started'`。Pi 工具错误正文保留这份安全 JSON，避免模型只看到 Error.message 而丢失 kind／恢复指引。管家按 `manager_catalog` 中目标 method 的 `authorization` 检查显式参数和用户指令，不得替用户补写授权；普通权限拒绝、handler 错误、输出超限、超时、断连及未知结果仍采用保守失败，不声明未执行、不自动重放。
+查询契约由 `src/core/worker-query.js` 同源供给 CLI 学习目录、管家目录及校验，包含类型、枚举、默认值、分页说明与参数示例。`worker.graph.scope` 是 `all|tree`，`worker.activity/page.scope` 是 `work|all`；这些是当前项目的查询范围，不要求设备指令或 `scope:'device'`，也不接受自造 `development`。设备设置仍须显式指令与设备作用域，不能以查询例外扩权。这组契约在执行前产生的固定参数错误使用 `-32030`，可信 bridge 双端按代码和固定消息白名单投影为 `kind:'invalid_parameters',execution:'not_started'`，不回显错误参数值、路径或任意异常；可修正参数后重新提交只读查询。设备 scope 的固定前置错误另用 `-32031`，仅在进入业务 dispatch 前校验：缺参／范围值不对为 `invalid_parameters/recovery:'read_catalog'`，缺少本轮用户明确授权为 `authorization_required/recovery:'ask_user'`，均标 `execution:'not_started'`。Pi 工具错误正文保留这份安全 JSON，避免模型只看到 Error.message 而丢失 kind／恢复指引。管家按 `manager_catalog` 中目标 method 的 `authorization` 检查显式参数和用户指令，不得替用户补写授权；结构化收据进一步区分可信权限／执行前拒绝和 handler／完成处理失败：仅在真实执行前边界观察到拒绝时标 not_started。不能仅凭固定错误码或异常文本推定未执行；同一固定前置错误若由执行中的 handler 抛出，仍为 unknown。输出超限、超时、断连及缺少完成证明仍保守处理、不自动重放。
 
 `manager.query`、`manager.history` 是独立审核的安全 read 条目；直接工具与 manager.call 使用同一最新项目权限检查。worker.lookup 的真实管理 actor 亦需该条目 read 授权。manager.start 对应 worker.resume，manager.retry 对应 worker.retry；两个专用入口和 manager.call 均遵守对应权限。收紧为 confirmation 时发布既有精确用户确认 Notice，用户批准后交给原受控动作引擎，不直接转发普通 resume/retry handler；仍检查目标类型／状态、祖先、冻结、旧调用、配置、去重、等待与 unknown，不允许 profile 覆盖。自动权限也走同一动作引擎，不能借 manager.call 绕过目标门禁。确认收据 succeeded 只表示已提交，result.action 及独立 action receipt 显示 waiting／skipped／succeeded 等实际结果。
 
@@ -121,7 +121,7 @@ revision 对全部私有附属状态、状态／调用、真实 owner／busy 和
 - `manager.retry {id}` → Project.requestManagementAction(actorId,'retry',id)。
 - `manager.catalog {}`：返回当前项目能力目录、参数及 `read|automatic|confirmation|unavailable` 分级和限制，不赋予泛化用户权限。
 - `manager.history {id?,before?,limit?}`：有界调用状态、模型、耗时、事件计数，limit 1..100，返回 items/next_cursor；不读取原始提示词、工具参数／输出、会话或凭证，流程诊断仅基于这份安全摘要。
-- `manager.call {method,params,request_id?}`：可信受控代理，检查注册参数、私有字段、作用域和管理身份；写操作按精确请求指纹去重。`system.diagnostics` 是当前项目安全只读采集，返回 token／估算费用速率和覆盖不足，不开放跨项目 Host 聚合或原始会话。已移除的手动快捷指令 run/start 不进入目录、不保留执行别名。返回安全 `{receipt_id,method,status,notice_id?,reason?,result?}`；需用户确认时返回 `pending_confirmation`，不是操作已完成。
+- `manager.call {method,params,request_id?}`：可信受控代理，检查注册参数、私有字段、作用域和管理身份；写操作按精确请求指纹去重。`system.diagnostics` 是当前项目安全只读采集，返回 token／估算费用速率和覆盖不足，不开放跨项目 Host 聚合或原始会话。已移除的手动快捷指令 run/start 不进入目录、不保留执行别名。返回安全 `{receipt_id,method,status,notice_id?,reason?,result?,diagnostic}`；需用户确认时返回 `pending_confirmation`，不是操作已完成。只读及尚未产生 capability 收据的拒绝也由可信调用 Event 身份提供 diagnostic 关联。
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
@@ -135,9 +135,36 @@ W325：真实 Dispatcher 在验证当前 invocation 的管理身份后，为全�
 
 每项含 `seq`（Event ID）、`phase:'started'|'finished'`、`call_id`（开始 Event ID）、`method`、`transport_method`、`run_id`、`occurrence_id`、`started_at`、目标 ID／真实编号和脱敏 params；完成项独立复制全部开始信息，并含 `finished_at,duration_ms,status,result,reason` 与可选 `receipt_id,action`。`manager.call` 的 method 为已注册内层方法；未知方法为 null，不保存调用方任意字符串；专用 start/retry 分别映射 worker.resume/retry。并行和重复调用只按 call_id 配对，不按相邻位置或方法名猜测。成功 lookup 的完成项补充真实目标。
 
-事件只保存明确白名单的非负整数、布尔及固定枚举参数；字符串正文、指令、路径、配置、模型 request_id、token、凭证、嵌套任意对象与原始输出默认省略。结果仅保留整数身份、固定状态及动作收据链接；错误仅使用 `invalid_parameters` 或 `request_failed_or_denied`，不写异常正文。RPC 正常返回的顶层 status=succeeded **只表示请求返回**，result.status／action 是当时已有收据状态，等待确认或延迟副作用不冒充完成，也不主动重放；收据后续变化继续由既有管理收据读面表达。
+事件只保存明确白名单的非负整数、布尔及固定枚举参数；字符串正文、指令、路径、配置、模型 request_id、token、凭证、嵌套任意对象与原始输出默认省略。结果仅保留整数身份、固定状态及动作收据链接；兼容 reason 仍仅使用 `invalid_parameters` 或 `request_failed_or_denied`，另附下述白名单 diagnostic，不写异常正文。RPC 正常返回的顶层 status=succeeded **只表示请求返回**，result.status／action 是当时已有收据状态，等待确认或延迟副作用不冒充完成，也不主动重放；收据后续变化继续由既有管理收据读面表达。
 
 开始项表示开始时的 running 事实；若尚无配对完成 Event，且原 Run 不再活跃，则只读投影为 unknown／completion_not_observed，不伪造完成或修改历史。历史未采集区不补写，history_complete 始终 false，空页不证明旧管家从未调用接口。专项 `test/project/management-calls.test.js` 覆盖真实 Provider→工具→固定 bridge→权限／执行／拒绝→Event→鉴权 HTTP，以及分页、脱敏、去重、交错和未知调用；追加轮次身份由既有真实工具链专项核对。
+
+### 结构化安全诊断与单收据读取
+
+安全诊断复用既有 Event 与 `tasks.management.control_calls`，不建立日志实体、不扫描会话、不改写旧记录。纯 Node／Bun 共享白名单协议在 `src/core/management-diagnostic.js`：`safeManagementDiagnostic`、`MANAGEMENT_DIAGNOSTIC_ENUMS/CODES`、`MANAGEMENT_RECEIPT_PARAMETERS/CAPABILITIES`；注册、管理目录及 CLI 目录复用同一参数／schema 定义。
+
+`diagnostic` 为 `{version:1,stage,code,reason,effect,evidence,original_failure,recovery,retry,correlation,disposition}`。所有字符串均来自固定枚举或 code-owned 原因；任意异常消息、参数／返回值字符串、request_id、路径、环境、凭证和提示词不进入此读面。无法安全分类的执行异常明确说明底层原因未知，不用占位符冒充根因。
+
+- `stage`：admission、parameters、authorization、preflight、execution、completion、persistence、return、recovery、legacy。
+- `code`：invalid_parameters、authorization_required、permission_denied、preflight_rejected、execution_failed、completion_failed、persistence_failed、request_failed、completion_not_observed、pending_confirmation、approved、in_progress、succeeded、read_completed、request_returned、legacy_unknown。
+- `effect`：`not_started` 仅来自可信执行前拒绝／待确认／待准入；`unknown` 表示已越过执行边界但缺少完成证明；`applied` 仅表示**该方法**完成证据已保存（例如提交、注册或挂载），不证明后续生命周期／Worker 业务完成；`not_applicable` 为已审核只读调用。完成状态与 Event 原子保存，任一保存失败回到 unknown，而不是根据 catch 推定未执行。返回／审计中断若已有独立完成证明，保留 applied；传输未知不抹去已有生效证据。
+- `evidence`：trusted_pre_dispatch、confirmation_pending、approval_pending、dispatch_entered、completion_saved、read_only、completion_not_observed、legacy_missing。开始记录只证明越过执行边界，不证明业务副作用完成。
+- `original_failure` 是首次实际采集的 `{stage,code,reason,effect,evidence}`，或 null。后续 unknown、绑定停用、取消与急救隔离不得覆盖原始失败，处置独立反映在 `disposition`。私有收据保存失败时可从同一请求外层可信完成 Event 找回首次已采样错误；恢复仍保留该原错。没有原始采样的旧收据返回 legacy_unknown／unknown、original_failure:null；原成功状态照常保留，不猜补或迁移。
+- `recovery` 为 read_catalog、ask_user、inspect_receipt、none；`retry` 为 corrected_request_only、read_only、not_automatic、not_needed。只有可信参数拒绝可修正后新建请求；这不是绕过去重或重放旧副作用的授权。
+- `correlation` 包含 actor_id／worker_number、target_id／target_worker_number、run_id、occurrence_id、call_id、receipt_id、request_event_id。编号从当前项目持久 Store 读取，缺失为 null，不按内部 ID 推算。request_event_id 是可信调用开始 Event（兼容无调用 Event 的收据可用其持久收据身份），不回显模型 request_id。精确去重返回同一 receipt，但本次传输有独立 call/request Event。
+- `disposition` 仅包含 worker_status、occurrence_status、binding_enabled、emergency（stopping／isolated／null）。这组当前事实独立于原始错误和副作用确定性。
+
+用户只读 RPC `management.receipt {receipt_id,after?,limit?}`；用户 CLI `lush hooks management receipt EVENT_ID [--after EVENT_ID] [--limit N]`。receipt_id 是当前项目 `management.capability_requested`、`management.action_submitted` 或 `management.call_started/finished` 的 Event ID；after 为非负 Event ID（默认 0），limit 为 1..100（默认 30）。普通 Valet 只可通过既有 `manager.call` 代理，按最新 `management.receipt` 的 read／unavailable 权限；不能直接调用用户 RPC，普通开发 Agent 也不增加读取权限。无跨项目参数、任意原文工具或设备权限改动。
+
+返回 `{version:1,scope:'current_project',receipt_id,capability_receipt_id,action_receipt_id,action,call_id,method,status,diagnostic,input_emit,timeline,coverage:'structured_management_diagnostic_only',history_complete:false}`。action 为 null 或安全动作对象（含 status/target_id/真实 target_worker_number/capability_receipt_id/diagnostic）。确认 capability 的 applied 仅证明请求提交；关联动作可同时 waiting/not_started 或 unknown，不以提交结果覆盖动作事实。timeline 为 `{items,next_cursor,has_more,truncated,coverage:'linked_safe_management_events_only'}`，按 Event ID 正序，next_cursor 为实际末项，空页 null；每页额外读取一条并限制安全 JSON 字节，条数或字节裁剪均保留 has_more，使用实际游标续读、不跳过未返回记录。每行仅含 seq/type/created_at/call_id/receipt_id/status/diagnostic，不含原事件正文；关联限定同一 Valet 的调用、收据、同 occurrence 结算及该身份后续停用／急救事件。最初失败与后续隔离可同时定位；事件身份和范围不等于全会话覆盖。
+
+专用 `manager.start/retry` 的 automatic 路径直接返回 action 收据，不能标成 read_completed。waiting 仅凭原执行前门禁标 not_started；越过动作开始边界后异常／保存失败为 unknown，原始失败保存在 action 及其安全 Event 中；成功只表示原生命周期入口完成提交，不证明目标 Provider 开始或业务完成。精确确认后创建的 action 继承 capability 的原 call/run/occurrence 身份。去重仍返回同一动作收据，后续停用／隔离／恢复不重放；旧动作缺诊断只读显示 legacy_unknown、不补写。动作时间线包含已有 action_submitted/completed/skipped 及 action_started/failed 的安全事件。
+
+现有 `worker.management_calls.items[].diagnostic` 和公开 management 的 `pending_signal/last_execution.control_calls[].diagnostic`、`actions[].diagnostic` 使用同一白名单。完成行可读取 capability 的最新安全事实，保留该行原 status 的请求返回语义；旧未采集区仍 history_complete:false。调用失败经固定 bridge 使用 `-32032` 安全 envelope，在 Bun 和 Node 两端重建白名单；保留可验证的固定查询／scope 恢复指引。保存／返回中断不传任意异常正文，仍可用 request_event_id 核查。无独立收据的只读完成保持 read_completed/not_applicable；没有可信完成证明的写请求返回仅为 request_returned/unknown，不能从 RPC 正常返回推定 not_started。存储在最初请求 Event 前已不可写时无可伪造的持久请求身份，不能声称已记录或已执行。
+
+`input_emit` 仅在精确收据参数／返回的 draft_id+revision 或原 client_request_id 不可逆指纹及定义指纹匹配 `input.emitted` 时证明 mount:confirmed；否则 unknown。匹配沿用 canonical ID 解析（整数或十进制字符串）及显式 null 的旧 revision；只规范化只读查询身份，不改写原请求或指纹。不按正文／相邻时间猜草稿。返回 draft_id、revision、source_draft_id、mount_event_id，以及精确 dispatch 成功 Event 关联的 dispatch_event_id／input_id／worker_id；草稿事实限定在原请求收口前的挂载与该草稿下一次挂载之间，不把后续同 revision 重挂混为原授权。只读仍属于该授权的同 revision 草稿排队状态可标 dispatch:not_started，缺证据为 unknown。worker_started 仅依据已关联 Input 的 Worker 持久 Run 证据；追加到已有目标不因旧 Run 就宣称该消息已启动，另保留 message_id。挂载绝不当作创建或启动。后续核查不调用 input.emit，不重放；旧参数已不在保留范围时诚实返回未知。
+
+专项 `test/project/management-receipt.test.js` 使用隔离项目和可控 Provider→真实工具→固定 bridge，覆盖执行／完成／保存／返回中断、可信拒绝、精确确认、未知去重、隔离保留原错、伪造前置错误、跨项目／伪造身份、白名单、旧记录及分页；不触碰用户真实 Valet／草稿。
 
 ## 确认、作用域与恢复
 

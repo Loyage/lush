@@ -1,10 +1,12 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 import { normalizeConfigurationScope } from '../core/device-config.js';
 import { INPUT_OPTION_KEYS as ALL_INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
+import { INPUT_EMIT_PARAMS } from '../core/input-emission-protocol.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
 import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
 import { MERGE_CONDITION_PARAMETERS, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
+import { MANAGEMENT_RECEIPT_PARAMETERS } from '../core/management-diagnostic.js';
 import { CONTEXT_PARAMETERS, validateContextCall } from '../core/worker-context.js';
 
 const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_node_id');
@@ -50,6 +52,7 @@ export const PARAMS = {
   'management.create': ['name','instruction','signal_id','mode','profile','client_request_id'],
   'management.binding_update': ['id','enabled','expected_revision'],
   'management.submit': ['instruction','profile','client_request_id'],
+  'management.receipt': MANAGEMENT_RECEIPT_PARAMETERS,
   'management.emergency_preview': [],
   'management.emergency_stop': ['revision','confirm'],
   'manager.catalog': [], 'manager.history': WORKER_QUERY_PARAMETERS['manager.history'], 'manager.call': ['method','params','request_id'],
@@ -59,7 +62,7 @@ export const PARAMS = {
   'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
   'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer'],
   'input.history': ['cursor','limit','q','status','integration','conditional','view','modes'], 'input.get': ['kind','id'], 'input.parents': [],
-  'input.emit': ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'],
+  'input.emit': INPUT_EMIT_PARAMS,
   'input.emission_cancel': ['draft_id','expected_revision'], 'input.exclusive_release': ['draft_id','expected_revision'],
   'draft.add': ['content','references','branch',...INPUT_OPTION_KEYS],
   'draft.update': ['id','content','references','branch','expected_revision',...INPUT_OPTION_KEYS],
@@ -124,7 +127,7 @@ export const USER_ONLY = new Set([
   'hooks.install','hooks.register','hooks.upgrade','hooks.command_save','hooks.command_export','hooks.command_remove','hooks.command_history','hooks.command_history_remove','hooks.command_import',
   'management.permissions','management.permissions_update','management.permission_get','management.permission_set',
   'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','management.submit',
-  'management.emergency_preview','management.emergency_stop',
+  'management.receipt','management.emergency_preview','management.emergency_stop',
   'hooks.list','hooks.save','hooks.remove','hooks.auto_select','hooks.completion_defaults','hooks.automation_settings','worker.acceptance_notice','worker.hooks','worker.completion_page','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove',
   'input.history','input.get','input.parents','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove',
   'order.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',

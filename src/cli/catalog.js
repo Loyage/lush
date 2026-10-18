@@ -98,6 +98,8 @@ for (const verb of ['save','remove']) add(`hooks signal ${verb}`, verb === 'save
 for (const verb of ['create','enable','disable']) add(`hooks management ${verb}`, verb === 'create' ? '--file PATH' : 'ID|Vn --revision REV',
   verb === 'create' ? '创建并绑定 Valet，到信号时才调用 Agent。' : `${verb === 'enable' ? '启用' : '停用'} Valet 信号绑定。`,
   verb === 'create' ? '--file valet.json' : 'V1 --revision REV', [verb === 'create' ? 'management.create' : 'management.binding_update'], 'write', '保存不立即调用 Agent；默认一次性，持续复用原 Valet。启停使用该管家 management.revision，不是信号库 revision。未知副作用不重放，不能自复制或自提权。');
+add('hooks management receipt', 'EVENT_ID [--after EVENT_ID] [--limit N]', '读取当前项目单收据安全诊断及有界关联时间线。',
+  '123 --limit 30', ['management.receipt'], 'read', '只读 capability_requested 或可信调用 Event；不读异常原文、参数、会话或文件，不重放未知操作。按返回 next_cursor 续读。');
 add('hooks management emergency-preview', '', '只读预检当前项目全部管家的急救影响范围。', '',
   ['management.emergency_preview'], 'read', '仅真实用户；提供全量总数与有界摘要、精确 revision，不暴露私有状态。');
 add('hooks management emergency-stop', '--revision REV --confirm', '永久撤销当前项目全部旧管家授权并强制中止模型，实际退出后隔离历史占位。', '--revision REV --confirm',

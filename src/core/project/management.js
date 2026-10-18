@@ -3,6 +3,8 @@ import { assertTaskAncestorsOpen } from './iteration.js';
 import { hookRevision } from '../hooks.js';
 import { inheritedRunProfile } from './internal.js';
 import { assertManager } from './management-auth.js';
+import { managementAudit, managementPhase, capabilityDiagnostic } from './management-diagnostic.js';
+import { managementActionView } from './management-receipt.js';
 import controlMethods, { managementControlPending, trackControlJob } from './management-control.js';
 import permissionMethods from './management-permissions.js';
 import emergencyMethods, { managementEmergencyBlockers } from './management-emergency.js';
@@ -58,10 +60,6 @@ function targetGate(project, target, action) {
   if (project.running.has(target.id)) return { wait: '目标旧调用尚未实际退出，已提交并等待安全点。' };
   return {};
 }
-function receiptView(receipt) {
-  return { status: receipt.status, target_id: receipt.target_id, target_worker_number: receipt.target_worker_number ?? null,
-    receipt_id: receipt.receipt_id, ...(receipt.reason ? { reason: receipt.reason } : {}) };
-}
 function queryView(project, target, snapshot) {
   const candidate = target.status === 'failed' ? 'retry' : 'start';
   const gate = targetGate(project, target, candidate);
@@ -77,12 +75,16 @@ export default {
   ...permissionMethods,
   ...emergencyMethods,
   assertManagementPermission(actorId, method) {
-    return this.withManagementPermissionAdmission(() => {
+    const audit = managementAudit(), previous = audit ? { stage: audit.stage, effect: audit.effect, evidence: audit.evidence, failure_code: audit.failure_code } : null;
+    managementPhase('authorization', 'not_started', 'trusted_pre_dispatch', 'permission_denied');
+    const result = this.withManagementPermissionAdmission(() => {
       const actor = assertManager(this, actorId);
       const policy = effectiveManagementPolicy(method, this.managementPermissionsSnapshot());
       check(policy.access !== 'unavailable', policy.reason);
       return { ...actor, policy };
     });
+    if (audit) Object.assign(audit, previous);
+    return result;
   },
   /** Own decision questions suspend the existing occurrence, not a new management identity. */
   holdManagementQuestion(taskId, noticeId) {
@@ -231,6 +233,7 @@ export default {
         this.revokeManagementCapabilities(task.id, state);
         for (const receipt of state.receipts) if (receipt.status === 'waiting') {
           receipt.status = 'skipped'; receipt.reason = '用户撤销待执行的管理授权。';
+          if (receipt.diagnostic) capabilityDiagnostic(this, task.id, receipt, 'preflight_rejected', 'authorization', 'not_started', 'trusted_pre_dispatch');
           this.store.event(task.id, 'management.action_skipped', { occurrence_id: state.pending_signal?.id, ...receipt });
         }
         if (state.pending_signal?.phase === 'pending') {
@@ -262,6 +265,8 @@ export default {
       this.revokeManagementCapabilities(task.id, state);
       for (const receipt of state.receipts) if (receipt.status === 'waiting') {
         receipt.status = 'skipped'; receipt.reason = '用户撤销待执行的管理授权。';
+        if (receipt.diagnostic) capabilityDiagnostic(this, task.id, receipt, 'preflight_rejected', 'authorization', 'not_started', 'trusted_pre_dispatch');
+        this.store.event(task.id, 'management.action_skipped', { occurrence_id: receipt.occurrence_id, ...receipt });
       }
       state.reason = reason;
       // A started occurrence must remain owned until Provider and asynchronous actions exit.
@@ -346,6 +351,7 @@ export default {
     const { task, policy } = this.assertManagementPermission(actorId, action === 'start' ? 'worker.resume' : 'worker.retry');
     if (policy.access === 'confirmation') return this.callManagementCapability(actorId,
       action === 'start' ? 'worker.resume' : 'worker.retry', { id: id(targetId) });
+    managementPhase('preflight', 'not_started', 'trusted_pre_dispatch', 'preflight_rejected');
     return this.submitManagementAction(task.id, action, targetId);
   },
 
@@ -355,17 +361,22 @@ export default {
     const task = this.store.task(taskId), state = managementState(task);
     const target = this.store.task(id(targetId));
     const previous = state.receipts.find(receipt => receipt.action === action && receipt.target_id === target.id);
-    if (previous) return receiptView(previous);
+    if (previous) return managementActionView(this, task, previous);
     check(state.receipts.length + (state.control_calls?.length ?? 0) < MANAGEMENT_LIMITS.actions, 'management occurrence action limit reached');
     const receipt = this.store.transaction(() => {
-      const receiptId = this.store.event(task.id, 'management.action_submitted', { occurrence_id: state.pending_signal.id, action, target_id: target.id });
+      const audit = managementAudit(), origin = (state.control_calls ?? []).find(call => call.receipt_id === capabilityReceipt);
+      const callId = audit?.call_id ?? origin?.call_id ?? null, runId = audit?.run_id ?? origin?.run_id ?? null;
+      const receiptId = this.store.event(task.id, 'management.action_submitted', { occurrence_id: state.pending_signal.id, action, target_id: target.id,
+        call_id: callId, run_id: runId, capability_receipt_id: capabilityReceipt });
       const receipt = { receipt_id: receiptId, action, target_id: target.id, target_worker_number: target.worker_number,
-        occurrence_id: state.pending_signal.id, status: 'waiting', capability_receipt_id: capabilityReceipt };
+        occurrence_id: state.pending_signal.id, status: 'waiting', capability_receipt_id: capabilityReceipt,
+        call_id: callId, run_id: runId };
+      capabilityDiagnostic(this, task.id, receipt, 'approved', 'preflight', 'not_started', 'approval_pending');
       state.receipts.push(receipt); saveManagement(this, task.id, state); return receipt;
     });
     this.executeManagementAction(task.id, receipt.receipt_id);
     this.armScheduledHookTimer();
-    return receiptView(managementState(this.store.task(task.id)).receipts.find(item => item.receipt_id === receipt.receipt_id));
+    return managementActionView(this, this.store.task(task.id), managementState(this.store.task(task.id)).receipts.find(item => item.receipt_id === receipt.receipt_id));
   },
 
   executeManagementAction(taskId, receiptId) {
@@ -374,8 +385,8 @@ export default {
 
   executeManagementActionAdmitted(taskId, receiptId) {
     if (this.maintenancePaused()) return;
-    const task = this.store.task(taskId), state = managementState(task);
-    const receipt = state?.receipts.find(item => item.receipt_id === receiptId);
+    const task = this.store.task(taskId);
+    let state = managementState(task), receipt = state?.receipts.find(item => item.receipt_id === receiptId);
     if (this.managementOccupant()?.id !== taskId || !state?.enabled || !['started','returned'].includes(state.pending_signal?.phase)
       || receipt?.status !== 'waiting' || receipt.occurrence_id !== state.pending_signal.id) return;
     const target = this.store.get('SELECT * FROM tasks WHERE id=?', receipt.target_id), gate = targetGate(this, target, receipt.action);
@@ -395,6 +406,9 @@ export default {
     }
     if (gate.skip) {
       receipt.status = 'skipped'; receipt.reason = gate.skip;
+      if (receipt.diagnostic) capabilityDiagnostic(this, taskId, receipt,
+        policy.access === 'unavailable' || policy.access === 'confirmation' && !hasManagementConfirmation(this, taskId, capability)
+          ? 'permission_denied' : 'preflight_rejected', 'preflight', 'not_started', 'trusted_pre_dispatch');
       this.store.transaction(() => {
         saveManagement(this, taskId, state);
         this.store.event(taskId, 'management.action_skipped', { occurrence_id: state.pending_signal.id, ...receipt });
@@ -403,18 +417,38 @@ export default {
     }
     // Once begun, an unexpected exception is not a temporary gate. Atomic DB effects and the exact receipt
     // share a second boundary, leaving a conservative started/unknown diagnostic if the process disappears.
-    receipt.status = 'running'; delete receipt.reason; saveManagement(this, taskId, state);
+    receipt.status = 'running'; delete receipt.reason;
+    if (receipt.diagnostic) capabilityDiagnostic(this, taskId, receipt, 'in_progress', 'execution', 'unknown', 'dispatch_entered');
+    this.store.transaction(() => {
+      saveManagement(this, taskId, state);
+      this.store.event(taskId, 'management.action_started', { occurrence_id: state.pending_signal.id, ...receipt });
+    });
+    let stage = 'execution';
+    managementPhase('execution', 'unknown', 'dispatch_entered', 'execution_failed');
     try {
       this.store.transaction(() => {
         if (receipt.action === 'start') this.resumeTask(target.id);
         else this.retry(target.id);
+        stage = 'completion';
+        managementPhase('completion', 'unknown', 'dispatch_entered', 'completion_failed');
         receipt.status = 'succeeded';
+        if (receipt.diagnostic) capabilityDiagnostic(this, taskId, receipt, 'succeeded', 'completion', 'applied', 'completion_saved');
+        stage = 'persistence';
+        managementPhase('persistence', 'unknown', 'dispatch_entered', 'persistence_failed');
         saveManagement(this, taskId, state);
         this.store.event(taskId, 'management.action_completed', { occurrence_id: state.pending_signal.id, ...receipt });
       });
     } catch {
+      // Rollback does not prove that a lifecycle callback had no external effect.
+      state = managementState(this.store.task(taskId)); receipt = state.receipts.find(item => item.receipt_id === receiptId);
       receipt.status = 'unknown'; receipt.reason = unknownReason;
-      this.store.transaction(() => { saveManagement(this, taskId, state); this.failManagementOccurrence(taskId, 'unknown'); });
+      if (receipt.diagnostic) capabilityDiagnostic(this, taskId, receipt, stage === 'execution' ? 'execution_failed'
+        : stage === 'completion' ? 'completion_failed' : 'persistence_failed', stage, 'unknown', 'dispatch_entered');
+      this.store.transaction(() => {
+        saveManagement(this, taskId, state);
+        this.store.event(taskId, 'management.action_failed', { occurrence_id: receipt.occurrence_id, ...receipt });
+        this.failManagementOccurrence(taskId, 'unknown');
+      });
     }
   },
 
@@ -498,7 +532,11 @@ export default {
       state.enabled = false; state.state = outcome;
       state.reason = outcome === 'unknown' ? unknownReason : diagnostic ? `${diagnostic}\n${failureAction}` : failedReason;
       this.revokeManagementCapabilities(task.id, state);
-      for (const receipt of state.receipts) if (receipt.status === 'waiting') { receipt.status = 'skipped'; receipt.reason = '管理授权已停止。'; }
+      for (const receipt of state.receipts) if (receipt.status === 'waiting') {
+        receipt.status = 'skipped'; receipt.reason = '管理授权已停止。';
+        if (receipt.diagnostic) capabilityDiagnostic(this, task.id, receipt, 'preflight_rejected', 'authorization', 'not_started', 'trusted_pre_dispatch');
+        this.store.event(task.id, 'management.action_skipped', { occurrence_id: receipt.occurrence_id, ...receipt });
+      }
       state.last_execution = state.pending_signal ? { ...state.pending_signal, status: outcome,
         finished_at: managementTime(this), reason: state.reason, actions: state.receipts, control_calls: state.control_calls ?? [] } : state.last_execution;
       // Keep the original pending identity in unknown/failed diagnostics, but it can never be admitted again.
@@ -523,6 +561,8 @@ export default {
           task.id, receipt.receipt_id, state.pending_signal.id, receipt.target_id, receipt.action);
         if (proof) receipt.status = 'succeeded';
         else { receipt.status = 'unknown'; receipt.reason = unknownReason; unknown = true; }
+        if (receipt.diagnostic) capabilityDiagnostic(this, task.id, receipt, proof ? 'succeeded' : 'completion_not_observed', 'recovery',
+          proof ? 'applied' : 'unknown', proof ? 'completion_saved' : 'completion_not_observed');
       }
       if (state.pending_signal.phase === 'question') {
         const question = this.store.get('SELECT status FROM notices WHERE id=? AND task_id=?', state.pending_signal.question_notice_id, task.id);

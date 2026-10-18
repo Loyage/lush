@@ -1,6 +1,8 @@
 import { check, bounded, TERMINAL } from '../types.js';
 import { hookRevision } from '../hooks.js';
 import { workerModelSelection } from './internal.js';
+import { publicCapabilityDiagnostic } from './management-diagnostic.js';
+import { managementInputEmitFacts, managementActionView } from './management-receipt.js';
 
 export const MANAGEMENT_LIMITS = Object.freeze({ signals: 64, active: 64, actions: 32, bytes: 128 * 1024, readBytes: 512 * 1024 });
 // Typed paginated projections must clip before choosing cursors, using the same
@@ -85,11 +87,14 @@ export function managementView(task, project) {
   const execution = value => value ? { id: value.id, signal_id: value.signal_id, name: value.name, due_at: value.due_at,
     submitted_at: value.submitted_at, started_at: value.started_at ?? null, finished_at: value.finished_at ?? null,
     status: value.status ?? state.state, ...(value.reason ? { reason: value.reason } : {}),
-    actions: (value.actions ?? []).map(action => ({ receipt_id: action.receipt_id, action: action.action, target_id: action.target_id,
-      target_worker_number: action.target_worker_number ?? null, status: action.status, ...(action.reason ? { reason: action.reason } : {}) })),
-    control_calls: (value.control_calls ?? []).map(call => ({ receipt_id: call.receipt_id, method: call.method,
-      status: call.status, notice_id: call.notice_id ?? null, notice_kind: noticeKinds.get(call.notice_id) ?? null,
-      ...(call.reason ? { reason: call.reason } : {}) })) } : null;
+    actions: (value.actions ?? []).map(action => managementActionView(project, task, action)),
+    control_calls: (value.control_calls ?? []).map(call => {
+      const diagnostic = publicCapabilityDiagnostic(project, task, call);
+      return { receipt_id: call.receipt_id, method: call.method,
+        status: call.status, notice_id: call.notice_id ?? null, notice_kind: noticeKinds.get(call.notice_id) ?? null,
+        ...(call.reason ? { reason: diagnostic.reason } : {}), diagnostic,
+        ...(call.method === 'input.emit' ? { input_emit: managementInputEmitFacts(project, call) } : {}) };
+    }) } : null;
   const enableReason = managementEnableReason(project, task, state);
   const appendReason = managementAppendReason(project, task, state);
   return { version: 1, revision: managementRevision(task, state), signal_id: state.signal_id, mode: state.mode,

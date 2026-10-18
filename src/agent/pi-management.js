@@ -7,6 +7,7 @@ import { builtInPrompt } from './prompts.js';
 import { isWorkerNumber } from '../core/worker-number.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
 import { safeManagementPreflightError } from '../core/management-guidance.js';
+import { safeManagementDiagnosticError } from '../core/management-diagnostic.js';
 
 const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
 export const MANAGEMENT_TOOL_NAMES = Object.freeze(MANAGEMENT_RPC_METHODS.filter(method => method.startsWith('manager.'))
@@ -53,7 +54,7 @@ export async function managementRPCRequest(method, params, signal, env = process
         try {
           const response = JSON.parse(output);
           if (code !== 0) {
-            const safe = safeWorkerQueryError(response) ?? safeManagementPreflightError(response);
+            const safe = safeManagementDiagnosticError(response) ?? safeWorkerQueryError(response) ?? safeManagementPreflightError(response);
             // Pi may render only Error.message: keep recovery metadata visible to the model too.
             if (safe) { finish(Object.assign(new Error(JSON.stringify(safe)), safe)); return; }
             throw new Error();
@@ -133,7 +134,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
     async execute(_id, params, signal) { return resultView(await call('manager.history', params, signal)); },
   });
   pi.registerTool({ name: 'manager_call', label: '提交受控管理操作', exposure: 'model-only',
-    description: '调用目录中经过审核的当前项目 lush/lushw 能力。可跨开发树发消息、在显式开发 parent 下派 child、报告自身进度/标题/决策；history/transcript 只返回安全元数据。受控操作（含验收回收）默认自动执行，按最新设备权限检查；用户收紧为 confirmation 时提交精确确认请求。修改接口权限始终须真实用户审核，模型不可自行批准。自身 notice.post 是本轮最后动作，用户答复后续跑同一授权事项。设备设置须用户指令和 scope 参数明确指定。返回 unknown 不重放。',
+    description: '调用目录中经过审核的当前项目 lush/lushw 能力。可跨开发树发消息、在显式开发 parent 下派 child、报告自身进度/标题/决策；history/transcript 只返回安全元数据；management.receipt 按 receipt_id（也接受可信调用 Event ID）读取单收据安全诊断与有界关联时间线。受控操作（含验收回收）默认自动执行，按最新设备权限检查；用户收紧为 confirmation 时提交精确确认请求。修改接口权限始终须真实用户审核，模型不可自行批准。自身 notice.post 是本轮最后动作，用户答复后续跑同一授权事项。设备设置须用户指令和 scope 参数明确指定。返回 unknown 不重放。',
     parameters: { type: 'object', properties: { method: { type: 'string', maxLength: 128 },
       params: { type: 'object', description: '目录中所选能力的参数；不传 token、凭证、环境变量或私有 Prompt。' },
       request_id: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['method','params'], additionalProperties: false },

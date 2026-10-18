@@ -15,7 +15,7 @@ test('real Provider/tools/bridge/RPC audits reads, deduplicated writes, denied/i
     f.project.kick = () => {};
     await repo(f.root);
     const target = (await f.project.order('PRIVATE-TARGET-GOAL', 'main', [], null, false)).task;
-    const cli = managementToolCLI(f.root, 'node');
+    const cli = managementToolCLI(f.root, 'node', { compactCatalog: true });
     f.config.env.LUSH_PI_COMMAND = cli.command;
     const provider = new AgentProvider(f.config, f.project.agentSettings);
     const dispatcher = f.project.rpcDispatcher;
@@ -25,7 +25,7 @@ test('real Provider/tools/bridge/RPC audits reads, deduplicated writes, denied/i
       token = options.token;
       // Runtime-issued, currently active credential: malformed outer transport
       // params never execute, but are recorded after real identity verification.
-      await expect(dispatcher.dispatch('manager.query', { _token: token, arbitrary: 'PRIVATE-EXTRA' })).rejects.toThrow('unknown parameter');
+      await expect(dispatcher.dispatch('manager.query', { _token: token, arbitrary: 'PRIVATE-EXTRA' })).rejects.toThrow('invalid_parameters');
       await expect(dispatcher.dispatch('worker.management_calls', { _token: token, id: options.task.id })).rejects.toThrow();
       // Real concurrent Dispatcher execution, using the runtime identity. inspect
       // awaits actual Git/resource reads while the safe query can return first.
@@ -36,7 +36,7 @@ test('real Provider/tools/bridge/RPC audits reads, deduplicated writes, denied/i
       // The parent's user CLI correlation remains private across audit wrapping.
       // Even a real manager token cannot turn it into a user CLI identity.
       await expect(dispatcher.dispatch('manager.query', { _token: token, _cli_trial: 'a'.repeat(64) }))
-        .rejects.toThrow('invalid CLI execution context');
+        .rejects.toThrow('preflight_rejected');
       return run(options);
     };
     f.project.provider = provider;

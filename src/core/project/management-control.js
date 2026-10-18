@@ -8,6 +8,8 @@ import { managementCatalog, effectiveManagementPolicy, validateManagementCall, m
 import { hasManagementConfirmation } from './management-code.js';
 import { hookInstallationOutcome, hookRegistrationOutcome } from './hook-install.js';
 import { resolveRegisteredMount } from './automation-registry.js';
+import { managementAudit, managementPhase, capabilityDiagnostic } from './management-diagnostic.js';
+import { safeManagementDiagnostic } from '../management-diagnostic.js';
 
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
@@ -53,8 +55,9 @@ function canonical(value) {
 }
 function callView(call) {
   return { receipt_id: call.receipt_id, method: call.method, status: call.status,
-    ...(call.notice_id ? { notice_id: call.notice_id } : {}), ...(call.reason ? { reason: call.reason } : {}),
-    ...(call.result === undefined ? {} : { result: call.result }) };
+    ...(call.notice_id ? { notice_id: call.notice_id } : {}),
+    ...(call.reason ? { reason: safeManagementDiagnostic(call.diagnostic).reason } : {}),
+    ...(call.result === undefined ? {} : { result: call.result }), ...(call.diagnostic ? { diagnostic: safeManagementDiagnostic(call.diagnostic) } : {}) };
 }
 async function resourcePreflight(project, method, params) {
   if (method === 'management.permission_set') {
@@ -196,6 +199,7 @@ export default {
     if (policy.access === 'read') {
       // Do not ask the user-facing status handler for private full configuration.
       this.withManagementPermissionAdmission(() => validateManagementCall(method, copied, managementInstruction(this, task), this.managementPermissionsSnapshot()));
+      managementPhase('execution', 'not_applicable', 'read_only', 'request_failed');
       const result = method === 'system.status' ? this.status(false)
         : method === 'manager.catalog' ? this.managementCapabilityCatalog(actorId)
         : method === 'manager.query' ? this.managementQuery(actorId, copied.id)
@@ -235,11 +239,15 @@ export default {
     check((state.control_calls?.length ?? 0) + state.receipts.length < MANAGEMENT_LIMITS.actions, 'management occurrence action limit reached');
     let call;
     this.store.transaction(() => {
+      const audit = managementAudit();
       const receiptId = this.store.event(task.id, 'management.capability_requested', { method, access: policy.access,
-        occurrence_id: state.pending_signal.id, fingerprint });
+        occurrence_id: state.pending_signal.id, fingerprint, call_id: audit?.call_id ?? null, run_id: audit?.run_id ?? null });
       call = { receipt_id: receiptId, method, params: copied, fingerprint, request_id: key,
         occurrence_id: state.pending_signal.id, target_snapshot: snapshot, preflight_fingerprint: preflight?.fingerprint ?? null,
-        status: policy.access === 'confirmation' ? 'pending_confirmation' : 'approved', created_at: managementTime(this) };
+        status: policy.access === 'confirmation' ? 'pending_confirmation' : 'approved', created_at: managementTime(this),
+        call_id: audit?.call_id ?? null, run_id: audit?.run_id ?? null };
+      capabilityDiagnostic(this, task.id, call, call.status, 'preflight', 'not_started',
+        call.status === 'pending_confirmation' ? 'confirmation_pending' : 'approval_pending');
       state.control_calls ??= []; state.control_calls.push(call);
       if (policy.access === 'confirmation') {
         check(!this.questionPending(task.id), 'another management confirmation is already pending; finish it first');
@@ -267,6 +275,7 @@ export default {
   revokeManagementCapabilities(taskId, state) {
     for (const call of state.control_calls ?? []) if (['pending_confirmation','approved'].includes(call.status)) {
       call.status = 'rejected'; call.reason = '用户已停止管理授权，未执行的操作已撤销。';
+      if (call.diagnostic) capabilityDiagnostic(this, taskId, call, 'preflight_rejected', 'authorization', 'not_started', 'trusted_pre_dispatch');
       if (call.notice_id) {
         this.store.run("UPDATE notices SET status='dismissed',answer='management authorization stopped' WHERE id=? AND task_id=? AND status='open'", call.notice_id, taskId);
         this.store.run(`UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id IS NULL AND consumed=0
@@ -304,7 +313,10 @@ export default {
         const state = notice ? managementState(this.store.task(notice.task_id)) : null;
         const call = state?.control_calls?.find(item => item.notice_id === noticeId);
         if (call && unresolved.has(call.status)) {
-          call.status = call.status === 'running' ? 'unknown' : 'failed'; call.reason = safeFailure;
+          const entered = call.status === 'running';
+          call.status = entered ? 'unknown' : 'failed'; call.reason = safeFailure;
+          if (call.diagnostic) capabilityDiagnostic(this, notice.task_id, call, entered ? 'completion_not_observed' : 'preflight_rejected',
+            entered ? 'recovery' : 'preflight', entered ? 'unknown' : 'not_started', entered ? 'completion_not_observed' : 'trusted_pre_dispatch');
           saveManagement(this, notice.task_id, state);
           this.settleManagementOccurrence(notice.task_id);
         }
@@ -327,6 +339,8 @@ export default {
       && choice?.selected?.length === 1 && choice.selected[0] === 1 && !choice.custom;
     call.status = approved && state.enabled ? 'approved' : 'rejected';
     call.reason = call.status === 'approved' ? null : '用户未批准精确操作，或管理授权已停止。';
+    if (call.diagnostic) capabilityDiagnostic(this, task.id, call, call.status === 'approved' ? 'approved' : 'preflight_rejected',
+      'authorization', 'not_started', 'trusted_pre_dispatch');
     this.store.transaction(() => {
       saveManagement(this, task.id, state);
       // The runtime has handled this exact answer. Keep its Message history, but
@@ -354,6 +368,7 @@ export default {
       || call.occurrence_id !== state.pending_signal.id) return;
     if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
     this.managementControlBusy.add(receiptId);
+    let stage = 'preflight';
     try {
       check(typeof this.managementDispatch === 'function', 'trusted management dispatcher is unavailable');
       executionAuthorization(this, task, call);
@@ -381,14 +396,20 @@ export default {
           check(call.fingerprint === hookRevision({ method: call.method, params: canonical(call.params) }), 'fixed management parameters changed');
           check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed during preflight');
           call.execution_authorization = authorization;
-          call.status = 'running'; call.started_at = managementTime(this); saveManagement(this, taskId, state);
+          call.status = 'running'; call.started_at = managementTime(this);
+          capabilityDiagnostic(this, taskId, call, 'in_progress', 'execution', 'unknown', 'dispatch_entered');
+          saveManagement(this, taskId, state);
           this.store.event(taskId, 'management.capability_started', { receipt_id: receiptId, method: call.method });
         });
         // Effects may themselves write device settings. Never retain the policy
         // lock across dispatch/network; their receipt now carries fixed authority.
+        stage = 'execution';
+        managementPhase('execution', 'unknown', 'dispatch_entered', 'execution_failed');
         return action ? this.submitManagementAction(taskId, action, call.params.id, receiptId)
           : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params), taskId, receiptId);
       });
+      stage = 'completion';
+      managementPhase('completion', 'unknown', 'dispatch_entered', 'completion_failed');
       // Another asynchronous tool/confirmation may have appended a receipt while this operation ran.
       state = managementState(this.store.task(taskId)); call = state.control_calls.find(item => item.receipt_id === receiptId);
       call.status = 'succeeded'; call.finished_at = managementTime(this);
@@ -404,9 +425,14 @@ export default {
         ...(Number.isSafeInteger(result?.task_id) ? { task_id: result.task_id } : {}),
         ...(typeof result?.auto_title === 'string' ? { auto_title: result.auto_title, changed: result.changed } : {}),
         ...(typeof result?.worker_number === 'string' ? { worker_number: result.worker_number } : {}),
-        ...(result?.emitted === true ? { emitted: true, draft_id: result.draft_id } : {}) };
-      saveManagement(this, taskId, state);
-      this.store.event(taskId, 'management.capability_completed', { receipt_id: receiptId, method: call.method });
+        ...(result?.emitted === true ? { emitted: true, draft_id: result.draft_id, revision: result.revision } : {}) };
+      stage = 'persistence';
+      managementPhase('persistence', 'unknown', 'dispatch_entered', 'persistence_failed');
+      capabilityDiagnostic(this, taskId, call, 'succeeded', 'completion', 'applied', 'completion_saved');
+      this.store.transaction(() => {
+        saveManagement(this, taskId, state);
+        this.store.event(taskId, 'management.capability_completed', { receipt_id: receiptId, method: call.method, diagnostic: call.diagnostic });
+      });
     } catch (error) {
       state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
       if (call && call.status !== 'rejected') {
@@ -417,9 +443,16 @@ export default {
           call.reason = call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
             : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
         }
-        saveManagement(this, taskId, state);
-        this.store.event(taskId, call.status === 'succeeded' ? 'management.capability_completed' : 'management.capability_failed',
-          { receipt_id: receiptId, method: call.method, status: call.status });
+        const code = stage === 'preflight' ? error instanceof ManagementPermissionError ? 'permission_denied' : 'preflight_rejected'
+          : stage === 'execution' ? 'execution_failed' : stage === 'completion' ? 'completion_failed' : 'persistence_failed';
+        capabilityDiagnostic(this, taskId, call, code, stage, stage === 'preflight' ? 'not_started'
+          : call.status === 'succeeded' ? 'applied' : 'unknown', stage === 'preflight' ? 'trusted_pre_dispatch'
+          : call.status === 'succeeded' ? 'completion_saved' : 'dispatch_entered');
+        this.store.transaction(() => {
+          saveManagement(this, taskId, state);
+          this.store.event(taskId, call.status === 'succeeded' ? 'management.capability_completed' : 'management.capability_failed',
+            { receipt_id: receiptId, method: call.method, status: call.status, diagnostic: call.diagnostic });
+        });
       }
     } finally { this.managementControlBusy.delete(receiptId); this.settleManagementOccurrence(taskId); }
   },
@@ -434,6 +467,8 @@ export default {
         if (notice?.status === 'open' && policy.access !== 'confirmation') {
           call.status = policy.access === 'unavailable' ? 'rejected' : 'approved';
           call.reason = policy.access === 'unavailable' ? '最新管家权限禁止此未开始操作。' : null;
+          if (call.diagnostic) capabilityDiagnostic(this, taskId, call, policy.access === 'unavailable' ? 'permission_denied' : 'approved',
+            'authorization', 'not_started', 'trusted_pre_dispatch');
           this.store.transaction(() => {
             closePolicyNotice(this, taskId, call); saveManagement(this, taskId, state);
             this.store.event(taskId, 'management.capability_policy_rechecked', { receipt_id: call.receipt_id, status: call.status });
@@ -454,6 +489,9 @@ export default {
         call.status = proof ? 'succeeded' : 'unknown';
         if (!proof) call.reason = safeFailure;
       }
+      // Only new receipts carry diagnostics; do not fabricate history during recovery.
+      if (call.diagnostic) capabilityDiagnostic(this, taskId, call, call.status === 'succeeded' ? 'succeeded' : 'completion_not_observed', 'recovery',
+        call.status === 'succeeded' ? 'applied' : 'unknown', call.status === 'succeeded' ? 'completion_saved' : 'completion_not_observed');
     }
     saveManagement(this, taskId, state);
   },

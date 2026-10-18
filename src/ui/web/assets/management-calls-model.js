@@ -38,9 +38,12 @@ export function callStatus(row, management) {
   const executions = [management?.pending_signal, management?.last_execution].filter(Boolean);
   const capability = executions.flatMap(item => item.control_calls || []).find(item =>
     item.receipt_id === row.receipt_id && item.method === row.method && row.receipt_id != null);
-  const action = row.action || row.result?.action;
-  const receipt = action && executions.flatMap(item => item.actions || []).find(item =>
-    action.receipt_id != null && item.receipt_id === action.receipt_id);
+  const action = row.action && typeof row.action === 'object' ? row.action : row.result?.action;
+  const actionType = row.method === 'worker.resume' ? 'start' : row.method === 'worker.retry' ? 'retry' : null;
+  const actionId = action?.receipt_id ?? (!capability && actionType ? row.receipt_id : null);
+  const receipt = executions.flatMap(item => item.actions || []).find(item =>
+    (actionId != null && item.receipt_id === actionId || capability && item.capability_receipt_id === capability.receipt_id)
+    && (!item.action || item.action === actionType));
   const status = receipt?.status ?? action?.status ?? capability?.status ?? row.result?.status;
   return `RPC 已返回${status ? ` · ${receipt || (!action && capability) ? '当前收据' : '调用时收据'}：${LABELS[status] || '状态未知'}` : '（不代表目标业务完成）'}`;
 }

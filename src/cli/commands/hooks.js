@@ -106,8 +106,18 @@ async function runSignal(args, client) {
 
 async function runManagement(args, client) {
   const verb = args.shift();
-  check(['create','enable','disable','permission-get','permission-set','emergency-preview','emergency-stop'].includes(verb),
-    'hooks management requires create|enable|disable|permission-get|permission-set|emergency-preview|emergency-stop; run lush help');
+  check(['create','enable','disable','receipt','permission-get','permission-set','emergency-preview','emergency-stop'].includes(verb),
+    'hooks management requires create|enable|disable|receipt|permission-get|permission-set|emergency-preview|emergency-stop; run lush help');
+  if (verb === 'receipt') {
+    const after = option(args, '--after'), limit = option(args, '--limit'); exact(args, 1);
+    const integer = (value, min, max = Number.MAX_SAFE_INTEGER) => {
+      check(typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/.test(value) && Number.isSafeInteger(Number(value))
+        && Number(value) >= min && Number(value) <= max, 'invalid management receipt integer');
+      return Number(value);
+    };
+    return client.request('management.receipt', { receipt_id: integer(args[0], 1),
+      ...(after === null ? {} : { after: integer(after, 0) }), ...(limit === null ? {} : { limit: integer(limit, 1, 100) }) });
+  }
   if (verb === 'emergency-preview') { exact(args, 0); return client.request('management.emergency_preview'); }
   if (verb === 'emergency-stop') {
     const revision = readRevision(args), confirmIndex = args.indexOf('--confirm');

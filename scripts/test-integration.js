@@ -49,6 +49,10 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
     'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC, including user-authorized fresh Valet rounds
     'test/project/management-calls.test.js', // real Provider/bridge -> safe audit Events -> user-only bounded HTTP stream
+    'test/project/management-receipt.test.js', // real Provider/bridge -> safe receipt, failure/effect/disposition separation, no replay and bounded legacy reads
+    'test/project/input-emission-protocol.test.js', // schema/catalog -> real Dispatcher -> persistent mount -> controlled Provider/Input/Message identity
+    'test/project/management-emission-catalog.test.js', // ordinary Valet discovers the same schema -> trusted pre-dispatch refusal/mount -> exact receipt facts
+    'test/web/dom-management-diagnostic.test.js', // real Provider/bridge -> authenticated receipt HTTP -> failure/action UI and matching safe copy
     'test/project/management-emergency.test.js', // user-only HTTP/CLI -> exact emergency revocation -> real Provider/control exit -> preserved unknown isolation -> fresh submit
     'test/project/management-append.test.js', // settled Valet -> user RPC append, serial admission, failure protection and recovery
     'test/project/management-append-size.test.js', // full-size immutable Message bodies and missing-instruction fail-closed
@@ -71,6 +75,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
     'test/web/dom-management-calls.test.js', // bounded Valet RPC stream, exact pairing, pagination, unknown projection and retained refresh
+    'test/web/dom-management-diagnostic.test.js', // per-call visible failure, read-only association, safe copy, action separation and late-response guards
     'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
     'test/web/dom-valet-emergency.test.js', // project emergency preview/confirmation, stopping vs isolation, single-flight and late-response isolation
     'test/web/dom-inputs.test.js', // draft editor

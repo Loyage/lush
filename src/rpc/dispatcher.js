@@ -1,4 +1,6 @@
-import { check, isPlainObject } from '../core/types.js';
+import { check, isPlainObject, LushError } from '../core/types.js';
+import { MANAGEMENT_DIAGNOSTIC_CODE, managementDiagnosticErrorMessage } from '../core/management-diagnostic.js';
+import { withManagementAudit, managementPhase } from '../core/project/management-diagnostic.js';
 import { beginManagementCall, finishManagementCall } from '../core/project/management-calls.js';
 import { dispatchWorkerCLI } from '../core/worker-cli.js';
 import { PARAMS, AGENT_ONLY, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
@@ -67,7 +69,8 @@ export class Dispatcher {
         const task = actor == null ? null : p.store.task(actor);
         if (task?.role === 'manager' && task.task_kind === 'management') {
           const info = this.beginManagementAudit(task, method, params);
-          finishManagementCall(p, actor, info, null, error, true);
+          const diagnostic = finishManagementCall(p, actor, info, null, error, true);
+          throw new LushError(managementDiagnosticErrorMessage(diagnostic, error), MANAGEMENT_DIAGNOSTIC_CODE);
         }
       }
       throw error;
@@ -75,11 +78,19 @@ export class Dispatcher {
     const task = actor == null ? null : p.store.task(actor);
     if (task?.role === 'manager' && task.task_kind === 'management' && MANAGER_METHODS.has(method)) {
       const info = this.beginManagementAudit(task, method, params);
-      let result;
-      try { result = await this.execute(method, params, actor, _cli_trial); }
-      catch (error) { finishManagementCall(p, actor, info, null, error); throw error; }
-      finishManagementCall(p, actor, info, result, null);
-      return result;
+      return withManagementAudit(info, async () => {
+        let result;
+        try {
+          managementPhase('admission', 'not_started', 'trusted_pre_dispatch', 'preflight_rejected');
+          result = await this.execute(method, params, actor, _cli_trial);
+        } catch (error) {
+          const diagnostic = finishManagementCall(p, actor, info, null, error);
+          throw new LushError(managementDiagnosticErrorMessage(diagnostic, error), MANAGEMENT_DIAGNOSTIC_CODE);
+        }
+        const diagnostic = finishManagementCall(p, actor, info, result, null);
+        // A trusted request identity for reads and pre-receipt failures as well as writes.
+        return isPlainObject(result) ? { ...result, diagnostic } : { result, diagnostic };
+      });
     }
     return this.execute(method, params, actor, _cli_trial);
   }
@@ -96,8 +107,13 @@ export class Dispatcher {
     const actorTask = actor === null || actor === undefined ? null : p.store?.task(actor);
     check(!(actorTask?.role === 'manager' || actorTask?.task_kind === 'management') || MANAGER_METHODS.has(method),
       'management agents can only use their dedicated reviewed management tools');
-    if ((actorTask?.role === 'manager' || actorTask?.task_kind === 'management') && method === 'worker.lookup')
-      p.assertManagementPermission(actor, 'worker.lookup');
+    const directManagerRead = actorTask?.task_kind === 'management'
+      && ['manager.query','manager.history','manager.catalog','worker.lookup'].includes(method);
+    if (directManagerRead) {
+      managementPhase('authorization', 'not_started', 'trusted_pre_dispatch', 'permission_denied');
+      p.assertManagementPermission(actor, method);
+      managementPhase('admission', 'not_started', 'trusted_pre_dispatch', 'preflight_rejected');
+    }
     // Capability comes from the authenticated Store identity, not role labels, prompts or caller params.
     // New public methods remain denied until explicitly reviewed for the isolated integration helper.
     check(actorTask?.task_kind !== 'integration' || INTEGRATION_METHODS.has(method),
@@ -113,6 +129,8 @@ export class Dispatcher {
       assertWorkerRead(p, actor, p.store.lookupWorker(params.number).id);
     return dispatchWorkerCLI(p, method, { ...params, _cli_trial: cliTrial }, actor, async () => {
       if (actor !== null && method === 'worker.inspect') return publicResult(contextDetail(p, params.id), method);
+      if (directManagerRead)
+        managementPhase('execution', 'not_applicable', 'read_only', 'request_failed');
       const value = await HANDLERS[method].call(this, p, params, actor);
       if (actor !== null && method === 'worker.history') return contextHistory(value);
       if (actor !== null && method === 'worker.history_page') return { ...value, events: contextHistory(value.events ?? []) };

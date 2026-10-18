@@ -5,7 +5,9 @@ import path from 'node:path';
  * extensions, execute functions, Provider arguments and the Bun RPC bridge are real.
  * The plan contains test inputs, never a second production tool catalogue.
  */
-export function managementToolCLI(root, runtime, { compactCatalog = false } = {}) {
+// Catalogues carry the complete schemas. Verify their text/details parity in the
+// controlled CLI by default, then return only one copy to the Provider result.
+export function managementToolCLI(root, runtime, { compactCatalog = true } = {}) {
   const command = path.join(root, 'controlled-pi');
   const planFile = path.join(root, 'tool-plan.json');
   fs.writeFileSync(command, `#!/usr/bin/env ${runtime}

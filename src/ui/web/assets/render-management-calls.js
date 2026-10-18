@@ -1,4 +1,4 @@
-import { block, button, el } from './dom.js';
+import { block, button, el, revealModule } from './dom.js';
 import { api, isReadAbort, projectApi } from './api.js';
 import { routeContext } from './route.js';
 import { ui } from './state.js';
@@ -7,6 +7,7 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { absolute } from './format.js';
 import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 import { createCallsState, mergeCalls, callStatus } from './management-calls-model.js';
+import { createCallDiagnostic } from './management-call-diagnostic.js';
 
 const inside = (root, node) => { for (let at = node; at; at = at.parentNode) if (at === root) return true; return false; };
 const safeDetails = row => ({
@@ -35,7 +36,7 @@ export function renderManagementCalls(task, previous, options = {}) {
     previous?.disposeCalls?.();
     section = block('接口调用时间线'); section.classList.add('management-calls');
     section.callsIdentity = { project, boot, doc, id: task.id };
-    const state = createCallsState(), nodes = new Map();
+    const state = createCallsState(), nodes = new Map(), diagnosticBudget = { events: 0, bytes: 0 };
     let binding = null, generation = 0, controller = null, busy = false, error = false;
     let pending = false, projections = [], needsProjection = false;
     const coverage = el('p', '按开始 Event ID 正序；首次仅最新 50 个事件（非全历史序号）。仅覆盖可信 RPC；不补旧历史或桥接前拒绝，不展示任意原文。', 'hint');
@@ -62,7 +63,7 @@ export function renderManagementCalls(task, previous, options = {}) {
       if (reading()) { pending = true; return; }
       pending = false;
       const panel = doc.getElementById('detail'), position = panel && captureDetailReading(panel);
-      const existing = [...list.children]; let at = 0;
+      const existing = [...list.children]; let at = 0, hasFailures = false;
       for (const row of [...state.calls.values()].sort((a, b) => a.call_id - b.call_id)) {
         let view = nodes.get(row.call_id);
         if (!view) {
@@ -72,17 +73,24 @@ export function renderManagementCalls(task, previous, options = {}) {
           const time = el('time'), method = el('code'), target = el('span'), result = el('span', undefined, 'management-call-status');
           head.append(id, time, method, target, result);
           const fold = el('details'), title = el('summary', '脱敏参数与结果摘要'), body = el('pre');
-          fold.append(title, body); item.append(head, fold);
-          view = { item, time, method, target, result, body }; nodes.set(row.call_id, view);
+          const diagnostic = createCallDiagnostic(() => {
+            const version = generation;
+            return { signal: controller.signal, current: () => current(version) };
+          }, diagnosticBudget);
+          fold.append(title, body); item.append(head, diagnostic.root, fold);
+          view = { item, time, method, target, result, body, diagnostic }; nodes.set(row.call_id, view);
           list.insertBefore(item, existing[at] || null);
         } else at++;
         text(view.time, absolute(row.started_at));
         text(view.method, row.method || '未知接口（未记录名称）');
         text(view.target, row.target_id ? `目标 ${workerLabel(row.target_id, row.target_worker_number)}` : '无明确目标');
         text(view.result, callStatus(row, binding.task.management));
+        hasFailures = view.diagnostic.update(row, binding.task) || hasFailures;
         const safe = safeDetails(row);
         text(view.body, `传输：${row.transport_method || '未知'}\nRun：${row.run_id ?? '未知'} · 完成 Event：${row.phase === 'finished' ? row.seq : '未观察到'}\n耗时：${Number.isFinite(row.duration_ms) && row.duration_ms >= 0 ? `${row.duration_ms} ms` : '未知'}\n脱敏参数：${JSON.stringify(safe.params, null, 2)}\n结果摘要（调用时）：${JSON.stringify(safe.result, null, 2)}${row.reason === 'completion_not_observed' ? '\n原 Run 已不活跃，未观察到完成；不自动重放。' : row.reason === 'invalid_parameters' ? '\n参数校验拒绝。' : row.reason === 'request_failed_or_denied' ? '\n请求失败或被拒绝；不展示原始错误。' : ''}`);
       }
+      section.classList.toggle('management-calls-has-failures', hasFailures);
+      if (hasFailures && section.classList.contains('ui-module') && !section.classList.contains('module-expanded')) revealModule(section);
       text(status, `${error ? '读取不可用或失败（旧服务可能不支持）；保留已有记录，可重试。' : busy ? '正在读取…' : !state.loaded ? '尚未读取。' : !state.calls.size ? state.limited ? '当前范围超出读取预算。' : '当前窗口无采集记录；不代表历史未调用。' : `已显示 ${state.calls.size} 次调用／${state.events.size} 个事件；最新已读 Event #${state.high}。`}${state.hasNewer ? ' 仍有新事件，继续读取最新调用。' : ''}${state.limited ? ' 已达 5000 事件／8 MiB 预算，仅显示部分范围；保留已读内容。' : ''}${!state.hasOlder && state.loaded ? ' 已到采集范围起点，不代表完整历史。' : ''}${projections.length ? ` 尚有 ${projections.length} 个未完成调用待核对。` : ''}`);
       older.hidden = !state.loaded || !state.hasOlder; retry.hidden = !error;
       recheck.hidden = !projections.length; newer.textContent = state.hasNewer ? '继续读取最新调用' : '读取最新调用';
@@ -91,7 +99,10 @@ export function renderManagementCalls(task, previous, options = {}) {
       linkWorkerNumbers(section);
       if (panel) restoreDetailReading(panel, position);
     }
-    function flush() { if (pending && !reading()) paint(); }
+    function flush() {
+      for (const view of nodes.values()) view.diagnostic.flush();
+      if (pending && !reading()) paint();
+    }
     const focusout = () => queueMicrotask(flush);
     async function get(query, signal) {
       return api(`/api/worker/${task.id}/management-calls?${new URLSearchParams({ limit: '50', ...query })}`, { signal });
@@ -140,6 +151,7 @@ export function renderManagementCalls(task, previous, options = {}) {
       section.disposeCalls = () => {
         if (generation !== version) return;
         ++generation; controller.abort(); busy = false; pending = false;
+        for (const view of nodes.values()) view.diagnostic.resetRead();
         doc.removeEventListener('selectionchange', flush); section.removeEventListener('focusout', focusout);
         lifetime.signal?.removeEventListener('abort', abort);
       };

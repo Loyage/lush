@@ -1,6 +1,7 @@
 import { check } from '../types.js';
 import { hookRevision } from '../hooks.js';
 import { managementState, managementTime, saveManagement } from './management-data.js';
+import { capabilityDiagnostic } from './management-diagnostic.js';
 
 const limit = 100;
 const reason = '用户急救已永久撤销此管家的旧授权；历史与未知副作用保留，不重放、不回滚。';
@@ -91,6 +92,7 @@ export default {
         this.revokeManagementCapabilities(task.id, state);
         for (const receipt of state.receipts ?? []) if (receipt.status === 'waiting') {
           receipt.status = 'skipped'; receipt.reason = reason;
+          if (receipt.diagnostic) capabilityDiagnostic(this, task.id, receipt, 'preflight_rejected', 'authorization', 'not_started', 'trusted_pre_dispatch');
           this.store.event(task.id, 'management.action_skipped', { occurrence_id: receipt.occurrence_id, ...receipt });
         }
         // Include own questions and historical orphan confirmations, not only the
@@ -119,6 +121,7 @@ export default {
       // unknown, NOT cancelled/successful. Pending occurrence and old history stay.
       for (const receipt of [...(state.receipts ?? []), ...(state.control_calls ?? [])]) if (receipt.status === 'running') {
         receipt.status = 'unknown'; receipt.reason = '急救后实际操作已退出，但未观察到完成证明；不自动重放。';
+        if (receipt.diagnostic) capabilityDiagnostic(this, taskId, receipt, 'completion_not_observed', 'recovery', 'unknown', 'completion_not_observed');
       }
       state.emergency.status = 'isolated'; state.emergency.isolated_at = managementTime(this);
       saveManagement(this, taskId, state);

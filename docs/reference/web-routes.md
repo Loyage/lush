@@ -120,9 +120,11 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/cli/catalog` | 用户专属只读 `cli.catalog {}`，不接受查询参数；version:1、source:builtin-cli、commands 为完整公开 CLI 层级（path/parent/name/directory/description/format/usage/example/risk/advanced/rpc；format 是默认简要调用格式，usage 含展开的完整选项）。每个 rpc 项的 method/parameters/audience 与审核权限来自注册表及 management-policy；一对多按 CLI 选项或调用阶段说明，不等于赋予整条 CLI／Shell 能力。普通／管理 Agent 均不可调用此新 RPC；管理工具继续用 manager.catalog |
 | `GET /api/host/cli/catalog` | 同一代码内置说明，根 Host 只读、登录保护、no-store，无 query，不读取项目设置／凭证，不启动或连接项目 daemon；无当前项目亦可学习 |
 | `GET /api/management/permissions` | 用户专属兼容有效权限读取，无 query；scope 为 device，无配置使用内建默认。旧 `management.permissions_update` 写入拒绝，保存须走根 Host 接口；见[管家契约](../engineering/hook-signals-management.md#设备全局管家权限) |
+| `GET /api/management/receipt?receipt_id=N&after=N&limit=N` | 用户专属 `management.receipt` 当前项目单收据安全诊断；receipt_id 必填正整数，after 非负、limit 默认30/最多100；拒绝未知／重复／非十进制字段及 token，不开放通用 RPC／原始会话。关联事件按实际 next_cursor/has_more 续读，coverage 边界见[单收据契约](../engineering/hook-signals-management.md#结构化安全诊断与单收据读取) |
 | `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、快捷指令目录 commands（无 authorized）、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
+| `GET /api/worker/ID/management-calls?before=N&after=N&limit=N` | 用户专属 `worker.management_calls` 有界可信调用事件流，before/after 互斥、limit 默认50/最多100；不返回任意异常正文，投影附同源诊断，详情异常与复制见[阅读器](../engineering/transcript-reader.md#valet-接口调用时间线) |
 | `GET /api/worker/ID/relations?after=N&limit=N` | 用户专属 `worker.relations`，直接父及直接子节点分页；拒绝未知／重复查询参数，默认 after=0、limit=50，最多200条；[字段协议](rpc/tasks.md#局部-worker-关系) |
 | `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id,force?}`，只读完整删除范围和资源清单，仅接受单个 `force=true` 查询参数以强制预检对应残留检出 |
 | `GET /api/worker/ID/history?after=N` | `worker.history` |

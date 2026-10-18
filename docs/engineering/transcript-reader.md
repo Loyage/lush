@@ -110,11 +110,17 @@ Worker 详情的输入输出（目标、各轮回复与简短决策问答）、�
 
 Valet 详情在「Valet 管理状态」旁新增独立的「接口调用时间线」，不改变其他模块层级。默认按开始 Event ID 正序展示时间、真实 RPC method、目标和状态；Event ID 是持久身份，不是全历史调用序号。脱敏参数、结果摘要、传输入口、Run 和耗时按需展开，无任意原文入口。RPC 已返回与当时收据的待确认、等待安全点、拒绝、unknown 分开表达；只有当前 management 投影的精确 receipt ID（能力同时核对 method）可以更新已显示收据状态，缺少证据不推断。事件及安全覆盖契约以[管家接口调用事件流](hook-signals-management.md#管家接口调用事件流)为准。
 
+W343／D717：每条失败或未知调用下直接常显最初失败阶段、受控分类原因／明确未知、副作用确定性、后续事项／停用／隔离／取消与下一步；后续处置不替换原失败。旧收据缺字段明确无法还原，不根据异常字符串猜根因。显示与「复制脱敏诊断」共用 `management-diagnostic-model.js` 的前端白名单投影：复制当前摘要、可信身份与**已读取**安全事件，不夹带任意 reason、参数、输出或凭证，也不宣称未读时间线完整。剪贴板不可用保留正文并明确失败；复制与关联导航不调用 Agent、不重放操作。能力提交与动作独立展示：同一调用可同时有 capability 的 applied 和关联 action 的 waiting／unknown；动作失败单独常显原错、确定性与下一步，不用提交成功覆盖。专用 start／retry 按真实 action 收据刷新，重复传输保留各自 call/request Event 关联；request_returned 只表示缺少完成证明，不伪装为旧数据或未开始。
+
+「关联身份与安全时间线」显式展开后，经固定[HTTP 只读适配](../reference/web-routes.md)读取 `management.receipt`，一次30项、按实际事件游标继续；同一模块最多500关联事件／512 KiB，失败、缺页或预算不足保留已读内容并明示未完成。只接收当前 Worker 关联、受控 coverage 与递增实际游标，跨页面／项目／document 或取消后的迟到响应作废。只有持久事实才提供草稿、真实 O／Message、Worker 或单收据链接，未知挂载不生成输入链接；挂载确认不表示 Worker 已创建／开始。
+
+已加载窗口含失败／未知时，整个接口调用模块保持逻辑展开且不允许高度预览把失败摘要裁掉（健康窗口仍用共享预览）；每条关联细节与既有参数摘要仍可按需折叠。窄屏单列，诊断按钮／链接／展开入口至少44px。
+
 首屏仅取最新 50 个事件，向旧分页与向新续读分别保留边界；翻旧不回退最高已读 Event。完成事件独立自含开始信息，按 call_id 合并，不按相邻项配对，迟到的 started 不覆盖 finished。每次现有详情刷新最多读一页新增事件；has_more 保留「继续读取最新调用」，不自动扫描全历史。已显示的未完成调用通过精确开始 Event 的一条窗口重新读取服务端投影（每轮最多 50 项、余项显式继续且跨刷新保留核对队列），因此终态／Run 更换后即使 after 空页也能更新 unknown，不根据当前 Worker 状态伪造事件或完成结果。
 
 同一详情保留分页、节点、展开、焦点、选区和阅读锚点，选择正文时延后补丁；项目、boot、document、页面和 AbortSignal 共同隔离迟到结果，离页取消读取和监听。不新增定时器、模型或进程。最多保留 5000 个事件／8 MiB 调用快照，预算触顶保留正文并明确部分范围。失败与旧服务不支持明确为不可用、可重试，不冒充无记录；空页不证明旧历史未调用。窄屏单列自然换行，整个模块复用共享超高预览与页面主滚动。
 
-专项 `test/web/dom-management-calls.test.js` 覆盖配对、分页、迟到／取消、失败、精确收据与 unknown 更新；`bun run test/web/check-management-calls-browser.js` 使用隔离 HTTP fixture 和 Firefox，核对真实 HTTP 分页、1440／390／320px、展开、刷新节点／焦点／选区及终态投影，不启动用户服务或模型。
+专项 `test/web/dom-management-calls.test.js` 覆盖配对、分页、迟到／取消、失败、精确收据与 unknown 更新；`test/web/dom-management-diagnostic.test.js` 以可控 Provider／真实 bridge 产生失败及真实 HTTP 读取，核对原失败与隔离、白名单摘要／复制一致性、旧数据、关联链接、缺页／失败／迟到响应；`bun run test/web/check-management-calls-browser.js` 使用隔离 HTTP fixture 和 Firefox，核对真实 HTTP 分页、1440／390／320px、展开、刷新节点／焦点／选区及终态投影，不启动用户服务或模型。
 
 ### 规划历史
 

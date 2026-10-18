@@ -1,16 +1,13 @@
 import { check } from '../../core/types.js';
+import { validateInputEmissionRequest } from '../../core/input-emission-protocol.js';
 
 import { INPUT_OPTION_KEYS as DRAFT_OPTIONS } from '../../core/input-option-keys.js';
 function draftOptions(params) {
   return Object.fromEntries(DRAFT_OPTIONS.filter(key => Object.hasOwn(params, key)).map(key => [key, params[key]]));
 }
 function emissionOptions(params) {
-  const options = Object.fromEntries(Object.entries(params).filter(([key]) => !['_token', 'start', 'defer'].includes(key)));
-  if (Object.hasOwn(options, 'draft_id')) {
-    check(!['content', 'references', 'branch', ...DRAFT_OPTIONS].some(key => Object.hasOwn(options, key)),
-      'draft_id cannot be combined with content, references, branch or input options; edit the draft first');
-  } else check(!Object.hasOwn(options, 'expected_revision'), 'expected_revision requires draft_id');
-  return options;
+  return validateInputEmissionRequest(Object.fromEntries(
+    Object.entries(params).filter(([key]) => !['_token', 'start', 'defer'].includes(key))));
 }
 
 /** input.* / draft.* */

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { setup, fetch } from './harness.js';
 import { beginManagementCall, finishManagementCall } from '../../src/core/project/management-calls.js';
+import { managementDiagnostic } from '../../src/core/management-diagnostic.js';
 
 const f = await setup(); f.project.kick = () => {};
 const manager = f.project.submitManagementInstruction({ instruction: '隔离浏览器调用时间线验证' }).task;
@@ -12,6 +13,21 @@ f.store.update(manager.id, { status: 'running' });
 f.project.running.set(manager.id, { recordId: 781, controller: new AbortController() });
 const start = () => beginManagementCall(f.project, f.store.task(manager.id), 'manager.call', 'worker.inspect', { id: manager.id, instruction: 'PRIVATE-NOT-DISPLAYED' });
 for (let i = 0; i < 35; i++) { const call = start(); finishManagementCall(f.project, manager.id, call, { status: 'pending_confirmation', receipt_id: i + 100 }, null); }
+// Safe historical fault fixture, not a replay or a model call.
+const target = f.store.create({ role: 'agent', task_kind: 'order', goal: 'PRIVATE-TARGET', status: 'paused' });
+const fault = beginManagementCall(f.project, f.store.task(manager.id), 'manager.call', 'worker.resume', { id: target.id });
+const receiptId = f.store.event(manager.id, 'management.capability_requested', { method: 'worker.resume', call_id: fault.call_id });
+const diagnostic = managementDiagnostic('succeeded', 'completion', 'applied', 'completion_saved', { actor_id: manager.id, worker_number: manager.worker_number, call_id: fault.call_id, receipt_id: receiptId });
+const actionId = f.store.event(manager.id, 'management.action_submitted', { action: 'start', target_id: target.id, capability_receipt_id: receiptId, call_id: fault.call_id });
+const actionDiagnostic = managementDiagnostic('execution_failed', 'execution', 'unknown', 'dispatch_entered', { actor_id: manager.id, worker_number: manager.worker_number, call_id: fault.call_id, receipt_id: actionId, target_id: target.id });
+const state = JSON.parse(f.store.task(manager.id).management);
+state.control_calls = [{ receipt_id: receiptId, call_id: fault.call_id, method: 'worker.resume', status: 'succeeded', diagnostic }];
+state.receipts = [{ receipt_id: actionId, call_id: fault.call_id, action: 'start', capability_receipt_id: receiptId, target_id: target.id, status: 'unknown', diagnostic: actionDiagnostic, reason: 'PRIVATE-RAW-ERROR' }];
+state.enabled = false; state.state = 'unknown'; state.emergency = { status: 'isolated' };
+f.store.update(manager.id, { management: JSON.stringify(state) });
+f.store.event(manager.id, 'management.action_failed', { receipt_id: actionId, diagnostic: actionDiagnostic, status: 'unknown' });
+fault.receipt_id = receiptId; fault.capability_diagnostic = diagnostic;
+finishManagementCall(f.project, manager.id, fault, { receipt_id: receiptId, status: 'succeeded', result: { action: { receipt_id: actionId, status: 'waiting' } } }, null);
 const orphan = start();
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const base = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
@@ -19,6 +35,7 @@ const fixture = base.replace('</body>', `<script type="module">
 import {loadDetail,disposeDetailRequests} from '/detail.js';
 import {ui} from '/state.js';
 ui.selected=${manager.id};ui.detailTask=${manager.id};ui.view={id:'task',key:'task-${manager.id}'};
+window.copies=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.copies.push(text)}});
 window.errors=[];addEventListener('error',e=>errors.push(e.message));addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 window.refresh=()=>loadDetail(${manager.id});window.leave=()=>{disposeDetailRequests();document.getElementById('detail').replaceChildren();};
 await window.refresh();window.ready=true;
@@ -83,31 +100,41 @@ try {
     await rpc(`/session/${session}/window/rect`, { width: 1500, height: 1000 });
     await execute(`const frame=document.createElement('iframe');frame.id='layout-frame';frame.style.cssText='position:fixed;inset:0;width:${width}px;height:850px;border:0;z-index:99999';frame.src='/';document.body.append(frame);`);
     assert(await wait(`document.getElementById('layout-frame').contentWindow.ready&&document.getElementById('layout-frame').contentDocument.querySelector('.management-call')`), 'frame did not load');
-    assert(await wait(`document.getElementById('layout-frame').contentDocument.querySelector('.management-calls .detail-preview-toggle')?.hidden===false`), 'shared preview measurement not ready '+width);
+    assert(await wait(`document.getElementById('layout-frame').contentDocument.querySelector('.management-calls-has-failures')`), 'failure summary not ready '+width);
     const layout = await execute(`const frame=document.getElementById('layout-frame'),d=frame.contentDocument,w=frame.contentWindow,n=d.querySelector('.management-calls'),head=d.querySelector('.management-call-head');
       return {width:w.innerWidth,overflow:n.scrollWidth>n.clientWidth+1,bodyOverflow:d.documentElement.scrollWidth>w.innerWidth+1,
       columns:w.getComputedStyle(head).gridTemplateColumns.split(' ').length,
-      preview:n.classList.contains('detail-preview'),toggle:!n.querySelector('.detail-preview-toggle').hidden};`);
-    assert(layout.width===width&&!layout.overflow&&!layout.bodyOverflow&&layout.preview&&layout.toggle
+      preview:n.classList.contains('detail-preview'),unclipped:w.getComputedStyle(n.querySelector('.module-body')).maxHeight==='none',
+      failureVisible:w.getComputedStyle(d.querySelector('[data-call-id="${fault.call_id}"] .management-call-failure')).display!=='none',
+      touch:[...d.querySelectorAll('.management-diagnostic-controls button,.management-diagnostic-controls a,.management-diagnostic-details>summary')].every(e=>e.getBoundingClientRect().height>=44)};`);
+    assert(layout.width===width&&!layout.overflow&&!layout.bodyOverflow&&layout.preview&&layout.unclipped&&layout.failureVisible&&layout.touch
       &&layout.columns===(width<760?1:5), 'layout failure '+JSON.stringify(layout));
-    assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,n=d.querySelector('.management-calls');n.querySelector('.detail-preview-toggle').click();
-      n.querySelector('details').open=true;return n.classList.contains('detail-preview-expanded')&&n.querySelector('details').open
-      &&d.defaultView.getComputedStyle(n.querySelector('pre')).overflowY==='visible';`), 'expanded main-scroll reading failed');
+    assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,n=d.querySelector('.management-calls');
+      n.querySelector('details').open=true;return n.querySelector('details').open
+      &&d.defaultView.getComputedStyle(n.querySelector('pre')).overflowY==='visible';`), 'main-scroll reading failed');
     await execute(`const w=document.getElementById('layout-frame').contentWindow;w.savedCall=w.document.querySelector('.management-call');w.savedCall.querySelector('summary').focus();w.savedTop=w.savedCall.querySelector('summary').getBoundingClientRect().top;return w.refresh();`);
-    assert(await execute(`const w=document.getElementById('layout-frame').contentWindow,n=w.document.querySelector('.management-calls');return n.classList.contains('detail-preview-expanded')
+    assert(await execute(`const w=document.getElementById('layout-frame').contentWindow,n=w.document.querySelector('.management-calls');return w.getComputedStyle(n.querySelector('.module-body')).maxHeight==='none'
       &&w.document.querySelector('.management-call')===w.savedCall&&w.savedCall.querySelector('details').open
       &&w.document.activeElement===w.savedCall.querySelector('summary')&&Math.abs(w.savedCall.querySelector('summary').getBoundingClientRect().top-w.savedTop)<=1;`), 'viewport refresh lost reading state '+width);
     console.log('PASS exact viewport, natural wrapping/shared preview/expanded main scroll and retained refresh', width);
     await execute(`document.getElementById('layout-frame').remove();`);
   }
-  await execute(`document.querySelector('.management-calls .detail-preview-toggle').click();`);
+  await execute(`const r=document.querySelector('[data-call-id="${fault.call_id}"]');r.querySelector('.management-diagnostic-controls button').click();`);
+  assert(await wait(`window.copies.length===1`), 'copy did not complete');
+  assert(await execute(`const r=document.querySelector('[data-call-id="${fault.call_id}"]'),text=window.copies[0];return [...r.querySelectorAll('.management-call-failure p')].filter(p=>!p.hidden).every(p=>text.includes(p.textContent))&&text.includes('已急救隔离')&&text.includes('该方法已生效')&&text.includes('动作最初失败')&&!text.includes('PRIVATE');`), 'visible/copy whitelist mismatch');
+  await execute(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-controls button').focus();`);
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+  assert(await wait(`window.copies.length===2`), 'keyboard copy failed');
+  await execute(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-details>summary').focus();`);
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+  assert(await wait(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-timeline-status').textContent.includes('已读取')`), 'safe associated timeline not loaded');
   await click('.management-calls-controls button:first-child');
-  assert(await wait(`document.querySelectorAll('.management-call').length===36`), 'older real HTTP page missing');
+  assert(await wait(`document.querySelectorAll('.management-call').length===37`), 'older real HTTP page missing '+JSON.stringify(await execute(`return {n:document.querySelectorAll('.management-call').length,status:document.querySelector('.management-calls-status').textContent,focus:document.activeElement?.outerHTML,toast:document.getElementById('error')?.textContent};`))+' paths='+JSON.stringify(paths));
   assert(await execute(`const ids=[...document.querySelectorAll('.management-call')].map(n=>+n.dataset.callId);return ids.every((id,i)=>!i||ids[i-1]<id);`), 'start order not stable');
   await execute(`window.old=document.querySelector('.management-call');window.old.querySelector('details').open=true;
     window.focusNode=window.old.querySelector('summary');window.focusNode.focus();window.anchorTop=window.focusNode.getBoundingClientRect().top;`);
   await execute(`return window.refresh();`);
-  assert(await execute(`return document.querySelectorAll('.management-call').length===36&&document.querySelector('.management-call')===window.old&&window.old.querySelector('details').open&&document.activeElement===window.focusNode
+  assert(await execute(`return document.querySelectorAll('.management-call').length===37&&document.querySelector('.management-call')===window.old&&window.old.querySelector('details').open&&document.activeElement===window.focusNode
     &&Math.abs(window.focusNode.getBoundingClientRect().top-window.anchorTop)<=1;`), 'refresh lost nodes/fold/focus/reading anchor');
   await execute(`document.activeElement.blur();window.text=window.old.querySelector('code').firstChild;window.getSelection().setBaseAndExtent(window.text,0,window.text,6);`);
   await execute(`return window.refresh();`);
@@ -126,11 +153,11 @@ try {
   fail = true;
   await execute(`document.querySelectorAll('.management-calls-controls button')[1].click();`);
   assert(await wait(`document.querySelector('.management-calls-status').textContent.includes('不可用或失败')`), 'failure not shown');
-  assert(await execute(`return document.querySelectorAll('.management-call').length===36;`), 'failure erased readable records');
+  assert(await execute(`return document.querySelectorAll('.management-call').length===37;`), 'failure erased readable records');
   fail = false;
   const late = start(); finishManagementCall(f.project, manager.id, late, {}, null);
   await execute(`document.querySelectorAll('.management-calls-controls button')[2].click();`);
-  assert(await wait(`document.querySelectorAll('.management-call').length===37&&${settled}`), 'read retry failed');
+  assert(await wait(`document.querySelectorAll('.management-call').length===38&&${settled}`), 'read retry failed');
   hold = true;
   await execute(`document.querySelectorAll('.management-calls-controls button')[1].click();`);
   await execute(`window.leave();`);

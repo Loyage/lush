@@ -13,7 +13,13 @@
 
 ## 输入接口
 
-新增用户专属 `input.emit`，Project `emitBufferedInput(options)`：
+用户专属 `input.emit`，Project `emitBufferedInput(options)`。完整可发现协议来自 Node 可加载的 `src/core/input-emission-protocol.js`：`INPUT_EMIT_CAPABILITY` 提供 `schema/examples/authorization`，`INPUT_EMIT_PARAMS` 来自 schema 的字段，`validateInputEmissionRequest` 同时用于 RPC handler 与 Project 写入口。校验不插入默认值、不改写请求，保留精确去重指纹。schema 的 `x-lush-validator`／`x-maxBytes` 扩展复用既有引用、运行配置校验及 UTF-8 字节上限；仅通用 JSON Schema 校验不能替代完整协议校验。RPC 注册参数、CLI 学习目录与管家目录均复用此来源；`manager.call` 在可信 parameters 阶段也执行同一形状校验，不另写一份宽松字段说明。
+
+- 结构通过不等于权限通过：执行仍检查最新管理能力权限、适用的精确持久用户确认、草稿版本、目标／父生命周期与原引擎安全门；管理模型不能批准自己。
+- profile 是完整运行配置对象而非配置名称／ID；复用 `normalizeAgentProfile(value,"roles.agent")`，连接引用使用 `connection_id` UUID＋限定模型名，不接受凭证。省略／null 沿用继承；append 不能覆盖目标的运行配置。Pi-default 模式保留既有忽略其它已知配置字段的兼容行为。
+- 保留既有合法兼容值：ID 可用正安全整数或十进制字符串，revision 只能正安全整数或显式 null；直接路径 `mode/conditions/exclusive/references/branch` 的 null 分别沿用 order／[]／false／[]／main 缺省。默认值是引擎语义，不在校验时写入请求；重试不要在缺省、显式默认及 null 之间改写。
+
+请求与收据：
 
 - 直接路径 `{content,references?,branch?,mode?:'order'|'append',target_id?,conditions?,exclusive?,profile?,client_request_id?}`。
 - 版本草稿路径 `{draft_id,expected_revision,profile?,client_request_id?}`；正文、模式、条件和目标从草稿取，不允许覆盖。
@@ -41,4 +47,4 @@
 
 先提交挂载收据，再异步准入；跨 Git 等待后重新核验父空闲、冻结、基线、草稿占用和独占门。挂载中拒绝编辑与删除。取消未开始的意图可恢复可编辑草稿；已经开始却无确定结果的发射标记 `unknown`，重启不重放。只释放未知独占仍保留未知收据。已挂载追加阻止目标验收、归档或删除吞掉需求，实际投递仍沿用消息收件箱门禁。
 
-实现入口为 `src/core/project/input-emissions.js`、`input-emission-safety.js` 与 `input-emission-data.js`；公共适配为 RPC 输入 handler、Web action 与 CLI `order`。`test/project/input-emissions.test.js` 保留代表性条件发射主流程；管理授权及完整 HTTP／main 交付组合不再独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。受控 Provider 不代表真实模型或物理浏览器验证。
+实现入口为 `src/core/project/input-emissions.js`、`input-emission-safety.js` 与 `input-emission-data.js`；公共适配为 RPC 输入 handler、Web action 与 CLI `order`。`test/project/input-emissions.test.js` 保留代表性条件发射主流程；管理授权及完整 HTTP／main 交付组合不再独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。`test/project/input-emission-protocol.test.js` 验证同源协议、Dispatcher、真实持久挂载及 Input／Message 来源；`test/project/management-emission-catalog.test.js` 验证普通 Valet 经真实工具／bridge 发现同一协议、执行前参数拒绝和精确挂载收据。受控 Provider 不代表真实模型或物理浏览器验证。

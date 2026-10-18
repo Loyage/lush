@@ -214,7 +214,12 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
       expect(history.next_cursor).toBe(historyRuns[1]);
       expect(JSON.stringify(history)).not.toContain('PRIVATE_PROVIDER');
       expect(replies[2].response.details).toMatchObject({ method: 'draft.add', status: 'succeeded' });
-      expect(replies[3].response).toEqual(replies[2].response);
+      const { diagnostic: firstDiagnostic, ...firstReceipt } = replies[2].response.details;
+      const { diagnostic: duplicateDiagnostic, ...duplicateReceipt } = replies[3].response.details;
+      expect(duplicateReceipt).toEqual(firstReceipt);
+      expect(duplicateDiagnostic.correlation.receipt_id).toBe(firstDiagnostic.correlation.receipt_id);
+      expect(duplicateDiagnostic.correlation.call_id).not.toBe(firstDiagnostic.correlation.call_id);
+      expect(replies[3].response.content).toEqual([{ type: 'text', text: JSON.stringify(replies[3].response.details) }]);
       expect(f.store.draftCount()).toBe(1);
       expect(f.store.get('SELECT content FROM drafts').content).toBe('real-tool-chain draft');
       expect(replies[4].response.details).toMatchObject({ method: 'worker.inspect', status: 'succeeded', result: { id: target.id } });

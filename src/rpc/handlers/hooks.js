@@ -1,5 +1,6 @@
 import { check, id, isPlainObject, text } from '../../core/types.js';
 import { validateHookRegistration } from '../../core/hook-registration.js';
+import { managementReceipt } from '../../core/project/management-receipt.js';
 
 function revision(value) {
   check(typeof value === 'string' && value.length > 0 && value.length <= 256
@@ -126,6 +127,7 @@ export const handlers = {
     return p.saveHookSignal(params.signal, expected);
   },
   'hooks.signal_remove'(p, params) { return p.removeHookSignal(hookId(params.id), revision(params.expected_revision)); },
+  'management.receipt'(p, params) { return managementReceipt(p, params); },
   'management.permissions'(p) { return p.managementPermissions(); },
   'management.permission_get'(p, params) { return p.managementPermissionGet(params.method, params.scope); },
   'management.permission_set'(p, params) {

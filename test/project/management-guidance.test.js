@@ -88,13 +88,14 @@ test('real Node tools -> Bun bridge -> scope preflight -> resource handler prese
       expect(reply.error).not.toContain('PRIVATE'); expect(reply.error).not.toContain('未执行');
     }
     expect(dispatched).toEqual(Array(3).fill('agent.selection.resources'));
-    // Combined Dispatcher keeps trusted call auditing without persisting the
-    // richer bridge diagnostics, private instruction or arbitrary handler errors.
+    // Combined Dispatcher persists the richer code-owned diagnostic, never the
+    // private instruction or arbitrary handler errors.
     const audit = await f.project.rpcDispatcher.dispatch('worker.management_calls', { id: managers[0], after: 0 });
     expect(audit.items.filter(item => item.phase === 'finished').map(item => item.status)).toEqual(['failed', 'failed', 'failed']);
     expect(audit.items.filter(item => item.phase === 'started')).toHaveLength(3);
     expect(JSON.stringify(audit)).not.toContain('PRIVATE');
-    expect(JSON.stringify(audit)).not.toContain('authorization_required');
+    expect(audit.items.filter(item => item.phase === 'finished').at(-1).diagnostic)
+      .toMatchObject({ code: 'authorization_required', effect: 'not_started', evidence: 'trusted_pre_dispatch' });
     expect(f.store.draftCount()).toBe(0);
     expect(f.store.all("SELECT id FROM tasks WHERE task_kind IN ('order','child')")).toHaveLength(0);
   } finally { await rpc?.close(); await f.close(); }

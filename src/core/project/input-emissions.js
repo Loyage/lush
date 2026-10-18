@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { check, id, isPlainObject, text } from '../types.js';
+import { check, id, text } from '../types.js';
 import { expectedRevision, checkDraftRevision, createBufferedDraft } from './input-history.js';
 import { inheritedRunProfile } from './internal.js';
 import { inputOptions, inputEmission, saveEmission, emissionLocked, normalizeInputOptions, requestKey,
   definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT, INPUT_OPTION_KEYS } from './input-emission-data.js';
 import { roundEvent } from './input-emission-safety.js';
+import { validateInputEmissionRequest } from '../input-emission-protocol.js';
 
 function wait(reason) { const error = new Error(reason); error.inputEmissionWait = true; throw error; }
 const pending = state => state && ['waiting_conditions','queued'].includes(state.state);
@@ -27,8 +28,7 @@ export default {
 
   emitBufferedInput(options) {
     return this.write('mount an input', async () => {
-      check(!isPlainObject(options) || !Object.hasOwn(options, 'runner_node_id'), 'Runner selection is retired');
-      check(isPlainObject(options) && Object.keys(options).every(key => ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'].includes(key)), 'invalid input emission fields');
+      validateInputEmissionRequest(options);
       const key = requestKey(options.client_request_id), hash = definitionHash(options);
       if (key) {
         const prior = this.store.get("SELECT data FROM events WHERE type='input.emitted' AND json_extract(data,'$.request_key')=? ORDER BY id DESC LIMIT 1", key);

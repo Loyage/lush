@@ -6,6 +6,19 @@
 .management-call-head > * { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .management-call details { margin-top: 8px; }
 .management-call pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; max-height: none; }
+.management-call-failure { margin-block: 10px; padding: 10px 12px; border-left: 3px solid var(--danger, #c45b54); background: var(--surface, transparent); }
+.management-call-failure p { margin: 4px 0; white-space: pre-wrap; }
+.management-call-failure[hidden] { display: none; }
+.management-diagnostic-controls, .management-diagnostic-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.management-diagnostic-controls { margin-block: 8px; }
+.management-calls .management-diagnostic-controls button, .management-calls .management-diagnostic-controls a, .management-calls .management-diagnostic-details > summary { min-height: 44px; }
+.management-diagnostic-controls a { display: inline-flex; align-items: center; overflow-wrap: anywhere; }
+.management-diagnostic-timeline { padding-left: 20px; }
+/* Per-call failures must remain visible even in an otherwise over-height module.
+   Keep the existing preview for healthy-only windows; never clip loaded failures. */
+.management-calls.management-calls-has-failures.module-preview > .module-body { max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+.management-calls.management-calls-has-failures > .section-title .module-toggle,
+.management-calls.management-calls-has-failures > .module-preview-footer { display: none; }
 @media (max-width: 760px) {
   .management-call-head { grid-template-columns: minmax(0,1fr); gap: 4px; }
   .management-calls button, .management-call summary { min-height: 44px; }
