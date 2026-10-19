@@ -1,5 +1,6 @@
 import { check, isPlainObject, LushError } from '../types.js';
 import { PARAMS } from '../../rpc/registry.js';
+import { safeManagementCLICommand } from '../../cli/catalog.js';
 import { managementState } from './management-data.js';
 import { managementDiagnostic, safeManagementDiagnostic, managementDiagnosticErrorMessage, MANAGEMENT_DIAGNOSTIC_CODE } from '../management-diagnostic.js';
 import { diagnosticCorrelation, projectDiagnostic, publicCapabilityDiagnostic } from './management-diagnostic.js';
@@ -42,9 +43,9 @@ function safeResult(value, includeAction = true) {
   return result;
 }
 
-export function beginManagementCall(project, actorTask, transport, method, params) {
+export function beginManagementCall(project, actorTask, transport, method, params, cliCommand = null) {
   const state = managementState(actorTask), run = project.running.get(actorTask.id);
-  const info = { method, transport_method: transport, actor_id: actorTask.id, worker_number: actorTask.worker_number ?? null,
+  const info = { method, transport_method: transport, cli_command: safeManagementCLICommand(cliCommand, method), actor_id: actorTask.id, worker_number: actorTask.worker_number ?? null,
     run_id: run?.recordId ?? null,
     occurrence_id: state?.pending_signal?.id ?? null, started_at: new Date().toISOString(),
     ...target(project, method, params), params: safeParams(params) };
@@ -54,6 +55,8 @@ export function beginManagementCall(project, actorTask, transport, method, param
 
 export function finishManagementCall(project, actorId, info, result, error, parameterRejection = false) {
   const finished = new Date().toISOString(), summary = safeResult(result);
+  const lookupId = info.method === 'worker.lookup' ? result?.id ?? result?.result?.id : null;
+  if (positive(lookupId)) summary.id = lookupId;
   const status = error ? (parameterRejection ? 'rejected' : 'failed') : 'succeeded';
   const task = project.store.task(actorId), receiptId = summary.receipt_id ?? info.receipt_id;
   const call = findManagementCapability(project, task, receiptId) ?? findManagementAction(project, task, receiptId);
@@ -69,7 +72,7 @@ export function finishManagementCall(project, actorId, info, result, error, para
     parameterRejection ? 'not_started' : error ? info.effect ?? 'unknown' : readOnly ? 'not_applicable' : 'unknown',
     parameterRejection ? 'trusted_pre_dispatch' : error ? info.evidence ?? 'completion_not_observed' : readOnly ? 'read_only' : 'completion_not_observed', correlation);
   // Persist only the start whitelist, never mutable execution context or exception payloads.
-  const snapshot = Object.fromEntries(['method','transport_method','actor_id','worker_number','run_id','occurrence_id','started_at',
+  const snapshot = Object.fromEntries(['method','transport_method','cli_command','actor_id','worker_number','run_id','occurrence_id','started_at',
     'target_id','target_worker_number','params','call_id','request_event_id'].map(key => [key, info[key]]));
   try { project.store.event(actorId, FINISH, { ...snapshot, phase: 'finished', status, diagnostic,
     finished_at: finished, duration_ms: Math.max(0, Date.parse(finished) - Date.parse(info.started_at)),
@@ -108,6 +111,7 @@ export function managementCalls(project, params) {
       const method = typeof raw.method === 'string' && Object.hasOwn(PARAMS, raw.method) ? raw.method : null;
       const date = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) ? value : null;
       const data = { method, transport_method: ['manager.call','manager.query','manager.start','manager.retry','manager.catalog','manager.history','worker.lookup'].includes(raw.transport_method) ? raw.transport_method : null,
+        cli_command: safeManagementCLICommand(raw.cli_command, method),
         actor_id: task.id, worker_number: task.worker_number ?? null,
         ...Object.fromEntries(['run_id','occurrence_id','call_id','request_event_id','receipt_id'].map(key => [key, positive(raw[key]) ? raw[key] : null])),
         started_at: date(raw.started_at), ...target(project, 'worker.inspect', { id: raw.target_id }), params: safeParams(raw.params),

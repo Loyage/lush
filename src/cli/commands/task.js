@@ -5,12 +5,37 @@ import { option, exact } from '../args.js';
 import { runWorkerHook, runWorkerCompletion } from './hooks.js';
 import { printTree, printTranscript } from '../print.js';
 import { readProfile } from './intent.js';
+import { takeOptions, takeQueryOptions } from '../command-options.js';
 
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
   if (command === 'worker') {
     const verb = args.shift();
+    if (['graph','activity','page'].includes(verb)) {
+      const params = takeQueryOptions(args, `worker.${verb}`); exact(args, 0);
+      return client.request(`worker.${verb}`, params);
+    }
+    if (['progress-history','relations','delivery-graph','completion-page'].includes(verb)) {
+      const params = takeOptions(args, { before: 'number', after: 'number', cursor: 'string', limit: 'number', history: 'boolean' });
+      const targeted = ['progress-history','relations'].includes(verb); exact(args, targeted ? 1 : 0);
+      return client.request(`worker.${verb.replaceAll('-', '_')}`, { ...params, ...(targeted ? { id: await resolveWorkerId(client, args[0]) } : {}) });
+    }
+    if (verb === 'configure') {
+      check(!client.token || client.management, 'Worker configuration requires user or trusted management identity');
+      const connection = option(args, '--connection'), model = option(args, '--model'), source = option(args, '--profile-json'); exact(args, 1);
+      let update;
+      if (source !== null) {
+        check(connection === null && model === null, 'profile-json cannot be combined with connection/model');
+        const profile = JSON.parse(source);
+        check(profile && typeof profile === 'object' && !Array.isArray(profile), 'profile-json must be an object');
+        update = { profile };
+      } else {
+        check(connection !== null && model !== null, 'configure requires --connection UUID --model PROVIDER/MODEL or --profile-json JSON');
+        update = { model_selection: { connection_id: connection, model } };
+      }
+      return client.request('worker.configure', { id: await resolveWorkerId(client, args[0]), ...update });
+    }
     if (verb === 'list') {
       const brief = args.includes('--brief');
       if (brief) args.splice(args.indexOf('--brief'), 1);
@@ -27,16 +52,16 @@ export async function run(command, args, ctx) {
       }
     }
     else if (verb === 'rename') {
-      check(!client.token, 'Worker titles are user only, not an agent operation');
+      check(!client.token || client.management, 'Worker titles require user or trusted management identity');
       exact(args, 2);
       value = await client.request('worker.rename', { id: await resolveWorkerId(client, args[0]), title: args[1] });
     }
     else if (verb === 'hooks') {
-      check(!client.token, 'Hooks configuration is user only, not an agent operation');
+      check(!client.token || client.management, 'Hooks configuration is user only, not an agent operation');
       exact(args, 1); value = await client.request('worker.hooks', { id: await resolveWorkerId(client, args[0]) });
     }
     else if (verb === 'merge-conditions' || verb === 'merge-after') {
-      check(!client.token, 'merge conditions are user only; Valet must use manager.call');
+      check(!client.token || client.management, 'merge conditions require user or trusted management identity');
       if (verb === 'merge-conditions') {
         exact(args, 1); value = await client.request('worker.merge_conditions', { id: await resolveWorkerId(client, args[0]) });
       } else {
@@ -140,7 +165,7 @@ export async function run(command, args, ctx) {
         exact(args, 1);
         value = await client.request('worker.unreserve', { id: await resolveWorkerId(client, args[0]) });
       } else if (verb === 'delete' || verb === 'delete-preview') {
-        check(!client.token, 'Worker deletion is user only, not an agent operation');
+        check(!client.token || client.management, 'Worker deletion requires user or trusted management identity');
         const force = args.includes('--force');
         if (force) args.splice(args.indexOf('--force'), 1);
         const confirm = args.includes('--confirm');

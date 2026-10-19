@@ -10,7 +10,7 @@ import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-q
 import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
 import { MANAGEMENT_CODE_METHODS, MANAGEMENT_CODE_READS } from './management-code-methods.js';
 
-export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install']);
+export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install', 'worker.resolve', 'worker.resolve_divergence', 'worker.approve_merge', 'branch.convergence_set', 'branch.convergence_defaults_set']);
 
 const reads = new Set([
   'management.receipt','manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
@@ -49,7 +49,9 @@ const unavailable = new Set([
   'worker.runs_page','worker.artifacts_page','worker.artifact', // raw provider/tool material is not a credential-safe read surface
 ]);
 function legacyManagementPolicy(method) {
-  if (RETIRED_MANAGEMENT_METHODS.has(method)) return { access: 'unavailable', reason: 'hooks.install 已退役；先 hooks.register 注册完成，再独立请求 worker.hook_attach 的目标和版本。' };
+  if (RETIRED_MANAGEMENT_METHODS.has(method)) return { access: 'unavailable', reason: method === 'hooks.install'
+    ? 'hooks.install 已退役；先 hooks.register 注册完成，再独立请求 worker.hook_attach 的目标和版本。'
+    : '对应 CLI 已退役，仅保留旧后端和历史兼容；验收使用 worker accept，合并交给当前 runtime。' };
   if (!Object.hasOwn(PARAMS, method)) return { access: 'unavailable', reason: '当前版本没有此公开功能。' };
   if (method === 'system.stop_if_idle') return { access: 'unavailable',
     reason: '管理执行自身占用后台操作位，无法用空闲停机入口；请用户直接安全停机，或明确确认 system.stop 停止当前项目。' };
@@ -66,7 +68,7 @@ export function managementPolicy(method) {
     reason: '强制验收仅由用户预检并显式确认，不开放给 Agent、管家或自动 Hook。' };
   if (method === 'management.permission_get') return { access: 'read', reason: '读取设备全局单项权限及全局修订；设备作用域须明确。' };
   if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
-  if (method === 'hooks.install') return legacyManagementPolicy(method);
+  if (RETIRED_MANAGEMENT_METHODS.has(method)) return legacyManagementPolicy(method);
   if (method === 'hooks.register') return { access: 'automatic', reason: '只注册不挂载；完成后独立请求具体目标及固定版本，用户可逐项收紧权限。' };
   if (method.startsWith('context.')) return { access: 'unavailable', reason: 'Worker context is bound to its own active development invocation; use reviewed project management methods.' };
   if (MANAGEMENT_CODE_METHODS.has(method)) {

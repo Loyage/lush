@@ -16,6 +16,8 @@ import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
 import * as hooks from './commands/hooks.js';
 import * as skills from './commands/skills.js';
+import * as valet from './commands/valet.js';
+import * as input from './commands/input.js';
 
 export { HELP };
 
@@ -24,7 +26,7 @@ export { HELP };
  * 返回 undefined 表示「命令自己已经打印过」，主流程不再 print，也不做 fingerprint 提醒。
  */
 const COMMANDS = new Map();
-const modules = { system, intent, worker, context, notice, branch, agent, config, hooks, skills };
+const modules = { system, intent, worker, context, notice, branch, agent, config, hooks, skills, valet, input };
 for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   const module = modules[key];
   for (const name of names) {
@@ -34,9 +36,10 @@ for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   }
 }
 
-export async function main(argv = process.argv.slice(2), { executable = 'lush' } = {}) {
+export async function main(argv = process.argv.slice(2), { executable = 'lush', management = null, output = null } = {}) {
   check(CLI_EXECUTABLES.includes(executable), 'unknown CLI executable');
   const args = [...argv];
+  const emit = value => output ? output(value) : print(value, json);
   const projectPath = option(args, '--project');
   const json = args.includes('--json'); if (json) args.splice(args.indexOf('--json'), 1);
   // --help / -h 在任意位置都只印帮助：子命令会把裸 --help 当成必填正文落库（spec add / branch summary / notice post 等）。
@@ -46,7 +49,9 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
     const topic = args[0] === 'help' ? helpArgs.join(' ') : CLI_COMMANDS
       .filter(item => item.path.split(' ').every((part, index) => helpArgs[index] === part))
       .sort((a, b) => b.path.length - a.path.length)[0]?.path ?? helpArgs[0] ?? '';
-    console.log(cliHelp(executable, topic)); return;
+    const help = cliHelp(executable, topic);
+    if (output) output({ help }); else console.log(help);
+    return;
   }
   check(args[0] !== 'runner', 'Runner execution nodes are retired; only local execution is supported');
   check(!args.some(arg => arg === '--runner-node' || arg.startsWith('--runner-node=')), '--runner-node is retired; new Workers always execute locally');
@@ -57,7 +62,7 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   if (entry && !commandExecutables(entry).includes(executable)) {
     throw new Error(`${executable} ${entry.path} is not available; use ${commandExecutables(entry)[0]} ${entry.path}`);
   }
-  if (entry && process.env.LUSH_AGENT_TOKEN && !LUSHW_PATHS.has(entry.path)) {
+  if (entry && process.env.LUSH_AGENT_TOKEN && !management && !LUSHW_PATHS.has(entry.path)) {
     throw new Error(`${executable} ${entry.path} is a management command; development Agent invocations must use lushw`);
   }
   const root = args[0];
@@ -68,6 +73,9 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
     throw new Error(`unknown command: ${root}; run ${executable} help`);
   }
   check(entry, `unknown ${root} command; run ${executable} help`);
+  // Only the fixed management bridge supplies this context. Gate before any handler,
+  // project discovery, file access, service control or user-identity client creation.
+  if (management) management.assertCommand(entry, args);
   let command = args.shift();
   if (command === 'host') {
     if (!['start', 'stop', 'restart', 'status'].includes(args[0])) {
@@ -81,7 +89,7 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
     try { return await handler(command, args, context); }
     catch (error) {
       // Keep the original failure and exit semantics; help is local and never replays a request.
-      if (error instanceof Error) error.message += `\n用法：${entry.usage.replace(/^lush(?=\s|$)/, executable)}\n帮助：${executable} help ${entry.path}（只读，不会重试；请求结果未知时不要重放）`;
+      if (error instanceof Error && !management) error.message += `\n用法：${entry.usage.replace(/^lush(?=\s|$)/, executable)}\n帮助：${executable} help ${entry.path}（只读，不会重试；请求结果未知时不要重放）`;
       throw error;
     }
   };
@@ -89,7 +97,12 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
   // credentials. Notice helpers read only the explicit questions file, never project state.
   if (command === 'skills' || (command === 'notice' && notice.isLocalCommand(args))) {
     const value = await invoke({ json, executable });
-    if (value !== undefined) print(value, json);
+    if (value !== undefined) emit(value);
+    return;
+  }
+  if (management) {
+    const value = await invoke({ client: management.client, json: true, executable, management: true });
+    if (value !== undefined) emit(value);
     return;
   }
   if (executable === 'lushw') check(Boolean(process.env.LUSH_AGENT_TOKEN || process.env.LUSH_CLI_TRIAL), 'lushw data commands require an active Worker invocation');
@@ -107,5 +120,5 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
       console.error(`${executable}: 项目 ${project} 的 daemon 与当前磁盘代码不一致；确认没有活动 invocation 后运行 bun run daemon-restart --project ${JSON.stringify(project)}`);
     }
   }
-  print(value, json);
+  emit(value);
 }

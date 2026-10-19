@@ -1,10 +1,5 @@
 import { CLI_EXECUTABLES, cliCommands } from '../cli/catalog.js';
-import { AUTOMATION_CAPABILITIES } from '../core/hook-registration.js';
-import { MERGE_CONDITION_CAPABILITIES } from '../core/merge-conditions.js';
-import { WORKER_QUERY_CAPABILITIES } from '../core/worker-query.js';
-import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
-import { MANAGEMENT_RECEIPT_CAPABILITIES } from '../core/management-diagnostic.js';
-import { INPUT_EMIT_CAPABILITY } from '../core/input-emission-protocol.js';
+import { CLI_CAPABILITIES } from '../cli/capabilities.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { managementPolicy, managementAllowedAccess, managementAuthorization } from './management-policy.js';
 
@@ -21,15 +16,13 @@ export function cliCatalog() {
   return { version: 1, source: 'builtin-cli', commands: CLI_EXECUTABLES.flatMap(executable => cliCommands(executable).map(entry => ({
     executable, command_path: entry.path,
     path: `${executable} ${entry.path}`, parent: entry.parent ? `${executable} ${entry.parent}` : null, name: entry.path.split(' ').at(-1),
-    directory: entry.directory, operation: entry.operation, operations: [...entry.operations], description: entry.description,
+    directory: entry.directory, management_cli: entry.management_cli, operation: entry.operation, operations: [...entry.operations], description: entry.description,
     usage: entry.usage ?? `${executable} ${entry.path} <子命令>`, format: entry.format ?? `${executable} ${entry.path} <子命令>`, example: entry.example ?? null,
     risk: entry.directory ? '选择子命令查看实际调用与风险；目录本身不执行命令。' : [risks[entry.kind], entry.risk].filter(Boolean).join(' '),
     advanced: entry.advanced ?? '', user_context_rpc: entry.user_context_rpc,
     rpc: entry.rpc.map(method => {
       const policy = managementPolicy(method);
-      return { method, parameters: [...PARAMS[method]], ...(MERGE_CONDITION_CAPABILITIES[method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[method] ?? {}),
-        ...(AUTOMATION_CAPABILITIES[method] ?? {}), ...(CONTEXT_CAPABILITIES[method] ?? {}), ...(MANAGEMENT_RECEIPT_CAPABILITIES[method] ?? {}),
-        ...(method === 'input.emit' ? INPUT_EMIT_CAPABILITY : {}),
+      return { method, parameters: [...PARAMS[method]], ...(CLI_CAPABILITIES[method] ?? {}),
         ...(managementAuthorization(method) ? { authorization: managementAuthorization(method) } : {}), base_access: policy.access,
         allowed_access: [...managementAllowedAccess(policy.access, method)], reason: policy.reason,
         audience: USER_ONLY.has(method) ? 'user' : AGENT_ONLY.has(method) ? 'agent' : 'user-and-agent' };

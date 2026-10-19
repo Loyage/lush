@@ -16,7 +16,7 @@ W348／D723：登录用户在 Worker CLI 页面执行 `lushw` 时另走用户上
 
 旧 `lushc` 可执行文件与源码脚本直接移除，不保留兼容入口，外部脚本须改用 `lushw`。已有进程不会热更新；用户须在安全空闲点更新安装入口，并分别更新 daemon 与 Host，不能只刷新页面。历史会话、用户自定义 Prompt 和外部脚本不批量改写；旧指令引用须由维护者按新入口更新。
 
-帮助可离线读取：`lush help agent resources`、`lush agent sources list --help`、`lushw help self inspect` 只打印指定命令／子目录的用法，不发现项目、不调用 RPC，也不会因存在待执行正文而执行命令。普通 CLI 处理器报错附带对应的只读帮助入口；未知结果不可通过重试来验证。Valet 没有 Shell，应调用 `manager_catalog`，按目标 method 的参数、schema、示例及 `authorization` 前置条件查用法，不尝试直接运行 CLI。设备接口权限与范围授权的区别见[管家权限契约](../engineering/hook-signals-management.md#设备全局管家权限)。
+帮助可离线读取：`lush help agent resources`、`lush agent sources list --help`、`lushw help self inspect` 只打印指定命令／子目录的用法，不发现项目、不调用 RPC，也不会因存在待执行正文而执行命令。普通 CLI 处理器报错附带对应的只读帮助入口；未知结果不可通过重试来验证。Valet 没有 Shell，唯一模型工具 `lush_cli {argv:string[]}` 通过固定可信 bridge 运行同一个 `lush` parser 与命令处理器；例如 `{"argv":["help","worker","inspect"]}`，再提交 `{"argv":["worker","inspect","W5"]}`。模型不再暴露 `manager_*` 工具，内部管理 RPC 只作受控传输与历史兼容。`valet` 命令处理当前管家的安全查询、调用历史和自身 Notice／进度，不代理开发 `context.*`。help、命令、schema 与 CLI 学习目录同源；结构化输入使用正式命令的 `--data JSON`／`--questions-json JSON`，不读本地文件。真实命令共用但身份不共用：项目、token、可执行文件固定，不开放 `--project`、Shell、交互认证、扩展加载或本地服务工作流；已审核的插件安装库管理仍经原权限及显式设备授权，不代表向管家运行环境加载插件。静态本地边界在帮助与目录的 `management_cli` 中明示，最新接口权限和原安全门仍逐次检查。补齐仍有效能力，不恢复已明确退役的 CLI；完整安全与兼容边界见管家契约。设备接口权限与范围授权的区别见[管家权限契约](../engineering/hook-signals-management.md#设备全局管家权限)。
 
 入口不授予权限：带 Agent token 的 `lush` 管理入口不能绕过开发限制。Valet 的项目能力独立于 `LUSHW_METHODS`，由 `MANAGEMENT_CODE_METHODS` 和管理策略审核；保留已审核的当前项目跨树代理，不代理 invocation 绑定的 `context.*`。Valet 仅使用可信管理工具，不获得 Shell 或 Git 分支；已支持的受控写操作默认自动执行，可逐项收紧，权限修改本身始终须用户审核。既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
 

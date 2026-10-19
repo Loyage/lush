@@ -31,7 +31,7 @@ export async function run(command, args, ctx) {
   const { client } = ctx;
   let value;
   if (command === 'order') {
-    check(!client.token, 'agents cannot submit orders');
+    check(!client.token || client.management, 'agents cannot submit orders');
     const branch = option(args, '--branch');
     const profileFile = option(args, '--profile-file');
     const defer = flag(args, '--defer'); // Legacy spelling; ordinary emission now always defers safely.
@@ -59,7 +59,7 @@ export async function run(command, args, ctx) {
         ...(append !== null ? { mode: 'append', target_id: await resolveWorkerId(client, append) } : {}),
         ...(conditions.length ? { conditions } : {}), ...(exclusive ? { exclusive: true } : {}), ...(profile ? { profile } : {}) };
       value = await client.request(buffer ? 'draft.add' : 'input.emit',
-        buffer ? params : { ...params, client_request_id: randomUUID() });
+        buffer ? params : { ...params, client_request_id: client.management ? client.requestId : randomUUID() });
     } else {
       value = await client.request('order.submit', { content: args[0], ...(branch ? { branch } : {}), ...(profile ? { profile } : {}), ...(defer ? { defer: true } : {}) });
     }

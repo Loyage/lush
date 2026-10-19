@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';

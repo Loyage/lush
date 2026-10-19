@@ -52,9 +52,9 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
 test('scoped help exposes the selected usage and device authorization without unrelated commands', () => {
   const help = cliHelp('lush', 'agent resources');
   expect(help).toContain('agent resources [--scope device]');
-  expect(help).toContain('scope:"device"');
+  expect(help).toContain('--scope device');
   expect(help).toContain('接口 read/automatic 权限不替代');
-  expect(help).toContain('manager_catalog');
+  expect(help).toContain('lush_cli');
   expect(help).not.toContain('agent sources save --file');
   expect(cliHelp('lushw', 'self inspect')).toContain('self inspect');
   expect(() => cliHelp('lushw', 'worker inspect')).toThrow('lush help worker inspect');

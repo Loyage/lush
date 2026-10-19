@@ -1,29 +1,25 @@
-/** Trusted Pi extension: isolated management tools; capability calls remain policy-gated in the daemon. */
+/** Trusted Pi adapter: one fixed real CLI, never a shell or a user RPC client. */
 import cp from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { managementInvocation, validateManagementRPC, MANAGEMENT_RPC_METHODS } from './management-rpc.js';
+import { managementInvocation } from './management-rpc.js';
+import { validateManagementCLI, managementCLIParseError, safeManagementCLIError } from './management-cli-protocol.js';
 import { builtInPrompt } from './prompts.js';
-import { isWorkerNumber } from '../core/worker-number.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
 import { safeManagementPreflightError } from '../core/management-guidance.js';
 import { safeManagementDiagnosticError } from '../core/management-diagnostic.js';
 
-const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
-export const MANAGEMENT_TOOL_NAMES = Object.freeze(MANAGEMENT_RPC_METHODS.filter(method => method.startsWith('manager.'))
-  .map(method => method.replace('.', '_')));
-const workerSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^(?:W[1-9][0-9]*(?:-[1-9][0-9]*)*|V[1-9][0-9]*)$' }],
-  description: '当前项目 Worker／Valet 的内部整数 ID 或精确持久编号（如 W117、W117-1、V1）；V 查询不授予开发动作权限，不能猜测编号。' };
+const HELPER = fileURLToPath(new URL('./management-cli.js', import.meta.url));
+export const MANAGEMENT_TOOL_NAMES = Object.freeze(['lush_cli']);
 const MAX_OUTPUT = 256 * 1024;
-const UNCONFIRMED = '管理请求被拒绝或未确认完成；副作用可能已经发生，不能换身份或自动重试。可用 manager_catalog 核对用法、access/reason 和 authorization；未知执行结果仍须交用户检查。';
+const UNCONFIRMED = '管理请求被拒绝或未确认完成；副作用可能已经发生，不能换身份或自动重试。可用 lush_cli 的 help 核对用法和授权前置条件；未知执行结果须交用户检查。';
 
-/** Node Pi cannot use Bun.connect. Run only the fixed trusted Bun bridge for one bounded request. */
-export async function managementRPCRequest(method, params, signal, env = process.env) {
-  managementInvocation(env); validateManagementRPC(method, params);
-  if (!path.isAbsolute(env.LUSH_MANAGER_BUN || '')) throw new Error('trusted management RPC bridge is unavailable');
+/** Node Pi runs only the fixed, bounded Bun bridge. No caller executable/cwd/env. */
+export async function managementCLIRequest(argv, requestId, signal, env = process.env, { timeoutMs = 30000 } = {}) {
+  managementInvocation(env); validateManagementCLI(argv, requestId);
+  if (!path.isAbsolute(env.LUSH_MANAGER_BUN || '')) throw new Error('trusted management CLI bridge is unavailable');
   if (signal?.aborted) throw new Error(UNCONFIRMED);
   const child = cp.spawn(env.LUSH_MANAGER_BUN, [HELPER], { stdio: ['pipe', 'pipe', 'ignore'], env: {
-    // The bridge needs no model credential, user Pi settings or caller-supplied executable resources.
     PATH: env.PATH || '', LUSH_PROJECT: env.LUSH_PROJECT, LUSH_HOME: env.LUSH_HOME,
     LUSH_TASK_ID: env.LUSH_TASK_ID, LUSH_AGENT_TOKEN: env.LUSH_AGENT_TOKEN,
     LUSH_RUNTIME_CONTEXT: env.LUSH_RUNTIME_CONTEXT, LUSH_MANAGER_RPC_SOCKET: env.LUSH_MANAGER_RPC_SOCKET,
@@ -39,7 +35,7 @@ export async function managementRPCRequest(method, params, signal, env = process
         settled = true;
         error ? reject(error) : resolve(result);
       };
-      timer = setTimeout(() => { kill(); finish(new Error(UNCONFIRMED)); }, 30000);
+      timer = setTimeout(() => { kill(); finish(new Error(UNCONFIRMED)); }, timeoutMs);
       timer.unref?.();
       signal?.addEventListener('abort', kill, { once: true });
       child.stdout.setEncoding('utf8');
@@ -54,107 +50,48 @@ export async function managementRPCRequest(method, params, signal, env = process
         try {
           const response = JSON.parse(output);
           if (code !== 0) {
-            const safe = safeManagementDiagnosticError(response) ?? safeWorkerQueryError(response) ?? safeManagementPreflightError(response);
-            // Pi may render only Error.message: keep recovery metadata visible to the model too.
+            const safe = safeManagementCLIError(response) ?? safeManagementDiagnosticError(response) ?? safeWorkerQueryError(response) ?? safeManagementPreflightError(response);
             if (safe) { finish(Object.assign(new Error(JSON.stringify(safe)), safe)); return; }
             throw new Error();
           }
-          if (!response || Object.hasOwn(response, 'error') || !Object.hasOwn(response, 'result')) throw new Error();
-          finish(null, response.result);
+          if (!response || response.exit_code !== 0 || !Object.hasOwn(response, 'result')) throw new Error();
+          finish(null, response);
         } catch { finish(new Error(UNCONFIRMED)); }
       });
-      child.stdin.end(JSON.stringify({ method, params }));
+      child.stdin.end(JSON.stringify({ argv, request_id: requestId }));
       if (signal?.aborted) kill();
     });
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', kill);
-    kill();
-    await closed;
+    clearTimeout(timer); signal?.removeEventListener('abort', kill); kill(); await closed;
   }
 }
 
-function validateWorker(params, required) {
-  if (!params || typeof params !== 'object' || Array.isArray(params) || Object.keys(params).some(key => key !== 'worker'))
-    throw new Error('only the Worker selector is accepted');
-  if (params.worker === undefined && !required) return undefined;
-  const worker = params.worker;
-  if (Number.isSafeInteger(worker) && worker > 0) return worker;
-  if (isWorkerNumber(worker)) return worker;
-  throw new Error('worker must be a positive internal ID or a persistent W/V number');
-}
-
-export function registerManagementTools(pi, request = managementRPCRequest, env = process.env) {
-  // Capture the invocation, never reread a replacement token or fall back to a user RPC.
+export function registerManagementTools(pi, request = managementCLIRequest, env = process.env) {
   const bound = { ...env };
-  const call = async (method, params, signal) => {
-    managementInvocation(bound); validateManagementRPC(method, params);
-    if (signal?.aborted) throw new Error(UNCONFIRMED);
-    return request(method, params, signal, bound);
-  };
-  for (const [name, method, label, description] of [
-    ['manager_query', 'manager.query', '查询 Worker／Valet', '查询当前项目的有界开发 Worker 摘要或 Worker／Valet 单目标安全诊断；不读文件、会话或凭证。'],
-    ['manager_start', 'manager.start', '开始／继续 Worker', '只提交开始／继续 paused 的开发 Worker。waiting 由 runtime 持久等待安全点，提交后结束本轮，不轮询。'],
-    ['manager_retry', 'manager.retry', '重试失败 Worker', '只提交重试 failed 的开发 Worker，保留已有运行设置。成功不是任务完成或额度恢复；unknown／异常不能自动重试。'],
-  ]) {
-    pi.registerTool({ name, label, description, exposure: 'model-only',
-      // TypeBox 1 schemas are ordinary JSON Schema; no third-party runtime import is needed.
-      parameters: { type: 'object', properties: { worker: workerSchema }, additionalProperties: false,
-        ...(method === 'manager.query' ? {} : { required: ['worker'] }) },
-      annotations: { readOnlyHint: method === 'manager.query', destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      async execute(_toolCallId, params, signal) {
-        const selector = validateWorker(params, method !== 'manager.query');
-        const target = typeof selector === 'string' ? await call('worker.lookup', { number: selector }, signal) : null;
-        if (typeof selector === 'string' && target?.worker_number !== selector) throw new Error('invalid Worker/Valet lookup response');
-        const id = target ? target.id : selector;
-        if (selector !== undefined && (!Number.isSafeInteger(id) || id <= 0)) throw new Error('Worker number did not resolve to a current target');
-        const result = await call(method, id === undefined ? {} : { id }, signal);
-        const text = JSON.stringify(result);
-        if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_OUTPUT) throw new Error('management response exceeds its bound');
-        return { content: [{ type: 'text', text }], details: result };
-      },
-    });
-  }
-  const resultView = result => {
-    const text = JSON.stringify(result);
-    if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_OUTPUT) throw new Error('management response exceeds its bound');
-    return { content: [{ type: 'text', text }], details: result };
-  };
-  pi.registerTool({ name: 'manager_catalog', label: '管理能力目录', exposure: 'model-only',
-    description: '列出当前 Lush 全部公开功能、查询 schema/枚举/默认值/分页示例及 authorization 前置条件；遇到用法或范围错误先查目标 method。scope 的含义按接口区分，不猜 development/device；目录不是用户授权。',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    async execute(_id, params, signal) { return resultView(await call('manager.catalog', params, signal)); },
-  });
-  pi.registerTool({ name: 'manager_history', label: '运行优化诊断材料', exposure: 'model-only',
-    description: '分页读取项目调用状态、耗时、模型与事件数量，供流程优化诊断；不读取原始工具参数、输出、提示词或凭证。',
-    parameters: { type: 'object', properties: { id: { type: 'integer', minimum: 1 }, before: { type: 'integer', minimum: 1 },
-      limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    async execute(_id, params, signal) { return resultView(await call('manager.history', params, signal)); },
-  });
-  pi.registerTool({ name: 'manager_call', label: '提交受控管理操作', exposure: 'model-only',
-    description: '调用目录中经过审核的当前项目 lush/lushw 能力。可跨开发树发消息、在显式开发 parent 下派 child、报告自身进度/标题/决策；history/transcript 只返回安全元数据；management.receipt 按 receipt_id（也接受可信调用 Event ID）读取单收据安全诊断与有界关联时间线。受控操作（含验收回收）默认自动执行，按最新设备权限检查；用户收紧为 confirmation 时提交精确确认请求。修改接口权限始终须真实用户审核，模型不可自行批准。自身 notice.post 是本轮最后动作，用户答复后续跑同一授权事项。设备设置须用户指令和 scope 参数明确指定。返回 unknown 不重放。',
-    parameters: { type: 'object', properties: { method: { type: 'string', maxLength: 128 },
-      params: { type: 'object', description: '目录中所选能力的参数；不传 token、凭证、环境变量或私有 Prompt。' },
-      request_id: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['method','params'], additionalProperties: false },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  pi.registerTool({ name: 'lush_cli', label: 'Lush CLI', exposure: 'model-only',
+    description: '运行固定可信 lush CLI 的 argv 数组（不含 lush/bun 前缀），共用真实解析、help 和用法。先调用 ["help"] 或 ["help","worker","inspect"]；无 Shell、文件、跨项目、交互认证或环境覆盖。JSON 负载用命令支持的 --data/--questions-json，不读本地文件。当前项目与 management 身份固定；写入仍逐项授权/精确确认，unknown 不重放。',
+    parameters: { type: 'object', properties: { argv: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 128 } }, required: ['argv'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async execute(toolCallId, params, signal) {
-      return resultView(await call('manager.call', { ...params, request_id: params.request_id ?? toolCallId }, signal));
+      try {
+        if (!params || Object.keys(params).some(key => key !== 'argv')) throw managementCLIParseError();
+        managementInvocation(bound); validateManagementCLI(params.argv, toolCallId);
+      } catch (error) {
+        const safe = safeManagementCLIError(error);
+        if (safe) throw Object.assign(new Error(JSON.stringify(safe)),safe);
+        throw error;
+      }
+      const result = await request(params.argv, toolCallId, signal, bound);
+      const text = JSON.stringify(result);
+      if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_OUTPUT) throw new Error(UNCONFIRMED);
+      return { content: [{ type: 'text', text }], details: result };
     },
   });
   const restrict = () => pi.setActiveTools([...MANAGEMENT_TOOL_NAMES]);
   pi.on('session_start', restrict);
-  pi.on('before_agent_start', () => {
-    restrict();
-    // Pi's global APPEND_SYSTEM.md can survive --system-prompt even with context discovery off.
-    // The documented forced-prompt projection removes ambient system sections from model requests.
-    return { systemPrompt: builtInPrompt('manager') };
-  });
-  // Even a malicious/resumed model tool call cannot reach an inactive built-in or nested tool.
+  pi.on('before_agent_start', () => { restrict(); return { systemPrompt: builtInPrompt('manager') }; });
   pi.on('tool_call', event => {
-    if (!MANAGEMENT_TOOL_NAMES.includes(event.toolName)) return { block: true, reason: 'Valet 只允许可信管理工具，不开放文件、Shell 或未审核 RPC。' };
+    if (!MANAGEMENT_TOOL_NAMES.includes(event.toolName)) return { block: true, reason: 'Valet 只允许固定 lush_cli，不开放文件、Shell 或未审核 RPC。' };
   });
 }
-
 export default function lushManagement(pi) { registerManagementTools(pi); }

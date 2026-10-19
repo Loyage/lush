@@ -56,7 +56,7 @@ export const PARAMS = {
   'management.receipt': MANAGEMENT_RECEIPT_PARAMETERS,
   'management.emergency_preview': [],
   'management.emergency_stop': ['revision','confirm'],
-  'manager.catalog': [], 'manager.history': WORKER_QUERY_PARAMETERS['manager.history'], 'manager.call': ['method','params','request_id'],
+  'manager.catalog': [], 'manager.history': WORKER_QUERY_PARAMETERS['manager.history'], 'manager.call': ['method','params','request_id','cli_command'],
   'manager.query': WORKER_QUERY_PARAMETERS['manager.query'], 'manager.start': ['id'], 'manager.retry': ['id'],
   'worker.hooks': ['id'], 'worker.completion_page': ['before','limit'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],

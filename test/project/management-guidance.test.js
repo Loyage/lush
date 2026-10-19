@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
@@ -16,7 +16,7 @@ const call = params => ({ name: 'manager_call', params: { method: 'agent.selecti
 
 test('scope prerequisites share CLI/manager discovery, without changing method access or query scope', () => {
   const policy = snapshot(), catalog = managementCatalog(policy), cli = cliCatalog();
-  expect(catalog.help).toContain('manager_catalog');
+  expect(catalog.help).toContain('lush_cli');
   for (const method of ['agent.selection.resources', 'agent.connections.list', 'management.permission_get', 'hooks.auto_select']) {
     const authorization = managementAuthorization(method);
     expect(authorization).toMatchObject({ scope: 'device', explicit_scope_required: true, explicit_user_instruction_required: true });
@@ -33,7 +33,7 @@ test('only fixed scope preflight diagnostics cross the bridge and distinguish pa
   for (const [reason, kind, recovery] of [['scope_required', 'invalid_parameters', 'read_catalog'], ['invalid_scope', 'invalid_parameters', 'read_catalog'], ['user_authorization_required', 'authorization_required', 'ask_user']]) {
     const safe = safeManagementPreflightError(managementScopeError(reason));
     expect(safe).toMatchObject({ code: MANAGEMENT_PREFLIGHT_CODE, kind, recovery, execution: 'not_started' });
-    expect(safe.error).toContain('manager_catalog');
+    expect(safe.error).toContain('lush_cli help');
     expect(safeManagementPreflightError(safe)).toEqual(safe); // Bun and Node independently verify the envelope.
     expect(safeManagementPreflightError(new LushError(safe.error, -32602))).toBeNull();
   }
@@ -73,7 +73,7 @@ test('real Node tools -> Bun bridge -> scope preflight -> resource handler prese
     expect(JSON.parse(original[0].error)).toMatchObject({ kind: 'invalid_parameters', execution: 'not_started', recovery: 'read_catalog' });
     expect(JSON.parse(original[2].error)).toMatchObject({ kind: 'authorization_required', execution: 'not_started', recovery: 'ask_user' });
     for (const reply of original) {
-      expect(reply.error).toContain('本次请求未执行'); expect(reply.error).toContain('manager_catalog');
+      expect(reply.error).toContain('本次请求未执行'); expect(reply.error).toContain('lush_cli help');
       expect(reply.error).not.toContain('PRIVATE'); expect(reply.error).not.toContain('副作用可能');
     }
     expect(dispatched).toHaveLength(0);
@@ -84,7 +84,7 @@ test('real Node tools -> Bun bridge -> scope preflight -> resource handler prese
     expect(authorized[1].error).toBeUndefined(); expect(authorized[1].response.details.status).toBe('succeeded');
     expect(authorized[1].response.details.result).toHaveProperty('connections');
     for (const reply of authorized.slice(2)) {
-      expect(reply.error).toContain('管理请求被拒绝或未确认完成'); expect(reply.error).toContain('manager_catalog');
+      expect(reply.error).toContain('管理请求被拒绝或未确认完成'); expect(reply.error).toContain('lush_cli help');
       expect(reply.error).not.toContain('PRIVATE'); expect(reply.error).not.toContain('未执行');
     }
     expect(dispatched).toEqual(Array(3).fill('agent.selection.resources'));

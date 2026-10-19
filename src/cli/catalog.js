@@ -1,16 +1,23 @@
 // Code-owned public CLI catalogue. Main registration and generated help consume
 // this same hierarchy; browser clients receive only the safe projection, never handlers.
 import { DEVICE_SCOPE_GUIDANCE, MANAGEMENT_RECOVERY_GUIDANCE } from '../core/management-guidance.js';
+import { CLI_CAPABILITIES } from './capabilities.js';
 export const COMMAND_MODULES = Object.freeze({
-  system: ['daemon', 'status', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status'],
+  system: ['daemon', 'status', 'system', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status'],
+  input: ['input'],
   intent: ['order'], worker: ['worker'], context: ['self','parent','children'], notice: ['notice'],
-  branch: ['branch'], agent: ['agent'], config: ['config'], hooks: ['hooks'], skills: ['skills'],
+  branch: ['branch'], agent: ['agent'], config: ['config'], hooks: ['hooks'], skills: ['skills'], valet: ['valet'],
 });
 const entries = [];
 const directories = {
+  valet: '固定 management invocation 的安全查询、历史与自身事务。',
+  'valet progress': '汇报当前管家自身里程碑。', 'valet notice': '向用户发布当前事项的自身决策或告知。',
   daemon: '项目后台的启动、停止与代码身份。', host: '设备 Web 工作台的启动、停止与身份。',
   self: '当前 invocation 的自身 Worker。', parent: '自身的直接父 Worker。', children: '自身的直接子 Worker。',
   'self notice': '读取及发布自身 Notice。', 'self progress': '汇报自身里程碑。',
+  input: '读取输入历史、编辑未发送缓冲并安排条件发射。', 'input buffer': '只修改未发送的缓冲，不改写已提交 Input。',
+  system: '通过当前项目 RPC 查询诊断及提交服务动作，不运行本地服务工作流。',
+  'agent usage': '读取和配置调用统计与采样。',
   worker: '查看、沟通与管理持久 Worker。', branch: '查看分支、管理归并与资源。',
   notice: '发布问题、答复决定与读取告知。',
   skills: '无需项目的内置能力指南。', agent: '设备 Agent、模型来源与插件配置。',
@@ -34,10 +41,41 @@ for (const verb of ['start','stop','restart','status']) {
   add(`host ${verb}`, '[PORT]', { start: '启动 Web Host；已有进程不替换。', stop: '停止 Web Host，不停止项目后台。', restart: '重新启动 Web Host，登录会话失效。', status: '读取真实 Web Host 代码身份。' }[verb], '', [], verb === 'status' ? 'local-read' : 'local-write', 'Host 控制是本地用户能力，不对应可授权的项目 RPC。start/restart 可用 --foreground；未指定项目进入全局工作台。');
 }
 add('status', '', '读取项目与 Worker 状态。', '', ['system.status']);
+for (const [verb, args, description, rpc, kind] of [
+  ['summary','[--development true|false]','读取当前项目有界概览。','system.summary','read'],
+  ['diagnostics','','读取当前项目 token／估算费用速率及覆盖不足。','system.diagnostics','read'],
+  ['interrupt-all','[--notify-completion true|false]','请求中断当前项目所有开发调用。','system.interrupt_all','write'],
+  ['resume-all','','提交继续当前项目合法暂停工作。','system.resume_all','agent'],
+  ['stop','','请求停止当前项目 daemon，不调用本地启动/重启流程。','system.stop','write'],
+]) add(`system ${verb}`, args, description, '', [rpc], kind);
+for (const [verb,args,description,example,rpc,kind] of [
+  ['history','[--cursor CURSOR] [--limit N] [--q TEXT] [--status STATUS] [--integration STATE] [--conditional FILTER] [--view drafts] [--modes JSON]','分页读取实际输入或显式选择未发送缓冲。','--view drafts','input.history','read'],
+  ['get','input|message|management|draft ID','读取单条输入或缓冲的安全详情。','draft 1','input.get','read'],
+  ['parents','','读取可选开发输入目标。','','input.parents','read'],
+  ['emit','DRAFT_ID --revision N|null','按保存的明确版本挂载条件发射。','1 --revision 1','input.emit','write'],
+  ['cancel-emission','DRAFT_ID --revision N|null','撤销尚未执行的挂载，不撤回已执行副作用。','1 --revision 1','input.emission_cancel','write'],
+  ['release-exclusive','DRAFT_ID --revision N|null','释放独占开发，不取消挂载。','1 --revision 1','input.exclusive_release','write'],
+  ['buffer update',"ID '内容' --revision N|null [--branch BRANCH] [--mode new|append] [--target ID] [--conditions JSON] [--exclusive true|false] [--references JSON]",'只编辑未发送缓冲，revision 防覆盖。',"1 '补充需求' --revision 1",'draft.update','write'],
+  ['buffer remove','ID --revision N|null','删除未发送缓冲，不删除已提交输入。','1 --revision 1','draft.remove','write'],
+]) add(`input ${verb}`,args,description,example,[rpc,...(verb === 'buffer update' ? ['worker.lookup'] : [])],kind,'新内容用 order／order --buffer；版本路径不接受内容覆盖。revision=null 仅用于明确的旧无版本缓冲。未知结果不重放。');
+add('valet query', '[ID|Wn|Vn]', '管理身份只读查询当前项目有界目标摘要或单目标诊断。', 'W5', ['manager.query','worker.lookup']);
+add('valet history', '[--worker ID|Wn|Vn] [--before N] [--limit N]', '读取安全调用状态、耗时、模型与事件数量；不读会话原文。', '--limit 30', ['manager.history','worker.lookup']);
+add('valet auto-title', "'标题'", '只设置当前管家一次性自动标题。', "'项目管理'", ['worker.auto_title'], 'write');
+add('valet progress plan', 'KEY[:显示名]...', '规划当前管家自身里程碑。', 'inspect:核验', ['progress.plan'], 'write');
+add('valet progress complete', 'KEY', '标记当前管家实际完成的里程碑。', 'inspect', ['progress.complete'], 'write');
+add('valet notice post', "'标题' [--body TEXT] [--kind question|info] [--questions-json JSON]", '发布当前管家自身问题或告知；问题发布后结束本轮。', "'确认方案' --body '背景'", ['notice.post'], 'write', '仅固定 management invocation；内联问卷为 {questions:[...]}，不读取本地文件。');
 add('doctor', '[--verbose]', '核对当前磁盘、daemon 与 Host 的代码身份。', '', ['system.status'], 'local-read', '--verbose 显示完整诊断；包含本地进程检查，不只是 system.status。');
 add('log', '', '读取所选项目 daemon 日志末尾 60 行。', '', [], 'local-read', '本地文件读取，不向 Valet 开放日志或 Shell。');
 add('order', "'目标' [--branch NAME] [--profile-file PATH] [--management] [--buffer] [--append ID|Wn] [--quiet] [--exclusive] [--after-settled ID|Wn] [--after-merged ID|Wn] [--defer]", '提交开发指令、条件输入或即时 Valet 管理需求。', "'实现需求' --branch main", ['order.submit','input.emit','draft.add','management.submit','worker.lookup'], 'agent', '默认可靠挂载，安全准入后才创建／调用；--buffer 只保存草稿。--management 独立创建 Valet，不可与开发条件混用。条件可重复，profile 文件须 owner-only。各 RPC 按实际选项分支调用，授权其中一个不等于开放全部命令。');
 const workers = [
+  ['graph','[--details true|false] [--hidden-statuses JSON] [--include-archived true|false] [--cursor CURSOR] [--scope all|tree]','分页读取开发树安全元数据。','--details false --scope tree','worker.graph'],
+  ['activity','[--limit N] [--scope work|all]','读取活动工作及有界历史尾部。','--limit 50 --scope work','worker.activity'],
+  ['page','[--before N] [--limit N] [--scope work|all]','分页读取历史终态工作。','--limit 50 --scope work','worker.page'],
+  ['progress-history','ID [--before N] [--limit N]','分页读取目标里程碑历史。','W5','worker.progress_history'],
+  ['relations','ID [--after N] [--limit N]','分页读取目标关系。','W5','worker.relations'],
+  ['delivery-graph','[--history true|false] [--cursor CURSOR] [--limit N]','读取真实交付关系，不启动合并。','','worker.delivery_graph'],
+  ['completion-page','[--before N] [--limit N]','读取自动链工作分页。','','worker.completion_page'],
+  ['configure','ID (--connection UUID --model PROVIDER/MODEL | --profile-json JSON)','保存暂停工作下一次运行设置；管家仍拒绝 env 或私有 Prompt。','W5 --connection UUID --model openai/model','worker.configure','write'],
   ['list','[--brief] [--after N] [--limit N]','按内部 ID 升序分页；after 为非负整数，limit 为 1..1000（默认 200）；--brief 短摘要的 limit 为 1..200（默认 30）。','','worker.list'],
   ['tree','[ID|Wn]','查看 Worker 委派树；非 JSON 附带状态。','','worker.tree,system.status'],
   ['inspect','ID|Wn|Vn','查看完整 Worker 详情。','W5','worker.inspect'],
@@ -79,11 +117,13 @@ for (const verb of ['attach','enable','disable','remove']) add(`worker hook ${ve
 add('hooks install', 'ID|Wn --file PATH', '已退役：拒绝原子注册并挂载，改用先注册再单独挂载。', 'W5 --file automation.json', [], 'local-read', '仅保留拒绝诊断，不读取文件或调用 RPC；先 hooks register，再独立请求 worker hook attach。');
 add('hooks register', '--file PATH', '只注册 Shell 指令及自动化功能，不挂载或执行。', '--file automation.json',
   ['hooks.register'], 'write', 'command、hook、expected_revisions（commands 与 registry）、client_request_id；管家默认自动执行，注册完成后独立请求挂载；用户可逐项收紧权限。Shell 非沙箱。');
+add('hooks completion-defaults','on|off merge|accept --revision REV','设置未来新指令的完工默认，不改 child 或已有 Worker。','off merge --revision REV',['hooks.completion_defaults'],'write');
+add('hooks command history-remove','EXECUTION_ID | --all','显式删除运行历史摘要。','--all',['hooks.command_history_remove'],'destructive');
 add('hooks upgrade', '--revision REV', '显式为旧定义和旧挂载补登记并固定当前有效命令版本。', '--revision REV', ['hooks.upgrade'], 'write', '使用 hooks.list.registry.upgrade_revision。保留身份、启停、历史和去重；执行在途拒绝，不重放。旧内联 Shell 须先显式导入。');
 for (const [verb,args,description,example] of [
   ['list','','读取项目自动化目录。',''], ['save','--file PATH --revision REV','保存模板，不挂载或调用 Agent。','--file template.json --revision REV'],
   ['remove','TEMPLATE_ID --revision REV','删除无挂载的登记功能；仍有挂载时拒绝。','TEMPLATE_ID --revision REV'],
-  ['auto-select','on|off --revision REV','启停设备全局自动选择。','off --revision REV'],
+  ['auto-select','on|off --revision REV [--scope device]','启停设备全局自动选择。','off --revision REV'],
 ]) add(`hooks ${verb}`,args,description,example,[`hooks.${verb.replaceAll('-','_')}`], verb === 'list' ? 'read' : 'write', '仅用户；JSON 文件须 owner-only。auto-select 使用 daemon_hooks.revision，开启也答复在线项目已有问题，可能继续消耗 token；设备作用域须明确。');
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取快捷指令目录。','','hooks.list','read'],
@@ -109,6 +149,9 @@ add('hooks management permission-get', 'METHOD --scope device', '查询一个接
 add('hooks management permission-set', 'METHOD ACCESS --revision REV --scope device', '逐项 CAS 修改设备全局管家权限。',
   'worker.cancel confirmation --revision REV --scope device', ['management.permission_set'], 'write',
   '影响同设备用户所有项目。先 permission-get 获取全局 revision；并发修改会拒绝。管家必须通过 manager.call 由真实用户确认单项旧值、新值和 revision；本接口自身固定审核，不可设为 automatic，只能 confirmation 或 unavailable。');
+add('branch history','[--cursor CURSOR] [--limit N]','分页读取分支历史。','',['branch.history']);
+add('branch version-graph','[--delivery N] [--cursor CURSOR] [--limit N]','分页读取分支版本关系。','',['branch.version_graph']);
+add('branch graph','','读取当前项目分支图。','',['graph.get']);
 add('branch tree','[--verbose]','读取分支谱系，不等同 Worker 树。','',['branch.tree']);
 add('branch show','BRANCH','读取单条分支详情。','main',['branch.show']);
 add('branch bind','BRANCH COMMIT','显式绑定已有本地分支。','feature COMMIT',['branch.bind'],'write');
@@ -133,6 +176,8 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['defaults set','--mounted true|false --enabled true|false [--scope main|all|user|none] --revision REV','已退休：拒绝修改持续归并默认。','--mounted false --enabled false --revision REV','branch.convergence_defaults_set','write'],
 ]) add(`branch convergence ${verb}`,args,description,example,rpc.split(','),kind,'历史兼容只读面和旧在途重试仍可用；持续策略和默认写入口已退休并明确拒绝。新普通合并始终串行，多来源使用 branch integrate。不接受旧 command/version 参数；旧引用仅后端在途兼容。');
 for (const [verb,args,description,example,rpc,kind] of [
+  ['page','[--status STATUS] [--before N] [--limit N]','分页读取通知。','','notice.page','read'],
+  ['sync','[--cursor CURSOR] [--limit N]','同步通知安全事件摘要。','','notice.sync','read'],
   ['list','','读取当前通知。','','notice.list','read'], ['post',"'标题' [--worker ID|Wn] [--body TEXT] [--kind question|info] [--questions-file FILE]",'发布问题或告知。',"'方案确认' --worker W5 --body '背景'",'notice.post','write'],
   ['answer','ID ANSWER | ID --answers-file FILE','答复固定通知，可能恢复 Agent。',"12 '答复'",'notice.answer','agent'],
   ['dismiss','ID','消除通知，不代表接受推荐方案。','12','notice.dismiss','write'], ['read','ID','标记告知已知，不执行动作。','13','notice.read','write'],
@@ -161,13 +206,14 @@ add('skills get','ID','读取 progress / delegation / auto-title / context 指�
 for (const [verb,args,description,example,rpc,kind] of [
   ['show','[--scope device]','读取设备 Agent 配置。','','agent.config','read'],
   ['models','pi|codex [--scope device]','读取后端可用模型。','pi','agent.models','read'],
+  ['configure','--data JSON --scope device','从显式完整配置保存设备 Agent 设置，不先读取私有配置。',`--data '{"version":1,"default":{"agent":"pi","config_mode":"pi"},"roles":{}}' --scope device`,'agent.configure','write'],
   ['set','TARGET --config-mode lush|pi [--agent pi|codex] [--connection UUID|off] [--model PROVIDER/MODEL] [--thinking LEVEL] [--default-prompt TEXT] [--append-prompt TEXT] [--budget-responses N|off] [--budget-tokens N|off] [--scope device]','保存设备默认或角色 Agent 配置。','default --config-mode pi','agent.config,agent.configure','write'],
   ['reset','ROLE [--scope device]','清除角色设置，继承设备默认。','agent','agent.config,agent.configure','write'],
   ['prompt','ROLE','本地读取最终组合 Prompt，仅用户。','agent','','local-read'],
   ['env','ROLE','本地读取环境键及来源，值脱敏。','agent','','local-read'],
   ['init','[ROLE] [--local]','创建补充约定文件，不覆盖已有文件。','agent','','local-write'],
   ['resources','[--scope device]','读取本地模型、来源与额度缓存，不联网。','','agent.selection.resources','read'],
-]) add(`agent ${verb}`,args,description,example,rpc ? rpc.split(',') : [],kind,`终端仅用户；设备配置不接受 project scope。${DEVICE_SCOPE_GUIDANCE} TARGET 为 default 或实际角色。Pi 默认模式不混入托管覆盖；补充 Prompt 使用 --append-prompt。init --local 创建设备私有补充。`);
+]) add(`agent ${verb}`,args,description,example,rpc ? rpc.split(',') : [],kind,`普通开发 Agent 不可用；Valet 仅经独立授权，私有读取仍拒绝；设备配置不接受 project scope。${DEVICE_SCOPE_GUIDANCE} TARGET 为 default 或实际角色。Pi 默认模式不混入托管覆盖；补充 Prompt 使用 --append-prompt。init --local 创建设备私有补充。`);
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取托管来源安全列表。','','agent.connections.list','read'],
   ['show','ID','从安全列表查看指定来源。','CONNECTION_ID','agent.connections.list','read'],
@@ -183,10 +229,18 @@ for (const verb of ['show','set','reset']) add(`agent network ${verb}`, verb ===
   [verb === 'show' ? 'agent.network' : 'agent.network.configure'], verb === 'show' ? 'read' : 'write', '后续后台请求与 Agent 生效，不热改旧调用。密码不能放命令参数。');
 for (const verb of ['list','install','remove','update']) add(`agent packages ${verb}`, `${verb === 'install' ? 'SOURCE ' : ['remove','update'].includes(verb) ? 'ID ' : ''}[--scope device]`,
   { list: '读取插件与 Skills 包目录。', install: '安装显式固定来源，不自动启用。', remove: '移除设备包。', update: '更新指定包。' }[verb], verb === 'install' ? './package' : ['remove','update'].includes(verb) ? 'PACKAGE_ID' : '',
-  [`agent.packages.${verb}`], verb === 'list' ? 'read' : 'write', '远端来源固定校验由 daemon 执行；包可带可执行代码。');
+  [`agent.packages.${verb}`], verb === 'list' ? 'read' : 'write', `远端来源固定校验由 daemon 执行；包可带可执行代码。${DEVICE_SCOPE_GUIDANCE} 管理安装库不等于加载插件到管家运行环境。`);
 add('config show','[--scope device]','读取设备调用／拆解限额。','',['system.status','system.settings'],'read','无 scope 读取 status.settings，显式 scope 读取 system.settings。旧路由只读，不恢复快速路由设置。');
 add('config set','call-timeout|worker-call-limit|max-depth N [--scope device]','保存设备调用或拆解限额。','max-depth 4',['system.configure'],'write','正整数及上限由共享设置契约校验。');
 add('config reset','[call-timeout|worker-call-limit|max-depth|all] [--scope device]','恢复指定或全部限额默认。','max-depth',['system.configure'],'write');
+add('agent status','[--scope device]','读取设备调用状态。','--scope device',['agent.status']);
+add('agent usage resources','[--scope device]','读取设备模型资源缓存。','--scope device',['agent.resources']);
+add('agent usage show','','读取调用统计配置。','',['agent.usage.config']);
+add('agent usage set','--data JSON','保存调用统计配置。','--data {}',['agent.usage.configure'],'write');
+add('agent usage history','[--provider NAME] [--account-key KEY] [--days N]','读取安全统计历史。','',['agent.usage.history']);
+add('agent sources history','ID [--days N]','读取来源安全观测历史。','CONNECTION_ID',['agent.connections.history']);
+add('agent sources sampling','--data JSON --scope device','配置设备来源观测采样。','--data {} --scope device',['agent.connections.sampling'],'write');
+add('config patch','--data JSON --scope device','部分更新设备运行设置；JSON 为 settings 字段映射。','--data {} --scope device',['system.configure'],'write');
 add('config migrate-preview','','只读预检旧项目设置到设备共享设置的迁移。','',['settings.migration.preview'],'read','不接受 --scope device；预检不执行迁移。');
 add('config migrate','--confirm --revision REV','显式确认预检范围后迁移旧项目设置。','--confirm --revision REV',['settings.migration.apply'],'write','先运行 config migrate-preview；保留私有备份及旧 Markdown 原件，不接受 --scope device。未知结果先核对，不重放。');
 // Lifecycle learning notes describe runtime safety, not additional RPC permissions.
@@ -219,7 +273,8 @@ export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
     advanced: [entry.advanced, lifecycleNotes[entry.path]].filter(Boolean).join(' '),
     risk: lifecycleNotes[entry.path],
     // ID below accepts the stable W/V forms described in shared help and detail notes.
-    usage: entry.usage?.replaceAll('ID|Wn|Vn', 'ID').replaceAll('ID|Wn', 'ID').replaceAll('ID|Vn', 'ID'),
+    usage: entry.usage?.replaceAll('ID|Wn|Vn', 'ID').replaceAll('ID|Wn', 'ID').replaceAll('ID|Vn', 'ID')
+      .replace('--file PATH', /^(hooks |worker hook attach)/.test(entry.path) ? '(--file PATH | --data JSON)' : '--file PATH'),
     format: entry.usage && (entry.path === 'notice answer' ? 'lush notice answer ID ANSWER' : entry.usage.replace(/\s*\[[^\]]*\]/g, ''))
       .replaceAll('ID|Wn|Vn', 'ID').replaceAll('ID|Wn', 'ID').replaceAll('ID|Vn', 'ID'),
     parent: entry.path.includes(' ') ? entry.path.slice(0, entry.path.lastIndexOf(' ')) : null,
@@ -242,6 +297,23 @@ export function commandExecutables(entry) {
   return LUSHW_PATHS.has(entry.path) ? ['lushw'] : ['lush'];
 }
 
+/** Audited local-handler boundary, shared by fixed bridge, offline help and learning catalogue.
+ * RPC policy is independent and is always checked again by the daemon. */
+export function managementCLICommandPolicy(entry) {
+  if (entry.path === 'help') return { available: true, reason: '离线只读帮助，不发现项目、不调用 RPC、不授予执行权限。' };
+  const local = !commandExecutables(entry).includes('lush') || entry.kind?.startsWith('local-')
+    || /^(?:daemon|host|skills)(?: |$)/.test(entry.path)
+    || /^agent (?:prompt|env|init|network)(?: |$)/.test(entry.path)
+    || /^agent sources (?:save|login)(?: |$)/.test(entry.path) || !entry.rpc?.length;
+  return { available: !local, reason: local ? '仅用户本地工作流、开发身份或未审核的本地资源入口；管家不开放本地文件、交互认证、插件加载或本地进程控制。' : '固定当前项目与 management 身份；仍需最新逐项权限、明确范围及原安全门。' };
+}
+
+/** Only code-owned command paths (never argv bodies) may enter management audit. */
+export function safeManagementCLICommand(value, method) {
+  const entry = typeof value === 'string' ? CLI_COMMANDS.find(item => !item.directory && item.path === value) : null;
+  return entry && entry.rpc.includes(method) && commandExecutables(entry).includes('lush') ? entry.path : null;
+}
+
 /** Entry-point views share the original relative paths, parameters and handlers. */
 export function cliCommands(executable = 'lush') {
   if (!CLI_EXECUTABLES.includes(executable)) throw new Error('unknown CLI executable');
@@ -255,7 +327,7 @@ export function cliCommands(executable = 'lush') {
     const operations = entry.directory
       ? CLI_OPERATIONS.filter(operation => leaves.some(leaf => leaf.path.startsWith(`${entry.path} `) && leaf.operation === operation))
       : [entry.operation];
-    return Object.freeze({ ...entry, executable, operations: Object.freeze(operations), usage: qualify(entry.usage),
+    return Object.freeze({ ...entry, executable, management_cli: managementCLICommandPolicy(entry), operations: Object.freeze(operations), usage: qualify(entry.usage),
       format: qualify(entry.format), example: qualify(entry.example) });
   });
 }
@@ -269,5 +341,8 @@ export function cliHelp(executable = 'lush', topic = '') {
     const hint = entry ? `${commandExecutables(entry)[0]} help ${topic}` : `${executable} help`;
     throw new Error(`unknown help topic for ${executable}; run ${hint}`);
   }
-  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}`).join('\n')}\n\n${development ? 'lushw 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地问卷示例：bun run lushw notice example > questions.json' : 'config show|set|reset 管理设备限额；不向 Agent token 开放管理入口。\n项目级 worker/branch 操作使用 lush；invocation 自身与直接父子协作使用 lushw self/parent/children。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n${MANAGEMENT_RECOVERY_GUIDANCE}\n`;
+  const leaf = commands.filter(entry => !entry.directory);
+  const contracts = topic && leaf.length === 1 ? leaf[0].rpc.filter(method => CLI_CAPABILITIES[method])
+    .map(method => `${method} 参数契约（CLI 选项映射到这些字段；不是 raw RPC 入口）：\n${JSON.stringify(CLI_CAPABILITIES[method], null, 2)}`).join('\n') : '';
+  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}${!development && !entry.management_cli.available ? ' [Valet 不可用：本地／身份边界]' : ''}`).join('\n')}\n\n${development ? 'lushw 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地问卷示例：bun run lushw notice example > questions.json' : 'config show|set|reset 管理设备限额；普通开发 Agent token 不开放管理入口，管家使用固定 lush_cli 与独立授权。\n项目级 worker/branch 操作使用 lush；invocation 自身与直接父子协作使用 lushw self/parent/children。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n${DEVICE_SCOPE_GUIDANCE}\n${contracts}\n${MANAGEMENT_RECOVERY_GUIDANCE}\n`;
 }

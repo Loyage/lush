@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { test, expect } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+// Legacy protocol/receipt compatibility; actual model CLI behavior lives in management-cli.test.js.
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { MANAGEMENT_TOOL_NAMES, registerManagementTools } from '../../src/agent/pi-management.js';
 import { MANAGEMENT_RPC_METHODS } from '../../src/agent/management-rpc.js';
@@ -15,25 +16,25 @@ import { createSignal } from '../../src/signal.js';
 
 const extensions = ['pi-runtime.js', 'pi-management.js'].map(name => fileURLToPath(new URL(`../../src/agent/${name}`, import.meta.url)));
 const sorted = values => [...values].sort();
-const toolMethods = MANAGEMENT_TOOL_NAMES.map(name => name.replace('_', '.'));
+const compatibilityMethods = [...MANAGER_METHODS].filter(method => method.startsWith('manager.'));
 
 // No copied production catalogue: compare independently wired boundaries against
 // the shared tool names and the actual registered RPC handlers/manager allowlist.
-test('management tools, trusted bridge, RPC registrations and invocation allowlist agree', () => {
+test('single CLI model tool and retained internal RPC registrations/invocation allowlist agree', () => {
   expect(sorted(MANAGEMENT_RPC_METHODS)).toEqual(sorted(MANAGER_METHODS));
-  expect(sorted([...toolMethods, 'worker.lookup'])).toEqual(sorted(MANAGER_METHODS));
-  expect(sorted([...AGENT_ONLY].filter(method => method.startsWith('manager.')))).toEqual(sorted(toolMethods));
+  expect(sorted([...compatibilityMethods, 'worker.lookup'])).toEqual(sorted(MANAGER_METHODS));
+  expect(sorted([...AGENT_ONLY].filter(method => method.startsWith('manager.')))).toEqual(sorted(compatibilityMethods));
   for (const method of MANAGER_METHODS) {
     expect(Object.hasOwn(PARAMS, method)).toBe(true);
     expect(typeof HANDLERS[method]).toBe('function');
   }
   const tools = [];
   registerManagementTools({ registerTool: tool => tools.push(tool), on() {} });
-  const description = tools.find(tool => tool.name === 'manager_call').description;
-  expect(description).toContain('lush/lushw');
+  expect(tools.map(tool => tool.name)).toEqual(['lush_cli']);
+  const description = tools[0].description;
+  expect(description).toContain('真实解析');
+  expect(description).toContain('management');
   expect(description).not.toContain('lushc');
-  expect(description).toContain('默认自动执行');
-  expect(description).toContain('修改接口权限始终须真实用户审核');
 });
 
 test('completed Valet user append -> registered RPC -> real Provider/bridge uses fresh occurrence, instruction and latest permissions', async () => {
@@ -260,7 +261,7 @@ for (const [runtime, mode] of [['bun', 'pi'], ['node', 'lush']]) {
       ]);
       const before = { drafts: f.store.draftCount(), events: f.store.get('SELECT count(*) AS n FROM events').n };
       const stale = JSON.parse(await runProvider({ ...invocation, signal: new AbortController().signal, onSpawn() {} }));
-      expect(stale.replies).toHaveLength(MANAGEMENT_TOOL_NAMES.length);
+      expect(stale.replies).toHaveLength(6);
       for (const reply of stale.replies) {
         expect(reply.response).toBeUndefined();
         expect(reply.error).toContain('管理请求被拒绝或未确认完成');

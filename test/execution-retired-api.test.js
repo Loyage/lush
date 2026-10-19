@@ -9,7 +9,7 @@ import { createSignal } from '../src/signal.js';
 import { tokenHash } from '../src/core/project/internal.js';
 import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../src/host/device-settings.js';
 import { managementCatalog, validateManagementCall } from '../src/rpc/management-policy.js';
-import { managementToolCLI } from './agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from './agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../src/agent/provider.js';
 import { setup, fetch } from './web/harness.js';
 import { startTestWeb } from './web/auth-fixture.js';

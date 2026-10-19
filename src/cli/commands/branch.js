@@ -1,6 +1,7 @@
 import { check } from '../../core/types.js';
 import { automationScope } from '../../core/automation-scopes.js';
 import { exact, option } from '../args.js';
+import { takeOptions } from '../command-options.js';
 import { printBranchTree, printBranchShow, printBranchArchive } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与 Worker 树、commit graph 都是不同维度。 */
@@ -8,6 +9,11 @@ export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
   const verb = args.shift();
+  if (['history','version-graph'].includes(verb)) {
+    const params = takeOptions(args, { cursor: 'string', limit: 'number', delivery: 'number' }); exact(args, 0);
+    return client.request(`branch.${verb.replaceAll('-', '_')}`, params);
+  }
+  if (verb === 'graph') { exact(args, 0); return client.request('graph.get'); }
   if (verb === 'convergence') return runConvergence(args, client);
   if (verb === 'integrate') return runIntegrate(args, client);
   check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind, archive, convergence or integrate');
@@ -38,7 +44,7 @@ export async function run(command, args, ctx) {
 }
 
 async function runIntegrate(args, client) {
-  check(!client.token, 'branch integrate is user only, not an agent operation');
+  check(!client.token || client.management, 'branch integrate requires user or trusted management identity');
   const verb = args.shift();
   check(['plan','start','show','cancel','retry'].includes(verb), 'branch integrate requires plan|start|show|cancel|retry');
   const writes = ['start','cancel','retry'].includes(verb);
@@ -80,7 +86,7 @@ function commandId(value) {
   return value;
 }
 async function runConvergence(args, client) {
-  check(!client.token, 'branch convergence is user only, not an agent operation');
+  check(!client.token || client.management, 'branch convergence requires user or trusted management identity');
   const verb = args.shift();
   check(['list','show','on','off','mount','remove','defaults','runs','retry'].includes(verb), 'branch convergence requires list|show|on|off|mount|remove|defaults|runs|retry; run lush help');
   if (verb === 'defaults') {

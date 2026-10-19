@@ -106,7 +106,7 @@ export class Dispatcher {
     const method = transport === 'manager.call'
       ? (typeof params.method === 'string' && Object.hasOwn(PARAMS, params.method) ? params.method : null)
       : transport === 'manager.start' ? 'worker.resume' : transport === 'manager.retry' ? 'worker.retry' : transport;
-    return beginManagementCall(this.project, task, transport, method, transport === 'manager.call' ? params.params : params);
+    return beginManagementCall(this.project, task, transport, method, transport === 'manager.call' ? params.params : params, transport === 'manager.call' ? params.cli_command : null);
   }
   async execute(method, params, actor, cliTrial) {
     const p = this.project;

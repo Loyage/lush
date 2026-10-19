@@ -35,6 +35,12 @@ test('agent packages accepts a bare client context and rejects invalid arguments
   expect(f.calls).toEqual([{ method: 'agent.packages.list', params: {} }]);
 });
 
+test('trusted management clients reach narrow package RPCs without granting ordinary Agent access', async () => {
+  const f = fixture(); f.client.token = 'bound-management'; f.client.management = true;
+  for (const args of [['list'],['install','npm:@scope/tools@1.0.0'],['remove','pkg-0123456789abcdef'],['update','pkg-0123456789abcdef']]) await f.execute(args);
+  expect(f.calls.map(call => call.method)).toEqual(['agent.packages.list','agent.packages.install','agent.packages.remove','agent.packages.update']);
+});
+
 test('agent tokens cannot list or change Lush-managed packages', async () => {
   const f = fixture();
   f.client.token = 'invocation-capability';

@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { isWorkerNumber } from '../core/worker-number.js';
 import { MANAGER_METHODS } from '../rpc/management-methods.js';
+import { safeManagementCLICommand } from '../cli/catalog.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
 import { safeManagementPreflightError } from '../core/management-guidance.js';
 import { safeManagementDiagnosticError } from '../core/management-diagnostic.js';
@@ -31,10 +32,11 @@ export function validateManagementRPC(method, params) {
       || params.limit !== undefined && (!Number.isSafeInteger(params.limit) || params.limit < 1 || params.limit > 100))
       throw new Error('invalid history parameters');
   } else if (method === 'manager.call') {
-    if (keys.some(key => !['method','params','request_id'].includes(key)) || typeof params.method !== 'string'
+    if (keys.some(key => !['method','params','request_id','cli_command'].includes(key)) || typeof params.method !== 'string'
       || params.method.length > 128 || !params.params || typeof params.params !== 'object' || Array.isArray(params.params)
       || params.request_id !== undefined && (typeof params.request_id !== 'string' || !params.request_id
         || params.request_id.length > 128 || params.request_id !== params.request_id.trim() || /[\x00-\x1f\x7f]/.test(params.request_id))
+      || params.cli_command !== undefined && !safeManagementCLICommand(params.cli_command, params.method)
       || Buffer.byteLength(JSON.stringify(params)) > 40000) throw new Error('invalid reviewed capability request');
   } else if (method === 'worker.lookup') {
     if (keys.length !== 1 || keys[0] !== 'number' || !isWorkerNumber(params.number))

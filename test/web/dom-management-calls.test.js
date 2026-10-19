@@ -15,6 +15,31 @@ const row = (id, seq = id, extra = {}) => ({ seq, call_id: id, phase: seq === id
 const page = (items, has_more = false) => ({ items, has_more, next_cursor: items[0]?.seq ?? null,
   latest_cursor: items.at(-1)?.seq ?? null, coverage: 'trusted_management_rpc_events_only', history_complete: false });
 
+test('existing call rows show only safe CLI paths, retain internal transport details and historical RPC labels', async () => {
+  const dom = installDom({ fetch: async () => Response.json(page([row(1,4,{ cli_command:'worker inspect' }),row(2,5,{ method:'manager.catalog' }),row(3,6,{ cli_command:'worker inspect --project /private' })])) });
+  resetUiState(); dom.document.body.append(dom.node('detail'));
+  try {
+    const section = renderManagementCalls(task); dom.node('detail').append(section);
+    await until(() => section.querySelectorAll('.management-call').length === 3);
+    const rows = section.querySelectorAll('.management-call');
+    expect(rows[0].querySelector('code').textContent).toBe('lush worker inspect');
+    expect(deepText(rows[0])).toContain('后台接口：worker.inspect');
+    expect(deepText(rows[0])).toContain('Event #1');
+    expect(deepText(rows[0])).toContain('目标：W4');
+    expect(deepText(rows[0])).toContain('状态：RPC 已返回');
+    expect(rows[0].querySelector('details').open).toBe(false);
+    expect(rows[1].querySelector('code').textContent).toBe('manager.catalog');
+    expect(deepText(rows[2])).not.toContain('/private');
+    await findByText(section, '全部展开').onclick();
+    await findByText(section, '逆序').onclick();
+    expect(section.querySelectorAll('.management-call').map(node => node.dataset.callId)).toEqual(['3','2','1']);
+    expect(section.querySelectorAll('.management-call').at(-1)).toBe(rows[0]);
+    expect(rows[0].querySelector('details').open).toBe(true);
+    expect(rows[0].querySelector('code').textContent).toBe('lush worker inspect');
+    section.disposeCalls();
+  } finally { resetUiState(); dom.restore(); }
+});
+
 test('call identity, standalone finishes, monotonic cursors and bounded partial range', () => {
   const s = createCallsState();
   mergeCalls(s, page([row(20, 23), row(21), row(22, 24)], true), 'initial');

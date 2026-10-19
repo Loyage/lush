@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
 import { setup, fetch } from '../web/harness.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { beginManagementCall, finishManagementCall, managementCalls } from '../../src/core/project/management-calls.js';
 import { assertAllowed } from '../../src/rpc/registry.js';

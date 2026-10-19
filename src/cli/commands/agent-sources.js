@@ -4,6 +4,8 @@
 import fs from 'node:fs';
 import { check } from '../../core/types.js';
 import { exact, option } from '../args.js';
+import { takeOptions } from '../command-options.js';
+import { takeJsonInput } from '../private-json.js';
 
 const MAX_INPUT_BYTES = 65536;
 const MAX_URL_BYTES = 10000;
@@ -13,7 +15,7 @@ const CATALOG_STATUSES = ['fresh', 'cached', 'unknown', 'error', 'unsupported'];
 function context(ref, options = {}) {
   const client = ref && typeof ref.request === 'function' ? ref : ref?.client;
   check(client && typeof client.request === 'function', 'model sources require a connected project client');
-  check(!client.token, 'agents cannot read or change managed model sources');
+  check(!client.token || client.management, 'agents cannot read or change managed model sources');
   return { client, json: options.json === true || ref?.json === true };
 }
 
@@ -144,7 +146,8 @@ async function modelsFor(client, args, refresh) {
   exact(args, 1);
   const id = args[0];
   check(typeof id === 'string' && id.length > 0 && id.length <= 80 && !id.startsWith('-'), 'a connection id is required');
-  return catalogView(await client.request(refresh ? 'agent.connections.models.refresh' : 'agent.connections.models', { id }));
+  const value = await client.request(refresh ? 'agent.connections.models.refresh' : 'agent.connections.models', { id });
+  return value?.receipt_id ? value : catalogView(value);
 }
 
 async function login(client, args) {
@@ -179,11 +182,20 @@ export async function runSources(args, clientRef, options = {}) {
   const verb = args.shift() || 'list';
   if (verb === 'list') { exact(args, 0); return await listSources(client); }
   if (verb === 'show') { exact(args, 1); return await showSource(client, args[0]); }
+  if (verb === 'history') {
+    const params = takeOptions(args, { days: 'number' }); exact(args, 1);
+    return client.request('agent.connections.history', { id: args[0], ...params });
+  }
+  if (verb === 'sampling') {
+    const sampling = takeJsonInput(args, client, 'connection sampling'); exact(args, 0);
+    return client.request('agent.connections.sampling', { sampling });
+  }
   if (verb === 'refresh') {
     const id = args.shift() ?? null;
     check(id === null || id.length <= 80, 'invalid connection id');
     exact(args, 0);
-    await client.request('agent.connections.query', id === null ? {} : { id });
+    const receipt = await client.request('agent.connections.query', id === null ? {} : { id });
+    if (receipt?.receipt_id) return receipt;
     return { ...await listSources(client), queried: id ?? 'all' };
   }
   if (verb === 'models' || verb === 'models-refresh') return await modelsFor(client, args, verb === 'models-refresh');
@@ -196,7 +208,10 @@ export async function runSources(args, clientRef, options = {}) {
     return sourceView(await client.request('agent.connections.save',
       { connection: input.connection, ...(input.credential ? { credential: input.credential } : {}) }));
   }
-  if (verb === 'remove') { exact(args, 1); return { removed: text((await client.request('agent.connections.remove', { id: args[0] }))?.removed, 80) }; }
+  if (verb === 'remove') {
+    exact(args, 1); const value = await client.request('agent.connections.remove', { id: args[0] });
+    return value?.receipt_id ? value : { removed: text(value?.removed, 80) };
+  }
   if (verb === 'login') return await login(client, args);
   check(false, 'agent sources expects list, show, models, models-refresh, refresh, save, remove or login');
 }

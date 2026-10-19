@@ -1,5 +1,20 @@
 import fs from 'node:fs';
 import { check, isPlainObject } from '../core/types.js';
+import { option } from './args.js';
+
+/** Same structured CLI input for humans and the fixed bridge; inline never reads a path. */
+export function takeJsonInput(args, client, label = 'Hook') {
+  const data = option(args, '--data'), file = option(args, '--file');
+  check((data === null) !== (file === null), 'provide exactly one of --data JSON or --file PATH');
+  if (data !== null) {
+    check(Buffer.byteLength(data) <= 40000, 'inline JSON exceeds budget');
+    const value = JSON.parse(data);
+    check(isPlainObject(value), 'inline JSON must be an object');
+    return value;
+  }
+  check(!client?.management, 'management CLI cannot read local files');
+  return readPrivateJson(file, label);
+}
 
 /** Bounded, owner-only input; parse/read failures never echo private payloads. */
 export function readPrivateJson(file, label = 'Hook', maxBytes = 256 * 1024) {

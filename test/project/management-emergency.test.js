@@ -5,7 +5,7 @@ import { fixture, gate, repo, until, env } from '../helpers.js';
 import { setup, fetch } from '../web/harness.js';
 import { managementState, saveManagement } from '../../src/core/project/management-data.js';
 import { trackControlJob } from '../../src/core/project/management-control.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { Project } from '../../src/core/project.js';
 import { Dispatcher, HANDLERS } from '../../src/rpc/dispatcher.js';

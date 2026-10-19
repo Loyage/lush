@@ -38,7 +38,7 @@ function outcome(value = {}) {
   value = value && typeof value === 'object' ? value : {};
   const code = codes.has(value.code) ? value.code : 'legacy_unknown';
   return { stage: member('stage', value.stage, 'legacy'), code,
-    reason: `${failures.has(code) ? '管理请求被拒绝或未确认完成；' : ''}${reasons[code]}${code === 'request_failed' ? '用法可读取 manager_catalog；执行证据见 management.receipt。' : ''}`,
+    reason: `${failures.has(code) ? '管理请求被拒绝或未确认完成；' : ''}${reasons[code]}${code === 'request_failed' ? '用法可读取 lush_cli help；执行证据见 management.receipt。' : ''}`,
     effect: member('effect', value.effect, 'unknown'), evidence: member('evidence', value.evidence, 'legacy_missing') };
 }
 export function safeManagementDiagnostic(value = {}) {

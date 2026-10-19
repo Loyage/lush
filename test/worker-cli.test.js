@@ -89,8 +89,11 @@ test('worker rename accepts numbered identity and an empty reset title, but reje
   ]);
   for (const args of [['rename','302'], ['rename','302','title','extra'], ['rename','bad','title']])
     await expect(worker('worker', args, { client, json: true })).rejects.toThrow();
-  await expect(worker('worker', ['rename', '302', 'title'], { client: { ...client, token: 'active' }, json: true })).rejects.toThrow('user only');
-  expect(calls).toHaveLength(3); expect(HELP).toContain("worker rename ID '标题'");
+  await expect(worker('worker', ['rename', '302', 'title'], { client: { ...client, token: 'active' }, json: true })).rejects.toThrow('trusted management identity');
+  expect(calls).toHaveLength(3);
+  await worker('worker',['rename','302','受控标题'],{ client:{ ...client,token:'management',management:true },json:true });
+  expect(calls.at(-1)).toEqual({ method:'worker.rename',params:{ id:302,title:'受控标题' } });
+  expect(HELP).toContain("worker rename ID '标题'");
 });
 
 test('self auto-title is Agent-only and has no target identity parameter or old worker alias', async () => {

@@ -3,10 +3,18 @@ import { id, check } from '../../core/types.js';
 import { questionnaire } from '../../core/questionnaire.js';
 import { option, exact, print } from '../args.js';
 import { resolveWorkerId } from '../worker-number.js';
+import { takeOptions } from '../command-options.js';
 
 // These commands inspect only code-owned examples or the explicitly supplied file.
 export function isLocalCommand(args) {
   return args[0] === 'example' || args[0] === 'check';
+}
+
+export function questionsFromJSON(source, body) {
+  const value = JSON.parse(source);
+  check(Array.isArray(value?.questions), 'questions JSON must contain {questions:[...]}');
+  questionnaire(body, value.questions);
+  return value.questions;
 }
 
 export function questionsFromFile(file, body) {
@@ -49,6 +57,10 @@ export async function run(command, args, ctx = {}) {
   let value;
   if (command === 'notice') {
     const verb = args.shift();
+    if (['page','sync'].includes(verb)) {
+      const params = takeOptions(args, verb === 'page' ? { status: 'string', before: 'number', limit: 'number' } : { cursor: 'string', limit: 'number' });
+      exact(args, 0); return client.request(`notice.${verb}`, params);
+    }
     if (verb === 'list') { exact(args, 0); value = await client.request('notice.list'); }
     else if (verb === 'post') {
       const task = option(args, '--worker'), body = option(args, '--body', '');

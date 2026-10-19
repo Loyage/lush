@@ -32,6 +32,8 @@ USER_ONLY `agent.connections.models {id}` / `agent.connections.models.refresh {i
 
 ## CLI
 
+`agent configure --data JSON --scope device` 提交明确的完整设备配置，不先读取私有 `agent.config`；`agent set/reset` 仍是先读后改的便利流程。`worker configure ID --profile-json JSON` 保存完整下一次覆盖，与 `--connection/--model` 窄更新互斥。管家只可经固定 CLI bridge 按已审核权限提交，不能借这些命令读取私有配置或提供 env／私有 Prompt；不得从安全摘要重建未知完整配置。
+
 `agent sources list|show ID|save --file PATH|remove ID|refresh [ID]|models ID|models-refresh ID|login ID`，其中 `models` 只读缓存，`models-refresh` 是独立联网写入口，不接受旧 `models --refresh`。登录可提供设备 start/poll/cancel 和回调备用，凭证通过私有输入文件（不放命令行明文），所有输出安全且支持全局 --json。`agent resources` 返回共享模型选择的连接/额度/模型读面（不是已安装资源列表），只读本地。
 
 `agent packages list|install SOURCE|remove ID|update ID` 管理设备私有 Lush Pi 安装库，不是 Worker 启用操作。来源、准入、私有读面与精确接口统一见[安装契约](#项目扩展与-skills-安装管理实现契约)。
@@ -100,4 +102,4 @@ Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先
 
 USER_ONLY：`agent.packages.list {scope?}`／`agent.packages.install {source,scope?}`／`agent.packages.remove {id,scope?}`／`agent.packages.update {id,scope?}`，默认 device、显式 project 拒绝，无 scope 不是 Agent 旁路。Host GET `/api/host/settings/agent/packages` 和设置 action 为设备页面入口；受检项目 GET `/api/agent/packages`／POST `/api/action` 保留转发，不改变根。
 
-CLI：`lush agent packages list|install SOURCE|remove ID|update ID`，全局 `--json` 输出上述读模型。`update` 只对带显式 ref/精确版本的来源生效；固定的 npm 精确版本不会移动，git 的 tag/commit 通常不移动，但 **branch ref 可能跟随远端移动**。未写 ref 的远端来源直接拒绝，避免隐式升级。CLI 通过受检用户 RPC 转发，不直接选择任意安装根或接收 Agent token。
+CLI：`lush agent packages list|install SOURCE|remove ID|update ID`，全局 `--json` 输出上述读模型。`update` 只对带显式 ref/精确版本的来源生效；固定的 npm 精确版本不会移动，git 的 tag/commit 通常不移动，但 **branch ref 可能跟随远端移动**。未写 ref 的远端来源直接拒绝，避免隐式升级。CLI 通过受检用户 RPC 转发，或由固定 management bridge 经已审核权限、显式设备范围及必要的真实用户精确确认代理；普通开发 Agent 仍拒绝。不直接选择任意安装根，管理安装库不等于加载插件到当前管家 invocation。

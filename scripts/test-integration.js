@@ -50,7 +50,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/execution-retired-freeze.test.js', // retired intent releases local parents, unknown Git landing does not
     'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
     'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
-    'test/project/management-tool-chain.test.js', // Node/Bun Provider -> real tools/bridge/RPC, including user-authorized fresh Valet rounds
+    'test/project/management-cli.test.js', // Node/Bun Provider -> only lush_cli -> real CLI/help -> policy/effects/audit, no replay and bounded bridge
+    'test/project/management-tool-chain.test.js', // retained internal manager RPC/receipt compatibility; not the active model tool surface
     'test/project/management-calls.test.js', // real Provider/bridge -> safe audit Events -> user-only bounded HTTP stream
     'test/project/management-receipt.test.js', // real Provider/bridge -> safe receipt, failure/effect/disposition separation, no replay and bounded legacy reads
     'test/project/input-emission-protocol.test.js', // schema/catalog -> real Dispatcher -> persistent mount -> controlled Provider/Input/Message identity
@@ -99,6 +100,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   cli: Object.freeze([
     'test/cli-surfaces.test.js', // executable catalogue
     'test/cli-catalog.test.js', // parser/catalogue agreement
+    'test/cli-management-coverage.test.js', // every effective capability reaches real management CLI admission/handler under current policy
     'test/cli-entrypoints.test.js', // published bins/source scripts -> real CLI/RPC and unchanged authority
     'test/worker-cli.test.js', // relation parsing and all source shortcuts retain their correct executable ownership
     'test/project/worker-create-bridge.test.js', // manual user create, real W lookup, first input and controlled Pi checkpoint
@@ -107,7 +109,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
     'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount
     'test/project/merge-conditions-bridge.test.js', // true W-number flags and current manager tool/schema/permission set
-    'test/project/management-permissions.test.js', // real management permission CLI and Provider bridge
+    'test/project/management-cli.test.js', // actual model CLI surface plus real parser, authorization and trusted audit
+    'test/project/management-permissions.test.js', // real management permission CLI and retained internal RPC bridge
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
     'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer
     'test/integration/result-notice.test.js', // Skill snapshot -> pinned CLI -> own info -> unread inbox, without parking

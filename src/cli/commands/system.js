@@ -5,6 +5,7 @@ import { daemon } from '../daemon.js';
 import { ROOT, codeIdentity } from '../../identity.js';
 import { check } from '../../core/types.js';
 import { exact } from '../args.js';
+import { takeOptions } from '../command-options.js';
 import { webListenHost } from '../../host/web-listen.js';
 
 const DEFAULT_WEB_PORT = 4318;
@@ -217,6 +218,13 @@ function resolvePort(value, state) {
 export async function run(command, args, ctx) {
   const { client } = ctx;
   const config = client.config;
+  if (command === 'system') {
+    const verb = args.shift();
+    check(['summary','diagnostics','interrupt-all','resume-all','stop'].includes(verb), 'unknown system command');
+    const params = verb === 'interrupt-all' ? takeOptions(args, { notify_completion: 'boolean' })
+      : verb === 'summary' ? takeOptions(args, { development: 'boolean' }) : {};
+    exact(args, 0); return client.request(`system.${verb.replaceAll('-', '_')}`, params);
+  }
   let value;
   if (HOST_COMMANDS.includes(command)) {
     // `--foreground` 是 bin/lush-host 与调试用的入口：占住终端，其余情况一律后台。

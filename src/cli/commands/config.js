@@ -2,6 +2,7 @@ import { check } from '../../core/types.js';
 import { RUNTIME_SETTINGS_LIMITS } from '../../core/settings.js';
 import { exact, option } from '../args.js';
 import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.js';
+import { takeJsonInput } from '../private-json.js';
 
 /**
  * `lush config`：设备「运行设置」（三条调用 / 拆解限额）的用户接口。
@@ -52,6 +53,7 @@ function printConfig(settings) {
 
 /** 统一出口：--json 返回结构化读模型，否则打印后返回 undefined（主流程不再 print）。 */
 function report(settings, json) {
+  if (settings?.receipt_id) return settings;
   check(settings?.input_routes && FIELDS.every(field => settings?.[field.key]),
     'daemon did not return runtime settings; restart this project daemon');
   if (!json) { printConfig(settings); return; }
@@ -59,10 +61,14 @@ function report(settings, json) {
 }
 
 export async function run(command, args, { client, json }) {
-  check(!client.token, 'agents cannot change runtime settings');
+  check(!client.token || client.management, 'agents cannot change runtime settings');
   const scope = takeConfigurationScope(args);
   client = scopedSettingsClient(client, scope);
   const verb = args.shift() || 'show';
+  if (verb === 'patch') {
+    const settings = takeJsonInput(args, client, 'runtime settings'); exact(args, 0);
+    return client.request('system.configure', { settings });
+  }
   check(['show','set','reset','migrate-preview','migrate'].includes(verb), 'unknown config command; use show, set, reset, migrate-preview or migrate');
   if (verb === 'migrate' || verb === 'migrate-preview') {
     check(scope !== 'device', 'migration reads the current project; omit --scope');

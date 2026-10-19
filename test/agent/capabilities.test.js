@@ -37,8 +37,8 @@ test('context-oriented prompts and all Skill command examples match the owned CL
       expect(context).toContain(phrase);
     }
     const manager = agentPrompt(config, 'manager').text;
-    expect(manager).toContain('MANAGEMENT_CODE_METHODS');
-    expect(manager).toContain('不代理 context.*');
+    expect(manager).toContain('唯一模型工具是 lush_cli');
+    expect(manager).toContain('不继承 lushw 的 invocation 绑定 context.*');
     expect(manager).not.toContain('默认开放全部 lushw RPC');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

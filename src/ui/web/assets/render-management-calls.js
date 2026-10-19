@@ -108,7 +108,9 @@ export function renderManagementCalls(task, previous, options = {}) {
         if (list.children[at] !== view.item) list.insertBefore(view.item, list.children[at] || null);
         at++;
         text(view.time, absolute(row.started_at));
-        text(view.method, row.method || '未知接口（未记录名称）');
+        const cli = typeof row.cli_command === 'string' && row.cli_command.length <= 120
+          && /^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*){0,3}$/.test(row.cli_command) ? row.cli_command : null;
+        text(view.method, cli ? `lush ${cli}` : row.method || '未知接口（未记录名称）');
         text(view.target, row.target_id ? `目标 ${workerLabel(row.target_id, row.target_worker_number)}` : '无明确目标');
         const statusText = callStatus(row, binding.task.management);
         text(view.result, statusText);
@@ -122,7 +124,7 @@ export function renderManagementCalls(task, previous, options = {}) {
         hasFailures = needsAttention || hasFailures;
         view.alert.hidden = !needsAttention;
         const safe = safeDetails(row);
-        text(view.body, `Event #${row.call_id} · ${absolute(row.started_at)}\n接口：${row.method || '未知接口（未记录名称）'}\n目标：${row.target_id ? workerLabel(row.target_id, row.target_worker_number) : '无明确目标'}\n状态：${statusText}\n传输：${row.transport_method || '未知'}\nRun：${row.run_id ?? '未知'} · 完成 Event：${row.phase === 'finished' ? row.seq : '未观察到'}\n耗时：${Number.isFinite(row.duration_ms) && row.duration_ms >= 0 ? `${row.duration_ms} ms` : '未知'}\n脱敏参数：${JSON.stringify(safe.params, null, 2)}\n结果摘要（调用时）：${JSON.stringify(safe.result, null, 2)}${row.reason === 'completion_not_observed' ? '\n原 Run 已不活跃，未观察到完成；不自动重放。' : row.reason === 'invalid_parameters' ? '\n参数校验拒绝。' : row.reason === 'request_failed_or_denied' ? '\n请求失败或被拒绝；不展示原始错误。' : ''}`);
+        text(view.body, `Event #${row.call_id} · ${absolute(row.started_at)}\n后台接口：${row.method || '未知接口（未记录名称）'}\n目标：${row.target_id ? workerLabel(row.target_id, row.target_worker_number) : '无明确目标'}\n状态：${statusText}\n传输：${row.transport_method || '未知'}\nRun：${row.run_id ?? '未知'} · 完成 Event：${row.phase === 'finished' ? row.seq : '未观察到'}\n耗时：${Number.isFinite(row.duration_ms) && row.duration_ms >= 0 ? `${row.duration_ms} ms` : '未知'}\n脱敏参数：${JSON.stringify(safe.params, null, 2)}\n结果摘要（调用时）：${JSON.stringify(safe.result, null, 2)}${row.reason === 'completion_not_observed' ? '\n原 Run 已不活跃，未观察到完成；不自动重放。' : row.reason === 'invalid_parameters' ? '\n参数校验拒绝。' : row.reason === 'request_failed_or_denied' ? '\n请求失败或被拒绝；不展示原始错误。' : ''}`);
       }
       section.classList.toggle('management-calls-has-failures', hasFailures);
       if (hasFailures && section.classList.contains('ui-module') && !section.classList.contains('module-expanded')) revealModule(section);

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from 'bun:test';
 import { fixture, repo, env, gate } from '../helpers.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { Dispatcher, HANDLERS } from '../../src/rpc/dispatcher.js';
 import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';

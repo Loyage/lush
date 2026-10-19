@@ -15,7 +15,7 @@ const start = () => beginManagementCall(f.project, f.store.task(manager.id), 'ma
 for (let i = 0; i < 35; i++) { const call = start(); finishManagementCall(f.project, manager.id, call, { status: 'pending_confirmation', receipt_id: i + 100 }, null); }
 // Safe historical fault fixture, not a replay or a model call.
 const target = f.store.create({ role: 'agent', task_kind: 'order', goal: 'PRIVATE-TARGET', status: 'paused' });
-const fault = beginManagementCall(f.project, f.store.task(manager.id), 'manager.call', 'worker.resume', { id: target.id });
+const fault = beginManagementCall(f.project, f.store.task(manager.id), 'manager.call', 'worker.resume', { id: target.id }, 'worker resume');
 const receiptId = f.store.event(manager.id, 'management.capability_requested', { method: 'worker.resume', call_id: fault.call_id });
 const diagnostic = managementDiagnostic('succeeded', 'completion', 'applied', 'completion_saved', { actor_id: manager.id, worker_number: manager.worker_number, call_id: fault.call_id, receipt_id: receiptId });
 const actionId = f.store.event(manager.id, 'management.action_submitted', { action: 'start', target_id: target.id, capability_receipt_id: receiptId, call_id: fault.call_id });
@@ -94,7 +94,9 @@ try {
   assert(await wait(`window.ready&&${settled}`), 'fixture failed to load');
   assert(await execute(`return document.querySelectorAll('.management-call').length===26&&
     document.querySelector('.management-calls').textContent.includes('待用户确认')&&
-    !document.querySelector('.management-calls').textContent.includes('PRIVATE-NOT-DISPLAYED');`), 'tail window/status/redaction failed');
+    document.querySelector('[data-call-id="${fault.call_id}"] code').textContent==='lush worker resume'&&
+    document.querySelector('[data-call-id="${fault.call_id}"] .management-call-body').textContent.includes('后台接口：worker.resume')&&
+    !document.querySelector('.management-calls').textContent.includes('PRIVATE-NOT-DISPLAYED');`), 'tail window/CLI label/status/redaction failed');
   // Firefox desktop window minimum is wider than 320px: iframe provides exact CSS viewports.
   for (const width of [1440,390,320]) {
     await rpc(`/session/${session}/window/rect`, { width: 1500, height: 1000 });

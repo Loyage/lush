@@ -250,7 +250,8 @@ export class PiProvider {
         safeErrors: manager || Boolean(managed),
         extraEnv: { ...values, ...(manager ? { LUSH_MANAGER_RPC_SOCKET: config.socket, LUSH_MANAGER_BUN: process.execPath } : {}),
           LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
-            task_id: task.id, role: task.role, task_kind: task.task_kind ?? null, config_mode: piMode ? 'pi' : 'lush',
+            task_id: task.id, role: task.role, task_kind: task.task_kind ?? null,
+            ...(manager ? { management_occurrence_id: context.management?.signal?.id } : {}), config_mode: piMode ? 'pi' : 'lush',
             soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
             sessions_dir: files.sessions, ...(managed ? { connection: { ...managed.binding, observations_file: managed.observations } } : {}) }) },
       });

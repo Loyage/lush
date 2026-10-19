@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { installDom, deepText, findByText } from '../dom-stub.js';
 import { repo, until } from '../helpers.js';
 import { setup, fetch as httpFetch } from './harness.js';
-import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { managementLegacyRPCProvider as managementToolCLI } from '../agent/management-legacy-rpc-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { renderManagementCalls } from '../../src/ui/web/assets/render-management-calls.js';
 import { createCallDiagnostic } from '../../src/ui/web/assets/management-call-diagnostic.js';

@@ -7,6 +7,8 @@ import { initPrivatePrompts } from '../../agent/private-prompts.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { exact, option } from '../args.js';
 import { runPackages } from './agent-packages.js';
+import { takeOptions } from '../command-options.js';
+import { takeJsonInput } from '../private-json.js';
 import { takeConfigurationScope, scopedSettingsClient, safeConfigurationScope } from '../settings-scope.js';
 
 const TARGETS = new Set(['default', ...AGENT_ROLES]);
@@ -119,7 +121,27 @@ export async function run(command, args, { client, json }) {
     return init(client.config, args);
   }
 
-  check(!client.token, 'agents cannot change Agent configuration');
+  check(!client.token || client.management, 'agents cannot change Agent configuration');
+  // Direct structured configuration avoids requiring the private agent.config
+  // read used by the interactive set/reset convenience workflow. Authorization,
+  // explicit device scope and private-field rejection remain in the daemon.
+  if (verb === 'configure') {
+    const config = takeJsonInput(args, client, 'Agent configuration'); exact(args, 0);
+    return client.request('agent.configure', { config });
+  }
+  if (verb === 'status') { exact(args, 0); return client.request('agent.status'); }
+  if (verb === 'usage') {
+    const action = args.shift();
+    if (action === 'show') { exact(args, 0); return client.request('agent.usage.config'); }
+    if (action === 'resources') { exact(args, 0); return client.request('agent.resources'); }
+    if (action === 'set') {
+      const config = takeJsonInput(args, client, 'usage configuration'); exact(args, 0);
+      return client.request('agent.usage.configure', { config });
+    }
+    check(action === 'history', 'agent usage expects show|set|history|resources');
+    const params = takeOptions(args, { provider: 'string', account_key: 'string', days: 'number' }); exact(args, 0);
+    return client.request('agent.usage.history', params);
+  }
   if (verb === 'sources' || verb === 'resources') {
     const { runSources, runResources } = await import('./agent-sources.js');
     return (verb === 'sources' ? runSources : runResources)(args, client, { json });
