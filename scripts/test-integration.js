@@ -74,8 +74,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
     'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
-    'test/web/dom-management-calls.test.js', // bounded Valet RPC stream, exact pairing, pagination, unknown projection and retained refresh
-    'test/web/dom-management-diagnostic.test.js', // per-call visible failure, read-only association, safe copy, action separation and late-response guards
+    'test/web/dom-management-calls.test.js', // compact Valet disclosures, ordering/bulk mode across paging, exact pairing, unknown projection and retained refresh
+    'test/web/dom-management-diagnostic.test.js', // per-call collapsed alerts/expanded failure, read-only association, safe copy, action separation and late-response guards
     'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
     'test/web/dom-valet-emergency.test.js', // project emergency preview/confirmation, stopping vs isolation, single-flight and late-response isolation
     'test/web/dom-inputs.test.js', // draft editor

@@ -112,7 +112,7 @@ export function createCallDiagnostic(context, budget) {
   }
   fold.ontoggle = () => { if (fold.open && !timeline.loaded && !busy) void load(); };
   return { root,
-    update(nextRow, nextTask) { row = nextRow; task = nextTask; report = callDiagnosticReport(row, task); paint(); return report.failed; },
+    update(nextRow, nextTask) { row = nextRow; task = nextTask; report = callDiagnosticReport(row, task); paint(); return report; },
     flush() { if (pendingReceipt && !editing()) { const page = pendingReceipt; pendingReceipt = null; commitReceipt(page); } },
     resetRead() { ++ticket; busy = false; pendingReceipt = null; if (report) paint(); },
   };

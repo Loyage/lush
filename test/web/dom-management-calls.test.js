@@ -86,6 +86,63 @@ test('DOM latest/older/after continuation, exact re-projection, retained nodes a
   } finally { lifetime.abort(); resetUiState(); dom.restore(); }
 });
 
+test('compact disclosures, explicit order and persistent bulk mode across older/newer pages and refresh', async () => {
+  let newest = 30; const queries = [];
+  const dom = installDom({ fetch: async url => {
+    const q = new URL(url, 'http://fixture').searchParams; queries.push(q);
+    return Response.json(q.has('before') ? page([row(2, 3)]) : q.has('after') ? page([row(newest, newest + 1)])
+      : page([row(10, 11, { status: 'failed' }), row(20, 21, { result: { status: 'unknown' } })], true));
+  } }); resetUiState(); dom.document.body.append(dom.node('detail'));
+  let section;
+  try {
+    section = renderManagementCalls(task); dom.node('detail').append(section);
+    await until(() => deepText(section).includes('已显示 2'));
+    const items = () => section.querySelectorAll('.management-call');
+    const ids = () => items().map(node => node.dataset.callId);
+    const first = items()[0], fold = first.querySelector('.management-call-fold'), head = first.querySelector('.management-call-head');
+    expect(items().every(node => !node.querySelector('details').open)).toBe(true);
+    expect(head.tagName).toBe('SUMMARY'); expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(deepText(head)).not.toContain('最初失败');
+    expect(first.querySelector('.management-call-alert').textContent).toBe('失败');
+    expect(items()[1].querySelector('.management-call-alert').textContent).toBe('未知');
+    expect(items()[1].querySelector('.management-call-alert').hidden).toBe(false);
+    expect(first.querySelector('.management-call-diagnostic').parentNode).toBe(fold);
+    const count = queries.length;
+    await findByText(section, '逆序').onclick();
+    expect(ids()).toEqual(['20', '10']); expect(queries).toHaveLength(count);
+    expect(section.querySelectorAll('button').find(node => node.textContent === '逆序').getAttribute('aria-pressed')).toBe('true');
+    // Native details owns keyboard/click activation; changing the fold never reconstructs its body.
+    fold.open = true; fold.ontoggle(); expect(head.getAttribute('aria-expanded')).toBe('true');
+    head.focus(); await findByText(section, '正序').onclick();
+    expect(ids()).toEqual(['10', '20']); expect(dom.document.activeElement).toBe(head); expect(fold.open).toBe(true);
+    head.blur();
+    await findByText(section, '全部展开').onclick();
+    await findByText(section, '逆序').onclick();
+    await findByText(section, '加载更早调用').onclick();
+    expect(ids()).toEqual(['20', '10', '2']);
+    expect(items().every(node => node.querySelector('details').open)).toBe(true);
+    fold.open = false; fold.ontoggle(); // An individual override does not reset the global default for future calls.
+    await findByText(section, '读取最新调用').onclick();
+    expect(ids()).toEqual(['30', '20', '10', '2']);
+    expect(items().filter(node => node !== first).every(node => node.querySelector('details').open)).toBe(true);
+    expect(fold.open).toBe(false);
+    await findByText(section, '全部收起').onclick();
+    newest = 40; section = renderManagementCalls(task, section, { current: () => true });
+    await until(() => items().length === 5);
+    expect(ids()).toEqual(['40', '30', '20', '10', '2']);
+    expect(items().every(node => !node.querySelector('details').open)).toBe(true);
+    expect(section.querySelectorAll('.management-call')).toContain(first);
+    expect(first.querySelector('.management-call-fold')).toBe(fold);
+    expect(section.querySelectorAll('button').find(node => node.textContent === '逆序').getAttribute('aria-pressed')).toBe('true');
+    expect(first.querySelector('.management-call-body').textContent).toContain('RPC 失败或被拒绝');
+    const replacement = renderManagementCalls({ ...task, id: 802 }, section); dom.node('detail').append(replacement);
+    await until(() => deepText(replacement).includes('已显示 2'));
+    expect(replacement.querySelectorAll('button').find(node => node.textContent === '正序').getAttribute('aria-pressed')).toBe('true');
+    expect(replacement.querySelectorAll('.management-call-fold').every(node => !node.open)).toBe(true);
+    replacement.disposeCalls();
+  } finally { section?.disposeCalls(); resetUiState(); dom.restore(); }
+});
+
 test('forward has_more reads one bounded page at a time without skipping records', async () => {
   const afters = [];
   const dom = installDom({ fetch: async url => {

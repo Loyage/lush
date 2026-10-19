@@ -116,7 +116,11 @@ test('real controlled Provider/bridge failure -> isolated safe HTTP receipt -> v
     section = renderManagementCalls(inspected); dom.node('detail').append(section);
     await until(() => section.querySelector('.management-call-failure'));
     const row = section.querySelectorAll('.management-call').find(node => deepText(node).includes('input.emit'));
-    const summary = row.querySelector('.management-call-failure');
+    const summary = row.querySelector('.management-call-failure'), disclosure = row.querySelector('.management-call-fold');
+    expect(disclosure.open).toBe(false); expect(row.querySelector('.management-call-alert').hidden).toBe(false);
+    expect(summary.parentNode.parentNode).toBe(disclosure);
+    disclosure.open = true; disclosure.ontoggle();
+    expect(row.querySelector('.management-call-head').getAttribute('aria-expanded')).toBe('true');
     expect(summary.hidden).toBe(false); expect(section.classList.contains('management-calls-has-failures')).toBe(true);
     expect(deepText(summary)).toContain('最初失败：执行回调'); expect(deepText(summary)).toContain('底层原因未安全分类');
     expect(deepText(summary)).toContain('已急救隔离'); expect(deepText(row)).not.toContain('PRIVATE');
@@ -167,6 +171,9 @@ test('real confirmed capability keeps applied submission separate from a later f
     await until(() => section.querySelector('.management-call-diagnostic'));
     const row = section.querySelectorAll('.management-call').find(node => deepText(node).includes('worker.resume'));
     const summary = row.querySelector('.management-call-failure'); expect(summary.hidden).toBe(false);
+    expect(row.querySelector('.management-call-fold').open).toBe(false);
+    expect(row.querySelector('.management-call-alert').textContent).toContain('未知');
+    row.querySelector('.management-call-fold').open = true;
     expect(deepText(summary)).toContain('该方法已生效'); expect(deepText(summary)).toContain('关联动作：start');
     expect(deepText(summary)).toContain('结果未知'); expect(deepText(summary)).toContain('动作最初失败：执行回调');
     expect(deepText(row)).not.toContain('PRIVATE');
