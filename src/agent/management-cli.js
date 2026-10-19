@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { managementInvocation, runManagementRPC } from './management-rpc.js';
 import { validateManagementCLI, assertManagementCLICommand, managementCLIParseError, safeManagementCLIError } from './management-cli-protocol.js';
 import { main } from '../cli/main.js';
+import { parseCLI } from '../cli/parser.js';
+import { CLI_COMMANDS } from '../cli/catalog.js';
 import { safeWorkerQueryError } from '../core/worker-query.js';
 import { safeManagementPreflightError } from '../core/management-guidance.js';
 import { safeManagementDiagnostic, safeManagementDiagnosticError } from '../core/management-diagnostic.js';
@@ -40,7 +42,11 @@ export async function runManagementCLI(argv, requestId, env = process.env, reque
     },
   };
   try {
-    await main(argv.includes('--json') ? argv : [...argv, '--json'], { executable: 'lush', management: {
+    // Tool transport is JSON, but default help stays compact text. Only an explicit
+    // --json asks for a machine help contract. Insert before --, never into literal text.
+    const parsed = parseCLI(argv, CLI_COMMANDS), effective = [...argv];
+    if (!parsed.help && !parsed.json) effective.splice(effective.indexOf('--') < 0 ? effective.length : effective.indexOf('--'), 0, '--json');
+    await main(effective, { executable: 'lush', management: {
       client, assertCommand(value) { assertManagementCLICommand(value); entry = value; },
     }, output(value) { result = value; } });
   } catch (error) {

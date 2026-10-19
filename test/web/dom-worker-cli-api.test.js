@@ -49,10 +49,10 @@ test('fourth CLI tab → overview polling → real lush/lushw → encrypted hist
     expect(ui.transcriptView.panel.querySelectorAll('[role="tab"]')).toHaveLength(4);
     expect(ui.transcriptView.panel.querySelector('.transcript-back')).toBeNull();
     await refresh({ force: true });
-    c.edit('lushw --json self inspect'); await c.send();
+    c.edit('lushw --json self show'); await c.send();
     expect(root.querySelector('.worker-cli-status').textContent).toBe('执行成功。');
     const output = root.querySelector('.worker-cli-output').textContent;
-    expect(JSON.parse(output)).toMatchObject({ id: task.id, workspace: task.workspace });
+    expect(JSON.parse(output)).toMatchObject({ version: 1, data: { id: task.id, workspace: task.workspace } });
     expect(calls.map(call => call.method)).toEqual(['worker.cli_history','worker.cli_preview','worker.cli_execute']);
     expect(calls.every(call => call.params.id === task.id && call.url === '/api/action')).toBe(true);
     expect(calls[2].params).toMatchObject({ confirm: false });
@@ -65,7 +65,7 @@ test('fourth CLI tab → overview polling → real lush/lushw → encrypted hist
     expect(calls).toHaveLength(5); expect(calls[4].params.confirm).toBe(true);
     expect(root.querySelectorAll('.worker-cli-result')).toHaveLength(2);
     const ciphertext = fs.readFileSync(path.join(f.config.home, 'worker-cli-history', `${task.id}.json`), 'utf8');
-    for (const secret of ['self inspect', 'from CLI panel', task.workspace]) expect(ciphertext).not.toContain(secret);
+    for (const secret of ['self show', 'from CLI panel', task.workspace]) expect(ciphertext).not.toContain(secret);
     c.edit('lush help'); c.input.focus();
     await openWorkerCliPage({ taskId: task.id });
     expect(ui.transcriptView.cli).toBe(root);
@@ -98,7 +98,7 @@ test('fourth CLI tab → overview polling → real lush/lushw → encrypted hist
     expect(restored.querySelector('textarea').value).toBe('');
     const records = restored.querySelectorAll('.worker-cli-result');
     expect(records).toHaveLength(2);
-    expect(records[0].querySelector('.worker-cli-result-command').textContent).toContain('$ lushw --json self inspect');
+    expect(records[0].querySelector('.worker-cli-result-command').textContent).toContain('$ lushw --json self show');
     expect(records[1].querySelector('.worker-cli-result-command').textContent).toContain('from CLI panel');
     expect(calls.filter(call => call.method === 'worker.cli_execute')).toHaveLength(2);
     pending = restored.querySelector('.danger').listeners.click[0]();

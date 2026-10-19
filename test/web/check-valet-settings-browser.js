@@ -74,7 +74,7 @@ try {
   const cacheEvidence = await run(`return performance.getEntriesByType('resource').filter(n=>n.name.endsWith('-cli-catalog.json')).map(n=>({name:n.name,transferSize:n.transferSize,encodedBodySize:n.encodedBodySize}))`);
   assert(cacheEvidence.length === 1 && cacheEvidence[0].transferSize === 0, 'catalogue did not come from browser HTTP cache');
   await search('worker');
-  assert(await run(`const read=document.querySelector('[data-command="lush worker inspect"] .cli-command-operation'),write=document.querySelector('[data-command="lush worker resume"] .cli-command-operation'),directory=document.querySelector('[data-command="lush worker"] .cli-command-operation');return read.textContent==='读'&&write.textContent==='写'&&directory.textContent==='读／写'`), 'reads/writes are not unified or status is ambiguous');
+  assert(await run(`const read=document.querySelector('[data-command="lush worker show"] .cli-command-operation'),write=document.querySelector('[data-command="lush worker resume"] .cli-command-operation'),directory=document.querySelector('[data-command="lush worker"] .cli-command-operation');return read.textContent==='读'&&write.textContent==='写'&&directory.textContent==='读／写'`), 'reads/writes are not unified or status is ambiguous');
   assert(await run(`const counts=[...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command.split(' ').length-1);return counts.every((n,i)=>!i||n>=counts[i-1])&&counts.includes(3)`), 'word-count ordering missing');
   const paths = await run(`return [...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command)`);
   await search('LUSH worker');

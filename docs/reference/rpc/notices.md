@@ -6,21 +6,21 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 |---|---|---|
 | `lush notice list`（项目管理） | `notice.list` | `{}` |
 | `lushw self notice list`（自身） | `context.notices` | `{before?,limit?}`；分页边界见[双入口契约](../api.md#开发与管理双入口) |
-| `lushw self notice post 'title' [--body 'body']` | `context.notice` | `{title,body,kind:'info'}`；默认纯告知，从有效 invocation 绑定自身，不接受目标 |
-| `lushw self notice post --question-file FILE` | `context.notice` | 发送 `question create` 生成的完整问题文件，映射 `{title,body,questions,kind:'question'}`；不能另传标题／正文 |
-| 项目历史分页 | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
-| Host 来源增量同步（用户专属） | `notice.sync` | `{cursor?: 不透明游标, limit?: 100}` |
-| `notice post 'title' --worker ID --body 'body' [--kind question\|info]` | `notice.post` | `{task?, title, body?: '', questions?, kind?: 'question'\|'info'}` |
-| `lush notice post 'title' --worker ID --questions-file FILE` | `notice.post` | 用户指定目标，文件为 `{questions:[…]}`；Valet 通过受控 bridge 发布自身问题 |
+| `lushw self notice notify 'title' [--body 'body']` | `context.notice` | `{title,body,kind:'info'}`；默认纯告知，从有效 invocation 绑定自身，不接受目标 |
+| `lushw self notice ask --question-file FILE` | `context.notice` | 发送 `question create` 生成的完整问题文件，映射 `{title,body,questions,kind:'question'}`；不能另传标题／正文 |
+| `notice list --view history` | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
+| `notice events`／Host 来源增量同步（用户专属） | `notice.sync` | `{cursor?: 不透明游标, limit?: 100}` |
+| `notice ask 'title' --worker ID --body 'body'`／`notice notify 'title' --worker ID --body 'body'` | `notice.post` | 动作分别固定 question／info；notify 不接受问卷，原 RPC 参数不更名 |
+| `lush notice ask 'title' --worker ID --questions-file FILE` | `notice.post` | 用户指定目标，文件为 `{questions:[…]}`；Valet 用 `valet self notice ask --questions-json JSON` 受控发布自身问题，不读文件 |
 | `lushw question example` | 无（本地） | 输出可编辑的 `{questions:[…]}` 题目模板 |
 | `lushw question create 'title' --questions-file FILE [--body 'body']` | 无（本地） | 校验题目，stdout 输出完整 `{version:1,title,body,questions}` 问题 JSON，不发送 |
 | `lushw question check --question-file FILE` | 无（本地） | 校验完整问题文件，返回 `{valid:true,question_count}` |
 | `notice answer ID 'answer'` | `notice.answer` | `{id, answer:字符串, expected_identity?:记录身份}`（旧式文字问题） |
 | `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}, expected_identity?:记录身份}`（结构化问卷） |
 | `notice dismiss ID` | `notice.dismiss` | `{id, expected_identity?:记录身份}` |
-| `notice read ID` | `notice.read` | `{id, expected_identity?:记录身份}`（用户专属，只将 `info/sent` 标记已读） |
+| `notice mark-read ID` | `notice.read` | `{id, expected_identity?:记录身份}`（用户专属，只将 `info/sent` 标记已读） |
 
-在源码仓库中，Worker 发布自身问题使用 `bun run lushw self notice post …`；本地问题创建／校验使用 `bun run lushw question create/check/example …`；用户项目管理、答复／消除使用 `bun run lush notice …`（或 `bun run answer …`）。Agent 子进程通过注入的 CLI 与 `LUSH_PROJECT` 连接原项目，即使 cwd 是独立 worktree，也不会把问题发到另一个项目。
+在源码仓库中，Worker 发布自身问题使用 `bun run lushw self notice ask …`，告知使用 `self notice notify`；本地问题创建／校验使用 `bun run lushw question create/check/example …`；用户项目管理、答复／消除统一使用 `bun run lush notice …`，不再提供源码业务快捷包装。Agent 子进程通过注入的 CLI 与 `LUSH_PROJECT` 连接原项目，即使 cwd 是独立 worktree，也不会把问题发到另一个项目。
 
 Valet 自身决策问题通过受控 `manager.call` 发布；问题答复只恢复同一管理 occurrence，串行占位、授权快照与未知不重放边界见[Valet 契约](../../engineering/hook-signals-management.md#开发能力的受控代理)。这不允许模型答复自己的危险操作授权。
 
@@ -28,7 +28,7 @@ Valet 自身决策问题通过受控 `manager.call` 发布；问题答复只恢�
 
 ## Agent 纯告知
 
-`bun run lushw self notice post '结果已就绪' --body '实际结论、验证与限制'`（Agent 子进程使用固定的 `lushw`，调用 `context.notice`）。W355／D726 将 CLI 的问题创建与发送拆开：无问题文件时默认 info，不再接受 `--kind` 或原 `--questions-file`；发送问题须先 `question create`，再 `self notice post --question-file FILE`。旧 `lushw notice example/check` 移至 `question`，不保留别名。self 接口从有效 invocation token 绑定自身，不接受 task／--worker 或显式目标；项目写门和既有权限不变。底层 RPC 的参数与默认 question 保留兼容，`lush notice post`、Valet 的 `--kind/--questions-json` 和历史记录不变。
+`bun run lushw self notice notify '结果已就绪' --body '实际结论、验证与限制'`（Agent 子进程使用固定的 `lushw`，调用 `context.notice`）。notify 固定 info；发送决策须先 `question create`，再 `self notice ask --question-file FILE`，发布后结束本轮。ask/notify 都不接受 --kind；notify 不夹带问卷。旧 post 与 `lushw notice example/check` 不保留可执行别名。self 从有效 invocation token 绑定自身，不接受 task／--worker 或显式目标；项目写门和既有权限不变。底层 RPC 的参数与默认 question 保留兼容，历史记录不改写；Valet 仍只可内联结构化输入。--json 返回版本化外壳，实际 Notice 结果在 data 中，不把外壳返回当用户已看到。
 
 info 在同一事务保存 `notice.reported` 来源 Event 与 `kind=info / status=sent` Notice，进入现有未读告知与来源同步，不暂停／中止调用，不进入 open、不自动答复、不改变 Worker 状态、合并或验收。其 lifecycle_type 为 NULL（非 runtime 生命周期分类）；普通未知分类展示规则保持可见。可按既有 notice.read 标已读，不能 answer/dismiss。返回成功只证明已保存，不保证系统提醒送达；接口不提供强幂等，断连或未知结果不能盲目重发。
 
@@ -66,7 +66,7 @@ bun run lushw question example > questions.json
 bun run lushw question create '决策标题' --questions-file questions.json --body '背景、影响和建议' > decision.json
 bun run lushw question check --question-file decision.json
 # 确认后才发送；Agent 发送必须是本轮最后一个动作：
-bun run lushw self notice post --question-file decision.json
+bun run lushw self notice ask --question-file decision.json
 ```
 
 `question example/create/check` 始终输出 JSON，无需项目／daemon 或 invocation，不读取设备配置、不创建 Notice、不暂停 Worker。`create` 只返回规范化 JSON，由调用方保存到另一个文件；不要把输出重定向至题目输入文件。完整问题文件的 version 必须为 1，标题非空，背景与题目在创建时校验，发送时不允许覆盖。读取仅接受不超过 256000 字节的普通 JSON 文件；CLI 创建、预检和发送前检查均复用 `src/core/questionnaire.js` 的服务端契约。预检通过不证明目标 Worker 的权限／状态、开放问卷数量或预览渲染可用，发送时仍由服务端重新校验。题目字段为 `header/question/options/multiSelect?`，选项字段为 `label/description/preview?/previewHtml?`。示例由 CLI 维护，不在文档另存一份 JSON。

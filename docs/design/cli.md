@@ -1,6 +1,6 @@
-# CLI 重设计提案：按对象组织，按动作表达
+# CLI 设计：按对象组织，按动作表达
 
-本文是 W356 的整体设计提案，以通过固定 `lush_cli` 使用管理命令的 Valet 和通过 `lushw` 协作的 Worker Agent 为主要消费者，同时服务用户终端与后续实施者。**尚未实现，示例中的新命令不能直接执行。** D727 已确认：一次性切换、不保留可执行旧别名；删除重复与失效入口但保留有效能力；对象分组为主，保留少量高频短入口。当前实现仍以 `src/cli/catalog.js` 和[现行 CLI 契约](../reference/api.md)为准。
+本文保存 W356 的最终实施依据，以通过固定 `lush_cli` 使用管理命令的 Valet 和通过 `lushw` 协作的 Worker Agent 为主要消费者，同时服务用户终端与实现者。D727 已确认：一次性切换、不保留可执行旧别名；删除重复与失效入口但保留有效能力；对象分组为主，保留少量高频短入口。命令核心及调用契约已进入实施，业务模块的接线与真实链路验证须由最终集成树证明，本页不是“已验证”的证据；可执行契约以固定 CLI 的 `src/cli/catalog.js`、同源 CommandSpec 和[现行 CLI 契约](../reference/api.md)为准，已运行的旧进程不会热更新。
 
 ## 1. 结论与问题定位
 
@@ -22,7 +22,7 @@
 
 ## 2. 总体结构
 
-以下是目标导航，不是第二份运行时注册表。全部旧叶命令的去向见[迁移清单](cli-migration.md)。
+以下保留已确认的信息架构，不是第二份运行时注册表。全部旧叶命令的去向见[迁移清单](cli-migration.md)。
 
 ```text
 lush
@@ -170,7 +170,7 @@ lush worker accept W5
 
 ## 7. 验证与验收
 
-本轮只交付方案；静态目录覆盖核对与文档检查不能证明新接口已经可执行。未来实施首先验证真实链路：用户 bin → parser → RPC → 结果；可控 Provider → 固定 Valet bridge → CLI → 权限／执行／收据；开发 invocation → lushw → 亲缘核验 → 返回；再补 Web Worker CLI 的预检、租约和历史。各 Agent 链路必须包含从帮助发现命令、获得真实前置值到解释结果的过程；具体披露断言见[能力发现验收](cli-agent-discovery.md#8-实施接线与验证标准)。
+静态目录覆盖核对与文档检查不能证明新接口已经可执行。实施必须先在最终集成树验证真实链路：用户 bin → parser → RPC → 结果；可控 Provider → 固定 Valet bridge → CLI → 权限／执行／收据；开发 invocation → lushw → 亲缘核验 → 返回；再补 Web Worker CLI 的预检、租约和历史。各 Agent 链路必须包含从帮助发现命令、获得真实前置值到解释结果的过程；具体披露断言见[能力发现验收](cli-agent-discovery.md#8-实施接线与验证标准)。
 
 复用现有 `test/cli-catalog.test.js`、`test/cli-entrypoints.test.js`、`test/worker-context.test.js`、`test/worker-cli-trial.test.js`、`test/project/management-cli.test.js` 及已有问卷／结果告知主流程，不为每个重命名新建用例。迁移清单作为数据驱动断言覆盖已移除的旧拼写拒绝、保留路径的默认语义迁移，以及新入口注册／帮助／实际权限一致；权限、副作用及异步收据不能只用 mock 目录断言代替。
 

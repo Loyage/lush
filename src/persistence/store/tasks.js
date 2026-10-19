@@ -1,6 +1,10 @@
 import { check, id, layerOf } from '../../core/types.js';
 import { workerNumber } from '../../core/worker-number.js';
 
+const summarySelect = `SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
+  input_id,role,display_title,auto_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+  agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state,creation FROM tasks`;
+
 /** tasks 表的读写与生命周期字段。 */
 export const tasks = {
   task(taskId) {
@@ -57,10 +61,11 @@ export const tasks = {
   },
   /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
   summaries(layer = null) {
-    return this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
-      input_id,role,display_title,auto_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state,creation FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
-      ...(layer ? [layer] : []));
+    return this.all(`${summarySelect}${layer ? ' WHERE layer=?' : ''} ORDER BY id`, ...(layer ? [layer] : []));
+  },
+  /** Ascending bounded read used by the explicit worker.list paged protocol. */
+  summaryList(after, limit) {
+    return this.all(`${summarySelect} WHERE layer='work' AND id>? ORDER BY id LIMIT ?`, after, limit);
   },
   /**
    * 快速路由输入集合：planner 上带 `input.route` 事件（前缀命中、未调用规划模型）的 input id。

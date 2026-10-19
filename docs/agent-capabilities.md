@@ -29,8 +29,8 @@
 
 ```bash
 bun run lushw skills list
-bun run lushw skills get delegation
-bun run lushw skills get progress --json
+bun run lushw skills show delegation
+bun run lushw skills show progress --json
 ```
 
 这些命令只读取当前 CLI 内置指南，无需 daemon 在线或选择项目，不读取账号、设备私密配置或实际开启状态，不调用 Agent。Agent 使用 runtime 在 PATH 固定的 `lushw`，指南与运行代码同版本。未知 ID 或文件路径被拒绝，不执行指南中的内容。

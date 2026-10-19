@@ -34,7 +34,7 @@ console.log('fake pi completed');
     // The daemon validates device directories and env files even under CI's umask 0022.
     const agentDir = path.join(device, 'shared', 'agent'); fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(agentDir, 'agent.env'), 'TEST_SHARED=common\n', { mode: 0o600 });
-    await cli(root,['start'], { ...deviceEnv, LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
+    await cli(root,['daemon','start'], { ...deviceEnv, LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
     await bindMockPiSource(root, deviceEnv);
     const input = await cli(root,['order','run'], deviceEnv);
     const client = new UIClient(Config.fromEnv(env(deviceEnv),root));
@@ -65,5 +65,5 @@ console.log('fake pi completed');
     expect(sessions).toHaveLength(2);
     expect(sessions.every(session => typeof session === 'string' && session.length > 0)).toBe(true);
     expect(new Set(sessions).size).toBe(1);
-  } finally { await cli(root,['stop'], deviceEnv).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(device,{recursive:true,force:true}); }
+  } finally { await cli(root,['daemon','stop'], deviceEnv).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(device,{recursive:true,force:true}); }
 }, 30000);

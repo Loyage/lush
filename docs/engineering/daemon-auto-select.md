@@ -48,7 +48,7 @@ daemon 的 revision 独立于模板 revision，执行收据不改变配置 revis
 
 用户专属 RPC `hooks.auto_select {enabled:boolean,expected_revision:string}` 调用 `Project.setDaemonAutoSelect(enabled,expectedRevision)`，返回更新后的完整 `hooks.list`。过期 revision 拒绝，不覆盖其他标签的设置。Agent token 不可读写 Hook 配置。
 
-Web 使用当前项目已登录、同源的 `POST /api/action`，不接受项目路径或 `_token`。CLI 为 `bun run lush hooks auto-select on|off --revision REV`，REV 来自 `hooks.list.daemon_hooks.revision`。
+Web 使用当前项目已登录、同源的 `POST /api/action`，不接受项目路径或 `_token`。CLI 为 `bun run lush config auto-answer set on|off --revision REV`，REV 来自 `hooks.list.daemon_hooks.revision`。
 
 ## 调度与恢复边界
 

@@ -35,7 +35,7 @@ Lush 在项目 `.lush/pi/` 管理独立基础配置，每次调用生成私有�
 在 Agent 配置页选来源与模型并保存，影响未独立覆盖的后续调用。也可使用 CLI：
 
 ```bash
-bun run lush agent set default --agent pi --model deepseek/deepseek-chat --connection CONNECTION_UUID
+bun run lush config agent set default --agent pi --model deepseek/deepseek-chat --connection CONNECTION_UUID
 ```
 
 关闭连接绑定不会恢复外部 Pi 认证，而是使后续 Pi 调用缺少必需来源。模型必须匹配来源的 provider 和配置范围；保存/切换不悄悄选择第一个模型，不自动更换账号、付费资源或执行后端。

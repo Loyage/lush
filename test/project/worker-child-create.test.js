@@ -34,19 +34,23 @@ console.log('controlled child result');
 `, { mode: 0o755 });
     f.config.env.LUSH_PI_COMMAND = program; f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
     rpc = new RPCServer(f.config.socket, new Dispatcher(f.project, createSignal(), {})); await rpc.start();
+    const envelopes = [];
     const cli = async (...args) => {
       const proc = Bun.spawn([process.execPath, bin, '--project', f.root, '--json', ...args], { cwd: f.root,
         env: env(f.config.env), stdout: 'pipe', stderr: 'pipe' });
       const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      expect(code, err).toBe(0); return JSON.parse(out);
+      expect(code, `${err} ${out}`).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); envelopes.push(value); return value.data;
     };
-    const child = (await cli('worker', 'create', 'fork', '--parent', current.worker_number, '--source', current.worker_number)).task;
+    const child = (await cli('worker', 'create', '--parent', current.worker_number, '--from', current.worker_number)).task;
     expect(child).toMatchObject({ parent_id: current.id, task_kind: 'order', status: 'paused', input_id: null, base_commit: commit,
       target_branch: current.branch, creation: { source_id: current.id, session_inherited: true } });
     expect(f.project.autoMergeView(f.store.task(child.id))).toMatchObject({ enabled: false, locked: false });
     expect(fs.readFileSync(path.join(child.workspace, 'current-code.txt'), 'utf8')).toBe('current committed code\n');
     expect(fs.existsSync(log)).toBe(false);
-    const first = await cli('order', 'child first real instruction', '--append', child.worker_number);
+    const saved = await cli('input', 'draft', 'create', 'child first real instruction', '--append-to', child.worker_number);
+    expect(envelopes.at(-1).outcome.status).toBe('saved');
+    const first = await cli('input', 'draft', 'submit', String(saved.id), '--revision', String(saved.revision));
+    expect(envelopes.at(-1).outcome.status).toBe('scheduled');
     await f.project.drainInputEmissions();
     const receipt = f.project.inputEmissionResult(first.draft_id).dispatch;
     expect(receipt).toMatchObject({ state: 'succeeded', worker_id: child.id, input_id: 2 });

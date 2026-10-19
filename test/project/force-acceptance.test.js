@@ -20,7 +20,7 @@ test('real user CLI preflight and explicit forced acceptance reclaim resources w
       const proc = Bun.spawn([process.execPath, bin, 'worker', ...args, '--json'], { cwd: f.root,
         env: env({ ...f.config.env, LUSH_PROJECT: f.root, LUSH_HOME: f.config.home }), stdout: 'pipe', stderr: 'pipe' });
       const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      expect(code, err).toBe(0); return JSON.parse(out);
+      expect(code, `${err} ${out}`).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); return value.data;
     };
     const plan = await cli('accept-preview', parent.worker_number);
     expect(plan).toMatchObject({ id: parent.id, can_force: true, notifications: [{ message_id: signal.id, worker_id: child.id, signal_type: 'child.cancelled' }] });

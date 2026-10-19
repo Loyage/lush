@@ -8,10 +8,12 @@ import { provisionWebAuth, registerWebClient } from '../web/auth-fixture.js';
 export async function cli(root, args, extra = {}) {
   const auth = args[0] === 'host' && ['start', 'restart'].includes(args[1])
     ? provisionWebAuth({ home: path.join(root, '.lush') }) : null;
-  const proc = Bun.spawn([process.execPath,'run','scripts/ops.js',...args,'--project',root,'--json'], { cwd: ROOT, env: env(extra), stdout:'pipe',stderr:'pipe' });
+  const proc = Bun.spawn([process.execPath,'run','lush',...args,'--project',root,'--json'], { cwd: ROOT, env: env(extra), stdout:'pipe',stderr:'pipe' });
   const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(),new Response(proc.stderr).text(),proc.exited]);
   if (code) throw new Error(`${args.join(' ')}: ${stderr} ${stdout}`);
-  const result = JSON.parse(stdout);
+  const envelope = JSON.parse(stdout);
+  if (envelope.version !== 1 || !Object.hasOwn(envelope, 'data')) throw new Error('expected versioned CLI result');
+  const result = envelope.data;
   if (args[0] === 'host' && ['start', 'restart', 'stop'].includes(args[1]))
     registerWebClient(`http://127.0.0.1:${result.port}`, result.running ? auth : null);
   return result;

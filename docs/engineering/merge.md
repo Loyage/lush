@@ -2,7 +2,7 @@
 
 Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Worker 提供审阅结果和 agent 审计，代码是否能落地由 Branch + Git commit graph 决定；新指令 / child 的落地只接受**固定提交**，绝不 no-ff、绝不 rebase。
 
-集中处理多个来源另走显式[一次性整合](merge-convergence-implementation.md)，不改变本篇普通 serial：旧持续策略不分流新普通请求，RPC worker.reserve_all（CLI worker merge-all）仍逐项串行，不是一次性整合。新整合也不重挂真实父子关系，最终只发布一次 Squash。
+集中处理多个来源另走显式[一次性整合](merge-convergence-implementation.md)，不改变本篇普通 serial：旧持续策略不分流新普通请求，RPC worker.reserve_all（CLI branch merge-all）仍逐项串行，不是一次性整合。新整合也不重挂真实父子关系，最终只发布一次 Squash。
 
 ## 当前 version 2：父 Worker 自有交付队列
 
@@ -31,7 +31,7 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 父 Worker 等子 Worker，子 Worker 的预约又等待父调用退出，并不一定形成循环：父 Agent 正常返回后释放 invocation 槽，runtime 才能取得父分支写执行位。父在收到普通追加消息后继续运行，会延迟子交付；`merge.requested` 通知本身不会启动父 Agent。父向上的 `pending` 意图也不会阻挡子交付，只有真正发出并冻结的向上请求才会阻挡。
 
-只读诊断用 `lush worker inspect W编号` 检查父与直接子 Worker，并用 `lush worker history W编号` 对照调用结束、尝试开始和分歧返回事件：
+只读诊断用 `lush worker show W编号` 检查父与直接子 Worker，并用 `lush worker events W编号` 对照调用结束、尝试开始和分歧返回事件：
 
 - 子 `requested` 且父 Agent 仍活动：等待父调用实际退出，尚未取得父执行位。
 - 一个子 `resolving` 且其 Agent 运行：该子正在吸收固定父提交；父静息、其它子 `requested` 是正常串行等待。父普通输入会暂存到这一项落地后的安全边界。

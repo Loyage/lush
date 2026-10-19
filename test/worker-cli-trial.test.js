@@ -11,7 +11,7 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
   const root = temp(); await repo(root);
   let web;
   try {
-    const daemon = await cli(root, ['start']); expect(daemon.pid).not.toBe(process.pid);
+    const daemon = await cli(root, ['daemon', 'start']); expect(daemon.pid).not.toBe(process.pid);
     const config = new Config({ project: root, env: env() }); web = startTestWeb(config, 0);
     const url = `http://127.0.0.1:${web.port}/api/action`;
     const post = async (method, params, options = {}) => {
@@ -22,8 +22,8 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
     const created = await post('order.submit', { content: 'separate-daemon CLI', start: false });
     const id = created.value.task.id;
     expect((await post('worker.cli_preview', { id, command: 'lush status' }, { anonymous: true })).code).toBe(401);
-    for (const command of ['lush --json worker list', 'lushw --json self inspect', 'lushw --json parent inspect',
-      'lushw --json children list', `lush worker rename ${id} actual-cli`, "lushw --json self notice post 'user write'"]) {
+    for (const command of ['lush --json worker list', 'lushw --json self show', 'lushw --json parent show',
+      'lushw --json children list', `lush worker rename ${id} actual-cli`, "lushw --json self notice notify 'user write'"]) {
       const preview = await post('worker.cli_preview', { id, command }); expect(preview.code).toBe(200);
       if (preview.value.requires_confirmation) {
         expect((await post('worker.cli_execute', { id, command, revision: preview.value.revision })).code).not.toBe(200);
@@ -37,5 +37,5 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
     expect(saved.value.entries).toHaveLength(6);
     expect((await post('worker.cli_history_clear', { id })).value).toEqual({ cleared: true });
     expect((await post('worker.cli_history', { id })).value).toEqual({ entries: [], before: null, has_more: false });
-  } finally { if (web) await web.stop(true); await cli(root, ['stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { if (web) await web.stop(true); await cli(root, ['daemon', 'stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
 });

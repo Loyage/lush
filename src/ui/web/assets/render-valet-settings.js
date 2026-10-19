@@ -158,7 +158,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     if (!state.catalog) { sync(); return; }
     const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
     const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushw'].includes(query)
-      ? item.executable === query : `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query));
+      ? item.executable === query : `${item.path} ${item.name} ${item.description} ${item.keywords ?? ''}`.toLocaleLowerCase().includes(query));
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
     results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
@@ -180,7 +180,10 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       if (!item.directory) detail.append(permissions(item));
       const advanced = el('details', undefined, 'cli-advanced'); advanced.dataset.command = item.path; advanced.open = state.expanded.has(item.path); advanced.append(el('summary', '高级参数、关联 RPC 与兼容限制'));
       advanced.append(el('code', item.usage, 'cli-command-code'));
-      advanced.append(el('p', '通用选项：--project PATH 明确项目；--json 输出结构化结果（终端 watch 不支持）；--help / -h 只打印帮助，不执行命令。', 'hint'));
+      advanced.append(el('p', '通用选项：--project PATH 明确项目；--json 输出 version/data/page/outcome 结构化结果（终端 watch 不支持）；--help / -h 只打印帮助，-- 后均为正文。静态目录不代表实时授权。', 'hint'));
+      if (item.cli_parameters) advanced.append(el('h4', 'CLI 参数契约'), el('pre', JSON.stringify(item.cli_parameters, null, 2), 'cli-command-code'));
+      for (const [title, value] of [['参数模式与实际能力', item.modes], ['值的来源', item.sources], ['前置条件', item.preconditions], ['效果与代价', item.effects], ['结果与恢复', item.recovery]])
+        if (value && (!Array.isArray(value) || value.length)) advanced.append(el('h4', title), el('pre', typeof value === 'string' ? value : JSON.stringify(value, null, 2), 'cli-command-code'));
       if (item.advanced) advanced.append(el('p', item.advanced, 'hint'));
       for (const rpc of item.rpc) {
         advanced.append(el('p', `${rpc.method} · RPC 参数：${rpc.parameters.join(', ') || '无'} · ${rpc.audience === 'user' ? '用户专属入口' : rpc.audience === 'agent' ? '专用 Agent 入口' : '用户／开发 Agent（仍受身份门禁）'}`, 'hint'));
@@ -203,7 +206,9 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     try {
       const catalog = await loadCliCatalog({ retry });
       if (!owns() || generation !== state.catalogGeneration) return;
-      state.catalog = catalog; paint(); catalogNotice.hidden = true;
+      state.catalog = catalog;
+      searchHint.textContent = `支持 lush / lushw 完整命令及用途关键词 · 空关键词显示顶层目录 · 目录 ${catalog.catalog_version ?? '版本未知，请更新 Host'}`;
+      paint(); catalogNotice.hidden = true;
     } catch (error) {
       if (!owns() || generation !== state.catalogGeneration) return;
       catalogStatus.textContent = `目录加载失败：${error.message}`; catalogStatus.classList.add('error'); catalogRetry.hidden = false;

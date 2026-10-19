@@ -73,7 +73,7 @@
 
 验收方向：示例可直接使用，预检无副作用，失败说明能指导修正；不增加重复文档维护要求。
 
-落实入口已按 W355／D726 拆分：`lushw question example` 输出题目模板，`question create` 创建完整问题文件，`question check --question-file FILE` 本地只读预检，均不需要项目／daemon；`self notice post --question-file FILE` 只发送已创建的问题，默认无文件时发纯告知。CLI 发布前也复用 `src/core/questionnaire.js` 的服务端校验，错误包含示例入口。回归位于 `test/notice-cli.test.js`，用离线 CLI、非法外层／字段／限额和无 RPC 断言验证。操作见[Notice 参考](reference/rpc/notices.md#结构化问卷)，原文中的重复 JSON 改为 CLI 生成；有界文件／符号定位及既有测试查询入口见[贡献指南](contributing/README.md#定位文件与复用入口)。未新增 RPC、持久实体或大段 Agent 必读提示；预检不证明 Worker 发布准入或真实模型行为，也未量化减少猜路径／记忆成本的效果。
+落实入口已按 W355／D726 拆分：`lushw question example` 输出题目模板，`question create` 创建完整问题文件，`question check --question-file FILE` 本地只读预检，均不需要项目／daemon；`self notice ask --question-file FILE` 只发送已创建的问题，纯告知使用独立 notify 动作。CLI 发布前也复用 `src/core/questionnaire.js` 的服务端校验，错误包含示例入口。回归位于 `test/notice-cli.test.js`，用离线 CLI、非法外层／字段／限额和无 RPC 断言验证。操作见[Notice 参考](reference/rpc/notices.md#结构化问卷)，原文中的重复 JSON 改为 CLI 生成；有界文件／符号定位及既有测试查询入口见[贡献指南](contributing/README.md#定位文件与复用入口)。未新增 RPC、持久实体或大段 Agent 必读提示；预检不证明 Worker 发布准入或真实模型行为，也未量化减少猜路径／记忆成本的效果。
 
 ## 约束与复盘范围
 

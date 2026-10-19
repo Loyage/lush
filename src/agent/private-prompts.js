@@ -3,9 +3,10 @@ import path from 'node:path';
 import { check } from '../core/types.js';
 import { configurationHome, settingsConfigurationScope, withConfigurationWriteLock } from '../core/device-config.js';
 
-export const PROMPT_SUPPLEMENT_TARGETS = Object.freeze(['common', 'agent', 'planner', 'coordinator', 'worker', 'research', 'verifier', 'merger', 'explainer', 'butler', 'manager']);
+import { PROMPT_SUPPLEMENT_TARGETS } from './settings-protocol.js';
+export { PROMPT_SUPPLEMENT_TARGETS } from './settings-protocol.js';
 export const PRIVATE_PROMPT_MAX_BYTES = 65536;
-const README = '# Lush agent customization\n\n`common.md` is appended to every role. `<role>.md` is appended only to that role.\nUse `lush agent prompt ROLE` to inspect the final composition.\n';
+const README = '# Lush agent customization\n\n`common.md` is appended to every role. `<role>.md` is appended only to that role.\nUse `lush agent prompt show ROLE` to inspect the final composition.\n';
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const identity = stat => ({ dev: stat.dev, ino: stat.ino, uid: stat.uid, mode: stat.mode });
 const fileIdentity = stat => ({ ...identity(stat), nlink: stat.nlink, size: stat.size, mtime: stat.mtimeMs, ctime: stat.ctimeMs });

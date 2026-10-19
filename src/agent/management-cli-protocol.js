@@ -14,7 +14,8 @@ export function validateManagementCLI(argv, requestId) {
     || typeof requestId !== 'string' || !requestId || requestId.length > 128 || /[\x00-\x1f\x7f]/.test(requestId))
     throw managementCLIParseError();
   // Reject even for help: no alternate project, local file, credentials or process controls.
-  if (argv.some(arg => /^--(?:project|file|profile-file|questions-file|answers-file|url-file|foreground|runner-node)(?:=|$)/.test(arg)))
+  const separator = argv.indexOf('--'), options = argv.slice(0, separator < 0 ? argv.length : separator);
+  if (options.some(arg => /^--(?:project|file|profile-file|questions-file|answers-file|url-file|foreground|runner-node)(?:=|$)/.test(arg)))
     throw managementCLIParseError();
 }
 

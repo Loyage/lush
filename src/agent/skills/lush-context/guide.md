@@ -5,25 +5,27 @@
 ## 先定位关系，再有界读取
 
 ```bash
-lushw self inspect
-lushw parent inspect
+lushw self show
+lushw parent show
 lushw children list --after 0 --limit 30
-lushw children inspect W5-1
-lushw self history --after 0
-lushw children history W5-1 --after 0
+lushw children show W5-1
+lushw self events --after 0
+lushw children events W5-1 --after 0
 lushw self transcript --after 0 --limit 100
 lushw children transcript W5-1 --after 0 --limit 100
 ```
 
-self 和 parent 由服务端按有效 invocation token 定位，不依赖 cwd、自身编号、LUSH_TASK_ID 或树中层级。child ID 只能是自己的直接子 Worker，可用明确的内部整数或持久 W 编号；不要按内部整数猜 W 编号。无父 Worker 时 parent inspect 明确报错。兄弟、孙辈和无关 Worker 不在普通开发查询范围；不能切换到 lush 管理入口绕过限制。
+self 和 parent 由服务端按有效 invocation token 定位，不依赖 cwd、自身编号、LUSH_TASK_ID 或树中层级。child ID 只能是自己的直接子 Worker，可用明确的内部整数或持久 W 编号；不要按内部整数猜 W 编号。无父 Worker 时 parent show 明确报错。兄弟、孙辈和无关 Worker 不在普通开发查询范围；不能切换到 lush 管理入口绕过限制。
 
 children list 按内部 ID 升序分页，默认50、最多200条；使用返回的 cursor 作为下一次 --after，依据 has_more 继续读取所需范围。列表只包含直接 child，不能把当前页当全部后代。自身 Notice 用 lushw self notice list，使用返回的 cursor 作为 --before，按倒序继续分页。
 
-inspect 的 coverage=worker_context，是状态、目标、结果、精简 reservation 与 input_queue 等字段的投影，不含嵌套关系、收件箱、Notice、合并诊断、Artifact 或原始运行记录。根据 omitted 说明未包含内容，不把省略当不存在或已归档。history 的 coverage=event_metadata_only，只提供事件 ID、所属 Worker、类型和时间，不含事件正文；用 next 作为 --after 续读，不能从事件类型推断具体决定、消息正文或完整执行。需要实际执行证据时使用相关 transcript，而非把 history 当正文检索。
+show 的 coverage=worker_context，是状态、目标、结果、精简 reservation 与 input_queue 等字段的投影，不含嵌套关系、收件箱、Notice、合并诊断、Artifact 或原始运行记录。根据 omitted 说明未包含内容，不把省略当不存在或已归档。events 的 coverage=event_metadata_only，只提供事件 ID、所属 Worker、类型和时间，不含事件正文；用 next 作为 --after 续读，不能从事件类型推断具体决定、消息正文或完整执行。需要实际执行证据时使用相关 transcript，而非把 events 当正文检索。
 
 执行记录响应中的 next、has_more、truncated、call_id、tool_name、is_error 与采样时刻是事实边界。使用返回的 next 作为 --after 继续读取所需范围，不凭预览判断未发生，不把缺失输出说成成功。关联调用与结果须依据同一会话的 call_id，不凭相邻位置猜配对。遇到缺失或超限，准确说明未覆盖范围。
 
 Agent 不调用用户专属 worker.transcript_search／step／page／latest，不运行用户专属 worker watch。不要为了检索启动第二个 Agent、模型、PTY 或后台轮询；本指南不增加公开搜索命令或 RPC 权限。
+
+使用 --json 时结果在版本化外壳的 data 中，page/outcome 不替代 data 内 coverage、截断事实和实际收据。按启动提示的 catalog_version 复用静态帮助；不确定用法才按需 lushw help PATH / help --search TEXT，不能把缓存权限或旧 revision 当当前授权。
 
 ## 信任与范围
 

@@ -80,7 +80,7 @@ export function printOrchestrateResult(result) {
     console.log(`目标分支 ${result.target_branch}：没有可编排的指令子分支${why ? `（${why}）` : ''}。`);
     return;
   }
-  console.log(`已在 ${result.target_branch} 开始合并编排（Worker #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条指令分支（没有请求但符合条件的会先自动补发固定提交请求）；进度看 lush branch tree 或 lush worker inspect。`);
+  console.log(`已在 ${result.target_branch} 开始合并编排（Worker #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条指令分支（没有请求但符合条件的会先自动补发固定提交请求）；进度看 lush branch tree 或 lush worker show。`);
 }
 /** 编排取消结果：已落地的合并不回滚。 */
 export function printOrchestrateCancel(result) {

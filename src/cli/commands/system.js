@@ -210,6 +210,7 @@ async function webRestart(config, port, foreground) {
 /** 端口参数缺省时优先用后台 Web 自己记的端口：`web 0` 让内核挑号，命令行的 0 不是地址。 */
 function resolvePort(value, state) {
   if (value === undefined) return state?.port ?? DEFAULT_WEB_PORT;
+  check(typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/.test(value), 'invalid web port');
   const port = Number(value);
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
   return port;
@@ -218,12 +219,16 @@ function resolvePort(value, state) {
 export async function run(command, args, ctx) {
   const { client } = ctx;
   const config = client.config;
-  if (command === 'system') {
+  if (command === 'project') {
     const verb = args.shift();
-    check(['summary','diagnostics','interrupt-all','resume-all','stop'].includes(verb), 'unknown system command');
-    const params = verb === 'interrupt-all' ? takeOptions(args, { notify_completion: 'boolean' })
-      : verb === 'summary' ? takeOptions(args, { development: 'boolean' }) : {};
-    exact(args, 0); return client.request(`system.${verb.replaceAll('-', '_')}`, params);
+    check(['diagnostics','pause','resume'].includes(verb), 'project requires diagnostics|pause|resume');
+    const params = verb === 'pause' ? takeOptions(args, { notify_completion: 'string' }) : {};
+    exact(args, 0);
+    if (params.notify_completion !== undefined) {
+      check(['on','off'].includes(params.notify_completion), '--notify-completion expects on|off');
+      params.notify_completion = params.notify_completion === 'on';
+    }
+    return client.request(`system.${({ pause: 'interrupt_all', resume: 'resume_all' })[verb] ?? verb}`, params);
   }
   let value;
   if (HOST_COMMANDS.includes(command)) {
@@ -248,7 +253,12 @@ export async function run(command, args, ctx) {
     return value;
   }
   if (command === 'daemon') {
-    check(!client.token, 'agents cannot control daemons'); exact(args, 1); value = await daemon(config, args[0]);
+    const verb = args.shift(); exact(args, 0);
+    if (verb === 'request-stop') return client.request('system.stop');
+    check(!client.token, 'agents cannot control local daemon workflows');
+    if (verb === 'log') return { log: fs.readFileSync(path.join(config.home, 'daemon.log'), 'utf8').split('\n').slice(-60).join('\n') };
+    check(['start','stop','restart'].includes(verb), 'daemon requires start|stop|restart|request-stop|log');
+    value = await daemon(config, verb);
   } else if (command === 'doctor') {
     const verbose = args.includes('--verbose');
     if (verbose) args.splice(args.indexOf('--verbose'), 1);
@@ -261,7 +271,7 @@ export async function run(command, args, ctx) {
       daemonStatus = await client.request('system.status');
       value.daemon = verbose ? daemonStatus : { project: daemonStatus.project, pid: daemonStatus.pid,
         code_dir: daemonStatus.code_dir, fingerprint: daemonStatus.fingerprint, started_at: daemonStatus.started_at,
-        note: '完整配置使用 doctor --verbose 或 agent show。' };
+        note: '完整配置使用 doctor --verbose 或 config agent show。' };
       value.code_match = daemonStatus.fingerprint === current.fingerprint && daemonStatus.code_dir === current.code_dir;
       value.daemon_code_match = value.code_match;
     } catch (error) { value.daemon = error.message; value.daemon_code_match = null; }
@@ -280,10 +290,12 @@ export async function run(command, args, ctx) {
     value.update_hints = [daemonUpdateHint(config, daemonStatus, current), value.host.update_hint].filter(Boolean);
     if (value.update_hints[0]?.process === 'daemon') console.error(`lush: ${value.update_hints[0].message}`);
     noteStaleCode(value.host);
-  } else if (command === 'status') { exact(args, 0); value = await client.request('system.status');
-  }
-  else if (command === 'log') {
-    exact(args, 0); console.log(fs.readFileSync(path.join(config.home, 'daemon.log'), 'utf8').split('\n').slice(-60).join('\n')); return;
-  }
+  } else if (command === 'status') {
+    const detailIndex = args.indexOf('--detail'), detail = detailIndex >= 0;
+    if (detail) args.splice(detailIndex, 1);
+    const params = takeOptions(args, { development: 'boolean' }); exact(args, 0);
+    check(!detail || params.development === undefined, '--detail cannot be combined with --development');
+    value = await client.request(detail ? 'system.status' : 'system.summary', params);
+  } else check(false, 'unknown service command');
   return value;
 }

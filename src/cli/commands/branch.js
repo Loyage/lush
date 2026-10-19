@@ -1,5 +1,4 @@
 import { check } from '../../core/types.js';
-import { automationScope } from '../../core/automation-scopes.js';
 import { exact, option } from '../args.js';
 import { takeOptions } from '../command-options.js';
 import { printBranchTree, printBranchShow, printBranchArchive } from '../print.js';
@@ -9,14 +8,15 @@ export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
   const verb = args.shift();
-  if (['history','version-graph'].includes(verb)) {
-    const params = takeOptions(args, { cursor: 'string', limit: 'number', delivery: 'number' }); exact(args, 0);
-    return client.request(`branch.${verb.replaceAll('-', '_')}`, params);
+  if (['history','versions'].includes(verb)) {
+    const params = takeOptions(args, verb === 'versions' ? { cursor: 'string', limit: 'number', delivery: 'number' } : { cursor: 'string', limit: 'number' }); exact(args, 0);
+    return client.request(verb === 'versions' ? 'branch.version_graph' : 'branch.history', params);
   }
   if (verb === 'graph') { exact(args, 0); return client.request('graph.get'); }
-  if (verb === 'convergence') return runConvergence(args, client);
+  if (verb === 'merge-all') { exact(args, 1); return client.request('worker.reserve_all', { branch: convergenceBranch(args[0]) }); }
+  if (verb === 'legacy-convergence') return runConvergence(args, client);
   if (verb === 'integrate') return runIntegrate(args, client);
-  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind, archive, convergence or integrate');
+  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; run lush help branch');
   if (verb === 'tree') {
     const verbose = args.includes('--verbose');
     if (verbose) args.splice(args.indexOf('--verbose'), 1);
@@ -46,20 +46,20 @@ export async function run(command, args, ctx) {
 async function runIntegrate(args, client) {
   check(!client.token || client.management, 'branch integrate requires user or trusted management identity');
   const verb = args.shift();
-  check(['plan','start','show','cancel','retry'].includes(verb), 'branch integrate requires plan|start|show|cancel|retry');
+  check(['preview','start','show','cancel','retry'].includes(verb), 'branch integrate requires preview|start|show|cancel|retry');
   const writes = ['start','cancel','retry'].includes(verb);
-  const expected_revision = writes ? readConvergenceRevision(args, 'branch integrate plan/show') : null;
+  const expected_revision = writes ? readConvergenceRevision(args, 'branch integrate preview/show') : null;
   exact(args, 1);
-  if (verb === 'plan' || verb === 'start') {
+  if (verb === 'preview' || verb === 'start') {
     const branch = convergenceBranch(args[0]);
-    return client.request(`branch.integrate_${verb}`, writes ? { branch, expected_revision } : { branch });
+    return client.request(verb === 'preview' ? 'branch.integrate_plan' : 'branch.integrate_start', writes ? { branch, expected_revision } : { branch });
   }
   const id = convergenceNumber(args[0], 'integration id');
   return client.request(verb === 'show' ? 'branch.integration' : `branch.integrate_${verb}`,
     writes ? { id, expected_revision } : { id });
 }
 
-function readConvergenceRevision(args, source = 'branch convergence show/runs') {
+function readConvergenceRevision(args, source = 'branch legacy-convergence show/history') {
   const revision = option(args, '--revision');
   check(typeof revision === 'string' && revision.length > 0 && revision.length <= 256
     && revision === revision.trim() && !/[\x00-\x1f\x7f]/.test(revision),
@@ -81,58 +81,20 @@ function convergenceNumber(value, label, max = Number.MAX_SAFE_INTEGER) {
     && Number(value) <= max, `${label} must be a positive integer${max === 50 ? ' up to 50' : ''}`);
   return Number(value);
 }
-function commandId(value) {
-  check(typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value), 'invalid command id');
-  return value;
-}
 async function runConvergence(args, client) {
-  check(!client.token || client.management, 'branch convergence requires user or trusted management identity');
+  check(!client.token || client.management, 'branch legacy-convergence requires user or trusted management identity');
   const verb = args.shift();
-  check(['list','show','on','off','mount','remove','defaults','runs','retry'].includes(verb), 'branch convergence requires list|show|on|off|mount|remove|defaults|runs|retry; run lush help');
-  if (verb === 'defaults') {
-    const action = args.shift();
-    if (action === 'show') { exact(args, 0); return client.request('branch.convergence_defaults'); }
-    check(action === 'set', 'branch convergence defaults requires show|set');
-    const expected_revision = readConvergenceRevision(args);
-    const mounted = option(args, '--mounted'), enabled = option(args, '--enabled'), scope = option(args, '--scope'); exact(args, 0);
-    check(['true','false'].includes(mounted) && ['true','false'].includes(enabled), '--mounted and --enabled must be true|false');
-    if (scope !== null) {
-      automationScope(scope);
-      check((mounted === 'true') === (scope !== 'none'), 'convergence mounted must match scope');
-    }
-    return client.request('branch.convergence_defaults_set', { mounted: mounted === 'true', enabled: enabled === 'true', expected_revision,
-      ...(scope === null ? {} : { scope }) });
-  }
+  check(['list','show','defaults','history','retry'].includes(verb), 'branch legacy-convergence requires list|show|defaults|history|retry; retired writes are unavailable');
+  if (verb === 'defaults') { exact(args, 0); return client.request('branch.convergence_defaults'); }
   if (verb === 'list') { exact(args, 0); return client.request('branch.convergence_list'); }
   if (verb === 'show') { exact(args, 1); return client.request('branch.convergence', { branch: convergenceBranch(args[0]) }); }
-  if (verb === 'runs') {
+  if (verb === 'history') {
     const before = option(args, '--before'), limit = option(args, '--limit'); exact(args, 1);
     const params = { branch: convergenceBranch(args[0]) };
     if (before !== null) params.before = convergenceNumber(before, 'before');
     if (limit !== null) params.limit = convergenceNumber(limit, 'limit', 50);
     return client.request('branch.convergence_runs', params);
   }
-  const expected_revision = readConvergenceRevision(args);
-  if (verb === 'retry') {
-    exact(args, 1);
-    return client.request('branch.convergence_retry', { id: convergenceNumber(args[0], 'run id'), expected_revision });
-  }
-  if (verb === 'on') {
-    exact(args, 1);
-    return client.request('branch.convergence_set', { branch: convergenceBranch(args[0]), enabled: true, expected_revision });
-  }
-  exact(args, 1);
-  const branch = convergenceBranch(args[0]);
-  if (verb === 'remove')
-    return client.request('branch.convergence_set', { branch, mounted: false, enabled: false, expected_revision });
-  const current = await client.request('branch.convergence', { branch });
-  check(current?.branch === branch && current.revision === expected_revision, 'branch convergence revision changed; reload before editing');
-  if (verb === 'mount')
-    return client.request('branch.convergence_set', { branch, mounted: true, enabled: current.enabled === true, expected_revision });
-  check(current.validation === null || current.validation && typeof current.validation === 'object', 'invalid branch convergence validation read');
-  const validation = current.validation === null ? null : {
-    command_id: commandId(current.validation.command_id),
-  };
-  return client.request('branch.convergence_set', { branch, enabled: false, validation, expected_revision,
-    ...(typeof current.mounted === 'boolean' ? { mounted: current.mounted } : {}) });
+  const expected_revision = readConvergenceRevision(args); exact(args, 1);
+  return client.request('branch.convergence_retry', { id: convergenceNumber(args[0], 'run id'), expected_revision });
 }

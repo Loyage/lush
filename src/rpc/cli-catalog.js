@@ -1,4 +1,4 @@
-import { CLI_EXECUTABLES, cliCommands } from '../cli/catalog.js';
+import { CLI_EXECUTABLES, CLI_CATALOG_VERSION, cliCommands } from '../cli/catalog.js';
 import { CLI_CAPABILITIES } from '../cli/capabilities.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { managementPolicy, managementAllowedAccess, managementAuthorization } from './management-policy.js';
@@ -13,13 +13,16 @@ const risks = {
 };
 /** No project facts, paths, settings or credentials. Project defaults are a separate user read. */
 export function cliCatalog() {
-  return { version: 1, source: 'builtin-cli', commands: CLI_EXECUTABLES.flatMap(executable => cliCommands(executable).map(entry => ({
+  return { version: 1, catalog_version: CLI_CATALOG_VERSION, source: 'builtin-cli', commands: CLI_EXECUTABLES.flatMap(executable => cliCommands(executable).map(entry => ({
     executable, command_path: entry.path,
     path: `${executable} ${entry.path}`, parent: entry.parent ? `${executable} ${entry.parent}` : null, name: entry.path.split(' ').at(-1),
     directory: entry.directory, management_cli: entry.management_cli, operation: entry.operation, operations: [...entry.operations], description: entry.description,
     usage: entry.usage ?? `${executable} ${entry.path} <子命令>`, format: entry.format ?? `${executable} ${entry.path} <子命令>`, example: entry.example ?? null,
     risk: entry.directory ? '选择子命令查看实际调用与风险；目录本身不执行命令。' : [risks[entry.kind], entry.risk].filter(Boolean).join(' '),
     advanced: entry.advanced ?? '', user_context_rpc: entry.user_context_rpc,
+    command_id: entry.id, cli_parameters: entry.parameters, modes: entry.modes ?? [],
+    sources: entry.sources ?? [], preconditions: entry.preconditions ?? [], effects: entry.effects ?? null,
+    recovery: entry.recovery ?? null, keywords: entry.keywords ?? [],
     rpc: entry.rpc.map(method => {
       const policy = managementPolicy(method);
       return { method, parameters: [...PARAMS[method]], ...(CLI_CAPABILITIES[method] ?? {}),

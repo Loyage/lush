@@ -19,12 +19,29 @@ export const handlers = {
     return p.taskGraph(params, context?.management ? { pageLimit: MANAGEMENT_READ_ITEMS } : null);
   },
   'worker.delivery_graph'(p, params) { return p.workerDeliveryGraph(params); },
-  'worker.list'(p, params, actor) {
+  'worker.list'(p, params, _actor, context) {
     const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
-    validateWorkerQuery('worker.list', { after, limit });
-    return bounded(p.decorate(p.store.summaries('work').filter(task => task.id > after).slice(0, limit)), 900000);
+    validateWorkerQuery('worker.list', { after, limit, ...(params.paged === undefined ? {} : { paged: params.paged }) });
+    if (!params.paged) return bounded(p.decorate(p.store.summaries('work').filter(task => task.id > after).slice(0, limit)), 900000);
+    const size = context?.management ? Math.min(limit, MANAGEMENT_READ_ITEMS) : limit;
+    const rows = p.decorate(p.store.summaryList(after, size + 1));
+    const tasks = [], budget = context?.management ? 60000 : 900000;
+    let bytes = 2;
+    for (const row of rows.slice(0, size)) {
+      const length = Buffer.byteLength(JSON.stringify(row)) + (tasks.length ? 1 : 0);
+      check(tasks.length || bytes + length <= budget, 'Worker summary exceeds page budget; no row or cursor was returned');
+      if (bytes + length > budget) break;
+      tasks.push(row); bytes += length;
+    }
+    const has_more = rows.length > tasks.length;
+    const total = p.store.get("SELECT COALESCE(sum(count),0) AS total FROM overview_task_counts WHERE layer='work'").total;
+    return { tasks, page: { limit: size, requested_limit: limit, total, shown: tasks.length, has_more,
+      cursor: tasks.at(-1)?.id ?? after, next_cursor: has_more ? tasks.at(-1)?.id ?? after : null,
+      byte_truncated: tasks.length < Math.min(size, rows.length) }, coverage: 'worker_list_page' };
   },
-  'worker.activity'(p, params, actor) { return p.activity(Number(params.limit ?? 50), params.scope ?? 'work'); },
+  'worker.activity'(p, params, _actor, context) {
+    return p.activity(Number(params.limit ?? 50), params.scope ?? 'work', context?.management ? { pageLimit: MANAGEMENT_READ_ITEMS } : null);
+  },
   'worker.page'(p, params, _actor, context) {
     const requested = Number(params.limit ?? 50);
     return p.taskPage(params.before ?? null, context?.management ? Math.min(requested, MANAGEMENT_READ_ITEMS) : requested, params.scope ?? 'work');

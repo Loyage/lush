@@ -2,7 +2,7 @@
 
 ## 手动创建与首条输入（W337／D698）
 
-用户专属 `worker.create {mode:"spawn"|"fork",parent?:整数ID,source?:整数ID,title?:string,profile?:object}`，HTTP 为 `POST /api/action` 同名 action；CLI 为 `lush worker create spawn|fork [--parent ID|Wn] [--source ID|Wn] [--title TITLE] [--profile-file PATH]`（profile 文件须 owner-only）。返回 `{task,warning?:string}`，创建专属分支/worktree，但不创建 Input、不调用 Agent；Worker 为独立 `task_kind='order'`、`paused`、空 goal，默认关闭自动合并，不复制来源的消息、Hook 或预约授权。现有 `worker.spawn`／`context.spawn` 仍是有目标的 Agent 委派，不改语义。
+用户专属 `worker.create {mode:"spawn"|"fork",parent?:整数ID,source?:整数ID,title?:string,profile?:object}`，HTTP 为 `POST /api/action` 同名 action；CLI 为 `lush worker create [--from ID|Wn] [--parent ID|Wn] [--title TITLE] [--profile-file PATH]`（--from 对应原 fork 来源；省略则创建空容器）（profile 文件须 owner-only）。返回 `{task,warning?:string}`，创建专属分支/worktree，但不创建 Input、不调用 Agent；Worker 为独立 `task_kind='order'`、`paused`、空 goal，默认关闭自动合并，不复制来源的消息、Hook 或预约授权。现有 `worker.spawn`／`context.spawn` 仍是有目标的 Agent 委派，不改语义。
 
 - spawn 缺省 parent=main，从父的已提交 tip 创建，**不继承任何会话**，即使该 base_commit 有全局检查点。
 - fork 必须有 order/child source。省略 parent 保留项目级默认 parent=source.parent_id；**A337-1／D704：显式 parent 只允许 source.id 或 source.parent_id**，分别表示复制来源自身为它的手动子级，或复制已有直接子为同父的新手动子级，不允许任意跨树或祖孙错位。Worker 内入口固定传当前 Worker 为 parent，选来源自己或其已有直接子；默认选 spawn，创建后仍是用户独立 order，而非锁定自动合并的 Agent 派工 child。复制 source 本地分支当时的已提交 tip、该提交对应的 Pi 检查点与有效运行参数（显式 profile 可覆盖），不复制未提交文件。**D703：无法实际导入会话则在创建前明确拒绝**：继承／显式参数为 Pi 默认模式或 Codex、检查点缺失或无效，均不创建 Worker/Input/分支/worktree，不降级成仅复制代码，不自动切换后端／模式；提示改用空白 spawn，或显式选择支持继承的托管 Pi 参数／有效来源。成功 fork 的 `session_inherited:true`；绑定的检查点不随之后全局 commit_context 映射变化。
@@ -72,29 +72,29 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 
 | CLI | RPC | 参数 |
 |---|---|---|
-| `worker list [--after N] [--limit N] [--brief]` | `worker.list` | `{after?: 0, limit?: 200}`，limit 最大 1000；CLI `--brief` 默认 30 条、最多 200 条短摘要及 `has_more/next_after` |
+| `worker list --view all [--after N] [--limit N] [--brief]` | `worker.list` | `{after?: 0, limit?: 200}`，limit 最大 1000；CLI `--brief` 默认 30 条、最多 200 条短摘要及 `has_more/next_after` |
 | `worker tree [ID]` | `worker.tree` | `{id?}` |
 | —（CLI 内部编号解析） | `worker.lookup` | `{number}`；只读 `{id,worker_number}`，把 `W5` / `W5-1` / `V1` 严格解析成整数身份；用户可查询全项目，普通 Agent 仅解析自身、直接父子；真实 Valet 与固定整合成员另走受检授权，解析不扩大目标操作权限。各段必须是正安全整数，`W0`/`W01`/`V0`/`V01`/`V1-1`/小写/超长/溢出一律拒绝；找不到报 not found，不改任何状态，也不让原 `id` 参数接受编号 |
-| —（Web 轮询） | `worker.activity` | `{limit?: 50, scope?: 'work'|'all'}` |
-| —（Web 分页） | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
+| `worker list --view recent`（CLI 默认）／Web 轮询 | `worker.activity` | `{limit?: 50, scope?: 'work'|'all'}` |
+| `worker list --view history`／Web 分页 | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
 | —（Web 局部关系） | `worker.relations` | `{id,after?:0,limit?:50}`；用户专属只读，limit 1..200，after 非负安全整数 |
 | `worker spawn 'goal' --parent ID [--name NAME]` | `worker.spawn` | `{parent, goal, name?}`；父必须是 指令/child Worker |
 | `worker rename ID '标题'` | `worker.rename` | `{id,title}`；用户专属，只改展示标题，不改变正文或执行；单行最多 200 字符，空串/null 恢复自动标题；返回 `{id,display_title}` |
-| `lushw self auto-title '标题'` | `context.auto_title` | `{title}`；Agent-only，有效 invocation 只写自身 order/child；非空单行最多 60 字符，首次成功后不覆盖或清空；返回 `{id,auto_title,changed}`，Web 不开放写入口 |
+| `lushw self title '标题'` | `context.auto_title` | `{title}`；Agent-only，有效 invocation 只写自身 order/child；非空单行最多 60 字符，首次成功后不覆盖或清空；返回 `{id,auto_title,changed}`，Web 不开放写入口 |
 | `worker message ID 'body'` | `worker.message` | `{id, body}` |
 | —（旧协议后端兼容，CLI 已删除） | `worker.integrate` | `{id, commit}`；agent-only |
-| `worker auto-merge ID on\|off` | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
-| `worker completion ID off\|merge\|accept --revision REV` | `worker.completion` | `{id,level,expected_revision}`；用户专属，串行最高级别与安全投影见 [Hooks 接口](hooks.md#最高自动级别) |
-| `worker merge ID` | `worker.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
-| `worker merge-conditions ID` | `worker.merge_conditions` | `{id}`；读取本轮条件合并状态和专用 revision，见[条件合并](#条件合并) |
-| `worker merge-after ID --after-settled ID --revision REV` | `worker.merge_after` | `{id,conditions,expected_revision}`；用户或 Valet 受控代理配置本轮合并门禁并提交合并意图；条件参数可重复，也支持 `--after-merged ID` |
-| `worker merge-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
-| `worker merge-cancel ID` | `worker.unreserve` | `{id}`；用户专属 |
+| —（旧 RPC 保留；CLI 开关走 worker automation enable/disable 与 hook_update） | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
+| `worker automation completion ID off\|merge\|accept --revision REV` | `worker.completion` | `{id,level,expected_revision}`；用户专属，串行最高级别与安全投影见 [Hooks 接口](hooks.md#最高自动级别) |
+| `worker merge request ID` | `worker.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
+| `worker merge show ID` | `worker.merge_conditions` | `{id}`；读取本轮条件合并状态和专用 revision，见[条件合并](#条件合并) |
+| `worker merge request ID --after-settled ID --revision REV` | `worker.merge_after` | `{id,conditions,expected_revision}`；用户或 Valet 受控代理配置本轮合并门禁并提交合并意图；条件参数可重复，也支持 `--after-merged ID` |
+| `branch merge-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
+| `worker merge cancel ID` | `worker.unreserve` | `{id}`；用户专属 |
 | —（旧协议后端兼容，CLI 已删除） | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
 | `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）并可一并安全验收已交付派生 child / 运行中的直接父 Agent 可单独验收直接 child（默认保留供追加需求）；返回 Worker；验收即归档，安全回收 worktree/ref 并保留运行历史 |
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
-| `worker sync-parent ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
-| `worker resolve-sync ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
+| `worker sync start ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
+| `worker sync resolve ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
 | `worker accept-preview ID` | `worker.accept_preview` | `{id}`；用户专属只读预检，返回 `{id,revision,can_force,workers,notifications,resources,warnings}`；安全门不满足时拒绝，范围与续办语义见[强制验收](../../engineering/worker-acceptance.md#用户显式强制验收w318d682) |
 | `worker accept ID --force --confirm --revision REV` | `worker.accept_force` | `{id,revision,confirm:true}`；用户显式确认本次预检，仅跳过所列终态系统通知；返回 Worker；不调用 Agent，不放弃用户输入或放宽其他安全门 |
 | —（后端兼容，CLI 统一 accept） | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，含安全归档回收 |
@@ -102,11 +102,11 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | —（旧协议后端兼容，CLI 已删除） | `worker.resolve_child_divergence` | `{id}`；agent-only |
 | `worker cancel ID` | `worker.cancel` | `{id}` |
 | `worker retry ID` | `worker.retry` | `{id}` |
-| `worker clear-override ID` | `worker.clear_override` | `{id}`；用户专属；清除本 Worker 的 task-local 运行覆盖（配置模式、来源、模型、Prompt、扩展、预算、环境变量），下一次调用回到项目/角色默认；不启动 Agent |
-| `worker interrupt ID` | `worker.interrupt` | `{id}`；用户专属，请求安全点暂停（静息时直接 `paused`） |
+| `worker config reset ID` | `worker.clear_override` | `{id}`；用户专属；清除本 Worker 的 task-local 运行覆盖（配置模式、来源、模型、Prompt、扩展、预算、环境变量），下一次调用回到项目/角色默认；不启动 Agent |
+| `worker pause ID` | `worker.interrupt` | `{id}`；用户专属，请求安全点暂停（静息时直接 `paused`） |
 | `worker resume ID` | `worker.resume` | `{id, profile?}`；用户专属，撤销尚未触发的暂停，或立即接受排队继续 |
-| —（Web 显式打开运行设置） | `worker.run_settings` | `{id}`，用户专属，仅 order/child，返回 `{profile,explicit}`；有效完整 Profile 只在此设置读面提供，不包含连接凭证、不联网 |
-| —（Web 调整运行设置） | `worker.configure` | `{id, profile}` 或 `{id, model_selection:{connection_id,model}}`，两者互斥；用户专属，`paused` 或暂停请求期间保存下一次配置，窄更新保留其他覆盖 |
+| `worker config show ID`（用户专属） | `worker.run_settings` | `{id}`，用户专属，仅 order/child，返回 `{profile,explicit}`；有效完整 Profile 只在此设置读面提供，不包含连接凭证、不联网 |
+| `worker config set ID --data JSON` 或 `--connection UUID --model PROVIDER/MODEL` | `worker.configure` | `{id, profile}` 或 `{id, model_selection:{connection_id,model}}`，两者互斥；用户专属，`paused` 或暂停请求期间保存下一次配置，窄更新保留其他覆盖 |
 | `worker cleanup ID [--keep-branch]` | `worker.cleanup` | `{id, keep_branch?}`；见[维护](maintenance.md) |
 
 标题读面带可空 `display_title` / `auto_title`，展示按用户手动标题 → Agent 自动标题 → 原目标首行。清空手动标题恢复自动标题；追加输入不重命名。自动标题只由当前 Agent 理解目标后调用接口产生，不另起模型请求、不批量回填旧记录；不改变 goal、输入原文、编号或 Git 身份。完整权限和存储边界见[自动标题](../../engineering/core-api.md#agent-自动标题w202决定-d471)。
@@ -172,7 +172,7 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 `worker.auto_merge {id,enabled}` 只接受布尔值，Agent 不得调用。新指令默认关闭，新派生 child 默认开启且锁定；锁定子Worker不能经 CLI/RPC 关闭，也不能用 `worker.unreserve` 绕过。开关跨 invocation、重启和追加开发轮次保留，历史 Worker 不批量回填或重置已有决定。
 
-`worker.inspect` 与 `worker.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Worker 为 null。Web 在 Worker 详情的 Hooks 区用最高自动级别配置合并／验收／归档；旧服务回落到「本轮交付就绪」节点的原开关。Worker 图提供同源摘要入口，不另建一份状态。锁定或不可编辑时显示只读状态及原因。Worker已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。CLI `worker merge ID` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定Worker可用 `worker merge-cancel ID` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
+`worker.inspect` 与 `worker.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Worker 为 null。Web 在 Worker 详情的 Hooks 区用最高自动级别配置合并／验收／归档；旧服务回落到「本轮交付就绪」节点的原开关。Worker 图提供同源摘要入口，不另建一份状态。锁定或不可编辑时显示只读状态及原因。Worker已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。CLI `worker merge request ID` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定Worker可用 `worker merge cancel ID` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
 
 开启 hook 后，runtime 仍等本轮安全结束、后代结算、待决与消息处理完成，并复核工作区和提交，再复用 version 2 请求与父自有交付队列。包含 main 在内均按现有队列自动准入，不增加父 Agent 或用户审批；分歧仍回原 Worker 处理。显式「合并」调用 `worker.reserve`，只请求本轮交付，不修改持久开关。
 
@@ -190,13 +190,13 @@ D691：可提前安排“A 在 B 本轮工作安全交付就绪／合入直接�
 - 用户可经 CLI 配置；Valet 经 `manager.call` 使用同一接口，遵守最新接口权限及需要时的精确用户确认。普通开发 Agent 不获得配置或请求合并权限。
 - 条件约束自动、显式及批量合并等入口；满足条件后仍复核 A 自身交付就绪、Git、父分支和冻结安全门。等待不占父合并执行位、不冻结 A 的普通开发，也不要求管家循环调用。
 - 规则绑定 A/B 本轮身份，不能用历史轮次成功放行新成果。尚未交付时的新输入等轮次变化会使规则过期并保守阻塞，须重新读取 revision 和配置；A 本轮成功合并后不把规则沿用给后续开发。
-- 已进入固定交付尝试后不得事后添加或改写条件。重复请求、重启和未知副作用仍受原有精确收据与禁止盲目重放约束。当前没有专用撤销条件接口；`worker merge-cancel` 不移除条件，不能借保留的自动 Hook 提前合并。
+- 已进入固定交付尝试后不得事后添加或改写条件。重复请求、重启和未知副作用仍受原有精确收据与禁止盲目重放约束。当前没有专用撤销条件接口；`worker merge cancel` 不移除条件，不能借保留的自动 Hook 提前合并。
 
 以下编号仅为示例：先读取 A（W5）的专用 revision，再安排它等待 B（W6）安全交付就绪：
 
 ```bash
-bun run lush worker merge-conditions W5
-bun run lush worker merge-after W5 --after-settled W6 --revision REV
+bun run lush worker merge show W5
+bun run lush worker merge request W5 --after-settled W6 --revision REV
 ```
 
 若须等待 B 合并落地，改用 `--after-merged W6`。重复两个参数可表达多个 AND 条件。CLI 接受真实 W 编号，RPC 的 `id`／`worker_id` 始终为内部整数。配置成功仅说明意图已保存，不证明代码已合入；使用专用读取核对等待或过期原因，并以实际合并状态判断落地。

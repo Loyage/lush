@@ -23,14 +23,14 @@
 
 ## 本机 Prompt 补充与项目约定
 
-设备私有补充为设备根 `agent/common.md` 和受支持角色 `.md`。缺文件不创建目录，也不回退旧项目 `.lush/agent/*.md`。`agent init --local` 由用户执行，使用共享写锁、只创建缺失文件；公开权限、外来所有者、链接和超限文件会被拒绝，不自动修复或覆盖。
+设备私有补充为设备根 `agent/common.md` 和受支持角色 `.md`。缺文件不创建目录，也不回退旧项目 `.lush/agent/*.md`。`agent prompt init --local` 由用户执行，使用共享写锁、只创建缺失文件；公开权限、外来所有者、链接和超限文件会被拒绝，不自动修复或覆盖。
 
 ```bash
-bun run lush agent init --local worker  # 设备私有补充，可能影响所有项目
-bun run lush agent init worker          # 项目可提交 .lush-agent/ 约定
+bun run lush agent prompt init --local worker  # 设备私有补充，可能影响所有项目
+bun run lush agent prompt init worker          # 项目可提交 .lush-agent/ 约定
 ```
 
-`AGENTS.md` 与可提交 `.lush-agent/` 仍属代码库上下文，不传播到设备。管理角色与 Pi 默认模式的 Prompt 隔离不变。用户可通过 `agent prompt ROLE`、`agent env ROLE` 检查角色 Prompt 组合／脱敏环境来源，不代表某个 Worker 已冻结的调用快照；这些设备读取不向 Agent token 开放。
+`AGENTS.md` 与可提交 `.lush-agent/` 仍属代码库上下文，不传播到设备。管理角色与 Pi 默认模式的 Prompt 隔离不变。用户可通过 `agent prompt show ROLE`、`agent env show ROLE` 检查角色 Prompt 组合／脱敏环境来源，不代表某个 Worker 已冻结的调用快照；这些设备读取不向 Agent token 开放。
 
 ## 迁移旧项目
 
@@ -45,14 +45,14 @@ bun run lush agent init worker          # 项目可提交 .lush-agent/ 约定
 CLI 设置命令省略 scope 也选择设备；可选 `--scope device`，显式 project 已停用：
 
 ```bash
-bun run lush config show
-bun run lush config set call-timeout 3600
-bun run lush agent show
-bun run lush agent sources list
-bun run lush agent packages list
-bun run lush config migrate-preview --json
+bun run lush config runtime show
+bun run lush config runtime set call-timeout 3600
+bun run lush config agent show
+bun run lush agent source list
+bun run lush agent package list
+bun run lush config migration preview --json
 # 核对项目、条目、所有项目影响、冲突与备份后，原样填入预检 revision：
-bun run lush config migrate --confirm --revision REV --json
+bun run lush config migration apply --confirm --revision REV --json
 ```
 
 预检不会回显 Markdown 正文或凭证。revision 过期或 daemon 重启后必须重新预检。不要在命令行输入密钥，沿用私有来源文件／显式登录流程。
@@ -67,6 +67,6 @@ bun run lush config migrate --confirm --revision REV --json
 
 设备根为 `launcherStateDir(env)/shared`（通常 `~/.config/lush/shared`，显式 `LUSH_GLOBAL_CONFIG` 时在该根下）；项目 `.lush/` 和 `LUSH_HOME` 不变。私有目录 0700、文件 0600，不是加密保险箱或 Agent 沙箱。
 
-合入并部署后，在安全空闲时更新各项目 daemon 和 Host；两端都要更新，不能只刷新旧 Host 页面。用 `bun run doctor` 与 `bun run lush host status` 分别检查代码身份。跨项目 Notice 的权威记录仍归来源后台，全局自动选择授权由各后台执行；读取设备设置／收件箱不会启动停止的项目。
+合入并部署后，在安全空闲时更新各项目 daemon 和 Host；两端都要更新，不能只刷新旧 Host 页面。用 `bun run lush doctor` 与 `bun run lush host status` 分别检查代码身份。跨项目 Notice 的权威记录仍归来源后台，全局自动选择授权由各后台执行；读取设备设置／收件箱不会启动停止的项目。
 
 备份、OAuth 与恢复细节见[设备迁移工程契约](engineering/device-settings.md)；全局自动化、收件箱与前端组合测试要求见[用户工作台契约](engineering/user-workspace.md#验证与交付)。

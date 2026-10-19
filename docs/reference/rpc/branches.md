@@ -15,12 +15,12 @@
 | `lush branch show BRANCH` | `branch.show` | `{branch}` | 用户专属，只读；Valet 经已审核 bridge |
 | `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
 | `branch archive BRANCH [--discard] [--continue]` | `branch.archive` | `{branch, discard?, continue?}` | 用户专属 |
-| `branch convergence list` | `branch.convergence_list` | `{}` | 用户专属，只读 |
-| `branch convergence show BRANCH` | `branch.convergence` | `{branch}` | 用户专属，只读 |
-| `branch integrate plan/start/show/cancel/retry` | 见[整合接口](convergence.md#一次性整合) | 参数仅在专篇维护 | 用户专属 |
-| `branch convergence on/off BRANCH ...` | `branch.convergence_set` | 仅识别历史参数 | 用户专属，明确退休错误 |
-| `branch convergence runs BRANCH ...` | `branch.convergence_runs` | `{branch,before?,limit?}` | 用户专属，只读 |
-| `branch convergence retry RUN_ID --revision REV` | `branch.convergence_retry` | `{id,expected_revision}` | 用户专属 |
+| `branch legacy-convergence list` | `branch.convergence_list` | `{}` | 用户专属，只读 |
+| `branch legacy-convergence show BRANCH` | `branch.convergence` | `{branch}` | 用户专属，只读 |
+| `branch integrate preview/start/show/cancel/retry` | 见[整合接口](convergence.md#一次性整合) | 参数仅在专篇维护 | 用户专属 |
+| —（无可执行 CLI；旧路径只返回迁移提示） | `branch.convergence_set` | 仅识别历史参数 | 用户专属，明确退休错误 |
+| `branch legacy-convergence history BRANCH ...` | `branch.convergence_runs` | `{branch,before?,limit?}` | 用户专属，只读 |
+| `branch legacy-convergence retry RUN_ID --revision REV` | `branch.convergence_retry` | `{id,expected_revision}` | 用户专属 |
 
 谱系是创建时显式写下的 `parent → child`，不是 commit graph 或Worker树。`branch.bind` 确认一条非 main 的本地分支及当前固定 HEAD，为它新建静息 `owner` 根 Worker；重复绑定、错误 HEAD、缺失 ref、相关旧Worker仍活动或已归档/删除的历史记录均拒绝。已有旧 Worker 与 `branches.task_id` 均不改写；`branch.tree/show` 当前所有者投影显示新 owner，但旧 Worker 仍可按 id 查看。只有绑定后，新指令才能挂到那条分支；owner 不接受任意消息或运行不受限 Agent。daemon 启动时已有本地 main ref 则自动确保同一个静息根；无 ref 时不会凭空造 main。
 

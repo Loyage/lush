@@ -6,38 +6,38 @@
 
 | RPC | 参数 | CLI（加 `bun run lush` 前缀） |
 |---|---|---|
-| `hooks.list` | `{}` | `hooks list` / `hooks command list` |
-| `hooks.register` | `{command,hook,expected_revisions,client_request_id}` | `hooks register --file PATH`（只注册） |
-| `hooks.upgrade` | `{expected_revision}` | `hooks upgrade --revision REV`（显式升级旧规则） |
+| `hooks.list` | `{}` | `automation list` / `automation command list` |
+| `hooks.register` | `{command,hook,expected_revisions,client_request_id}` | `automation register --file PATH`（只注册） |
+| `hooks.upgrade` | `{expected_revision}` | `automation upgrade --revision REV`（显式升级旧规则） |
 | `hooks.install` | 已退役，所有调用拒绝并指向先注册、再单独挂载 | 旧 `hooks install` 拒绝 |
-| `hooks.command_save` | `{command,expected_revision}` | `hooks command save --file PATH --revision REV` |
-| `hooks.command_export` | `{id,version}` | `hooks command export ID --version N` |
-| `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
-| `hooks.command_history` | `{before?,limit?,execution_id?}` | `hooks command history [--before CURSOR] [--limit N] [--execution UUID]` |
+| `hooks.command_save` | `{command,expected_revision}` | `automation command save --file PATH --revision REV` |
+| `hooks.command_export` | `{id,version}` | `automation command export ID --version N` |
+| `hooks.command_remove` | `{id,expected_revision}` | `automation command remove ID --revision REV` |
+| `hooks.command_history` | `{before?,limit?,execution_id?}` | `automation command history [--before CURSOR] [--limit N] [--execution UUID]` |
 | `hooks.command_history_remove` | `{execution_id}` 或 `{clear:true}` | 既有 API 删除／清空已结束记录；独立 Web 入口已退休 |
-| `hooks.command_import` | `{source,expected_revision}` | `hooks command import --file PATH --revision REV` |
-| `hooks.auto_select` | `{enabled,expected_revision}` | `hooks auto-select on\|off --revision REV` |
+| `hooks.command_import` | `{source,expected_revision}` | `automation command import --file PATH --revision REV` |
+| `hooks.auto_select` | `{enabled,expected_revision}` | `config auto-answer set on\|off --revision REV` |
 | `hooks.completion_defaults` | `{enabled,level,expected_revision}` | 项目默认流程兼容入口 |
 | `hooks.automation_settings` | `{patch,expected_revision}` | 项目自动化设置页保存 |
 | `worker.acceptance_notice` | `{id,enabled,expected_revision}` | Worker 自动化内开启／关闭待验收告知 |
-| `hooks.save` | `{template,expected_revision}` | `hooks save --file PATH --revision REV` |
-| `hooks.remove` | `{id,expected_revision}` | `hooks remove TEMPLATE_ID --revision REV` |
-| `hooks.signal_save` | `{signal,expected_revision}` | `hooks signal save --file PATH --revision REV` |
-| `hooks.signal_remove` | `{id,expected_revision}` | `hooks signal remove SIGNAL_ID --revision REV` |
+| `hooks.save` | `{template,expected_revision}` | `automation save --file PATH --revision REV` |
+| `hooks.remove` | `{id,expected_revision}` | `automation remove TEMPLATE_ID --revision REV` |
+| `hooks.signal_save` | `{signal,expected_revision}` | `automation signal save --file PATH --revision REV` |
+| `hooks.signal_remove` | `{id,expected_revision}` | `automation signal remove SIGNAL_ID --revision REV` |
 | `management.permissions` | `{}` | —（兼容读取有效权限；新页面走 Host 全局接口） |
 | `management.permissions_update` | 旧 `{permissions,expected_revision}` 写入已退役并拒绝；改用 Host 根接口 | — |
-| `management.permission_get` | `{method,scope:'device'}` | `hooks management permission-get METHOD --scope device` |
-| `management.permission_set` | `{method,access,expected_revision,scope:'device'}` | `hooks management permission-set METHOD ACCESS --revision REV --scope device` |
-| `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `hooks management create --file PATH` |
-| `management.submit` | `{instruction,profile?,client_request_id?}` | `order '管理需求' --management`（即时管理，无需时间信号） |
-| `management.binding_update` | `{id,enabled,expected_revision}` | `hooks management enable\|disable ID --revision REV` |
-| `management.emergency_preview` | `{}`（真实用户专属只读急救预检） | `hooks management emergency-preview` |
-| `management.emergency_stop` | `{revision,confirm:true}`（真实用户专属） | `hooks management emergency-stop --revision REV --confirm` |
-| `worker.hooks` | `{id}` | `worker hooks ID` |
-| `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept --revision REV` |
-| `worker.hook_attach` | `{id,hook,expected_revision}` | `worker hook attach ID --file PATH --revision REV` |
-| `worker.hook_update` | `{id,hook_id,enabled?,hook?,expected_revision}`（enabled/hook 二选一） | `worker hook enable\|disable ID HOOK_ID --revision REV`；完整编辑由 Web/RPC 提供 |
-| `worker.hook_remove` | `{id,hook_id,expected_revision}` | `worker hook remove ID HOOK_ID --revision REV` |
+| `management.permission_get` | `{method,scope:'device'}` | `config valet-permission show METHOD --scope device` |
+| `management.permission_set` | `{method,access,expected_revision,scope:'device'}` | `config valet-permission set METHOD ACCESS --revision REV --scope device` |
+| `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `valet schedule create --file PATH` |
+| `management.submit` | `{instruction,profile?,client_request_id?}` | `valet submit '管理需求'`（即时管理，无需时间信号） |
+| `management.binding_update` | `{id,enabled,expected_revision}` | `valet schedule enable\|disable ID --revision REV` |
+| `management.emergency_preview` | `{}`（真实用户专属只读急救预检） | `valet emergency preview` |
+| `management.emergency_stop` | `{revision,confirm:true}`（真实用户专属） | `valet emergency stop --revision REV --confirm` |
+| `worker.hooks` | `{id}` | `worker automation show ID` |
+| `worker.completion` | `{id,level,expected_revision}` | `worker automation completion ID off\|merge\|accept --revision REV` |
+| `worker.hook_attach` | `{id,hook,expected_revision}` | `worker automation attach ID --file PATH --revision REV` |
+| `worker.hook_update` | `{id,hook_id,enabled?,hook?,expected_revision}`（enabled/hook 二选一） | `worker automation enable\|disable ID HOOK_ID --revision REV`；完整编辑由 Web/RPC 提供 |
+| `worker.hook_remove` | `{id,hook_id,expected_revision}` | `worker automation detach ID HOOK_ID --revision REV` |
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。一般写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理；单项权限接口仅 RPC／CLI，页面的完整映射读取／保存走 Host 根权限接口。
 
@@ -87,7 +87,7 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 
 D676：`hooks.install`／Project installCommandHook／旧 CLI install 已退役并拒绝，不能一次确认注册并挂载。历史原子安装收据仅供恢复核验，不作为新授权。
 
-第一步 `hooks.register` 原子注册一条新 Shell 指令和项目功能，**不含目标、不挂载、不执行**。`hooks.list.registration` 提供与 CLI／管家同源的 schema；快捷登记仅支持其中明确列出的节点和模式，不能直接套用通用 command 动作的更宽目录。用户 CLI `bun run lush hooks register --file automation.json` 使用 owner-only、非链接、有界文件：
+第一步 `hooks.register` 原子注册一条新 Shell 指令和项目功能，**不含目标、不挂载、不执行**。`hooks.list.registration` 提供与 CLI／管家同源的 schema；快捷登记仅支持其中明确列出的节点和模式，不能直接套用通用 command 动作的更宽目录。用户 CLI `bun run lush automation register --file automation.json` 使用 owner-only、非链接、有界文件：
 
 ```json
 {
@@ -100,7 +100,7 @@ D676：`hooks.install`／Project installCommandHook／旧 CLI install 已退役�
 
 command 仅接受 name、kind（省略为 shell）、command、可选 description／warnings；hook 必填 name／trigger／mode／enabled，可带 statuses／integrations 条件，不接受 actions。返回 `{registered:true,command_id,template_id,template_version}`，初始版本为 1。任一 revision 过期或容量不足整体回滚。client_request_id 最多 128 字符，无首尾空白／控制字符；同 key 同完整参数（含 revision）返回原收据，不重建已删除定义；不同参数拒绝。注册成功不授予任何 Worker 执行权限。
 
-第二步先查询真实目标及 worker.hooks.revision，再单独调用 `worker.hook_attach {id,hook:{template_id,template_version,enabled?},expected_revision}`；CLI `worker hook attach ID --file mount.json --revision REV` 的文件仅为登记引用。目标、冻结、child 锁定及容量门禁不变。
+第二步先查询真实目标及 worker.hooks.revision，再单独调用 `worker.hook_attach {id,hook:{template_id,template_version,enabled?},expected_revision}`；CLI `worker automation attach ID --file mount.json --revision REV` 的文件仅为登记引用。目标、冻结、child 锁定及容量门禁不变。
 
 Valet 通过真实 manager.call 先请求 hooks.register；必须取得登记成功收据，再独立请求 worker.hook_attach，指定真实目标、明确功能版本与启停。D678：两个方法默认 automatic，可分别收紧为 confirmation／unavailable；需要确认时各精确请求由真实用户批准，pending_confirmation 后结束本轮、不轮询，确认由 runtime 执行原固定请求。禁止旧 hooks.install 原子捷径，注册必须已完成才能申请挂载。收据仅含身份和状态，注册事务有精确持久完成证明；未知副作用不重放。
 
@@ -144,7 +144,7 @@ Valet 通过真实 manager.call 先请求 hooks.register；必须取得登记成
 
 ## 最高自动级别
 
-CLI `worker completion` 仅接受 `off|merge|accept`；后端 RPC `worker.completion` 的旧 archive 入参兼容等价 accept，读面规范为 accept；高档包含之前的步骤，验收即归档回收资源，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
+CLI `worker automation completion` 仅接受 `off|merge|accept`；后端 RPC `worker.completion` 的旧 archive 入参兼容等价 accept，读面规范为 accept；高档包含之前的步骤，验收即归档回收资源，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
 
 `completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；child 的 locked:true、editable:false 表示整组流程 Hook 锁定，reason 解释用户不可修改；两个内置挂载同样锁定且不可移除。phase 规范为 merge/accept 或 null，last_execution.phase 可保留历史 archive，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
 
@@ -191,6 +191,6 @@ CLI `worker completion` 仅接受 `off|merge|accept`；后端 RPC `worker.comple
 
 ## 条件发射与兼容创建
 
-`input.emit`、`order.submit` 缺省及 start:true 均先返回持久挂载收据 `{emitted:true,draft_id,dispatch}`，不保证有 task，条件及父安全准入由 runtime 独立推进；`--defer` 保留参数兼容，不要求用户因冻结换发射模式。显式 start:false 仍仅创建，历史 create_worker Hook 不迁移。版本草稿可附运行覆盖，但不能混入正文、引用、条件或去向覆盖。
+`input.emit`、`order.submit` 缺省及 start:true 均先返回持久挂载收据 `{emitted:true,draft_id,dispatch}`，不保证有 task，条件及父安全准入由 runtime 独立推进；CLI order 不再接受 --defer，保存未授权意图使用 input draft create，不要求用户因冻结换发射模式。显式 RPC start:false 仍仅创建，历史 create_worker Hook 不迁移。草稿的运行覆盖仅在 submit 时传 --profile-file 至 input.emit，不保存到 draft；追加不能覆盖目标配置，也不能在 submit 混入正文、引用、条件或去向覆盖。
 
 `input.parents.items` 保留有效冻结父及 freeze，只读候选不是最终创建许可。条件发射对应受保护 input_signal Hook，多个条件全部满足；草稿挂载中不能编辑／删除。撤销或独占释放必须走对应输入 API，不能借普通 Hook 编辑绕过占用。精确参数、读面与恢复见[历史输入接口](../../engineering/input-history.md)和[条件发射](../../engineering/conditional-emission.md)。

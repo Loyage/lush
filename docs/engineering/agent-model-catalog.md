@@ -1,6 +1,6 @@
 # 托管来源的模型目录与来源 CLI
 
-用户决定 #157：Lush 托管账号/API 属于当前项目；连接必须在添加或成功登录后自动维护可用模型目录，避免每次设置任务重新查询；CLI 要能展示来源与额度，作为未来智能管家的安全读面。本章固定模型目录的缓存、隔离与刷新边界，以及 `agent sources` / `agent resources` 命令面；双配置模式与资源安装见[项目 Agent 配置与双模式运行](agent-configuration-v2.md)，凭证与额度契约见[账号资源连接器](agent-connections.md)。
+用户决定 #157：Lush 托管账号/API 属于当前项目；连接必须在添加或成功登录后自动维护可用模型目录，避免每次设置任务重新查询；CLI 要能展示来源与额度，作为未来智能管家的安全读面。本章固定模型目录的缓存、隔离与刷新边界，以及 `agent source` / `agent model choices` 命令面；双配置模式与资源安装见[项目 Agent 配置与双模式运行](agent-configuration-v2.md)，凭证与额度契约见[账号资源连接器](agent-connections.md)。
 
 ## 目标与边界
 
@@ -62,15 +62,15 @@ HTTP：`GET /api/agent/connections/models?id=...` 只读且 `no-store`，缺少 
 
 ## CLI
 
-`lush agent sources ...`（用户专属，`--json` 输出与上面读面一致）：
+`lush agent source ...`（用户专属；--json 返回版本化外壳，data 保留上面的安全读面）：
 
 - `list` / `show ID` / `remove ID`：来源清单与单项；只投影安全字段。
 - `refresh [ID]`：显式刷新额度观测（沿用 `agent.connections.query`），随后重读来源列表。
-- `models ID`：只读缓存模型目录，不联网；独立写入口 `models-refresh ID` 显式刷新并保存目录，不再接受旧 `--refresh` 选项。
+- `models list ID`：只读缓存模型目录，不联网；独立写入口 `models refresh ID` 显式刷新并保存目录，不接受旧 --refresh 变体。
 - `save --file PATH`：从 owner-only 输入文件读取 `{connection, credential?}`；凭证不经过 argv，也不出现在输出。输入文件按 `O_NOFOLLOW|O_NONBLOCK` 打开并对文件描述符校验 owner、`0600`、链接数、类型与大小，拒绝 symlink、目录、FIFO、越权与超限，失败只返回固定错误，不回显路径或内容。
-- `login ID`（设备码开始）/ `--poll LOGIN_ID` / `--cancel LOGIN_ID` / `--callback`（备用回调开始）/ `--finish LOGIN_ID --url-file PATH`（从同规格 owner-only 文件读取回调 URL，不回显 code）。CLI 输出的嵌套观测、额度资源、历史成功与消费者均按白名单重建，未知字段不会进入 stdout。
+- `login start/poll/cancel/finish` 拆成明确叶命令，start 的 --method 选择 device/callback；精确来源与登录身份参数从各叶 help 取得。finish 只从同规格 owner-only 回调文件读取 URL，不回显 code；poll 可能写入认证，不是只读查询。CLI 输出的嵌套观测、额度资源、历史成功与消费者均按白名单重建，未知字段不会进入 stdout。
 
-`lush agent resources` 只读返回共享模型选择资源读面（连接、额度观测、缓存目录），不列出已安装扩展或 Skills；后者属于资源管理面。CLI 与 RPC 都拒绝 agent token。
+`lush agent model choices` 只读返回共享模型选择资源读面（连接、额度观测、缓存目录），不列出已安装扩展或 Skills；后者属于资源管理面。CLI 与 RPC 都拒绝 agent token。
 
 ## 验证
 

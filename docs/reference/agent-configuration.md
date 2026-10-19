@@ -10,32 +10,32 @@
 
 默认 **Lush 配置**，必须绑定托管来源。**Pi 默认配置**是显式选择，使用执行机器的用户 Pi 配置（通常 `~/.pi/agent`，不是浏览器所在电脑），不注入 Lush 的账号/模型/思考深度/用户资源设置。Lush 必需的任务协议和执行记录仍保留；两种模式使用隔离会话，不自动批准未受信项目。
 
-新式 Worker 的运行覆盖跨失败、重试、交付和验收保留。仅显式 `worker.clear_override {id}`（Web「清除运行覆盖」/CLI `worker clear-override ID`）或重新保存完整覆盖才改变；改变设置只影响后续调用，不热切换当前调用。暂存条目只保存想法，不保存运行设置；发射创建后可以在详情调整。
+新式 Worker 的运行覆盖跨失败、重试、交付和验收保留。仅显式 `worker.clear_override {id}`（Web「清除运行覆盖」/CLI `worker config reset ID`）或重新保存完整覆盖才改变；改变设置只影响后续调用，不热切换当前调用。暂存条目只保存想法，不保存运行设置；发射创建后可以在详情调整。
 
 ## 来源、模型和额度 CLI
 
 以下命令连接当前所选项目；其他项目必须显式 `--project PATH`。
 
 ```bash
-bun run lush --json agent sources list
-bun run lush --json agent sources show ID
-bun run lush --json agent sources models ID
-bun run lush agent sources models-refresh ID
-bun run lush agent sources refresh ID
-bun run lush --json agent resources
+bun run lush --json agent source list
+bun run lush --json agent source show ID
+bun run lush --json agent source models list ID
+bun run lush agent source models refresh ID
+bun run lush agent source refresh ID
+bun run lush --json agent model choices
 ```
 
-`list/show/models/resources` 只读本地缓存。独立写入口 `models-refresh` 联网更新模型目录（只读 `models` 拒绝旧 `--refresh` 选项），`sources refresh` 联网查询额度；两者都不发付费模型探测。自动目录同步在 daemon 中低频执行，新增/登录成功后延迟调度。没有列表适配器时使用本地元数据或手动范围，明确未验证；模型目录不保证账号当前有额度或请求一定成功。
+source list/show、source models list 与 model choices 只读本地缓存。独立写入口 source models refresh 联网更新模型目录，source refresh 联网查询额度；两者都不发付费模型探测。自动目录同步在 daemon 中低频执行，新增/登录成功后延迟调度。没有列表适配器时使用本地元数据或手动范围，明确未验证；模型目录不保证账号当前有额度或请求一定成功。
 
-`agent resources --json` 的结构化数据供后续管家使用：连接、支持后端、模型目录、额度及观测时间。不返回凭证。现金、Key 预算和套餐窗口不能互相当作同一“余额”；失败/未知不是零，旧值须看时间。当前没有自动换账号或自动降级。
+`agent model choices --json` 的版本化外壳 data 供后续管家使用：连接、支持后端、模型目录、额度及观测时间。不返回凭证。现金、Key 预算和套餐窗口不能互相当作同一“余额”；失败/未知不是零，旧值须看时间。当前没有自动换账号或自动降级。
 
-账号录入推荐使用 Web「模型来源」。CLI 可用 `agent sources save --file PATH`，文件为 owner-only（例如 `chmod 600`）JSON，形状为 `{connection,credential?}`，具体字段见[连接契约](../engineering/agent-connections.md)。不要把 Key 填进命令行。设备码登录：`agent sources login ID`，用户完成授权后显式 `login ID --poll LOGIN_ID`；CLI 不自动等待或轮询。备用回调流程见 `lush help` 与[设备码契约](../engineering/codex-device-login.md)。
+账号录入推荐使用 Web「模型来源」。CLI 可用 `agent source save --file PATH`，文件为 owner-only（例如 `chmod 600`）JSON，形状为 `{connection,credential?}`，具体字段见[连接契约](../engineering/agent-connections.md)。不要把 Key 填进命令行。设备码登录使用 `agent source login start` 的 --method device 模式，用户完成授权后按 `help agent source login poll` 的叶帮助显式提交；CLI 不自动等待或轮询。备用回调流程见 `lush help` 与[设备码契约](../engineering/codex-device-login.md)。
 
 ## 选择配置模式
 
 ```bash
-bun run lush agent set default --config-mode pi
-bun run lush agent set default --config-mode lush --connection UUID --model PROVIDER/MODEL
+bun run lush config agent set default --config-mode pi
+bun run lush config agent set default --config-mode lush --connection UUID --model PROVIDER/MODEL
 bun run lush order '目标' --profile-file /private/worker-profile.json
 ```
 
@@ -43,16 +43,16 @@ bun run lush order '目标' --profile-file /private/worker-profile.json
 
 ## Lush 内置能力
 
-全局「设置 → 系统 → Agent 能力」可选择进度、子 Worker 委派、自动标题和上下文检索。采用薄 Skill 入口和按需 `lushw skills get ID` 指南，设置只影响后续注入与主动使用，不撤销 API 权限或中断已有 child。Pi 两模式与 Codex 的接入、旧进度兼容及限制见[Agent 能力开关](../agent-capabilities.md)。
+全局「设置 → 系统 → Agent 能力」可选择进度、子 Worker 委派、自动标题和上下文检索。采用薄 Skill 入口和按需 `lushw skills show ID` 指南，设置只影响后续注入与主动使用，不撤销 API 权限或中断已有 child。Pi 两模式与 Codex 的接入、旧进度兼容及限制见[Agent 能力开关](../agent-capabilities.md)。
 
 ## 第三方插件与 Skills
 
 ```bash
-bun run lush --json agent packages list
-bun run lush agent packages install 'npm:@example/pi-tools@1.2.3'
-bun run lush agent packages install ./trusted-local-package
-bun run lush agent packages update PACKAGE_ID
-bun run lush agent packages remove PACKAGE_ID
+bun run lush --json agent package list
+bun run lush agent package install 'npm:@example/pi-tools@1.2.3'
+bun run lush agent package install ./trusted-local-package
+bun run lush agent package update PACKAGE_ID
+bun run lush agent package remove PACKAGE_ID
 ```
 
 只管理设备私有 Lush Pi 安装库，不更改用户默认 Pi。远端 npm 要求精确版本，Git 要求显式 ref；Git tag/branch 可能被远端移动，追求可复现时使用完整 commit。更新始终显式操作。已安装的扩展/Skills 在 Lush 配置和 Worker 表单中勾选启用；安装不自动启用、不调用 Agent。

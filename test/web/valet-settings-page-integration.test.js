@@ -35,8 +35,8 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     search.value = 'lushw'; search.oninput({});
     expect(dom.node('detail').querySelectorAll('.cli-command-link').length).toBeGreaterThan(0);
     expect(dom.node('detail').querySelectorAll('.cli-command-link').every(node => node.dataset.command.startsWith('lushw '))).toBe(true);
-    search.value = 'order'; search.oninput({});
-    dom.node('detail').querySelector('[data-command="lush order"]').onclick();
+    search.value = 'input draft create'; search.oninput({});
+    dom.node('detail').querySelector('[data-command="lush input draft create"]').onclick();
     // The minimal DOM fixture does not parse descendant selectors or dotted
     // attribute values; inspect the rendered method rows before selecting.
     const row = dom.node('detail').querySelectorAll('.cli-permission-method').find(node => node.dataset.method === 'draft.add');
@@ -63,6 +63,8 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     dom.node('detail').querySelector('[data-command="lush worker list"]').onclick();
     const advanced = dom.node('detail').querySelector('details');
     expect(advanced.open).toBe(false);
+    expect(deepText(advanced)).toContain('CLI 参数契约');
+    expect(deepText(advanced)).toContain('recent');
     expect(deepText(advanced)).toContain('RPC 参数契约（类型、必填、默认值与枚举）');
     expect(deepText(advanced)).toContain('"type": "integer"');
     expect(deepText(advanced)).toContain('"maximum": 1000');

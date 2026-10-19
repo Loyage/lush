@@ -21,7 +21,10 @@ async function harness() {
     const task = f.store.task(manager.id), result = JSON.parse(task.result);
     for (const key of ['registered','cliActive','sessionActive','modelActive']) expect(result[key]).toEqual(['lush_cli']);
     expect(result.blocked.every(Boolean)).toBe(true);
-    return { ...result, task, values: result.replies.map(reply => reply.response?.details.result) };
+    return { ...result, task, values: result.replies.map(reply => {
+      const value = reply.response?.details.result;
+      return value?.version === 1 && Object.hasOwn(value, 'data') ? value.data : value;
+    }) };
   }, async close() { await rpc.close(); await f.close(); } };
 }
 
@@ -30,20 +33,28 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
   try {
     const target = (await f.project.order('paused target', 'main', [], null, false)).task;
     const result = await f.invoke([
-      command(['help','worker','inspect']), command(['worker','inspect',target.worker_number]),
-      command(['worker','message',target.worker_number,'PRIVATE-CLI-MESSAGE']),
-      command(['valet','query',target.worker_number]), command(['valet','history','--worker',target.worker_number,'--limit','1']),
+      command(['help','worker','message']), command(['help','worker','message','--json']),
+      command(['help','--search','条件','--json']), command(['help','workflow','conditional-input','--json']),
+      command(['worker','show',target.worker_number]), command(['worker','message',target.worker_number,'PRIVATE-CLI-MESSAGE']),
+      command(['valet','context','show',target.worker_number]), command(['valet','context','history','--worker',target.worker_number,'--limit','1']),
+      command(['worker','message',target.worker_number,'--','--file']),
     ]);
     expect(result.replies.every(reply => !reply.error)).toBe(true);
-    expect(result.values[0].help).toContain('worker inspect');
-    expect(result.values[1]).toMatchObject({ id: target.id, coverage: 'worker_metadata_only' });
-    expect(result.values[2]).toMatchObject({ status: 'succeeded', method: 'worker.message' });
-    expect(result.values[3].id).toBe(target.id);
-    expect(result.values[4].scope).toBe('current_project');
+    expect(result.values[0].help).toContain('worker message');
+    expect(result.values[0].help).toContain('CLI 参数');
+    expect(result.values[1]).toMatchObject({ kind: 'command', view: 'valet', path: 'worker message' });
+    expect(result.values[1].catalog_version).toBeTruthy();
+    expect(result.values[2].items.some(item => item.kind === 'workflow')).toBe(true);
+    expect(result.values[3].steps.some(step => step.command_id === 'input.draft.show')).toBe(true);
+    expect(result.values[4]).toMatchObject({ id: target.id, coverage: 'worker_metadata_only' });
+    expect(result.values[5]).toMatchObject({ status: 'succeeded', method: 'worker.message' });
+    expect(result.values[6].id).toBe(target.id);
+    expect(result.values[7].scope).toBe('current_project');
     expect(f.store.unread(target.id).some(row => row.sender_id === result.task.id && row.body === 'PRIVATE-CLI-MESSAGE')).toBe(true);
+    expect(f.store.unread(target.id).some(row => row.sender_id === result.task.id && row.body === '--file')).toBe(true);
     const audit = await f.dispatcher.dispatch('worker.management_calls', { id: result.task.id, after: 0 });
     expect(audit.items.filter(item => item.phase === 'finished').map(item => item.method)).toEqual([
-      'worker.lookup','worker.inspect','worker.lookup','worker.message','worker.lookup','manager.query','worker.lookup','manager.history',
+      'worker.lookup','worker.inspect','worker.lookup','worker.message','worker.lookup','manager.query','worker.lookup','manager.history','worker.lookup','worker.message',
     ]);
     expect(audit.items.every(item => item.cli_command && !item.cli_command.includes('PRIVATE'))).toBe(true);
     expect(JSON.stringify(audit)).not.toContain('PRIVATE-CLI-MESSAGE');
@@ -74,15 +85,20 @@ test('real CLI registration then separate fixed-version mount executes the pinne
   const f = await harness();
   try {
     const main = await f.project.bootstrapMain(), output = path.join(f.root, '.lush', 'cli-pinned-hook');
-    const directory = f.project.hooksList(), registration = { command: { name: 'CLI pinned effect', command: `printf pinned >> '${output}'` },
+    const read = await f.invoke([command(['help','workflow','register-and-attach']), command(['automation','list']),
+      command(['worker','automation','show',String(main.id)])]);
+    expect(read.replies.every(reply => !reply.error)).toBe(true);
+    expect(read.values[0].help).toContain('固定');
+    const directory = read.values[1], mountRevision = read.values[2].revision;
+    const registration = { command: { name: 'CLI pinned effect', command: `printf pinned >> '${output}'` },
       hook: { name: 'CLI feature', trigger: 'worker.merge_received', mode: 'persistent', enabled: true },
       expected_revisions: { commands: directory.commands.revision, registry: directory.registry.revision }, client_request_id: 'cli-register' };
-    const first = await f.invoke([command(['hooks','register','--data',JSON.stringify(registration)])]);
+    const first = await f.invoke([command(['automation','register','--data',JSON.stringify(registration)])]);
     const registered = first.values[0];
     expect(registered).toMatchObject({ method: 'hooks.register', status: 'succeeded' });
     const identity = { template_id: registered.result.template_id, template_version: registered.result.template_version };
     expect(f.project.hooksList().registry.items.find(item => item.id === identity.template_id).mount_count).toBe(0);
-    const second = await f.invoke([command(['worker','hook','attach',String(main.id),'--data',JSON.stringify(identity),'--revision',f.project.taskHooks(main.id).revision])]);
+    const second = await f.invoke([command(['worker','automation','attach',String(main.id),'--data',JSON.stringify(identity),'--revision',mountRevision])]);
     expect(second.values[0]).toMatchObject({ method: 'worker.hook_attach', status: 'succeeded', result: { worker_id: main.id } });
     expect(fs.existsSync(output)).toBe(false);
     f.project.emitTaskHook(main.id, 'worker.merge_received', f.store.event(main.id, 'test.cli_merge', {})); await f.project.hookQueue;

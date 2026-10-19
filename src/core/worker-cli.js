@@ -4,6 +4,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { CLI_COMMANDS, CLI_EXECUTABLES, commandExecutables } from '../cli/catalog.js';
+import { parseCLI, validateCLIParameters } from '../cli/parser.js';
+import { isOptionIndex } from '../cli/args.js';
 import { ROOT } from '../identity.js';
 import { check, id } from './types.js';
 import { commandEnvironment } from './workspaces/command.js';
@@ -46,17 +48,17 @@ export function parseWorkerCLI(command) {
   check(words.length > 0 && words.length <= WORKER_CLI_LIMITS.arguments, 'invalid CLI argument count');
   const executable = words.shift();
   check(CLI_EXECUTABLES.includes(executable), 'only lush and lushw are supported');
-  check(!words.some(value => /^--(?:project|cwd|env|executable|token)(?:=|$)/.test(value)), 'CLI project, environment and executable overrides are forbidden');
-  // Match main's global --json and help precedence, using only the catalogue hierarchy.
-  const args = words.filter(value => value !== '--json');
-  const help = !args.length || ['help','--help','-h'].includes(args[0]) || args.includes('--help') || args.includes('-h');
-  const entry = help ? CLI_COMMANDS.find(item => item.path === 'help') : CLI_COMMANDS
-    .filter(item => !item.directory && item.path.split(' ').every((part, index) => args[index] === part))
-    .sort((a, b) => b.path.length - a.path.length)[0];
+  const separator = words.indexOf('--'), options = words.slice(0, separator < 0 ? words.length : separator);
+  check(!options.some(value => /^--(?:project|cwd|env|executable|token)(?:=|$)/.test(value)), 'CLI project, environment and executable overrides are forbidden');
+  // Preview and execution share the exact argv/global/literal/schema parser.
+  const parsed = parseCLI(words, CLI_COMMANDS), help = parsed.help;
+  const directory = !parsed.entry && CLI_COMMANDS.find(item => item.directory && isOptionIndex(parsed.args, parsed.args.length - 1) && item.path === parsed.args.join(' '));
+  const entry = help || directory ? CLI_COMMANDS.find(item => item.path === 'help') : parsed.entry;
   check(entry && commandExecutables(entry).includes(executable), 'command is not available from this CLI entry point');
-  check(help || !entry.rpc.some(method => method.startsWith('context.')) || entry.user_context_rpc,
+  if (!help && !directory) validateCLIParameters(parsed.args, entry);
+  check(help || directory || !entry.rpc.some(method => method.startsWith('context.')) || entry.user_context_rpc,
     'command is Agent invocation only; no user-equivalent operation');
-  check(help || !['worker watch','worker wait','agent sources login'].includes(entry.path)
+  check(help || !['worker watch','worker wait'].includes(entry.path) && !/^agent (?:source|sources) login(?: |$)/.test(entry.path)
     && !/^(daemon|host) (start|stop|restart)$/.test(entry.path), 'command requires an interactive or persistent terminal and is not supported here');
   // Never permit an argument to select a second executable; the fixed bin parses every remaining value.
   return { command, executable, argv: words, path: entry.path, kind: entry.kind,

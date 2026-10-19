@@ -170,7 +170,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     for (const [node, handler] of exampleHandlers.splice(0)) node.removeEventListener('click', handler);
     examples.replaceChildren();
     // This is deliberately not a second CLI catalog: only three fixed starter commands.
-    for (const command of ['lush help', 'lush status', `lush worker inspect ${task.worker_number || task.id}`]) {
+    for (const command of ['lush help', 'lush status', `lush worker show ${task.worker_number || task.id}`]) {
       const node = el('button', `填入 ${command}`, 'ghost'); node.type = 'button';
       const handler = () => { if (disposed || reason()) return; input.value = command; edited(); input.focus(); };
       node.addEventListener('click', handler); exampleHandlers.push([node, handler]); examples.append(node);

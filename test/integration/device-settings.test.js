@@ -10,7 +10,7 @@ test('two real temporary daemons share device settings while project homes stay 
   const a = temp(), b = temp(), shared = temp(), settingsEnv = { LUSH_GLOBAL_CONFIG: shared };
   try {
     await Promise.all([repo(a), repo(b)]);
-    const [sa, sb] = await Promise.all([cli(a, ['start'], settingsEnv), cli(b, ['start'], settingsEnv)]);
+    const [sa, sb] = await Promise.all([cli(a, ['daemon', 'start'], settingsEnv), cli(b, ['daemon', 'start'], settingsEnv)]);
     expect(sa.pid).not.toBe(sb.pid);
     const ca = new UIClient(Config.fromEnv(env(settingsEnv), a)), cb = new UIClient(Config.fromEnv(env(settingsEnv), b));
     await ca.request('system.configure', { settings: { call_timeout: 50 }, scope: 'device' });
@@ -30,7 +30,7 @@ test('two real temporary daemons share device settings while project homes stay 
     expect(fs.existsSync(path.join(shared, 'shared', 'agent.json'))).toBe(true);
     expect((await cb.request('worker.list')).every(row => row.task_kind === 'main')).toBe(true);
   } finally {
-    await Promise.all([cli(a, ['stop'], settingsEnv).catch(() => {}), cli(b, ['stop'], settingsEnv).catch(() => {})]);
+    await Promise.all([cli(a, ['daemon', 'stop'], settingsEnv).catch(() => {}), cli(b, ['daemon', 'stop'], settingsEnv).catch(() => {})]);
     for (const root of [a, b, shared]) fs.rmSync(root, { recursive: true, force: true });
   }
 }, 30000);

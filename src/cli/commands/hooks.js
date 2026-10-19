@@ -8,22 +8,26 @@ function readRevision(args) {
   const revision = option(args, '--revision');
   check(typeof revision === 'string' && revision.length > 0 && revision.length <= 256
     && revision === revision.trim() && !/[\x00-\x1f\x7f]/.test(revision),
-  'first read hooks list or worker hooks ID, then provide --revision REV');
+  'first read automation list or worker automation show ID, then provide --revision REV');
   return revision;
 }
 
+/** Project definition catalogue; registration never attaches or executes a rule. */
 export async function run(command, args, { client }) {
-  check(!client.token || client.management, 'Hooks configuration is user only, not an agent operation');
+  check(command === 'automation', 'use lush automation; hooks is no longer executable');
+  check(!client.token || client.management, 'Automation configuration requires user or trusted management identity');
   const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
-  if (verb === 'install') check(false, 'hooks install is retired; first hooks register --file PATH, then separately request worker hook attach with registered id/version');
   if (verb === 'register') {
     const value = takeJsonInput(args, client, 'Hook registration'); exact(args, 0);
     return client.request('hooks.register', validateHookRegistration(value));
   }
   if (verb === 'completion-defaults') {
+    const action = args.shift();
+    if (action === 'show') { exact(args, 0); return projectPart(await client.request('hooks.list'), 'completion_defaults'); }
+    check(action === 'set', 'completion-defaults requires show|set');
     const expected_revision = readRevision(args); exact(args, 2);
-    check(['on','off'].includes(args[0]) && ['merge','accept'].includes(args[1]), 'completion-defaults expects on|off merge|accept --revision REV');
+    check(['on','off'].includes(args[0]) && ['merge','accept'].includes(args[1]), 'completion-defaults set expects on|off merge|accept --revision REV');
     return client.request('hooks.completion_defaults', { enabled: args[0] === 'on', level: args[1], expected_revision });
   }
   if (verb === 'upgrade') {
@@ -32,22 +36,22 @@ export async function run(command, args, { client }) {
   }
   if (verb === 'command') return runCommand(args, client);
   if (verb === 'signal') return runSignal(args, client);
-  if (verb === 'management') return runManagement(args, client);
-  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|register|upgrade|save|remove|auto-select|command|signal|management; run lush help');
+  check(['save','remove'].includes(verb), 'automation requires list|register|upgrade|save|remove|completion-defaults|command|signal; run lush help automation');
   const expected_revision = readRevision(args);
-  if (verb === 'auto-select') {
-    const scope = option(args, '--scope'); exact(args, 1);
-    check(scope === null || scope === 'device', 'auto-select scope must be device');
-    check(['on','off'].includes(args[0]), 'hooks auto-select expects on|off');
-    return client.request('hooks.auto_select', { enabled: args[0] === 'on', expected_revision,
-      ...(client.management && scope !== null ? { scope } : {}) });
-  }
   if (verb === 'save') {
     const template = takeJsonInput(args, client); exact(args, 0);
     return client.request('hooks.save', { template, expected_revision });
   }
   exact(args, 1);
   return client.request('hooks.remove', { id: args[0], expected_revision });
+}
+
+// Keep the original read model and its actual revision; absence is not an empty catalogue.
+function projectPart(value, key) {
+  check(value?.[key] && typeof value[key] === 'object' && !Array.isArray(value[key]), `automation ${key} read model unavailable; inspect automation list`);
+  const metadata = Object.fromEntries(['coverage','truncated','omitted','warnings']
+    .filter(name => Object.hasOwn(value, name) && !Object.hasOwn(value[key], name)).map(name => [name, value[name]]));
+  return { ...value[key], ...metadata };
 }
 
 async function runCommand(args, client) {
@@ -57,8 +61,8 @@ async function runCommand(args, client) {
     return client.request('hooks.command_history_remove', clear ? { clear: true } : { execution_id: args[0] });
   }
   check(['list','save','remove','history','import','export'].includes(verb),
-    'hooks command requires list|save|remove|history|import|export; run lush help');
-  if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
+    'automation command requires list|save|remove|history|import|export; run lush help automation command');
+  if (verb === 'list') { exact(args, 0); return projectPart(await client.request('hooks.list'), 'commands'); }
   if (verb === 'history') {
     const before = option(args, '--before'), limit = option(args, '--limit'), execution_id = option(args, '--execution');
     exact(args, 0);
@@ -100,7 +104,8 @@ async function runCommand(args, client) {
 
 async function runSignal(args, client) {
   const verb = args.shift();
-  check(['save','remove'].includes(verb), 'hooks signal requires save|remove; run lush help');
+  if (verb === 'list') { exact(args, 0); return projectPart(await client.request('hooks.list'), 'signals'); }
+  check(['save','remove'].includes(verb), 'automation signal requires list|save|remove; run lush help automation signal');
   const expected_revision = readRevision(args);
   if (verb === 'save') {
     const signal = takeJsonInput(args, client, 'signal'); exact(args, 0);
@@ -108,44 +113,6 @@ async function runSignal(args, client) {
   }
   exact(args, 1);
   return client.request('hooks.signal_remove', { id: args[0], expected_revision });
-}
-
-async function runManagement(args, client) {
-  const verb = args.shift();
-  check(['create','enable','disable','receipt','permission-get','permission-set','emergency-preview','emergency-stop'].includes(verb),
-    'hooks management requires create|enable|disable|receipt|permission-get|permission-set|emergency-preview|emergency-stop; run lush help');
-  if (verb === 'receipt') {
-    const after = option(args, '--after'), limit = option(args, '--limit'); exact(args, 1);
-    const integer = (value, min, max = Number.MAX_SAFE_INTEGER) => {
-      check(typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/.test(value) && Number.isSafeInteger(Number(value))
-        && Number(value) >= min && Number(value) <= max, 'invalid management receipt integer');
-      return Number(value);
-    };
-    return client.request('management.receipt', { receipt_id: integer(args[0], 1),
-      ...(after === null ? {} : { after: integer(after, 0) }), ...(limit === null ? {} : { limit: integer(limit, 1, 100) }) });
-  }
-  if (verb === 'emergency-preview') { exact(args, 0); return client.request('management.emergency_preview'); }
-  if (verb === 'emergency-stop') {
-    const revision = readRevision(args), confirmIndex = args.indexOf('--confirm');
-    check(confirmIndex !== -1, 'management emergency-stop requires --confirm after reading emergency-preview');
-    args.splice(confirmIndex, 1); exact(args, 0);
-    return client.request('management.emergency_stop', { revision, confirm: true });
-  }
-  if (verb === 'permission-get' || verb === 'permission-set') {
-    const scope = option(args, '--scope');
-    check(scope === 'device', 'management permissions require --scope device');
-    const expected_revision = verb === 'permission-set' ? readRevision(args) : undefined;
-    exact(args, verb === 'permission-get' ? 1 : 2);
-    return client.request(`management.${verb.replace('-', '_')}`, { method: args[0], scope,
-      ...(verb === 'permission-set' ? { access: args[1], expected_revision } : {}) });
-  }
-  if (verb === 'create') {
-    const request = takeJsonInput(args, client, 'management'); exact(args, 0);
-    check(Object.keys(request).every(key => ['name','instruction','signal_id','mode','profile','client_request_id'].includes(key)), 'unknown management parameter');
-    return client.request('management.create', request);
-  }
-  const expected_revision = readRevision(args); exact(args, 1);
-  return client.request('management.binding_update', { id: await resolveWorkerId(client, args[0]), enabled: verb === 'enable', expected_revision });
 }
 
 /** Highest automatic stage; uses the current worker.hooks read revision. */
@@ -159,11 +126,11 @@ export async function runWorkerCompletion(args, client) {
   });
 }
 
-/** worker hook attach ID --file PATH; enable|disable|remove ID HOOK_ID. */
+/** Worker automation calls this helper; the caller maps public detach to remove. */
 export async function runWorkerHook(args, client) {
   check(!client.token || client.management, 'Hooks configuration is user only, not an agent operation');
   const verb = args.shift();
-  check(['attach','enable','disable','remove'].includes(verb), 'worker hook requires attach|enable|disable|remove; run lush help');
+  check(['attach','enable','disable','remove'].includes(verb), 'worker automation requires attach|enable|disable|detach; run lush help worker automation');
   const expected_revision = readRevision(args);
   if (verb === 'attach') {
     const hook = takeJsonInput(args, client); exact(args, 1);

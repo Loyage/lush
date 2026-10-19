@@ -148,7 +148,7 @@ Worker 详情展示为「自动化」。来源结束规则与目标内部处理�
 
 ## CLI
 
-用户专属 CLI：`hooks list`、`hooks save --file PATH --revision REV`、`hooks register --file PATH`（只注册 Shell 指令和功能）、`hooks upgrade --revision REV`（显式补登记旧规则）、`hooks remove TEMPLATE_ID --revision REV`；`worker hooks ID`、`worker hook attach ID --file PATH --revision REV`、`worker hook enable|disable|remove ID HOOK_ID --revision REV`；`order --defer` 保留旧参数兼容，新发射缺省即可靠挂载，条件用 --after-settled/--after-merged/--quiet，独占用 --exclusive。定义文件必须是有界、owner-only、非链接 JSON，revision 从对应读面取得，不提供跳过乐观锁的快捷入口。
+用户专属 CLI：`automation list`、`automation save --file PATH --revision REV`、`automation register --file PATH`（只注册 Shell 指令和功能）、`automation upgrade --revision REV`（显式补登记旧规则）、`automation remove TEMPLATE_ID --revision REV`；`worker automation show ID`、`worker automation attach ID --file PATH --revision REV`、`worker automation enable|disable|detach ID HOOK_ID --revision REV`；order 只新建且缺省可靠挂载，条件用 --after-settled/--after-merged/--when-idle，独占用 --exclusive；未授权草稿归 input draft，删除旧 --defer/--buffer/--append 混合入口。定义文件必须是有界、owner-only、非链接 JSON，revision 从对应读面取得，不提供跳过乐观锁的快捷入口。
 
 CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`，经 `worker.lookup` 转成真实整数后调用原 RPC；Hook UUID、模板 UUID、`message.target_id` 仍保持原身份。Web Hook 标签用持久编号，创建收据补安全 `worker_number`、消息动作读面补 `target_worker_number`；仅做投影，不回写定义、收据或历史行，不从整数猜编号。消息目标表单明确要求内部整数 ID；读面附属标签不能当作定义字段回传。
 

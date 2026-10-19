@@ -234,10 +234,15 @@ export default {
   },
 
   /** Task window: active items plus a bounded terminal tail; all includes control-plane roles. */
-  activity(limit = 50, scope = 'work') {
-    const size = Number(limit);
-    validateWorkerQuery('worker.activity', { limit: size, scope });
-    const active = this.store.summaryPage({ active: true, limit: 1000, scope });
+  activity(limit = 50, scope = 'work', internal = null) {
+    const requested = Number(limit);
+    validateWorkerQuery('worker.activity', { limit: requested, scope });
+    // A trusted management read must fit its entire historical tail before the
+    // generic safe exit. Post-hoc slicing would advance past unreturned history.
+    const budget = internal?.pageLimit ?? null;
+    const size = budget ? Math.min(requested, Math.max(1, Math.floor(budget / 2))) : requested;
+    const activeLimit = budget ? budget - size : 1000;
+    const active = this.store.summaryPage({ active: true, limit: activeLimit, scope });
     const recent = this.store.summaryPage({ limit: size, scope });
     const byId = new Map([...active, ...recent].map(task => [task.id, task]));
     const tasks = this.decorate([...byId.values()].sort((a, b) => a.id - b.id));
@@ -246,7 +251,10 @@ export default {
     const total = counts.reduce((sum, row) => sum + row.count, 0);
     const historical = counts.filter(row => TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);
     return { tasks, page: { limit: size, cursor, has_more: cursor !== null && historical > recent.length,
-      shown: recent.length, total, historical, active: active.length, truncated: historical > recent.length } };
+      shown: recent.length, total, historical, active: active.length,
+      ...(budget ? { active_total: total - historical, active_truncated: total - historical > active.length,
+        coverage: 'bounded_active_summary_and_history_tail' } : {}),
+      truncated: historical > recent.length || Boolean(budget && total - historical > active.length) } };
   },
 
   /** Older terminal items within the requested scope; callers merge pages by id. */

@@ -1,7 +1,8 @@
 import { check, id, isPlainObject } from './types.js';
 import { INPUT_OPTION_KEYS } from './input-option-keys.js';
 import references from './project/references.js';
-import { normalizeAgentProfile, AGENT_BACKENDS, THINKING_LEVELS } from '../agent/settings.js';
+import { normalizeAgentProfile } from '../agent/settings.js';
+import { AGENT_BACKENDS, THINKING_LEVELS } from '../agent/settings-protocol.js';
 
 // Node-safe, read-only protocol: no Store, Project, Provider or device configuration reads.
 // JSON Schema keywords drive the runtime checks below. x-lush-validator delegates to

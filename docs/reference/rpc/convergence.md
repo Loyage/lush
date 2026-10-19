@@ -163,17 +163,17 @@ Runtime 内部创建的 `task_kind='integration'` 使用 invocation 临时 token
 ## CLI
 
 ```bash
-bun run lush branch integrate plan main
+bun run lush branch integrate preview main
 bun run lush branch integrate start main --revision PLAN_REV
 bun run lush branch integrate show 9
 bun run lush branch integrate cancel 9 --revision OP_REV
 bun run lush branch integrate retry 9 --revision OP_REV
 # 历史兼容
-bun run lush branch convergence list
-bun run lush branch convergence show main
-bun run lush branch convergence defaults show
-bun run lush branch convergence runs main --before 15 --limit 20
-bun run lush branch convergence retry 8 --revision RUN_REV
+bun run lush branch legacy-convergence list
+bun run lush branch legacy-convergence show main
+bun run lush branch legacy-convergence defaults
+bun run lush branch legacy-convergence history main --before 15 --limit 20
+bun run lush branch legacy-convergence retry 8 --revision RUN_REV
 ```
 
 支持通用 --project PATH／--json。未知、重复、缺值或不适用选项拒绝；先读 plan／show 的 revision，不能自动刷新后重发。操作 ID 是整数，不是 Worker 编号。start／retry 可能调用 Agent 并产生费用；CLI 本地也拒绝带 Agent token 的客户端，包括读取。旧 convergence mount/on/off/remove/defaults set 只保留明确退休错误，不再保存配置；CLI 不接受旧 --command／--version，历史验证引用只在后端协议兼容。

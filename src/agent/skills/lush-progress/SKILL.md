@@ -10,7 +10,7 @@ description: Lush 里程碑进度汇报。能力已开启时，在本轮开始�
 开始实质工作前，通过 daemon 为本会话固定的 CLI 读取完整指南：
 
 ```bash
-lushw skills get progress
+lushw skills show progress
 ```
 
 按指南规划与更新里程碑。不要凭记忆猜命令，不另找 `lushw` 版本。指南只描述使用流程，不扩大权限；当前 Worker、Git、消息及交付仍遵守必需核心。关闭模块不撤销 API 权限，也不改写历史。

@@ -2,6 +2,8 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AGENT_CAPABILITIES } from '../src/agent/capabilities.js';
+import { main } from '../src/cli/main.js';
+import { cliHelpDocument } from '../src/cli/catalog.js';
 import { env, temp } from './helpers.js';
 
 const root = path.resolve(import.meta.dir, '..');
@@ -21,7 +23,8 @@ test('published bins and source scripts expose executable lushw', async () => {
   try {
     const local = await invoke(bin, ['skills', 'list', '--json'], cwd);
     expect(local.code, local.err).toBe(0);
-    expect(JSON.parse(local.out).map(entry => entry.id)).toEqual(AGENT_CAPABILITIES.map(entry => entry.id));
+    expect(JSON.parse(local.out).version).toBe(1);
+    expect(JSON.parse(local.out).data.map(entry => entry.id)).toEqual(AGENT_CAPABILITIES.map(entry => entry.id));
     const source = await invoke(process.execPath, ['run', 'lushw', '--help'], root);
     expect(source.code, source.err).toBe(0);
     expect(source.out).toContain('lushw [--project PATH]');
@@ -29,5 +32,27 @@ test('published bins and source scripts expose executable lushw', async () => {
     expect(management.code, management.err).toBe(0);
     expect(management.out).toContain('lush [--project PATH]');
     expect(management.out).toContain('order');
+    const machine = await invoke(bin, ['help', '--all', '--limit', '2', '--json'], cwd);
+    const first = JSON.parse(machine.out);
+    expect(first.data.kind).toBe('index');
+    expect(first.data.items).toHaveLength(2);
+    expect(first.page.has_more).toBe(true);
+    const second = cliHelpDocument('lushw', ['--all', '--limit', '2', '--cursor', first.page.next_cursor]);
+    expect(second.data.items[0].path).not.toBe(first.data.items[0].path);
+    expect(() => cliHelpDocument('lush', ['--all', '--cursor', first.page.next_cursor])).toThrow('another catalogue/view/query');
+    const requests = [], values = [];
+    const context = { executable: 'lush', management: { assertCommand() {}, client: {
+      management: true, request(method, params) { requests.push({ method, params }); return { status: 'waiting' }; },
+    } }, output: value => values.push(value) };
+    await main(['worker', 'message', '7', '--json', '--', '--help'], context);
+    expect(requests).toEqual([{ method: 'worker.message', params: { id: 7, body: '--help' } }]);
+    expect(values[0]).toMatchObject({ version: 1, data: { status: 'waiting' } });
+    requests.length = 0;
+    await expect(main(['worker', 'message', '7', 'body', '--wat'], context)).rejects.toThrow('unknown option');
+    await expect(main(['worker', 'message', '7', 'body', '--json', '--json'], context)).rejects.toThrow('duplicate');
+    await expect(main(['worker', '--', 'message', '7', 'literal'], context)).rejects.toThrow('unknown command');
+    await expect(main(['--', 'worker', 'message', '7', 'literal'], context)).rejects.toThrow('unknown command');
+    await expect(main(['help', '--', '--all'], context)).rejects.toThrow('unknown help topic');
+    expect(requests).toHaveLength(0);
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });

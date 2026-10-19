@@ -1,4 +1,4 @@
-// `lush agent sources ...` / `lush agent resources`: managed model-source listing,
+// `lush agent source ...` / `lush agent model choices`: managed model-source listing,
 // quota visibility, cached model catalog and private file-based credential entry.
 // All actions are user-only; secrets never travel through argv or CLI output.
 import fs from 'node:fs';
@@ -6,6 +6,7 @@ import { check } from '../../core/types.js';
 import { exact, option } from '../args.js';
 import { takeOptions } from '../command-options.js';
 import { takeJsonInput } from '../private-json.js';
+import { safeConfigurationScope } from '../settings-scope.js';
 
 const MAX_INPUT_BYTES = 65536;
 const MAX_URL_BYTES = 10000;
@@ -70,6 +71,8 @@ function sourceView(row) {
   return { id: text(row.id, 80), label: text(row.label), provider: text(row.provider, 80),
     endpoint: text(row.endpoint), auth_type: row.auth_type === 'oauth' ? 'oauth' : 'api_key',
     enabled: row.enabled === true, notify_reset: row.notify_reset === true, models: list(row.models),
+    default_model: text(row.default_model, 256), default_thinking: text(row.default_thinking, 32),
+    ...(['device', 'project'].includes(row.storage_scope) ? { storage_scope: row.storage_scope } : {}),
     credential: { status: text(credential.status, 32) ?? 'unknown', identity: text(credential.identity, 120),
       expires_at: text(credential.expires_at, 40) },
     observation: observationView(row.observation) ?? observationView({}),
@@ -130,6 +133,7 @@ async function listSources(client) {
   const value = await client.request('agent.connections.list', {});
   check(value && typeof value === 'object', 'invalid connection list response');
   return { version: 1, checked_at: text(value.checked_at, 40), sampling: samplingView(value.sampling),
+    ...(value.configuration_scope ? { configuration_scope: safeConfigurationScope(value.configuration_scope) } : {}),
     connections: (Array.isArray(value.connections) ? value.connections : []).map(sourceView),
     ...(value.warning ? { warning: text(value.warning, 600) } : {}) };
 }
@@ -151,22 +155,22 @@ async function modelsFor(client, args, refresh) {
 }
 
 async function login(client, args) {
-  const id = args.shift();
-  check(typeof id === 'string' && id.length > 0 && id.length <= 80, 'a connection id is required for login');
-  const cancel = option(args, '--cancel'), poll = option(args, '--poll'), finish = option(args, '--finish');
-  const urlFile = option(args, '--url-file'), callback = args.includes('--callback');
-  if (callback) args.splice(args.indexOf('--callback'), 1);
-  exact(args, 0);
-  const selected = [cancel, poll, finish].filter(value => value !== null).length + (callback ? 1 : 0);
-  check(selected <= 1, 'choose one of --callback, --poll, --cancel or --finish');
-  if (cancel !== null) return deviceView(await client.request('agent.connections.device.cancel', { id, login_id: cancel }));
-  if (poll !== null) return deviceView(await client.request('agent.connections.device.poll', { id, login_id: poll }));
-  if (finish !== null) {
-    check(urlFile, '--finish requires --url-file PATH');
+  check(!client.management, 'source authentication requires a local user');
+  const action = args.shift();
+  check(['start', 'poll', 'cancel', 'finish'].includes(action), 'agent source login requires start, poll, cancel or finish');
+  const method = option(args, '--method'), urlFile = option(args, '--url-file');
+  exact(args, action === 'start' ? 1 : 2);
+  const [id, login_id] = args;
+  check(typeof id === 'string' && id.length > 0 && id.length <= 80 && !id.startsWith('-'), 'a connection id is required for login');
+  if (action !== 'start') check(typeof login_id === 'string' && login_id.length > 0 && login_id.length <= 80 && !login_id.startsWith('-'), 'a login id is required');
+  check(action === 'start' ? method === null || ['device', 'callback'].includes(method) : method === null, '--method is only valid for login start and expects device|callback');
+  check(action === 'finish' ? urlFile !== null : urlFile === null, '--url-file is required only for login finish');
+  if (action === 'cancel' || action === 'poll') return deviceView(await client.request(`agent.connections.device.${action}`, { id, login_id }));
+  if (action === 'finish') {
     return sourceView(await client.request('agent.connections.login.finish',
-      { id, login_id: finish, redirect_url: readPrivateText(urlFile) }));
+      { id, login_id, redirect_url: readPrivateText(urlFile) }));
   }
-  if (callback) {
+  if (method === 'callback') {
     const started = await client.request('agent.connections.login.start', { id });
     return { id, login_id: text(started.login_id, 80), url: text(started.url, 4096), expires_at: text(started.expires_at, 40),
       redirect_uri: text(started.redirect_uri, 2048), instructions: text(started.instructions, 600) };
@@ -179,7 +183,7 @@ async function login(client, args) {
 
 export async function runSources(args, clientRef, options = {}) {
   const { client } = context(clientRef, options);
-  const verb = args.shift() || 'list';
+  const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return await listSources(client); }
   if (verb === 'show') { exact(args, 1); return await showSource(client, args[0]); }
   if (verb === 'history') {
@@ -187,6 +191,7 @@ export async function runSources(args, clientRef, options = {}) {
     return client.request('agent.connections.history', { id: args[0], ...params });
   }
   if (verb === 'sampling') {
+    check(args.shift() === 'set', 'agent source sampling requires set');
     const sampling = takeJsonInput(args, client, 'connection sampling'); exact(args, 0);
     return client.request('agent.connections.sampling', { sampling });
   }
@@ -198,10 +203,15 @@ export async function runSources(args, clientRef, options = {}) {
     if (receipt?.receipt_id) return receipt;
     return { ...await listSources(client), queried: id ?? 'all' };
   }
-  if (verb === 'models' || verb === 'models-refresh') return await modelsFor(client, args, verb === 'models-refresh');
+  if (verb === 'models') {
+    const action = args.shift();
+    check(['list', 'refresh'].includes(action), 'agent source models requires list or refresh');
+    return await modelsFor(client, args, action === 'refresh');
+  }
   if (verb === 'save') {
+    check(!client.management, 'management CLI cannot read local source credentials');
     const file = option(args, '--file'); exact(args, 0);
-    check(file, 'agent sources save requires --file PATH');
+    check(file, 'agent source save requires --file PATH');
     const input = readPrivateJson(file);
     check(Object.keys(input).every(key => ['connection', 'credential'].includes(key)), 'save input accepts only connection and credential');
     check(input.connection && typeof input.connection === 'object' && !Array.isArray(input.connection), 'connection is required');
@@ -213,7 +223,7 @@ export async function runSources(args, clientRef, options = {}) {
     return value?.receipt_id ? value : { removed: text(value?.removed, 80) };
   }
   if (verb === 'login') return await login(client, args);
-  check(false, 'agent sources expects list, show, models, models-refresh, refresh, save, remove or login');
+  check(false, 'agent source expects list, show, models, refresh, save, remove, history, sampling or login');
 }
 
 export async function runResources(args, clientRef, options = {}) {
@@ -222,6 +232,7 @@ export async function runResources(args, clientRef, options = {}) {
   const value = await client.request('agent.selection.resources', {});
   check(value && typeof value === 'object', 'invalid resource read response');
   return { version: 1, checked_at: text(value.checked_at, 40),
+    ...(value.configuration_scope ? { configuration_scope: safeConfigurationScope(value.configuration_scope) } : {}),
     connections: (Array.isArray(value.connections) ? value.connections : []).map(connection => ({
       ...sourceView(connection), supported_agents: list(connection.supported_agents, 8),
       model_catalog: catalogView(connection.model_catalog ?? {}) })),

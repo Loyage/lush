@@ -33,7 +33,7 @@ Shell Hook 为 `{type:'command',command_id:UUID,command_version:N}`，N 为正�
 | hooks.command_remove | id, expected_revision |
 | hooks.command_import | source, expected_revision |
 
-CLI `hooks command list/save/export/remove/import/history`；save／import 用私有 JSON 文件与 revision，export 仍要求精确版本。`hooks.command_authorize` 和 CLI `hooks command authorize/revoke` 已删除，无兼容授权入口。Worker 编号只在 CLI 转整数。不提供 run／start 别名。
+CLI `automation command list/save/export/remove/import/history`；save／import 用私有 JSON 文件与 revision，export 仍要求精确版本。`hooks.command_authorize` 和 CLI `hooks command authorize/revoke` 已删除，无兼容授权入口。Worker 编号只在 CLI 转整数。不提供 run／start 别名。
 
 ## 提示词执行与 Skill 导出
 

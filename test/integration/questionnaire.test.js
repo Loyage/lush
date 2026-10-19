@@ -25,7 +25,7 @@ if (context.task.calls === 1) {
  fs.writeFileSync(decision,created.stdout);
  const checked = Bun.spawnSync(['lushw','question','check','--question-file',decision]);
  if (checked.exitCode) throw new Error(checked.stderr.toString());
- const child = Bun.spawn(['lushw','self','notice','post','--question-file',decision],{stdout:'pipe',stderr:'pipe'});
+ const child = Bun.spawn(['lushw','self','notice','ask','--question-file',decision],{stdout:'pipe',stderr:'pipe'});
  await child.exited;
  setInterval(() => {},1000);
  await new Promise(() => {});
@@ -33,7 +33,7 @@ if (context.task.calls === 1) {
 `, { mode: 0o755 });
   try {
     await repo(root);
-    await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
+    await cli(root, ['daemon', 'start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
     await bindMockPiSource(root);
     const receipt = await cli(root, ['order', 'choose a layout']);
     const client = new UIClient(Config.fromEnv(env(), root));
@@ -53,11 +53,11 @@ if (context.task.calls === 1) {
     expect(JSON.parse(notice.body).body).toBe('Choose the navigation');
     const answers = path.join(root, 'answers.json');
     fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
-    await cli(root, ['answer', String(notice.id), '--answers-file', answers]);
+    await cli(root, ['notice', 'answer', String(notice.id), '--answers-file', answers]);
     const result = await idle(client, task.id, 2);
     expect(result.status).toBe('waiting'); expect(result.calls).toBe(2);
     const seen = fs.readFileSync(seenFile, 'utf8').trim().split('\n').map(JSON.parse);
     expect(seen.length).toBe(2);
     expect(JSON.parse(seen[1].messages[0].body).answer.answers[0].labels).toEqual(['Tabs']);
-  } finally { await cli(root, ['stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { await cli(root, ['daemon', 'stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
 }, 30000);

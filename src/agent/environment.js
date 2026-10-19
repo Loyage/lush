@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, isPlainObject } from '../core/types.js';
-import { AGENT_ROLES } from './prompts.js';
+import { AGENT_ROLES } from './settings-protocol.js';
 import { randomUUID } from 'node:crypto';
 import { configurationHome, configurationScope, settingsConfigurationScope, ensureConfigurationDirectory, withConfigurationWriteLock } from '../core/device-config.js';
 

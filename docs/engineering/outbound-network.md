@@ -44,14 +44,14 @@ CLI 可从用户创建的私有 JSON 文件录入，不提交 Git、认证输入
 ```
 
 ```bash
-bun run lush --project /absolute/project agent network set --file /private/network-input.json
-bun run lush --project /absolute/project agent network show
-bun run lush --project /absolute/project agent network reset
+bun run lush --project /absolute/project config network set --file /private/network-input.json
+bun run lush --project /absolute/project config network show
+bun run lush --project /absolute/project config network reset
 ```
 
 运行旧代码的 daemon／Host 须在安全空闲边界分别更新；当前代码保存设备代理后，后续请求热读，无需为保存重启。不要在活动调用期间强制重启。若登录仍返回 unauthorized，只能说明上游拒绝，不能仅凭分类判断账号权限或网络原因。
 
-CLI 沿用 `agent` 入口：`agent network show` / `agent network set --file PATH` / `agent network reset`。show 和保存输出脱敏；set 从用户显式选择的 JSON 文件读取，避免把密码放命令行。reset 写 inherit 配置。全部用户专属，不允许 Agent token 配置代理。
+CLI 沿用 `agent` 入口：`config network show` / `config network set --file PATH` / `config network reset`。show 和保存输出脱敏；set 从用户显式选择的 JSON 文件读取，避免把密码放命令行。reset 写 inherit 配置。全部用户专属，不允许 Agent token 配置代理。
 
 ## 请求和执行路径
 

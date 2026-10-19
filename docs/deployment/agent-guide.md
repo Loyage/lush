@@ -33,7 +33,7 @@ bun install --frozen-lockfile     # 在 Lush 源码目录；当前无第三方�
 `start` 只启动某个项目的 daemon；无 `--project` 的 `host` 是全局多项目工作台，先展示主体，明确打开项目时才启动或连接对应 daemon。每个已打开项目有自己的地址 `/p/<project-id>/`，不同窗口 / 标签各自保持自己的项目；从项目列表移除只隐藏入口并断开 Web 连接，不停止 daemon。
 
 ```bash
-bun run start --project /absolute/path/to/my-project   # 只启动项目 daemon
+bun run lush daemon start --project /absolute/path/to/my-project   # 只启动项目 daemon
 bun run lush host start                                 # 全局 Web 启动器（默认 127.0.0.1:4318）
 bun run lush host start 4318 --project /absolute/path/to/my-project # 绑定单项目的 Web
 ```
@@ -47,11 +47,11 @@ bun run lush host start 4318 --project /absolute/path/to/my-project # 绑定单�
 默认 Agent 是 `pi`，也支持 `codex`；对应 CLI 必须在 PATH 中可用且已完成认证。
 
 ```bash
-bun run lush --project /absolute/path/to/my-project agent show
-bun run lush --project /absolute/path/to/my-project agent models pi
+bun run lush --project /absolute/path/to/my-project config agent show
+bun run lush --project /absolute/path/to/my-project agent model list --backend pi
 # 仅按用户选择配置；后端可选 pi / codex，角色覆盖需复查 show。
-bun run lush --project /absolute/path/to/my-project agent set default --agent pi --model <MODEL>
-bun run lush --project /absolute/path/to/my-project agent prompt worker
+bun run lush --project /absolute/path/to/my-project config agent set default --agent pi --model <MODEL>
+bun run lush --project /absolute/path/to/my-project agent prompt show worker
 ```
 
 - 项目级配置写在 `<project>/.lush/agent.json`：一个 `default` 加 planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖。写入原子替换，运行中的调用不打断，下一次调用生效。
@@ -84,11 +84,11 @@ bun run lush --project /absolute/path/to/my-project agent prompt worker
 `LUSH_HOME` 不是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
 
 ```bash
-bun run lush --project /absolute/path/to/my-project config
+bun run lush --project /absolute/path/to/my-project config runtime show
 # 修改或 reset 配置仅在用户明确要求时执行，完整选项见 CLI 参考。
 ```
 
-改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件每次 invocation 前热加载，不需要重启。Web 是独立进程：改完 `src/ui/web/` 用 `bun run lush host restart`，否则页面可能加载新资源却打到旧 API 路由。
+改 daemon 自身环境变量或运行代码后用 `bun run lush daemon restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件每次 invocation 前热加载，不需要重启。Web 是独立进程：改完 `src/ui/web/` 用 `bun run lush host restart`，否则页面可能加载新资源却打到旧 API 路由。
 
 ## 6. 状态目录
 
@@ -116,7 +116,7 @@ socket 位于用户私有临时目录，只为通信；持久状态始终在项�
 ## 8. 验证
 
 ```bash
-bun run doctor --project /absolute/path/to/my-project       # daemon 代码身份
+bun run lush doctor --project /absolute/path/to/my-project       # daemon 代码身份
 bun run lush host status --project /absolute/path/to/my-project  # Host 身份与日志
 # 以下是需要时在 Lush 源码目录运行的仓库检查，不是 GUI 或模型验收。
 bun run test          # 全部现有 Web/core 测试；使用可控假 Agent，不调用付费模型
@@ -130,10 +130,10 @@ bun run docs:check
 | 现象 | 处理 |
 |---|---|
 | 页面「打开失败」或 API 404 | Web 进程仍是旧代码：`bun run lush host restart` |
-| daemon 行为与磁盘代码不一致 | `bun run daemon-restart` |
+| daemon 行为与磁盘代码不一致 | `bun run lush daemon restart` |
 | 改了 `src/ui/web/` 却没生效 | `bun run lush host restart`，不是 `bun run lush host start` |
-| 不确定当前跑的是谁 | `bun run doctor`（daemon）与 `bun run lush host status`（Web） |
-| 想离线演示调度 | `LUSH_PROVIDER=mock bun run start --project ...` |
+| 不确定当前跑的是谁 | `bun run lush doctor`（daemon）与 `bun run lush host status`（Web） |
+| 想离线演示调度 | `LUSH_PROVIDER=mock bun run lush daemon start --project ...` |
 
 Mock 只派调研Worker，不调用模型、不修改代码。部署验收默认不必启动它。
 
@@ -141,7 +141,7 @@ Mock 只派调研Worker，不调用模型、不修改代码。部署验收默认
 
 交付工具版本、Lush / 项目路径、Agent 配置（无密钥）、页面地址、代码身份、实际验证 / 未验证项、日志与下次启停命令。浏览器项目页面必须实际读取状态；没有 GUI 权限时请用户确认，不以 HTTP 成功替代浏览器验收。失败保留完整日志，断线不自动重发写请求。
 
-仅在用户确认无须保留活动工作后停止入口（`bun run lush host stop`，单项目需带 `--project`）或项目 daemon（`bun run stop --project ...`）；不设置自启、不删除 `.lush/`。Host 与 daemon 更新须分别检查与重启。
+仅在用户确认无须保留活动工作后停止入口（`bun run lush host stop`，单项目需带 `--project`）或项目 daemon（`bun run lush daemon stop --project ...`）；不设置自启、不删除 `.lush/`。Host 与 daemon 更新须分别检查与重启。
 
 ---
 

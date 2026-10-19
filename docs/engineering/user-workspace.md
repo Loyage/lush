@@ -30,7 +30,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 - 设备技术配置读写均用户专属，包括未显式传 scope 的 agent.config/models/resources；registry 白名单与 handler 二次检查共同守门。Agent 的 system.status 不返回完整设备 profile，安全 Worker 摘要和项目运行事实仍可读。项目采样的生命周期归属不得因为技术scope统一为device而失效。
 - 完整 Worker profile 及已存在调用快照保持；AGENTS.md、可提交 `.lush-agent/` 是项目上下文，不是技术覆盖。当前调用不热切换。
 - 用户 #408 选择设备唯一 Markdown 本机补充：真实 Config 只读取 `<deviceHome>/agent/common.md` 与受支持角色 `.md`，不再读取 `<project>/.lush/agent/*.md` 作为活跃补充，缺设备文件不回退。没有 deviceHome 的最低层独立测试可保留旧根。项目 `.lush-agent/`、管理角色／Pi 默认模式的隔离规则、Prompt 组合顺序与总字节上限保持。
-- `agent init --local` 用户专属、create-only 写设备补充；使用设备 settings-write 锁和私有根／目录／文件校验，不覆盖既存文件、不偷锁。读取缺失文件不创建根，拒绝 symlink／硬链接／外来所有者／公开权限／超限文件，不把原文放入错误。
+- `agent prompt init --local` 用户专属、create-only 写设备补充；使用设备 settings-write 锁和私有根／目录／文件校验，不覆盖既存文件、不偷锁。读取缺失文件不创建根，拒绝 symlink／硬链接／外来所有者／公开权限／超限文件，不把原文放入错误。
 - 显式迁移扩展到旧项目私有 common／受支持角色 Markdown：固定来源与目标、只读预检、私有备份、revision／内容／身份复核与冲突检查；同内容可复用，不同内容阻止覆盖。预检说明仓库专属内容可能传播到所有项目，正文不进入预检／审计／错误。成功导入后旧 Markdown 原文件仍保留但不参与新调用；不自动迁移，不将 `.lush-agent/` 或 AGENTS.md 复制到设备。
 - 其余迁移继续读取旧项目文件、预检、稳定 ID／冲突校验、备份、跨进程锁和 OAuth guard；不得因收敛有效读取而让迁移错误读取设备文件当来源。JSON／env／凭证仍沿原发布后退役与恢复协议，不能因 Markdown 扩展破坏 OAuth 单活安全。安装相对路径归一、旧历史保留。迁移只由用户显式执行，不操作真实项目。
 - 新 `src/core/device-preferences.js`：导出 `PREFERENCE_DEFAULTS`、`readDevicePreferences(config)`、`saveDevicePreferences(config,patch,expectedRevision)`。config 的 deviceHome 优先，设备服务的 home 可作设备根。

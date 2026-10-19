@@ -14,23 +14,23 @@ Lush 是项目级多 agent 开发应用，Bun / JavaScript / SQLite；daemon 与
 ## 命令一律走 bun run
 
 ```bash
-bun run doctor                  # 先核对项目 / home / daemon 的代码身份
+bun run lush doctor                  # 先核对项目 / home / daemon 的代码身份
 bun run test 路径...             # 专项；无路径为完整套件
 bun run docs:check               # 文档改动
-bun run start                   # 只启动所选项目，已有 daemon 不换版本
-bun run daemon-restart          # 用户确认安全空闲后更新 daemon
-bun run order '输入'
-bun run tree
-bun run inspect 3
+bun run lush daemon start                   # 只启动所选项目，已有 daemon 不换版本
+bun run lush daemon restart          # 用户确认安全空闲后更新 daemon
+bun run lush order '输入'
+bun run lush worker tree
+bun run lush worker show 3
 bun run lushw children message W5-1 '补充要求'  # invocation 内，只能直接 child
 bun run lushw parent message '需要父 Worker 决定' # main/owner 不接收普通消息
-bun run lushw self inspect       # 自动定位自身，无需 ID
-bun run lushw help              # 开发协作；bun run help 为管理帮助
+bun run lushw self show       # 自动定位自身，无需 ID
+bun run lushw help              # 开发协作；bun run lush help 为管理帮助（无业务快捷脚本）
 bun run lush host start [--project PATH]
 bun run lush host status
 bun run lush host restart
 bun run lush host stop
-bun run stop
+bun run lush daemon stop
 ```
 
 无 `--project`／`LUSH_PROJECT` 的 Host 进入全局工作台，显式打开项目才启动／连接 daemon；单项目 Host 不替用户启动 daemon。**Host 与 lushd 是独立进程，改两端须分别更新，不能只刷新页面。** `host start` 幂等、不替换旧进程；`doctor` 与 `host status` 分别核对对应进程身份，指纹覆盖 src、bin、package.json。重启须在用户确认的安全点进行，不能默认操纵开发中的项目；Host 重启会清空登录会话。部署／认证／远程网络见[部署索引](docs/deployment/README.md)，Lush 不部署服务器或管理 SSH／隧道。

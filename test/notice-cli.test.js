@@ -30,10 +30,17 @@ test('question construction and check are offline JSON without publishing or cha
     expect(fs.readFileSync(file, 'utf8')).toBe(example.out);
     expect(fs.readFileSync(decision, 'utf8')).toBe(created.out);
     expect(fs.readdirSync(root).sort()).toEqual(['decision.json', 'questions.json']);
+    const machine = await cli(root, 'question', 'create', 'JSON决策', '--questions-file', file, '--json');
+    expect(machine.code).toBe(0);
+    expect(JSON.parse(machine.out).data.title).toBe('JSON决策');
+    fs.writeFileSync(decision, machine.out);
+    expect((await cli(root, 'question', 'check', '--question-file', decision)).code).toBe(0);
     // Construction errors and the retired command fail without project discovery or RPC.
     fs.writeFileSync(file, JSON.stringify({ questions: [] }));
     expect((await cli(root, 'question', 'create', 'bad', '--questions-file', file)).code).not.toBe(0);
     expect((await cli(root, 'question', 'check', '--question-file', file)).code).not.toBe(0);
+    expect((await cli(root, 'question', 'create', 'bad', '--questions-file', file, '--questions-file', file)).code).not.toBe(0);
+    expect((await cli(root, 'question', 'check', '--question-file', decision, '--unexpected')).code).not.toBe(0);
     expect((await cli(root, 'notice', 'example')).code).not.toBe(0);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

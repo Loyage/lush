@@ -36,7 +36,7 @@ settings-write／migration／packages 锁协调多个 daemon 的共享写入，�
 
 ## RPC、Host 与 CLI（父分区）
 
-用户专属 `settings.migration.preview {}`／`settings.migration.apply {revision,confirm:true}`，CLI `config migrate-preview` 只预检，独立写入口 `config migrate --confirm --revision REV` 才修改；两者拒绝混合用法。来源固定已登记项目，沿项目身份路由转发，不把 Host 变为任意路径／RPC 代理。
+用户专属 `settings.migration.preview {}`／`settings.migration.apply {revision,confirm:true}`，CLI `config migration preview` 只预检，独立写入口 `config migration apply --confirm --revision REV` 才修改；两者拒绝混合用法。来源固定已登记项目，沿项目身份路由转发，不把 Host 变为任意路径／RPC 代理。
 
 技术设置的当前 `/api/host/settings/**` 白名单与默认 device 见[用户工作台](user-workspace.md#host-http-与父分区)及[Web 路由](../reference/web-routes.md#设备设置与旧配置迁移)。旧 settings.clear_override 不再清除活跃项目覆盖，Agent 无配置权限；Worker 显式 profile 不因技术 scope 收敛而丢失。
 

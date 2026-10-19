@@ -36,7 +36,7 @@
 
 ## 开发与构建脚本：`scripts/`
 
-`package.json` 是当前入口；`scripts/ops.js` 转发现行 CLI，不恢复退休快捷命令。性能测量见[读取性能报告](../contributing/read-performance.md)，原生观看专项见[观看器验证](../native-viewer.md)。Lush 不提供客户端安装包或远端部署产物；代码身份覆盖路径的 LF 检出由根 `.gitattributes` 保证。
+`package.json` 保留工程脚本及固定 bins；源码业务命令统一 `bun run lush …`／`bun run lushw …`。`scripts/ops.js` 与原业务快捷包装已删除，不保留同义入口。性能测量见[读取性能报告](../contributing/read-performance.md)，原生观看专项见[观看器验证](../native-viewer.md)。Lush 不提供客户端安装包或远端部署产物；代码身份覆盖路径的 LF 检出由根 `.gitattributes` 保证。
 
 ## 测试：`test/`
 

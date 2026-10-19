@@ -3,15 +3,11 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { configurationHome, configurationScope, settingsConfigurationScope, withConfigurationWriteLock } from '../core/device-config.js';
 import { check, isPlainObject } from '../core/types.js';
-import { AGENT_ROLES as PROMPT_ROLES, builtInPrompt } from './prompts.js';
+import { builtInPrompt } from './prompts.js';
+import { AGENT_ROLES, AGENT_BACKENDS, THINKING_LEVELS } from './settings-protocol.js';
+export { AGENT_ROLES, AGENT_BACKENDS, THINKING_LEVELS } from './settings-protocol.js';
 import { normalizeAgentEnv } from './environment.js';
 
-export const AGENT_ROLES = [...PROMPT_ROLES];
-export const AGENT_BACKENDS = ['pi', 'codex'];
-export const THINKING_LEVELS = {
-  pi: ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-  codex: ['', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-};
 export const MODEL_PRESETS = {
   pi: ['openai-codex/gpt-5.4', 'openai-codex/gpt-5.4-mini', 'openai-codex/gpt-5.3-codex-spark'],
   codex: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'],

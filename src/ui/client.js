@@ -11,7 +11,7 @@ export class UIClient {
       // -32601 几乎总是客户端比 daemon 新（改了 src/ 但没重启），而不是命令拼错；
       // 只回一句 "unknown method" 会让人以为是接口不存在，所以直接把下一步写进错误里。
       if (error.code === -32601) throw new LushError(
-        `${error.message}; this project's daemon may still be running older code — restart it with 'lush daemon restart' (or 'bun run daemon-restart' in the Lush checkout)`, error.code);
+        `${error.message}; this project's daemon may still be running older code — restart it with 'lush daemon restart' (or 'bun run lush daemon restart' in the Lush checkout, after the user confirms a safe idle point)`, error.code);
       throw error;
     }
   }

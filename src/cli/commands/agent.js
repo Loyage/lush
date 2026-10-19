@@ -8,7 +8,7 @@ import { AgentSettings } from '../../agent/settings.js';
 import { exact, option } from '../args.js';
 import { runPackages } from './agent-packages.js';
 import { takeOptions } from '../command-options.js';
-import { takeJsonInput } from '../private-json.js';
+import { takeJsonInput, readPrivateJson } from '../private-json.js';
 import { takeConfigurationScope, scopedSettingsClient, safeConfigurationScope } from '../settings-scope.js';
 
 const TARGETS = new Set(['default', ...AGENT_ROLES]);
@@ -36,7 +36,7 @@ function init(config, args) {
   }
   const readme = path.join(dir, 'README.md');
   if (!fs.existsSync(readme)) fs.writeFileSync(readme,
-    '# Lush agent customization\n\n`common.md` is appended to every role. `<role>.md` is appended only to that role.\nUse `lush agent prompt ROLE` to inspect the final composition.\n',
+    '# Lush agent customization\n\n`common.md` is appended to every role. `<role>.md` is appended only to that role.\nUse `lush agent prompt show ROLE` to inspect the final composition.\n',
     { mode: 0o644, flag: 'wx' });
   return { scope: 'project', directory: dir, created, existing, role: selectedRole };
 }
@@ -59,22 +59,17 @@ function safeNetworkView(value) {
 }
 
 async function network(args, client) {
-  const verb = args.shift() || 'show';
+  check(!client.management, 'network configuration requires a local user');
+  const verb = args.shift();
   let method = 'agent.network', params = {};
   if (verb === 'show') exact(args, 0);
   else if (verb === 'reset') {
     exact(args, 0); method = 'agent.network.configure';
     params = { config: { version: 1, mode: 'inherit', proxy_url: null, no_proxy: [], proxy_auth: null } };
   } else {
-    check(verb === 'set', 'agent network expects show, set --file PATH or reset');
-    const file = option(args, '--file'); exact(args, 0); check(file, 'agent network set requires --file PATH');
-    let config;
-    try {
-      check(fs.statSync(file).isFile() && fs.statSync(file).size <= 65536, 'invalid file');
-      const source = fs.readFileSync(file, 'utf8'); check(Buffer.byteLength(source) <= 65536, 'invalid file');
-      config = JSON.parse(source);
-    } catch { check(false, 'cannot safely read network configuration JSON file'); }
-    check(config && typeof config === 'object' && !Array.isArray(config), 'network configuration must be a JSON object');
+    check(verb === 'set', 'config network expects show, set --file PATH or reset');
+    const file = option(args, '--file'); exact(args, 0); check(file, 'config network set requires --file PATH');
+    const config = readPrivateJson(file, 'network configuration', 65536);
     method = 'agent.network.configure'; params = { config };
   }
   let result;
@@ -83,10 +78,65 @@ async function network(args, client) {
   return safeNetworkView(result);
 }
 
-export async function run(command, args, { client, json }) {
+// Keep the parser-owned literal boundary when routing nested commands. Spreading
+// argv into a plain array would reinterpret a literal --local/--file after --.
+function runAs(action, args, ctx, ...prefix) {
+  args.splice(0, 0, action, ...prefix);
+  return runAction(args, ctx);
+}
+
+// Only the new public paths dispatch to these internal operations. They are not aliases.
+export async function run(command, args, ctx) {
+  const verb = args.shift();
+  if (verb === 'status') return runAs('status', args, ctx);
+  if (verb === 'model') {
+    const action = args.shift();
+    if (action === 'choices') return runAs('resources', args, ctx);
+    check(action === 'list', 'agent model requires list or choices');
+    const backend = option(args, '--backend');
+    check(['pi', 'codex'].includes(backend), 'agent model list requires --backend pi|codex');
+    return runAs('models', args, ctx, backend);
+  }
+  if (verb === 'source') return runAs('sources', args, ctx);
+  if (verb === 'package') return runAs('packages', args, ctx);
+  if (verb === 'resource') {
+    check(args.shift() === 'list', 'agent resource requires list');
+    return runAs('usage', args, ctx, 'resources');
+  }
+  if (verb === 'usage') {
+    const action = args.shift();
+    if (action === 'history') return runAs('usage', args, ctx, 'history');
+    check(action === 'config', 'agent usage requires config or history');
+    const operation = args.shift();
+    check(['show', 'set'].includes(operation), 'agent usage config requires show or set');
+    return runAs('usage', args, ctx, operation);
+  }
+  if (verb === 'prompt') {
+    const action = args.shift();
+    check(['show', 'init'].includes(action), 'agent prompt requires show or init');
+    return runAs(action === 'show' ? 'prompt' : 'init', args, ctx);
+  }
+  if (verb === 'env') {
+    check(args.shift() === 'show', 'agent env requires show');
+    return runAs('env', args, ctx);
+  }
+  check(false, 'agent requires status, model, source, resource, package, usage, prompt or env');
+}
+
+export async function runAgentConfiguration(args, ctx) {
+  const action = args.shift();
+  check(['show', 'set', 'replace', 'reset'].includes(action), 'config agent requires show, set, replace or reset');
+  return runAs(action === 'replace' ? 'configure' : action, args, ctx);
+}
+
+export async function runNetworkConfiguration(args, ctx) {
+  return runAs('network', args, ctx);
+}
+
+async function runAction(args, { client, json }) {
   const scope = takeConfigurationScope(args);
   client = scopedSettingsClient(client, scope);
-  const verb = args.shift() || 'show';
+  const verb = args.shift();
   check(scope === null || !['prompt', 'env', 'init'].includes(verb), '--scope is available for stored settings, sources and packages; prompt/env inspection and init select their own fixed roots');
   // These helpers read files directly rather than going through the user-only RPC gate.
   if (['prompt', 'env'].includes(verb)) check(!client.token, 'device Agent configuration requires user approval');
@@ -151,22 +201,22 @@ export async function run(command, args, { client, json }) {
   if (verb === 'show') { exact(args, 0); return client.request('agent.config'); }
   if (verb === 'models') {
     exact(args, 1);
-    check(['pi', 'codex'].includes(args[0]), 'agent models requires pi or codex');
+    check(['pi', 'codex'].includes(args[0]), 'agent model list requires --backend pi|codex');
     return client.request('agent.models', { agent: args[0] });
   }
 
   if (verb === 'reset') {
     exact(args, 1);
     const selectedRole = args[0];
-    check(selectedRole !== 'default' && TARGETS.has(selectedRole), 'agent reset requires a role');
+    check(selectedRole !== 'default' && TARGETS.has(selectedRole), 'config agent reset requires a role');
     const current = await client.request('agent.config');
     const roles = { ...current.roles }; delete roles[selectedRole];
     return client.request('agent.configure', { config: { version: 1, default: current.default, roles } });
   }
 
-  check(verb === 'set', 'agent expects show, models, prompt, env, init, set, reset or network');
+  check(verb === 'set', 'config agent requires show, set, replace or reset');
   const target = args.shift();
-  check(TARGETS.has(target), 'agent set target must be default or a Worker role');
+  check(TARGETS.has(target), 'config agent set target must be default or a Worker role');
   const supplied = name => args.includes(name);
   const hasAgent = supplied('--agent'), hasModel = supplied('--model'), hasThinking = supplied('--thinking'), hasConnection = supplied('--connection');
   const hasConfigMode = supplied('--config-mode');
@@ -184,7 +234,7 @@ export async function run(command, args, { client, json }) {
   const defaultPrompt = option(args, '--default-prompt');
   const appendPrompt = option(args, '--append-prompt');
   exact(args, 0);
-  check(hasAgent || hasConfigMode || hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
+  check(hasAgent || hasConfigMode || hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'config agent set requires at least one setting');
   const current = await client.request('agent.config');
   const base = target === 'default' ? current.default : (current.roles[target] || current.resolved[target]);
   let next = { ...base };

@@ -21,9 +21,9 @@
 在远端 Lush 源码目录启动显式单项目后台（已有服务先查状态，不重复换版本）：
 
 ```bash
-bun run start --project /srv/projects/demo
+bun run lush daemon start --project /srv/projects/demo
 bun run lush host start 4318 --project /srv/projects/demo
-bun run doctor --project /srv/projects/demo
+bun run lush doctor --project /srv/projects/demo
 bun run lush host status --project /srv/projects/demo
 ```
 

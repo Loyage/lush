@@ -24,15 +24,15 @@ test('real user CLI W-number lookup configures conditional intent and lands thro
       const proc = Bun.spawn([process.execPath, bin, '--project', f.root, '--json', ...args], { cwd: f.root,
         env: env(f.config.env), stdout: 'pipe', stderr: 'pipe' });
       const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      expect(code, err).toBe(0); return JSON.parse(out);
+      expect(code, err).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); return value.data;
     };
-    const before = await cli('worker', 'merge-conditions', a.worker_number);
+    const before = await cli('worker', 'merge', 'show', a.worker_number);
     expect(before).toMatchObject({ worker_id: a.id, state: 'idle' });
-    const configured = await cli('worker', 'merge-after', a.worker_number, '--after-settled', b.worker_number, '--revision', before.revision);
+    const configured = await cli('worker', 'merge', 'request', a.worker_number, '--after-settled', b.worker_number, '--revision', before.revision);
     expect(configured).toMatchObject({ worker_id: a.id, state: 'waiting', conditions: [{ worker_id: b.id, kind: 'worker_settled' }] });
     f.store.update(b.id, { status: 'waiting' }); p.scheduleTaskHooks();
     await until(() => f.store.task(a.id).integration === 'merged', 12000);
-    expect((await cli('worker', 'merge-conditions', a.worker_number)).state).toBe('consumed');
+    expect((await cli('worker', 'merge', 'show', a.worker_number)).state).toBe('consumed');
     expect(await git(f.root, 'show', `main:worker-${a.id}.txt`)).toBe(`code ${a.id}`);
   } finally { await rpc?.close(); await f.close(); }
 });

@@ -7,181 +7,218 @@ import { printTree, printTranscript } from '../print.js';
 import { readProfile } from './intent.js';
 import { takeOptions, takeQueryOptions } from '../command-options.js';
 
+function flag(args, name) {
+  const index = args.indexOf(name);
+  if (index < 0) return false;
+  args.splice(index, 1); check(!args.includes(name), `duplicate ${name}`); return true;
+}
+function integer(value, label, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
+  check(typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/.test(value)
+    && Number.isSafeInteger(Number(value)) && Number(value) >= minimum && Number(value) <= maximum, `invalid ${label}`);
+  return Number(value);
+}
+function revision(args) {
+  const value = option(args, '--revision');
+  check(typeof value === 'string' && value.length > 0 && value.length <= 256 && value === value.trim()
+    && !/[\x00-\x1f\x7f]/.test(value), 'read worker merge show ID, then provide --revision REV');
+  return value;
+}
+function listCursor(view, scope, brief, source, cursor) {
+  return Buffer.from(JSON.stringify({ version: 1, command: 'worker.list', view, scope, brief, source, cursor })).toString('base64url');
+}
+function readListCursor(raw, view, scope, brief) {
+  let value;
+  try { check(typeof raw === 'string' && raw.length <= 4096 && /^[A-Za-z0-9_-]+$/.test(raw), 'invalid cursor'); value = JSON.parse(Buffer.from(raw, 'base64url').toString()); }
+  catch { check(false, 'invalid worker list cursor'); }
+  check(value && Object.keys(value).sort().join(',') === 'brief,command,cursor,scope,source,version,view'
+    && value.version === 1 && value.command === 'worker.list' && value.view === view && value.scope === scope && value.brief === brief
+    && value.source === (view === 'all' ? 'worker.list' : 'worker.page')
+    && Number.isSafeInteger(value.cursor) && value.cursor > 0, 'worker list cursor does not match view, scope or filters');
+  return value;
+}
+async function list(args, client) {
+  const view = option(args, '--view', 'recent'), scopeOption = option(args, '--scope');
+  const brief = flag(args, '--brief'), rawLimit = option(args, '--limit');
+  const rawCursor = option(args, '--cursor'), after = option(args, '--after'), before = option(args, '--before');
+  exact(args, 0);
+  check(['recent','all','history'].includes(view), 'worker list --view expects recent|all|history');
+  check(view === 'all' ? scopeOption === null : scopeOption === null || ['work','all'].includes(scopeOption), '--scope work|all is only available for recent/history');
+  check(view === 'all' || !brief, '--brief is only available for --view all');
+  check(view === 'all' ? before === null : after === null, '--after is only available for all; --before is only available for history');
+  check(view !== 'recent' || before === null, 'recent continues only with --cursor');
+  check(rawCursor === null || after === null && before === null, '--cursor cannot be combined with --after/--before');
+  const scope = view === 'all' ? null : scopeOption ?? 'work';
+  const requestedLimit = rawLimit === null ? (view === 'all' ? brief ? 30 : 200 : 50)
+    : integer(rawLimit, 'limit', 1, view === 'all' && !brief ? 1000 : 200);
+  const limit = requestedLimit;
+  const cursor = rawCursor === null ? null : readListCursor(rawCursor, view, scope, brief);
+  if (view === 'all') {
+    const start = cursor?.cursor ?? (after === null ? 0 : integer(after, 'after'));
+    // The fixed parent adds paged=true under the same worker.list permission.
+    // Its page reflects actual row/byte budgets, unlike legacy array length.
+    const result = await client.request('worker.list', { after: start, limit, paged: true });
+    // A confirmation/unknown receipt is not a list and must remain untouched.
+    if (!result || !Array.isArray(result.tasks) || typeof result.page?.has_more !== 'boolean') return result;
+    const tasks = brief ? result.tasks.map(({ id, worker_number, parent_id, role, status, integration, display_title, auto_title, goal }) => ({
+      id, worker_number: worker_number ?? null, parent_id, role, status, integration, display_title: display_title ?? null,
+      auto_title: auto_title ?? null, goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160,
+    })) : result.tasks;
+    const next = result.page.has_more ? listCursor(view, scope, brief, 'worker.list', result.page.next_cursor) : null;
+    return { ...result, tasks, page: { ...result.page, source_next_cursor: result.page.next_cursor, next_cursor: next },
+      ...(brief ? { summary_coverage: 'brief_worker_summaries', note: '完整目标与结果用 lush worker show ID。' } : {}) };
+  }
+  const history = view === 'history' || cursor !== null;
+  const result = await client.request(history ? 'worker.page' : 'worker.activity', history
+    ? { before: cursor?.cursor ?? (before === null ? null : integer(before, 'before', 1)), limit, scope }
+    : { limit, scope });
+  if (!result || !Array.isArray(result.tasks)) return result;
+  const source = history ? result : result.page;
+  const next = source?.has_more && source.cursor !== null ? listCursor(view, scope, brief, 'worker.page', source.cursor) : null;
+  return { ...result, page: { ...(result.page ?? {}), limit: source.limit, has_more: source.has_more, next_cursor: next } };
+}
+
+async function config(args, client) {
+  check(!client.token || client.management, 'Worker configuration requires user or trusted management identity');
+  const verb = args.shift();
+  check(['show','set','reset'].includes(verb), 'worker config requires show|set|reset');
+  if (verb !== 'set') {
+    exact(args, 1);
+    return client.request(verb === 'show' ? 'worker.run_settings' : 'worker.clear_override', { id: await resolveWorkerId(client, args[0]) });
+  }
+  const connection = option(args, '--connection'), model = option(args, '--model'), source = option(args, '--data'); exact(args, 1);
+  let update;
+  if (source !== null) {
+    check(connection === null && model === null, '--data cannot be combined with --connection/--model');
+    check(Buffer.byteLength(source) <= 40000, 'inline JSON exceeds budget');
+    const profile = JSON.parse(source);
+    check(profile && typeof profile === 'object' && !Array.isArray(profile), '--data must be a profile object'); update = { profile };
+  } else {
+    check(connection !== null && model !== null, 'config set requires --connection UUID --model PROVIDER/MODEL or --data JSON');
+    update = { model_selection: { connection_id: connection, model } };
+  }
+  return client.request('worker.configure', { id: await resolveWorkerId(client, args[0]), ...update });
+}
+async function merge(args, client) {
+  check(!client.token || client.management, 'merge requests require user or trusted management identity');
+  const verb = args.shift();
+  if (verb === 'graph') {
+    const params = takeOptions(args, { cursor: 'string', limit: 'number', history: 'boolean' }); exact(args, 0);
+    return client.request('worker.delivery_graph', params);
+  }
+  check(['show','request','cancel'].includes(verb), 'worker merge requires request|show|cancel|graph');
+  if (verb !== 'request') {
+    exact(args, 1); return client.request(verb === 'show' ? 'worker.merge_conditions' : 'worker.unreserve', { id: await resolveWorkerId(client, args[0]) });
+  }
+  const unresolved = [];
+  // option() respects the core's literal -- boundary; scanning raw values would
+  // mistake a literal body for a condition and could select another RPC mode.
+  for (const [flag, kind] of [['--after-settled','worker_settled'], ['--after-merged','worker_merged']]) {
+    let worker;
+    while ((worker = option(args, flag)) !== null) unresolved.push({ kind, worker });
+  }
+  const conditional = unresolved.length > 0;
+  const expected_revision = conditional ? revision(args) : null;
+  const conditions = [];
+  exact(args, 1);
+  for (const condition of unresolved) conditions.push({ kind: condition.kind, worker_id: await resolveWorkerId(client, condition.worker) });
+  const id = await resolveWorkerId(client, args[0]);
+  return conditional ? client.request('worker.merge_after', { id, conditions: normalizeMergeConditions(conditions), expected_revision })
+    : client.request('worker.reserve', { id, kind: 'merge' });
+}
+async function automation(args, client) {
+  const verb = args.shift();
+  check(['list','show','completion','attach','enable','disable','detach'].includes(verb), 'worker automation requires list|show|completion|attach|enable|disable|detach');
+  if (verb === 'list') {
+    const params = takeOptions(args, { before: 'number', limit: 'number' }); exact(args, 0);
+    return client.request('worker.completion_page', params);
+  }
+  if (verb === 'show') { exact(args, 1); return client.request('worker.hooks', { id: await resolveWorkerId(client, args[0]) }); }
+  if (verb === 'completion') return runWorkerCompletion(args, client);
+  // Keep the core's argument-array literal boundary for the nested handler.
+  args.splice(0, 0, verb === 'detach' ? 'remove' : verb);
+  return runWorkerHook(args, client);
+}
+
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
-  let value;
-  if (command === 'worker') {
-    const verb = args.shift();
-    if (['graph','activity','page'].includes(verb)) {
-      const params = takeQueryOptions(args, `worker.${verb}`); exact(args, 0);
-      return client.request(`worker.${verb}`, params);
-    }
-    if (['progress-history','relations','delivery-graph','completion-page'].includes(verb)) {
-      const params = takeOptions(args, { before: 'number', after: 'number', cursor: 'string', limit: 'number', history: 'boolean' });
-      const targeted = ['progress-history','relations'].includes(verb); exact(args, targeted ? 1 : 0);
-      return client.request(`worker.${verb.replaceAll('-', '_')}`, { ...params, ...(targeted ? { id: await resolveWorkerId(client, args[0]) } : {}) });
-    }
-    if (verb === 'configure') {
-      check(!client.token || client.management, 'Worker configuration requires user or trusted management identity');
-      const connection = option(args, '--connection'), model = option(args, '--model'), source = option(args, '--profile-json'); exact(args, 1);
-      let update;
-      if (source !== null) {
-        check(connection === null && model === null, 'profile-json cannot be combined with connection/model');
-        const profile = JSON.parse(source);
-        check(profile && typeof profile === 'object' && !Array.isArray(profile), 'profile-json must be an object');
-        update = { profile };
-      } else {
-        check(connection !== null && model !== null, 'configure requires --connection UUID --model PROVIDER/MODEL or --profile-json JSON');
-        update = { model_selection: { connection_id: connection, model } };
-      }
-      return client.request('worker.configure', { id: await resolveWorkerId(client, args[0]), ...update });
-    }
-    if (verb === 'list') {
-      const brief = args.includes('--brief');
-      if (brief) args.splice(args.indexOf('--brief'), 1);
-      const after = Number(option(args, '--after', '0')), limit = Number(option(args, '--limit', brief ? '30' : '200'));
-      exact(args, 0);
-      if (brief) check(Number.isInteger(limit) && limit > 0 && limit <= 200, '--brief limit must be 1..200');
-      value = await client.request('worker.list', { after, limit: brief ? limit + 1 : limit });
-      if (brief) {
-        const tasks = value.slice(0, limit).map(({ id, worker_number, parent_id, role, status, integration, display_title, auto_title, goal }) => ({ id, worker_number: worker_number ?? null, parent_id, role, status, integration,
-          display_title: display_title ?? null, auto_title: auto_title ?? null,
-          goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
-        value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
-          note: `短摘要；完整目标与结果用 ${ctx.executable ?? 'lushw'} worker inspect ID。` };
-      }
-    }
-    else if (verb === 'rename') {
-      check(!client.token || client.management, 'Worker titles require user or trusted management identity');
-      exact(args, 2);
-      value = await client.request('worker.rename', { id: await resolveWorkerId(client, args[0]), title: args[1] });
-    }
-    else if (verb === 'hooks') {
-      check(!client.token || client.management, 'Hooks configuration is user only, not an agent operation');
-      exact(args, 1); value = await client.request('worker.hooks', { id: await resolveWorkerId(client, args[0]) });
-    }
-    else if (verb === 'merge-conditions' || verb === 'merge-after') {
-      check(!client.token || client.management, 'merge conditions require user or trusted management identity');
-      if (verb === 'merge-conditions') {
-        exact(args, 1); value = await client.request('worker.merge_conditions', { id: await resolveWorkerId(client, args[0]) });
-      } else {
-        const revision = option(args, '--revision'), conditions = [];
-        for (let index = 0; index < args.length;) {
-          if (!['--after-settled','--after-merged'].includes(args[index])) { index++; continue; }
-          const flag = args[index], worker = args[index + 1];
-          check(worker && !worker.startsWith('--'), `${flag} requires a Worker`);
-          conditions.push({ kind: flag === '--after-settled' ? 'worker_settled' : 'worker_merged', worker_id: await resolveWorkerId(client, worker) });
-          args.splice(index, 2);
-        }
-        exact(args, 1);
-        check(typeof revision === 'string' && revision.length > 0, 'merge-after requires --revision REV');
-        value = await client.request('worker.merge_after', { id: await resolveWorkerId(client, args[0]), conditions: normalizeMergeConditions(conditions), expected_revision: revision });
-      }
-    }
-    else if (verb === 'hook') { value = await runWorkerHook(args, client); }
-    else if (verb === 'completion') { value = await runWorkerCompletion(args, client); }
-    else if (verb === 'tree') {
-      check(args.length <= 1, 'tree accepts an optional ID');
-      const request = args.length ? { id: await resolveWorkerId(client, args[0]) } : {};
-      if (!json) {
-        // 树本身看不出真实调用与排队，所以顺带问一句 status，让"为什么没在跑"也有答案。
-        const [tree, status] = await Promise.all([client.request('worker.tree', request), client.request('system.status')]);
-        printTree(tree, status); return;
-      }
-      value = await client.request('worker.tree', request);
-    }
-    else if (verb === 'create') {
-      check(!client.token, 'manual Worker creation is user only');
-      const parent = option(args, '--parent'), source = option(args, '--source'), title = option(args, '--title');
-      const profileFile = option(args, '--profile-file');
-      exact(args, 1);
-      check(['spawn','fork'].includes(args[0]), 'worker create expects spawn or fork');
-      value = await client.request('worker.create', { mode: args[0],
-        ...(parent !== null ? { parent: await resolveWorkerId(client, parent) } : {}),
-        ...(source !== null ? { source: await resolveWorkerId(client, source) } : {}),
-        ...(title !== null ? { title } : {}), ...(profileFile !== null ? { profile: readProfile(profileFile) } : {}) });
-    }
-    else if (verb === 'spawn') {
-      const parent = option(args, '--parent');
-      const name = option(args, '--name');
-      exact(args, 1);
-      value = await client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}) });
-    } else if (verb === 'watch') {
-      check(client.token == null, 'native watching is user only; agents must end their invocation');
-      check(!json, 'native watching requires a real terminal; --json is not supported');
-      const after = Number(option(args, '--after', '0')); exact(args, 1);
-      check(Number.isSafeInteger(after) && after >= 0 && after < Number.MAX_SAFE_INTEGER, 'invalid transcript cursor');
-      const taskId = await resolveWorkerId(client, args[0]);
-      const task = await client.request('worker.inspect', { id: taskId });
-      const watch = ctx.watchWorker ?? (await import('../native-watch.js')).watchWorker;
-      await watch(client, taskId, { after, label: task.worker_number || `#${taskId}`, env: client.config?.env });
-      return;
-    } else if (verb === 'transcript') {
-      check(!args.includes('--follow'), '纯文本跟随已移除；持续观看请使用 lush worker watch ID');
-      const after = Number(option(args, '--after', '0')); exact(args, 1);
-      const taskId = await resolveWorkerId(client, args[0]);
-      value = await client.request('worker.transcript', { id: taskId, after });
-      if (!json) { printTranscript(value); return; }
-    } else if (verb === 'message') { exact(args, 2); value = await client.request('worker.message', { id: await resolveWorkerId(client, args[0]), body: args[1] }); }
-    else if (verb === 'history') {
-      const after = Number(option(args, '--after', '0')); exact(args, 1);
-      value = await client.request('worker.history', { id: await resolveWorkerId(client, args[0]), after });
-    } else if (verb === 'wait') {
-      check(!client.token, 'agents must end their invocation rather than wait; Lush wakes the parent automatically');
-      exact(args, 1);
-      const taskId = await resolveWorkerId(client, args[0]);
-      do { value = await client.request('worker.inspect', { id: taskId }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); }
-      while (!TERMINAL.has(value.status));
-      if (value.status !== 'completed') process.exitCode = 1;
-    } else {
-      check(['inspect','cancel','retry','interrupt','resume','merge','merge-all','auto-merge','accept','accept-preview','reopen','sync-parent','resolve-sync','clear-override','merge-cancel','cleanup','delete-preview','delete'].includes(verb), 'unknown worker command');
-      if (verb === 'merge') {
-        exact(args, 1);
-        value = await client.request('worker.reserve', { id: await resolveWorkerId(client, args[0]), kind: 'merge' });
-      } else if (verb === 'accept-preview' || verb === 'accept') {
-        const force = args.includes('--force');
-        if (force) args.splice(args.indexOf('--force'), 1);
-        const confirm = args.includes('--confirm');
-        if (confirm) args.splice(args.indexOf('--confirm'), 1);
-        const revision = option(args, '--revision');
-        exact(args, 1);
-        if (verb === 'accept-preview' || force) check(!client.token, '强制验收仅允许用户显式操作');
-        check(verb === 'accept-preview' ? !force && !confirm && revision === null
-          : force ? confirm && typeof revision === 'string' && /^[0-9a-f]{64}$/.test(revision) : !confirm && revision === null,
-        '先运行 worker accept-preview ID；强制验收需要 accept ID --force --confirm --revision REV');
-        value = await client.request(verb === 'accept-preview' ? 'worker.accept_preview' : force ? 'worker.accept_force' : 'worker.accept',
-          { id: await resolveWorkerId(client, args[0]), ...(force ? { revision, confirm: true } : {}) });
-      } else if (verb === 'auto-merge') {
-        exact(args, 2);
-        check(['on','off'].includes(args[1]), 'auto-merge expects on or off');
-        value = await client.request('worker.auto_merge', { id: await resolveWorkerId(client, args[0]), enabled: args[1] === 'on' });
-      } else if (verb === 'merge-all') {
-        exact(args, 1);
-        value = await client.request('worker.reserve_all', { branch: args[0] });
-      } else if (verb === 'sync-parent' || verb === 'resolve-sync' || verb === 'clear-override') {
-        exact(args, 1);
-        value = await client.request(`worker.${verb.replaceAll('-', '_')}`, { id: await resolveWorkerId(client, args[0]) });
-      } else if (verb === 'merge-cancel') {
-        exact(args, 1);
-        value = await client.request('worker.unreserve', { id: await resolveWorkerId(client, args[0]) });
-      } else if (verb === 'delete' || verb === 'delete-preview') {
-        check(!client.token || client.management, 'Worker deletion requires user or trusted management identity');
-        const force = args.includes('--force');
-        if (force) args.splice(args.indexOf('--force'), 1);
-        const confirm = args.includes('--confirm');
-        if (confirm) args.splice(args.indexOf('--confirm'), 1);
-        const revision = option(args, '--revision');
-        exact(args, 1);
-        check(verb === 'delete' ? confirm && typeof revision === 'string' && revision.length > 0 : !confirm && revision === null,
-          'first run worker delete-preview ID; worker delete requires --confirm --revision REV');
-        value = await client.request(verb === 'delete' ? 'worker.delete' : 'worker.delete_preview',
-          { id: await resolveWorkerId(client, args[0]), ...(confirm ? { revision, confirm: true } : {}), ...(force ? { force: true } : {}) });
-      } else if (verb === 'cleanup') {
-        const keepBranch = args.includes('--keep-branch');
-        if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);
-        exact(args, 1); value = await client.request('worker.cleanup', { id: await resolveWorkerId(client, args[0]), keep_branch: keepBranch });
-      } else { exact(args, 1); value = await client.request(`worker.${verb}`, { id: await resolveWorkerId(client, args[0]) }); }
-    }
+  check(command === 'worker', 'unknown Worker command');
+  const verb = args.shift();
+  if (verb === 'list') return list(args, client);
+  if (verb === 'graph') { const params = takeQueryOptions(args, 'worker.graph'); exact(args, 0); return client.request('worker.graph', params); }
+  if (verb === 'config') return config(args, client);
+  if (verb === 'merge') return merge(args, client);
+  if (verb === 'automation') return automation(args, client);
+  if (verb === 'sync') {
+    const action = args.shift(); check(['start','resolve'].includes(action), 'worker sync requires start|resolve'); exact(args, 1);
+    return client.request(action === 'start' ? 'worker.sync_parent' : 'worker.resolve_sync', { id: await resolveWorkerId(client, args[0]) });
   }
-  return value;
+  if (verb === 'progress' || verb === 'relations') {
+    const params = takeOptions(args, verb === 'progress' ? { before: 'number', limit: 'number' } : { after: 'number', limit: 'number' }); exact(args, 1);
+    return client.request(verb === 'progress' ? 'worker.progress_history' : 'worker.relations', { id: await resolveWorkerId(client, args[0]), ...params });
+  }
+  if (verb === 'tree') {
+    check(args.length <= 1, 'tree accepts an optional ID');
+    const request = args.length ? { id: await resolveWorkerId(client, args[0]) } : {};
+    if (!json) {
+      const [tree, status] = await Promise.all([client.request('worker.tree', request), client.request('system.status')]); printTree(tree, status); return;
+    }
+    return client.request('worker.tree', request);
+  }
+  if (verb === 'create') {
+    check(!client.token, 'manual Worker creation is user only');
+    const parent = option(args, '--parent'), source = option(args, '--from'), title = option(args, '--title'), profileFile = option(args, '--profile-file'); exact(args, 0);
+    return client.request('worker.create', { mode: source === null ? 'spawn' : 'fork',
+      ...(parent !== null ? { parent: await resolveWorkerId(client, parent) } : {}), ...(source !== null ? { source: await resolveWorkerId(client, source) } : {}),
+      ...(title !== null ? { title } : {}), ...(profileFile !== null ? { profile: readProfile(profileFile) } : {}) });
+  }
+  if (verb === 'spawn') {
+    const parent = option(args, '--parent'), name = option(args, '--name'); exact(args, 1);
+    return client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}) });
+  }
+  if (verb === 'watch') {
+    check(client.token == null, 'native watching is user only; agents must end their invocation');
+    check(!json, 'native watching requires a real terminal; --json is not supported');
+    const after = integer(option(args, '--after', '0'), 'transcript cursor', 0, Number.MAX_SAFE_INTEGER - 1); exact(args, 1);
+    const taskId = await resolveWorkerId(client, args[0]), task = await client.request('worker.inspect', { id: taskId });
+    const watch = ctx.watchWorker ?? (await import('../native-watch.js')).watchWorker;
+    await watch(client, taskId, { after, label: task.worker_number || `#${taskId}`, env: client.config?.env }); return;
+  }
+  if (verb === 'transcript' || verb === 'events') {
+    const after = integer(option(args, '--after', '0'), 'cursor'); exact(args, 1);
+    const value = await client.request(verb === 'events' ? 'worker.history' : 'worker.transcript', { id: await resolveWorkerId(client, args[0]), after });
+    if (verb === 'transcript' && !json) { printTranscript(value); return; } return value;
+  }
+  if (verb === 'message' || verb === 'rename') {
+    if (verb === 'rename') check(!client.token || client.management, 'Worker titles require user or trusted management identity');
+    exact(args, 2); return client.request(`worker.${verb}`, { id: await resolveWorkerId(client, args[0]), [verb === 'message' ? 'body' : 'title']: args[1] });
+  }
+  if (verb === 'wait') {
+    check(!client.token, 'agents must end their invocation rather than wait; Lush wakes the parent automatically'); exact(args, 1);
+    const id = await resolveWorkerId(client, args[0]); let value;
+    do { value = await client.request('worker.inspect', { id }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); } while (!TERMINAL.has(value.status));
+    if (value.status !== 'completed') process.exitCode = 1; return value;
+  }
+  if (verb === 'accept-preview' || verb === 'accept') {
+    const force = flag(args, '--force'), confirm = flag(args, '--confirm'), revision = option(args, '--revision'); exact(args, 1);
+    if (verb === 'accept-preview' || force) check(!client.token, '强制验收仅允许用户显式操作');
+    check(verb === 'accept-preview' ? !force && !confirm && revision === null
+      : force ? confirm && typeof revision === 'string' && /^[0-9a-f]{64}$/.test(revision) : !confirm && revision === null,
+    '先运行 worker accept-preview ID；强制验收需要 accept ID --force --confirm --revision REV');
+    return client.request(verb === 'accept-preview' ? 'worker.accept_preview' : force ? 'worker.accept_force' : 'worker.accept',
+      { id: await resolveWorkerId(client, args[0]), ...(force ? { revision, confirm: true } : {}) });
+  }
+  if (verb === 'delete' || verb === 'delete-preview') {
+    check(!client.token || client.management, 'Worker deletion requires user or trusted management identity');
+    const force = flag(args, '--force'), confirm = flag(args, '--confirm'), revision = option(args, '--revision'); exact(args, 1);
+    check(verb === 'delete' ? confirm && typeof revision === 'string' && revision.length > 0 : !confirm && revision === null,
+      'first run worker delete-preview ID; worker delete requires --confirm --revision REV');
+    return client.request(verb === 'delete' ? 'worker.delete' : 'worker.delete_preview',
+      { id: await resolveWorkerId(client, args[0]), ...(confirm ? { revision, confirm: true } : {}), ...(force ? { force: true } : {}) });
+  }
+  if (verb === 'cleanup') {
+    const keep_branch = flag(args, '--keep-branch'); exact(args, 1);
+    return client.request('worker.cleanup', { id: await resolveWorkerId(client, args[0]), keep_branch });
+  }
+  check(['show','cancel','retry','pause','resume','reopen'].includes(verb), 'unknown worker command; run lush help worker'); exact(args, 1);
+  return client.request(`worker.${({ show: 'inspect', pause: 'interrupt' })[verb] ?? verb}`, { id: await resolveWorkerId(client, args[0]) });
 }

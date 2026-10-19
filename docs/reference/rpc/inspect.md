@@ -4,8 +4,8 @@
 
 | CLI | RPC | 参数 |
 |---|---|---|
-| `worker inspect ID` | `worker.inspect` | `{id}` |
-| `worker history ID [--after N]` | `worker.history` | `{id, after?: 0}` |
+| `worker show ID` | `worker.inspect` | `{id}` |
+| `worker events ID [--after N]` | `worker.history` | `{id, after?: 0}` |
 | `worker transcript ID [--after N]` | `worker.transcript` | `{id, after?: 0, limit?: 100}`，limit 最大 200 |
 | —（Web 详情页使用） | `worker.usage` | `{id}` |
 | —（只读，Web UI 使用） | `worker.diff` | `{id}` |

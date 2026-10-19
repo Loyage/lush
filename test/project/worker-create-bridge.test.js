@@ -27,10 +27,10 @@ console.log('controlled Pi result');
     const proc = Bun.spawn([process.execPath, bin, '--project', f.root, '--json', ...args], { cwd: f.root,
       env: env(f.config.env), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    expect(code, err).toBe(0); return JSON.parse(out);
+    expect(code, `${err} ${out}`).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); return value.data;
   };
   try {
-    const created = await cli('worker', 'create', 'spawn', '--title', 'blank');
+    const created = await cli('worker', 'create', '--title', 'blank');
     expect(created.task).toMatchObject({ status: 'paused', input_id: null, calls: 0 });
     expect(fs.existsSync(log)).toBe(false);
     const actor = (await f.project.order('actor', 'main', [], null, false)).task;
@@ -44,6 +44,6 @@ console.log('controlled Pi result');
     await until(() => !f.project.running.size && f.store.task(created.task.id).calls === 1, 10000);
     expect(f.store.task(created.task.id)).toMatchObject({ result: 'controlled Pi result', status: 'waiting' });
     expect(JSON.parse(fs.readFileSync(log, 'utf8').trim()).task).toBe(String(created.task.id));
-    expect(await cli('worker', 'inspect', created.task.worker_number)).toMatchObject({ goal: 'blank first instruction', creation: { waiting_first_input: false } });
+    expect(await cli('worker', 'show', created.task.worker_number)).toMatchObject({ goal: 'blank first instruction', creation: { waiting_first_input: false } });
   } finally { await rpc.close(); await f.close(); }
 });

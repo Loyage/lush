@@ -14,11 +14,13 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
     'test/web/dom-worker-cli-api.test.js', // CLI keyboard -> preview -> real CLI and history
+    'test/web/valet-settings-page-integration.test.js', // same CLI schemas -> learning and live permissions
     'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
   ]),
   rpc: Object.freeze([
     'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects
     'test/project/management-cli.test.js', // Provider -> bridge -> CLI policy, execution and audit
+    'test/project/merge-conditions-bridge.test.js', // real new merge syntax -> fixed parent queue
     'test/project/input-emission-protocol.test.js', // Dispatcher -> runtime -> Input/Message
     'test/project/merge-queue.test.js', // child delivery -> parent Squash -> acceptance
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git tree/content/diff
@@ -33,6 +35,10 @@ export const INTEGRATION_GROUPS = Object.freeze({
   ]),
   cli: Object.freeze([
     'test/cli-entrypoints.test.js', // published bins and offline help
+    'test/cli-catalog.test.js', // CommandSpec/help/parser projection and removed spellings
+    'test/project/worker-create-bridge.test.js', // create -> first Input, no old mode operand
+    'test/project/worker-child-create.test.js', // --from -> reliable draft append -> inherited checkpoint
+    'test/project/force-acceptance.test.js', // versioned preflight -> exact force confirmation
     'test/notice-cli.test.js', // offline question construction and validation
     'test/integration/questionnaire.test.js', // created question -> real CLI -> park and answer
     'test/integration/result-notice.test.js', // default info -> real CLI -> no parking
