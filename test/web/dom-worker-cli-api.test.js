@@ -18,7 +18,7 @@ function controls(node) {
   return {
     edit(command) { input.value = command; for (const handler of input.listeners.input || []) handler(); },
     click: () => run.listeners.click?.[0]?.(), input,
-    send: () => input.listeners.keydown?.[0]?.({ key: 'Enter', ctrlKey: true, preventDefault() {} }),
+    send: () => input.listeners.keydown?.[0]?.({ key: 'Enter', preventDefault() {} }),
   };
 }
 

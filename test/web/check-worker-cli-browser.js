@@ -72,12 +72,12 @@ try {
   await rpc(`/session/${session}/actions`,{actions:[{type:'pointer',id:'mouse',parameters:{pointerType:'mouse'},actions:[{type:'pointerMove',duration:0,origin:runElement,x:0,y:0},{type:'pointerDown',button:0},{type:'pause',duration:800},{type:'pointerUp',button:0}]}]});
   assert(await execute('return calls.length===0&&document.querySelector("#help-tip")?.closest("dialog")?.open;'),'long press must show top-layer help without execution');
   await execute('panel.querySelector("textarea").focus();');
-  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'},{type:'keyUp',value:'\uE009'}]}]});
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'}]}]});
   assert(await untilScript('panel.querySelector(".worker-cli-status").textContent==="执行成功。"'),'fixture query did not complete');
   assert(await execute('return panel.querySelector("textarea").value==="";'),'submitted draft not cleared');
-  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'}]}]});
-  assert(await execute('return panel.querySelector("textarea").value==="\\n"&&calls.length===2;'),'plain Enter must insert newline without execution');
-  await execute('const input=panel.querySelector("textarea");input.value="lush status";input.dispatchEvent(new Event("input",{bubbles:true}));for(const options of [{isComposing:true},{repeat:true}])input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",ctrlKey:true,bubbles:true,...options}));');
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE008'},{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'},{type:'keyUp',value:'\uE008'}]}]});
+  assert(await execute('return panel.querySelector("textarea").value==="\\n"&&calls.length===2;'),'Shift+Enter must insert newline without execution');
+  await execute('const input=panel.querySelector("textarea");input.value="lush status";input.dispatchEvent(new Event("input",{bubbles:true}));for(const options of [{isComposing:true},{keyCode:229},{repeat:true}])input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,...options}));');
   assert(await execute('return calls.length===2;'),'IME/repeated shortcut dispatched a command');
   for(const theme of ['light','dark'])for(const width of [1440,900,600,390,320]){
     await rpc(`/session/${session}/frame`,{id:null});await execute(`document.querySelector('#viewport').style.width='${width}px';`);await frame();
@@ -119,7 +119,7 @@ try {
   await execute(`const buttons=[...document.querySelectorAll('#modal button')];buttons.find(b=>b.textContent==='取消').click();`);
   assert(await untilScript(`panel.querySelector('.worker-cli-status').textContent==='已取消，未执行。'`),'cancel failed');
   assert(await execute('return calls.length===5;'),'cancel executed command');
-  passed=true;console.log('PASS fullscreen fourth tab, native Ctrl+Enter, ordered terminal history, four-tab draft retention, top-layer Agent confirmation/cancel; no real model calls');
+  passed=true;console.log('PASS fullscreen fourth tab, native Enter/Shift+Enter, ordered terminal history, four-tab draft retention, top-layer Agent confirmation/cancel; no real model calls');
 }catch(error){
   if(session)await Bun.write(join(temp,'failure.png'),Buffer.from(await rpc(`/session/${session}/screenshot`,undefined,'GET'),'base64')).catch(()=>{});
   console.error(`Worker CLI browser failure logs: ${temp}`);throw error;

@@ -33,8 +33,8 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   const label = el('label', undefined, 'worker-cli-field'); label.append(el('span', '单次 Lush 命令'));
   const input = el('textarea', undefined, 'worker-cli-input'); input.rows = 2; input.placeholder = 'lush status';
   input.setAttribute('aria-label', '单次 Lush 命令'); input.spellcheck = false;
-  input.setAttribute('aria-keyshortcuts', 'Control+Enter');
-  const shortcut = el('span', 'Ctrl+Enter 执行 · Enter 换行 · 单次命令须为合法单行', 'worker-cli-shortcut');
+  input.setAttribute('aria-keyshortcuts', 'Enter');
+  const shortcut = el('span', 'Enter 执行 · Shift+Enter 换行 · 单次命令须为合法单行', 'worker-cli-shortcut');
   label.append(input, shortcut);
   const runHost = el('span', undefined, 'help-host');
   const run = el('button', '执行', 'worker-cli-run'); run.type = 'button';
@@ -237,7 +237,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     }
   }
   function keydown(event) {
-    if (event.key !== 'Enter' || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+    if (event.key !== 'Enter' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       || event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
     if (!event.repeat) return submit();

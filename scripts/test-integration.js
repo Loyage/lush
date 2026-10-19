@@ -13,6 +13,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-detail.test.js', // Worker detail -> independent reader
     'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
+    'test/web/dom-worker-cli-api.test.js', // CLI keyboard -> preview -> real CLI and history
     'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
   ]),
   rpc: Object.freeze([
