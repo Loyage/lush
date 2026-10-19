@@ -150,9 +150,14 @@ test('four reader tabs retain CLI history/draft, own top-layer confirmation, inv
   resetUiState(); dom.location.hash = '#worker-77-execution-cli';
   let send;
   try {
-    await openTranscriptView(77, undefined, { mode: 'cli', task, standalone: true, cli: { ...adapters,
+    await openTranscriptView(77, undefined, { task, standalone: true, cli: { ...adapters,
       execute: async () => { if (++executions > 1) await pendingExecution.promise; return { ...entry(executions), history_id: executions }; } } });
-    const state = ui.transcriptView, root = state.cli, c = controls(root), tabs = state.panel.querySelectorAll('[role="tab"]');
+    const state = ui.transcriptView, tabs = state.panel.querySelectorAll('[role="tab"]');
+    // A summary can arrive before the lazily-created CLI tab is first opened.
+    state.paintStatus({ id: task.id, task_kind: task.task_kind, status: 'running' });
+    await tabs[3].onclick();
+    const root = state.cli, c = controls(root);
+    expect(root.querySelector('.worker-cli-workspace').textContent).toBe(task.workspace);
     expect(tabs.map(tab => tab.textContent)).toEqual(['执行记录', '代码与改动', '性能分析', 'CLI 交互']);
     expect(dom.node('modal').parentNode).toBe(state.panel); expect(state.panel.querySelector('.transcript-back')).toBeNull();
     c.edit('lush status'); await c.run(); c.edit('lush help');
@@ -161,7 +166,12 @@ test('four reader tabs retain CLI history/draft, own top-layer confirmation, inv
     expect(state.cli).toBe(root); expect(root.hidden).toBe(false); expect(c.input.value).toBe('lush help');
     expect(root.querySelector('.worker-cli-result')).toBe(first);
     tabs[3].onkeydown({ key: 'End', preventDefault() {} }); expect(dom.document.activeElement).toBe(tabs[3]);
-    send = c.run(); await Promise.resolve(); c.edit('lush next');
+    send = c.run(); await until(() => executions === 2); c.edit('lush next');
+    state.paintStatus({ id: task.id, task_kind: task.task_kind, status: 'awaiting_acceptance' });
+    expect(root.querySelector('.worker-cli-result')).toBe(first);
+    expect(root.querySelector('.worker-cli-status').textContent).toContain('正在真实执行');
+    expect(root.querySelector('.worker-cli-run').disabled).toBe(true);
+    expect(c.input.value).toBe('lush next');
     openResource('tasks'); expect(ui.transcriptView).toBeNull();
     pendingExecution.resolve(); await send; expect(deepText(root)).not.toContain('output 2');
     expect(dom.node('modal').parentNode).not.toBe(state.panel);

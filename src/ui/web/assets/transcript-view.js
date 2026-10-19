@@ -83,7 +83,9 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const heading = el('strong', `${type} ${workerLabel(knownTask || taskId)}`);
   state.paintStatus = task => {
     if (!task || task.id !== taskId) return;
-    state.task = task; state.cli?.update(task);
+    // Overview polling sends a partial status summary: omitted fields are not
+    // removals. Preserve inspect context, while explicit nulls still invalidate it.
+    state.task = { ...state.task, ...task }; state.cli?.update(state.task);
     taskStatus.textContent = statusOf(task).label; taskStatus.className = `badge b-${task.status}`;
     heading.textContent = `${workTypeLabel(task)} ${workerLabel(task)}`;
     panel.setAttribute('aria-label', `${workTypeLabel(task)} ${workerLabel(task)} 执行详情`);

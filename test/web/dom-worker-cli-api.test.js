@@ -11,6 +11,7 @@ import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 import { openResource } from '../../src/ui/web/assets/sidebar-ui.js';
 import { closeDialog } from '../../src/ui/web/assets/dialog.js';
+import { initRefreshPolling, refresh } from '../../src/ui/web/assets/refresh.js';
 
 function controls(node) {
   const input = node.querySelector('textarea'), run = node.querySelector('.worker-cli-run');
@@ -21,7 +22,7 @@ function controls(node) {
   };
 }
 
-test('fourth CLI tab → real lush/lushw → encrypted history reload and confirmed clear without replay', async () => {
+test('fourth CLI tab → overview polling → real lush/lushw → encrypted history reload and confirmed clear without replay', async () => {
   const f = await setup(); await repo(f.root); f.project.kick = () => {};
   const calls = [];
   const dom = installDom({ fetch: (url, options) => {
@@ -29,6 +30,7 @@ test('fourth CLI tab → real lush/lushw → encrypted history reload and confir
     return httpFetch(f.url + url, options);
   } });
   resetUiState();
+  const disposePolling = initRefreshPolling();
   const restore = registerNavigation({ detail: loadDetail, refresh: async () => { throw Error('CLI must not refresh/replay its write'); } });
   let pending;
   try {
@@ -46,6 +48,7 @@ test('fourth CLI tab → real lush/lushw → encrypted history reload and confir
     expect(ui.transcriptView.mode).toBe('cli');
     expect(ui.transcriptView.panel.querySelectorAll('[role="tab"]')).toHaveLength(4);
     expect(ui.transcriptView.panel.querySelector('.transcript-back')).toBeNull();
+    await refresh({ force: true });
     c.edit('lushw --json self inspect'); await c.send();
     expect(root.querySelector('.worker-cli-status').textContent).toBe('执行成功。');
     const output = root.querySelector('.worker-cli-output').textContent;
@@ -69,6 +72,21 @@ test('fourth CLI tab → real lush/lushw → encrypted history reload and confir
     expect(c.input.value).toBe('lush help');
     expect(root.querySelector('.worker-cli-status').textContent).toBe('执行成功。');
     expect(calls).toHaveLength(5);
+    // Production overview polling carries a summary, not the full inspect. It must
+    // not erase the CLI workspace, draft, history or successful execution ACK.
+    const results = root.querySelectorAll('.worker-cli-result');
+    for (let tick = 0; tick < 2; tick++) {
+      await refresh({ force: true });
+      const summary = ui.lastSnapshot.tasks.find(item => item.id === task.id);
+      expect(Object.hasOwn(summary, 'workspace')).toBe(false);
+      expect(root.querySelector('.worker-cli-workspace').textContent).toBe(task.workspace);
+      expect(root.querySelector('.worker-cli-unavailable').hidden).toBe(true);
+      expect(root.querySelector('.worker-cli-run').disabled).toBe(false);
+      expect(c.input.value).toBe('lush help');
+      expect(root.querySelector('.worker-cli-status').textContent).toBe('执行成功。');
+      expect(root.querySelectorAll('.worker-cli-result')).toEqual(results);
+      expect(calls).toHaveLength(5);
+    }
     const tabs = ui.transcriptView.panel.querySelectorAll('[role="tab"]');
     await tabs[0].onclick(); await tabs[3].onclick();
     expect(ui.transcriptView.cli).toBe(root); expect(c.input.value).toBe('lush help');
@@ -98,7 +116,7 @@ test('fourth CLI tab → real lush/lushw → encrypted history reload and confir
     expect(calls).toHaveLength(callCount); // disposed old node cannot send, even if a caller retained its controls
     await loadDetail(1); expect(dom.node('detail').querySelector('.worker-cli')).toBeNull();
   } finally {
-    closeDialog(); await pending; ui.disposeWorkerCli?.(); ui.disposeDetailRequests?.(); disposeWorkerCli(); restore(); resetUiState(); dom.restore(); await f.close();
+    closeDialog(); await pending; disposePolling(); ui.disposeWorkerCli?.(); ui.disposeDetailRequests?.(); disposeWorkerCli(); restore(); resetUiState(); dom.restore(); await f.close();
   }
 });
 
@@ -127,6 +145,20 @@ test('CLI page ignores late Worker reads on leave, fails closed on unavailable/r
     const root = ui.transcriptView.cli;
     expect(root.querySelector('.worker-cli-run').disabled).toBe(true);
     expect(root.querySelector('.worker-cli-unavailable').textContent).toContain('不会回落到项目目录');
+    // Missing summary fields must be preserved, but a full read can still
+    // explicitly replace/remove the workspace and retire the execution identity.
+    const reader = ui.transcriptView;
+    reader.paintStatus(task);
+    reader.paintStatus({ id: task.id, status: 'running' });
+    expect(root.querySelector('textarea').disabled).toBe(false);
+    expect(root.querySelector('.worker-cli-workspace').textContent).toBe(task.workspace);
+    reader.paintStatus({ ...task, workspace: '/replacement/worktree' });
+    expect(root.querySelector('.worker-cli-workspace').textContent).toBe('/replacement/worktree');
+    reader.paintStatus({ ...task, workspace: null });
+    expect(root.querySelector('textarea').disabled).toBe(true);
+    expect(root.querySelector('.worker-cli-workspace').textContent).toBe('工作区不可用');
+    reader.paintStatus({ ...task, execution_retired: true });
+    expect(root.querySelector('.worker-cli-unavailable').textContent).toContain('仅本机开发');
   } finally { ready.resolve(); await pending; ui.disposeWorkerCli?.(); resetUiState(); dom.restore(); }
 });
 
