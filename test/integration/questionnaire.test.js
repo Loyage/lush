@@ -19,7 +19,13 @@ fs.appendFileSync(path.join(home,'seen.jsonl'), JSON.stringify({pid:process.pid,
 if (context.task.calls === 1) {
  const file = path.join(home,'sessions','questions.json');
  fs.writeFileSync(file,JSON.stringify({questions:[{header:'Layout',question:'Which layout?',options:[{label:'Sidebar',description:'Categories'},{label:'Tabs',description:'Wider content'}]}]}));
- const child = Bun.spawn(['lushw','self','notice','post','Layout decision','--questions-file',file],{stdout:'pipe',stderr:'pipe'});
+ const decision = path.join(home,'sessions','decision.json');
+ const created = Bun.spawnSync(['lushw','question','create','Layout decision','--questions-file',file,'--body','Choose the navigation']);
+ if (created.exitCode) throw new Error(created.stderr.toString());
+ fs.writeFileSync(decision,created.stdout);
+ const checked = Bun.spawnSync(['lushw','question','check','--question-file',decision]);
+ if (checked.exitCode) throw new Error(checked.stderr.toString());
+ const child = Bun.spawn(['lushw','self','notice','post','--question-file',decision],{stdout:'pipe',stderr:'pipe'});
  await child.exited;
  setInterval(() => {},1000);
  await new Promise(() => {});
@@ -43,6 +49,8 @@ if (context.task.calls === 1) {
     const first = JSON.parse(fs.readFileSync(seenFile, 'utf8').trim());
     await until(() => { try { process.kill(first.pid, 0); return false; } catch { return true; } });
     const notice = waiting.notices[0]; expect(notice.kind).toBe('questionnaire');
+    expect(notice.title).toBe('Layout decision');
+    expect(JSON.parse(notice.body).body).toBe('Choose the navigation');
     const answers = path.join(root, 'answers.json');
     fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
     await cli(root, ['answer', String(notice.id), '--answers-file', answers]);

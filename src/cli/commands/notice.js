@@ -1,59 +1,12 @@
 import fs from 'node:fs';
 import { id, check } from '../../core/types.js';
-import { questionnaire } from '../../core/questionnaire.js';
+import { questionsFromFile } from './question.js';
 import { option, exact, print } from '../args.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { takeOptions } from '../command-options.js';
 
-// These commands inspect only code-owned examples or the explicitly supplied file.
-export function isLocalCommand(args) {
-  return args[0] === 'example' || args[0] === 'check';
-}
-
-export function questionsFromJSON(source, body) {
-  const value = JSON.parse(source);
-  check(Array.isArray(value?.questions), 'questions JSON must contain {questions:[...]}');
-  questionnaire(body, value.questions);
-  return value.questions;
-}
-
-export function questionsFromFile(file, body) {
-  const hint = 'Expected {"questions":[...]} with 1-4 questions and 2-4 options per question; use lushw notice example for a complete JSON template.';
-  let fd;
-  try {
-    // Do not block indefinitely on a pipe or attempt to read devices/directories.
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
-    check(fs.fstatSync(fd).isFile(), 'questions file must be a regular file');
-    const value = JSON.parse(fs.readFileSync(fd, 'utf8'));
-    check(Array.isArray(value?.questions), 'questions file must contain {questions:[...]}');
-    questionnaire(body, value.questions); // Same limits and normalization as notice.post on the server.
-    return value.questions;
-  } catch (error) {
-    throw new Error(`Invalid questions file ${JSON.stringify(file)}: ${error.message}. ${hint}`);
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
-}
-
 export async function run(command, args, ctx = {}) {
   const { client } = ctx;
-  if (command === 'notice' && isLocalCommand(args)) {
-    const verb = args.shift();
-    if (verb === 'example') {
-      exact(args, 0);
-      return { questions: [{
-        header: '方案选择', question: '本次改进采用哪种实现方案？',
-        options: [
-          { label: '复用现有实现（推荐）', description: '保持现有接口，改动较小；受现有结构限制。' },
-          { label: '新增独立实现', description: '隔离新行为，但增加维护和集成成本。' },
-        ], multiSelect: false,
-      }] };
-    }
-    const file = option(args, '--questions-file'), body = option(args, '--body', '');
-    check(file !== null && args.length === 0, 'use lushw notice check --questions-file FILE [--body TEXT]');
-    const questions = questionsFromFile(file, body);
-    return { valid: true, question_count: questions.length };
-  }
   let value;
   if (command === 'notice') {
     const verb = args.shift();

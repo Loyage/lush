@@ -11,6 +11,7 @@ import * as intent from './commands/intent.js';
 import * as worker from './commands/task.js';
 import * as context from './commands/context.js';
 import * as notice from './commands/notice.js';
+import * as question from './commands/question.js';
 import * as branch from './commands/branch.js';
 import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
@@ -26,7 +27,7 @@ export { HELP };
  * 返回 undefined 表示「命令自己已经打印过」，主流程不再 print，也不做 fingerprint 提醒。
  */
 const COMMANDS = new Map();
-const modules = { system, intent, worker, context, notice, branch, agent, config, hooks, skills, valet, input };
+const modules = { system, intent, worker, context, notice, question, branch, agent, config, hooks, skills, valet, input };
 for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   const module = modules[key];
   for (const name of names) {
@@ -93,9 +94,9 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush', 
       throw error;
     }
   };
-  // Guides and local Notice helpers return before project discovery, settings, sockets or
-  // credentials. Notice helpers read only the explicit questions file, never project state.
-  if (command === 'skills' || (command === 'notice' && notice.isLocalCommand(args))) {
+  // Guides and question construction return before project discovery, settings, sockets
+  // or credentials. Questions read only explicit files and return JSON, never project state.
+  if (command === 'skills' || command === 'question') {
     const value = await invoke({ json, executable });
     if (value !== undefined) emit(value);
     return;

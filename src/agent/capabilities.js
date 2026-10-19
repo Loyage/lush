@@ -26,7 +26,7 @@ export const AGENT_CAPABILITIES = Object.freeze([
   { id: 'result-notice', setting: 'result_notice', title: '结果告知',
     description: '纯分析任务或你明确要求完成提醒时，主动发布非阻塞结果告知。',
     effect: '与 runtime 自动提醒独立，可能收到两条；关闭只停止 Agent 主动结果告知，不修改提醒 Hook 或删除历史。',
-    trigger: '自己的任务只是分析，或用户明确要求“做好了告诉我”等完成提醒时，必须加载；实际完成后、结束本轮前调用 lushw self notice post --kind info 告知结果，不能只写最终回答。' },
+    trigger: '自己的任务只是分析，或用户明确要求“做好了告诉我”等完成提醒时，必须加载；实际完成后、结束本轮前调用 lushw self notice post 告知结果（默认 info），不能只写最终回答。' },
 ].map(entry => Object.freeze({ ...entry, name: `lush-${entry.id}`,
   skill: fileURLToPath(new URL(`./skills/lush-${entry.id}/SKILL.md`, import.meta.url)),
   guide: fileURLToPath(new URL(`./skills/lush-${entry.id}/guide.md`, import.meta.url)) })));

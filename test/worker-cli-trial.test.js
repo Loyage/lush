@@ -23,7 +23,7 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
     const id = created.value.task.id;
     expect((await post('worker.cli_preview', { id, command: 'lush status' }, { anonymous: true })).code).toBe(401);
     for (const command of ['lush --json worker list', 'lushw --json self inspect', 'lushw --json parent inspect',
-      'lushw --json children list', `lush worker rename ${id} actual-cli`, "lushw --json self notice post 'user write' --kind info"]) {
+      'lushw --json children list', `lush worker rename ${id} actual-cli`, "lushw --json self notice post 'user write'"]) {
       const preview = await post('worker.cli_preview', { id, command }); expect(preview.code).toBe(200);
       if (preview.value.requires_confirmation) {
         expect((await post('worker.cli_execute', { id, command, revision: preview.value.revision })).code).not.toBe(200);

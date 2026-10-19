@@ -11,18 +11,29 @@ async function cli(root, ...args) {
   return { out, err, code };
 }
 
-test('notice example is saveable JSON and offline check does not require a project', async () => {
+test('question construction and check are offline JSON without publishing or changing input files', async () => {
   const root = temp();
   try {
-    const example = await cli(root, 'notice', 'example');
+    const example = await cli(root, 'question', 'example');
     expect(example.code).toBe(0); expect(example.err).toBe('');
     const form = JSON.parse(example.out);
     expect(() => questionnaire('', form.questions)).not.toThrow();
     const file = path.join(root, 'questions.json'); fs.writeFileSync(file, example.out);
-    const checked = await cli(root, 'notice', 'check', '--questions-file', file, '--body', '背景');
+    const created = await cli(root, 'question', 'create', '决策标题', '--questions-file', file, '--body', '背景');
+    expect(created.code).toBe(0); expect(created.err).toBe('');
+    const question = JSON.parse(created.out);
+    expect(question).toEqual({ ...JSON.parse(questionnaire('背景', form.questions)), title: '决策标题' });
+    const decision = path.join(root, 'decision.json'); fs.writeFileSync(decision, created.out);
+    const checked = await cli(root, 'question', 'check', '--question-file', decision);
     expect(checked.code).toBe(0); expect(checked.err).toBe('');
     expect(JSON.parse(checked.out)).toEqual({ valid: true, question_count: 1 });
     expect(fs.readFileSync(file, 'utf8')).toBe(example.out);
-    expect(fs.readdirSync(root)).toEqual(['questions.json']);
+    expect(fs.readFileSync(decision, 'utf8')).toBe(created.out);
+    expect(fs.readdirSync(root).sort()).toEqual(['decision.json', 'questions.json']);
+    // Construction errors and the retired command fail without project discovery or RPC.
+    fs.writeFileSync(file, JSON.stringify({ questions: [] }));
+    expect((await cli(root, 'question', 'create', 'bad', '--questions-file', file)).code).not.toBe(0);
+    expect((await cli(root, 'question', 'check', '--question-file', file)).code).not.toBe(0);
+    expect((await cli(root, 'notice', 'example')).code).not.toBe(0);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

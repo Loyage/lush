@@ -33,6 +33,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
   ]),
   cli: Object.freeze([
     'test/cli-entrypoints.test.js', // published bins and offline help
+    'test/notice-cli.test.js', // offline question construction and validation
+    'test/integration/questionnaire.test.js', // created question -> real CLI -> park and answer
+    'test/integration/result-notice.test.js', // default info -> real CLI -> no parking
     'test/agent/capabilities.test.js', // shipped Skills and invocation prompt
     'test/worker-cli-trial.test.js', // HTTP -> real lush/lushw -> query and confirmed write
     'test/project/management-cli.test.js', // model CLI permissions and actual effects

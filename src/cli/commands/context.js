@@ -1,7 +1,7 @@
 import { check } from '../../core/types.js';
 import { exact, option } from '../args.js';
 import { printTranscript } from '../print.js';
-import { questionsFromFile } from './notice.js';
+import { questionFromFile } from './question.js';
 import { run as runProgress } from './progress.js';
 
 export async function run(command, args, ctx) {
@@ -22,12 +22,17 @@ export async function run(command, args, ctx) {
         ...(limit === null ? {} : { limit: Number(limit) }) });
     }
     check(action === 'post', 'unknown self notice command');
-    const body = option(args, '--body', ''), kind = option(args, '--kind'), file = option(args, '--questions-file');
+    const file = option(args, '--question-file');
+    if (file !== null) {
+      // A prepared question owns its title and background; publishing cannot override them.
+      exact(args, 0);
+      const { title, body, questions } = questionFromFile(file);
+      return client.request('context.notice', { title, body, questions, kind: 'question' });
+    }
+    const body = option(args, '--body', '');
+    check(!args.some(arg => arg.startsWith('--')), 'use a title and --body for info, or --question-file for a prepared question');
     exact(args, 1);
-    check(kind === null || ['question','info'].includes(kind), 'notice kind must be question or info');
-    check(kind !== 'info' || file === null, 'an info notice cannot contain a questionnaire');
-    return client.request('context.notice', { title: args[0], body, ...(kind === null ? {} : { kind }),
-      ...(file === null ? {} : { questions: questionsFromFile(file, body) }) });
+    return client.request('context.notice', { title: args[0], body, kind: 'info' });
   }
   if (command === 'children' && verb === 'list') {
     const after = option(args, '--after'), limit = option(args, '--limit'); exact(args, 0);

@@ -92,15 +92,17 @@ export const PROMPT_PARTS = Object.freeze({
 
 大型 UI 改动必须在实施前用问卷附简短、安全的静态预览（preview 或 previewHtml），让用户确认默认内容、哪些高级功能按需展开、高频操作的步骤及窄屏表现。区分“具备功能”和“默认突出功能”；预览标明是静态提案，不是已实现效果。交付按已确认的信息层级、交互及布局验证，浏览器布局检查不能替用户确认信息优先级。
 
-把 JSON 写到 $LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json，然后执行：
-lushw self notice post '决策标题' --body '背景、影响和建议' --questions-file "$LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json"
+把 {questions:[...]} 写到 $LUSH_HOME/sessions/questions-$LUSH_TASK_ID.json，先创建完整问题文件（仅本地校验，不发送）：
+lushw question create '决策标题' --body '背景、影响和建议' --questions-file "$LUSH_HOME/sessions/questions-$LUSH_TASK_ID.json" > "$LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json"
+然后发送已创建的问题：
+lushw self notice post --question-file "$LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json"
 
 发布决策问题／问卷必须是本轮最后一个动作：不要随后写文件、提交、派工或等待，也不要绕过 Lush 调交互式 ask 插件。下次 messages 会带答案；dismissed 不代表接受推荐项。普通进度与状态写最终结果，不为此发布待决问题；结果告知按本轮已开启的 result-notice 能力执行，使用非阻塞 info，不能用问题冒充告知。
 选择快照与重选功能已停用；新问卷不保存选择前代码或上下文，不得宣称选择可回退或提示用户使用快照／重选入口。若历史路线的启动上下文含 choice_reselection，仍按其中用户的新答案继续；历史会话的旧 Worker 身份与后代仅作资料，不得自行回退、复活或操作原 Worker。`,
   },
   common_cli: {
     title: '开发协作 CLI：lushw',
-    content: `lushw 通过 self / parent / children 处理自身与直接父子事务，服务端从有效 invocation token 定位身份，不依赖 cwd、LUSH_TASK_ID、自身编号或在树中的层级。self inspect 无需目标 ID，parent inspect 自动定位直接父，children list 分页列直接 child；不要查询全项目或把兄弟、孙辈当直接 child。项目级 worker/branch 等管理使用 lush，开发 Agent 不得换管理入口绕权。旧项目式开发调用不保留；只有本地 help 双入口，skills 和本地 notice example/check 不需 invocation。入口名称不替代身份、亲缘、冻结与生命周期校验。parent/children message 是追加工作入口，不是绕过生命周期的只读通知通道。普通进度在 progress 能力开启时优先使用进度机制，关闭时留在本轮结果，不为报进度重新启用能力或发送“收到／已开始”等纯确认消息。追加消息优先用于需要对方行动的决策、接口变化、阻塞、安全问题及必须补做的验证；相关接口确认集中说明变更、受影响调用点和需对方完成的动作，避免连续补充小字段。失败与安全问题及时报告，不能为了减少调用数延后求助或省略成果审查；显式消息即使只报进度也可能引起额外唤醒，不依赖 runtime 按正文过滤。
+    content: `lushw 通过 self / parent / children 处理自身与直接父子事务，服务端从有效 invocation token 定位身份，不依赖 cwd、LUSH_TASK_ID、自身编号或在树中的层级。self inspect 无需目标 ID，parent inspect 自动定位直接父，children list 分页列直接 child；不要查询全项目或把兄弟、孙辈当直接 child。项目级 worker/branch 等管理使用 lush，开发 Agent 不得换管理入口绕权。旧项目式开发调用不保留；只有本地 help 双入口，skills 和本地 question create/check/example 不需 invocation。入口名称不替代身份、亲缘、冻结与生命周期校验。parent/children message 是追加工作入口，不是绕过生命周期的只读通知通道。普通进度在 progress 能力开启时优先使用进度机制，关闭时留在本轮结果，不为报进度重新启用能力或发送“收到／已开始”等纯确认消息。追加消息优先用于需要对方行动的决策、接口变化、阻塞、安全问题及必须补做的验证；相关接口确认集中说明变更、受影响调用点和需对方完成的动作，避免连续补充小字段。失败与安全问题及时报告，不能为了减少调用数延后求助或省略成果审查；显式消息即使只报进度也可能引起额外唤醒，不依赖 runtime 按正文过滤。
 
 Agent 只能给直接父子 Worker 发消息，但 main/owner 即使是直接父 Worker 也不接收普通消息；完成报告写本轮结果，由 runtime 处理交付，不给 main/owner 发 message。
 

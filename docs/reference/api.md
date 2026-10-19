@@ -6,7 +6,7 @@
 
 W332／D695：`lush` 面向用户／Valet 的项目管理，`lushw`（Lush Worker）只处理当前 Worker 自身与直接父子事务。两者由同源目录派生，但业务叶命令只有一个入口，只有本地 help 双入口。项目级 Worker／branch 查询及管理操作归 `lush`；Worker 无需知道自身编号、树中层级或当前目录，服务端从有效 invocation token 绑定 `lushw self/parent/children`。无身份、过期身份或越权关系的数据调用拒绝；不能通过伪造 `LUSH_TASK_ID` 选择自身。
 
-这是破坏性迁移：旧 `lushw worker/branch/status/progress` 及 `lushw notice post/list` 不保留。自身查询改用 `self inspect/history/transcript`；父查询／消息用 `parent inspect/message`；直接 child 的分页、查询、派工、消息和安全验收用 `children …`；标题、Notice 与进度归 `self`。精确参数、完整命令与示例以 `bun run lushw help` 及 `src/cli/catalog.js` 为准，不在文档维护第二份命令清单。`skills list/get` 和本地 `notice example/check` 不需项目或 invocation。源码快捷 `bun run progress` 映射到 `lushw self progress`；`bun run message ID '说明'` 是用户管理的 `lush worker message`，不是开发消息入口。
+这是破坏性迁移：旧 `lushw worker/branch/status/progress` 及 `lushw notice post/list` 不保留。自身查询改用 `self inspect/history/transcript`；父查询／消息用 `parent inspect/message`；直接 child 的分页、查询、派工、消息和安全验收用 `children …`；标题、Notice 与进度归 `self`。精确参数、完整命令与示例以 `bun run lushw help` 及 `src/cli/catalog.js` 为准，不在文档维护第二份命令清单。`skills list/get` 和本地 `question create/check/example` 不需项目或 invocation。源码快捷 `bun run progress` 映射到 `lushw self progress`；`bun run message ID '说明'` 是用户管理的 `lush worker message`，不是开发消息入口。
 
 `context.*` 的参数、注册和校验同源于 `src/core/worker-context.js`，普通调用全部要求有效 invocation，拒绝未知参数；self 是默认关系，parent 自动解析，child 关系仅接受自己的直接 child（整数或真实 W 编号）。`context.children {after?,limit?}` 按 ID 升序返回 `items,total,cursor,has_more,limit`，默认50、最多200；`context.notices {before?,limit?}` 只查自身 Notice，倒序分页默认30、最多100。分页使用实际返回的 cursor；详情 `coverage=worker_context`，省略嵌套关系、收件箱、原始运行记录等，`omitted` 标明范围；历史 `coverage=event_metadata_only` 只含事件身份／类型／时间，使用 next/has_more 续读，不含事件正文。执行证据须按需读取相关 transcript，不把精简详情或历史元数据冒充全量。
 
@@ -66,7 +66,7 @@ bun run lush worker spawn '目标' --parent W5 --name child  # 用户管理派�
 bun run lushw self inspect
 bun run lushw children message W5-1 '补充说明'  # 必须是真实直接 child
 bun run lushw children spawn '目标' --name child
-bun run lushw self notice post '问题' --body '背景'
+bun run lushw self notice post '结果就绪' --body '结论'  # 默认纯告知；问题先由 question create 创建
 ```
 
 管理 CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原接口；上下文 CLI 的 child 参数由服务端解析并复核直接父子关系。`W5` 或 `V5` 均不意味着内部 `id=5`。解析严格接受 `Wn(-n)*` 或 `Vn`，正安全整数、无前导零；`V1-1`、小写、溢出和超长值拒绝。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W／V 编号。
@@ -92,7 +92,7 @@ Notice 按明确 kind 展示：question／questionnaire／历史 plan 为 `D<Not
 | `lush branch tree` / `show` / `bind` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush branch integrate plan/start/show/cancel/retry` | [一次性整合](rpc/convergence.md#一次性整合)（仅用户，非空操作调用 Agent） |
 | `lush branch convergence list/show/runs/retry` | [历史归并兼容](rpc/convergence.md#单分支策略)（策略／默认写入口退休） |
-| `lushw self notice list/post`、本地 `lushw notice example/check`；`lush notice …` 管理 | [待决问题](rpc/notices.md) |
+| `lushw self notice list/post`、本地 `lushw question create/check/example`；`lush notice …` 管理 | [待决问题](rpc/notices.md) |
 | `lush status` / `lush config show` / `lush config set|reset` / `lush agent show|prompt|env|init|set|reset` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
 | `lush agent network show` / `set --file PATH` / `reset` | [项目出站网络代理](../engineering/outbound-network.md) |
 | Web 读取路由与 `POST /api/action` | [Web 路由](web-routes.md) |

@@ -5,7 +5,7 @@ import { CLI_CAPABILITIES } from './capabilities.js';
 export const COMMAND_MODULES = Object.freeze({
   system: ['daemon', 'status', 'system', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status'],
   input: ['input'],
-  intent: ['order'], worker: ['worker'], context: ['self','parent','children'], notice: ['notice'],
+  intent: ['order'], worker: ['worker'], context: ['self','parent','children'], notice: ['notice'], question: ['question'],
   branch: ['branch'], agent: ['agent'], config: ['config'], hooks: ['hooks'], skills: ['skills'], valet: ['valet'],
 });
 const entries = [];
@@ -20,6 +20,7 @@ const directories = {
   'agent usage': '读取和配置调用统计与采样。',
   worker: '查看、沟通与管理持久 Worker。', branch: '查看分支、管理归并与资源。',
   notice: '发布问题、答复决定与读取告知。',
+  question: '本地创建及校验问题，不发送或暂停 Worker。',
   skills: '无需项目的内置能力指南。', agent: '设备 Agent、模型来源与插件配置。',
   config: '设备调用限额与显式旧设置迁移。', hooks: '项目自动化模板、快捷指令与时间信号。',
   'worker hook': '管理单个 Worker 的自动化挂载。', 'hooks command': '仅供 Hook 执行的快捷指令目录。',
@@ -181,9 +182,7 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取当前通知。','','notice.list','read'], ['post',"'标题' [--worker ID|Wn] [--body TEXT] [--kind question|info] [--questions-file FILE]",'发布问题或告知。',"'方案确认' --worker W5 --body '背景'",'notice.post','write'],
   ['answer','ID ANSWER | ID --answers-file FILE','答复固定通知，可能恢复 Agent。',"12 '答复'",'notice.answer','agent'],
   ['dismiss','ID','消除通知，不代表接受推荐方案。','12','notice.dismiss','write'], ['read','ID','标记告知已知，不执行动作。','13','notice.read','write'],
-  ['example','','输出完整问卷 JSON，无需项目或后台。','','','local-read'],
-  ['check','--questions-file FILE [--body TEXT]','本地预检问卷格式与限额，不发布。','--questions-file questions.json','','local-read'],
-]) add(`notice ${verb}`,args,description,example,rpc ? [rpc] : [],kind,'D/N 只是展示前缀，Notice 参数仍用整数。answer 使用 --answers-file 时不再提供 ANSWER；本地预检不证明权限或状态。');
+]) add(`notice ${verb}`,args,description,example,rpc ? [rpc] : [],kind,'D/N 只是展示前缀，Notice 参数仍用整数。answer 使用 --answers-file 时不再提供 ANSWER。');
 for (const relation of ['self','parent','children']) {
   for (const verb of relation === 'parent' ? ['inspect'] : ['inspect','history','transcript']) {
     add(`${relation} ${verb}`, `${relation === 'children' ? 'ID ' : ''}${verb === 'transcript' ? '[--after N] [--limit N]' : verb === 'history' ? '[--after N]' : ''}`.trim(),
@@ -198,7 +197,10 @@ add('children spawn',"'目标' [--name NAME]",'仅从自身活动 order/child �
 add('children accept','ID','安全验收已交付直接 child；默认保留现场供追加需求。','W5-1',['context.accept'],'destructive');
 add('self auto-title',"'标题'",'为自身一次性生成自动标题。',"'接口实现'",['context.auto_title'],'write');
 add('self notice list','[--before N] [--limit N]','分页读取自身 Notice。','',['context.notices']);
-add('self notice post',"'标题' [--body TEXT] [--kind question|info] [--questions-file FILE]",'发布自身问题或非阻塞告知。',"'方案确认'",['context.notice'],'write');
+add('self notice post',"'标题' [--body TEXT] | --question-file FILE",'默认发布非阻塞告知；或发送已创建的问题。',"'结果就绪' --body '结论'",['context.notice'],'write','--question-file 只接受 question create 生成的文件，不与标题或 --body 混用；发送问题必须是本轮最后一个动作。');
+add('question example','','输出可编辑的题目 JSON，无需项目或后台。','',[],'local-read');
+add('question create',"'标题' --questions-file FILE [--body TEXT]",'本地校验题目并输出完整问题 JSON，不发送。',"'方案确认' --questions-file questions.json --body '背景'",[],'local-read','将 stdout 保存为问题文件，再用 self notice post --question-file FILE 发送；不写服务端草稿。');
+add('question check','--question-file FILE','本地校验已创建的问题，不发送。','--question-file decision.json',[],'local-read','预检不证明发布权限或 Worker 状态。');
 add('self progress plan','KEY[:显示名]...','规划自身有序里程碑。','inspect:核对 implement:实现',['context.progress_plan'],'write');
 add('self progress complete','KEY','标记实际完成的自身里程碑。','inspect',['context.progress_complete'],'write');
 add('skills list','','读取代码内置能力指南目录。','',[],'local-read');
@@ -284,7 +286,7 @@ export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
 // Public entry-point ownership is shared by dispatch/help/browser discovery.
 // Valet's reviewed project capabilities are independent of invocation-bound APIs.
 export const LUSHW_PATHS = new Set(CLI_COMMANDS.filter(entry => !entry.directory &&
-  (/^(self|parent|children) /.test(entry.path) || ['help','notice example','notice check','skills list','skills get'].includes(entry.path)))
+  (/^(self|parent|children) /.test(entry.path) || ['help','question example','question create','question check','skills list','skills get'].includes(entry.path)))
   .map(entry => entry.path));
 // Only local help is shared. Project management leaves have one executable owner.
 export const SHARED_CLI_PATHS = new Set(['help']);
@@ -344,5 +346,5 @@ export function cliHelp(executable = 'lush', topic = '') {
   const leaf = commands.filter(entry => !entry.directory);
   const contracts = topic && leaf.length === 1 ? leaf[0].rpc.filter(method => CLI_CAPABILITIES[method])
     .map(method => `${method} 参数契约（CLI 选项映射到这些字段；不是 raw RPC 入口）：\n${JSON.stringify(CLI_CAPABILITIES[method], null, 2)}`).join('\n') : '';
-  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}${!development && !entry.management_cli.available ? ' [Valet 不可用：本地／身份边界]' : ''}`).join('\n')}\n\n${development ? 'lushw 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地问卷示例：bun run lushw notice example > questions.json' : 'config show|set|reset 管理设备限额；普通开发 Agent token 不开放管理入口，管家使用固定 lush_cli 与独立授权。\n项目级 worker/branch 操作使用 lush；invocation 自身与直接父子协作使用 lushw self/parent/children。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n${DEVICE_SCOPE_GUIDANCE}\n${contracts}\n${MANAGEMENT_RECOVERY_GUIDANCE}\n`;
+  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}${!development && !entry.management_cli.available ? ' [Valet 不可用：本地／身份边界]' : ''}`).join('\n')}\n\n${development ? 'lushw 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地题目示例：bun run lushw question example > questions.json' : 'config show|set|reset 管理设备限额；普通开发 Agent token 不开放管理入口，管家使用固定 lush_cli 与独立授权。\n项目级 worker/branch 操作使用 lush；invocation 自身与直接父子协作使用 lushw self/parent/children。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n${DEVICE_SCOPE_GUIDANCE}\n${contracts}\n${MANAGEMENT_RECOVERY_GUIDANCE}\n`;
 }

@@ -1,7 +1,7 @@
 import { check } from '../../core/types.js';
 import { exact, option } from '../args.js';
 import { resolveWorkerId } from '../worker-number.js';
-import { questionsFromJSON } from './notice.js';
+import { questionsFromJSON } from './question.js';
 import { run as progress } from './progress.js';
 
 /** Management-invocation-only CLI commands; no development context proxy. */

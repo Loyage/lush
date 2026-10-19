@@ -20,7 +20,9 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
       const self = await cli('self','inspect');
       const child = await cli('children','spawn','runtime delegated child','--name','runtime-child');
       await cli('children','message', String(child.id), 'runtime message');
-      const notice = await cli('self','notice','post','runtime notice','--kind','info');
+      await expect(cli('self','notice','post','legacy question','--kind','question')).rejects.toThrow();
+      await expect(cli('self','notice','post','legacy form','--questions-file','unused.json')).rejects.toThrow();
+      const notice = await cli('self','notice','post','runtime notice');
       result = { self, child, notice };
     } catch (error) { failure = error; }
     entered.resolve(); await finish.promise; return 'runtime CLI verified';
@@ -35,7 +37,8 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
     expect(result.self.id).toBe(task.id);
     expect(f.store.task(result.child.id).parent_id).toBe(task.id);
     expect(f.store.unread(result.child.id)).toMatchObject([{ sender_id: task.id, body: 'runtime message' }]);
-    expect(f.store.get('SELECT task_id,title FROM notices WHERE id=?', result.notice.id)).toEqual({ task_id: task.id, title: 'runtime notice' });
+    expect(f.store.get('SELECT task_id,title,kind,status FROM notices WHERE id=?', result.notice.id)).toEqual({ task_id: task.id, title: 'runtime notice', kind: 'info', status: 'sent' });
+    expect(f.store.all("SELECT id FROM notices WHERE task_id=? AND title IN ('legacy question','legacy form')", task.id)).toHaveLength(0);
     const run = f.project.running.get(task.id); finish.resolve(); await run.promise;
     await expect(new Dispatcher(f.project).dispatch('context.inspect', { _token: runtimeToken })).rejects.toThrow('invalid or expired');
   } finally { finish.resolve(); await rpc?.close(); await f.close(); }
