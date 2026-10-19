@@ -1,5 +1,6 @@
 import { $, button, el } from './dom.js';
 import { attachComposerViewport, usesTouchEnter } from './composer-viewport.js';
+import { attachComposerResize } from './composer-resize.js';
 import { workerKind } from './worker-kind.js';
 import { waitingFirstInput } from './worker-create.js';
 import { action, api } from './api.js';
@@ -30,7 +31,7 @@ export function runSettingsLabel() {
 }
 
 // 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
-let runSettingsButton = null, managementResultButton = null, textEditor = null, disposeViewport = null;
+let runSettingsButton = null, managementResultButton = null, textEditor = null, disposeViewport = null, disposeResize = null;
 
 export function paintRunSettings() {
   if (!runSettingsButton) return;
@@ -401,7 +402,7 @@ async function submitInput(mode) {
 export function buffer() { return submitInput('buffer'); }
 /** Desktop Enter buffers new work and emits append input; Ctrl(+Shift)+Enter emits either. */
 export function initComposer() {
-  textEditor?.dispose(); disposeViewport?.(); textEditor = null;
+  textEditor?.dispose(); disposeViewport?.(); disposeResize?.(); textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
   editorTools.replaceChildren();
@@ -463,6 +464,7 @@ export function initComposer() {
   }).catch(error => {
     if (ui.composerIdentity === identity) show(`正文编辑工具加载失败，请刷新页面：${error.message}`, 'error');
   });
+  disposeResize = attachComposerResize(input, $('composer-resize'));
   disposeViewport = attachComposerViewport(input, $('composer-shell'));
   syncComposer();
   return Promise.all([loadComposerParents(), editorReady]);

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
+import { listCapabilityGuides } from '../src/agent/capabilities.js';
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
 const projectPath = '/p/aaaaaaaaaaaaaaaa/';
 const fixture = `
@@ -24,7 +25,9 @@ window.ui=(await import('/state.js')).ui;
 window.composer=await import('/composer.js');
 window.ready=true;
 `;
-const worldSource = (await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text()).replace('../../src/ui/web/assets/prefs.js', '/prefs.js');
+const worldSource = (await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text())
+  .replace('../../src/ui/web/assets/prefs.js', '/prefs.js')
+  .replace("import { listCapabilityGuides } from '../../src/agent/capabilities.js';", `const listCapabilityGuides=()=>${JSON.stringify(listCapabilityGuides())};`);
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '<script type="module" src="/fixture.js"></script>');
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
@@ -179,6 +182,33 @@ try {
   await execute(`window.ui.composerTask={id:999,worker_number:'W999',goal:'不同页面目标'};window.composer.syncComposer();`);
   assert(await execute(`return document.querySelector('#composer-mode-target').textContent.includes('W179')&&!document.querySelector('#composer-mode-target').textContent.includes('W999');`), 'unrelated detail replaced pinned target metadata');
   console.log(`PASS Enter emits selected append target, ACK restores new-work mode; navigation collapses without retargeting. Screenshots: ${output}-*.png`);
+  // Exercise the actual pointer-captured drag, persisted reload, keyboard and viewport clamp.
+  await setViewport(1440, 900);
+  await execute(`document.querySelector('#input').blur();document.querySelector('#composer-shell').scrollTop=0;`);
+  const initialHeight = await execute(`return document.querySelector('#input').getBoundingClientRect().height;`);
+  const grip = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#composer-resize' });
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'pointer', id: 'resize-mouse', parameters: { pointerType: 'mouse' }, actions: [
+    { type: 'pointerMove', duration: 0, origin: grip, x: 0, y: 0 }, { type: 'pointerDown', button: 0 },
+    { type: 'pointerMove', duration: 150, origin: 'pointer', x: 0, y: -80 }, { type: 'pointerUp', button: 0 },
+  ] }] });
+  const resized = await execute(`return {height:document.querySelector('#input').getBoundingClientRect().height,pref:localStorage.getItem('lush.composer.height:aaaaaaaaaaaaaaaa')};`);
+  assert(Math.abs(resized.height-initialHeight-80)<2 && Number(resized.pref)===Math.round(resized.height), `drag did not resize/save: ${JSON.stringify({initialHeight,resized})}`);
+  await rpc(`/session/${session}/frame`, { id: null });
+  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture-frame` });
+  await setViewport(1440, 900);
+  assert(await waitFor('window.ready && window.ui.composerTask?.id===1'), 'reload failed');
+  await click('#composer-launcher'); await click('#composer-menu-order');
+  assert(await execute(`return Math.abs(document.querySelector('#input').getBoundingClientRect().height-${resized.height})<2;`), 'reload lost input height');
+  await setViewport(390, 400);
+  assert(await execute(`const box=document.querySelector('#input');return box.getBoundingClientRect().height<=200 && localStorage.getItem('lush.composer.height:aaaaaaaaaaaaaaaa')==='${resized.pref}';`), 'narrow viewport overwrote preference or failed to clamp');
+  await execute(`const box=document.querySelector('#input'),shell=document.querySelector('#composer-shell');box.focus();shell.dataset.keyboard='true';shell.style.setProperty('--composer-visible-height','300px');`);
+  assert(await execute(`return document.querySelector('#input').getBoundingClientRect().height===64 && localStorage.getItem('lush.composer.height:aaaaaaaaaaaaaaaa')==='${resized.pref}';`), 'soft-keyboard layout overwrote remembered height');
+  await setViewport(1440, 900);
+  await execute(`document.querySelector('#input').blur();document.querySelector('#composer-resize').focus();`);
+  assert(await execute(`return Math.abs(document.querySelector('#input').getBoundingClientRect().height-${resized.height})<2;`), 'viewport restore lost preferred height');
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'resize-keys', actions: [{ type: 'keyDown', value: '\uE013' }, { type: 'keyUp', value: '\uE013' }] }] });
+  assert(await execute(`return Number(localStorage.getItem('lush.composer.height:aaaaaaaaaaaaaaaa'))===${Number(resized.pref)+16};`), 'keyboard resizing did not save');
+  console.log('PASS actual pointer drag, persisted reload, narrow-screen/soft-keyboard temporary clamp and keyboard resize');
   passed = true;
 } catch (error) {
   if (session) console.error('Browser diagnostic:', await execute(`return {url:location.href,ready:window.ready,error:document.querySelector('#error')?.textContent,detail:document.querySelector('#detail')?.textContent?.slice(0,1000)};`).catch(() => null));

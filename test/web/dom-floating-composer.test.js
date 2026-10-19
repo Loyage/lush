@@ -60,13 +60,57 @@ const reference = { version: 1, kind: 'text', target: {}, label: '引用', quote
 const reloadComposer = async () => { resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer(); };
 const pendingRows = mode => dom.node(`composer-pending-${mode}`).querySelectorAll('button');
 const openMenu = () => { collapseComposer(); dom.node('composer-launcher').click(); };
-const { scopedKey } = await import('../../src/ui/web/assets/prefs.js');
+const { scopedKey, readPref, writePref, PREF_DEFS } = await import('../../src/ui/web/assets/prefs.js');
 beforeEach(async () => {
   resetUiState(); dom.localStorage.clear(); dom.location.pathname = '/'; calls.length = reads.length = 0; records = []; failure = deferred = deferredRead = readFailure = false; release = null;
   deferredWorker = workerReadFailure = false; returnedWorker = null;
   dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
 });
 afterAll(() => { restore(); dom.restore(); });
+
+test('input height drag/keyboard survives collapse, mode changes and reboot without affecting drafts', async () => {
+  const input = dom.node('input'), handle = dom.node('composer-resize');
+  const emit = (type, fields = {}) => { for (const handler of [...(handle.listeners[type] || [])]) handler({ pointerId: 1, button: 0, clientY: 300, preventDefault() {}, ...fields }); };
+  input.getBoundingClientRect = () => ({ height: parseFloat(input.style['--composer-input-height']) || 252 });
+  let captured = null;
+  handle.setPointerCapture = id => { captured = id; }; handle.hasPointerCapture = id => captured === id;
+  handle.releasePointerCapture = () => { captured = null; };
+  try {
+    selectComposerMode('order');
+    emit('pointerdown', { button: 2 }); emit('pointermove', { clientY: 220 }); expect(readPref('composerHeight')).toBeNull();
+    emit('pointerdown'); emit('pointermove', { pointerId: 2, clientY: 100 }); expect(input.style['--composer-input-height']).toBe('');
+    emit('pointermove', { clientY: 220 }); expect(input.style['--composer-input-height']).toBe('332px');
+    expect(readPref('composerHeight')).toBeNull(); emit('pointerup'); expect(readPref('composerHeight')).toBe(332); expect(captured).toBeNull();
+    collapseComposer(); selectComposerMode('management'); selectComposerMode('order');
+    expect(input.style['--composer-input-height']).toBe('332px');
+    await reloadComposer(); expect(input.style['--composer-input-height']).toBe('332px');
+    expect(handle.listeners.pointerdown).toHaveLength(1);
+    emit('pointerdown'); emit('pointermove', { clientY: 900 }); expect(input.style['--composer-input-height']).toBe('64px');
+    emit('pointercancel'); expect(input.style['--composer-input-height']).toBe('332px'); expect(readPref('composerHeight')).toBe(332);
+    emit('keydown', { key: 'ArrowUp' }); expect(readPref('composerHeight')).toBe(348);
+    emit('keydown', { key: 'ArrowDown', shiftKey: true }); expect(readPref('composerHeight')).toBe(284);
+    emit('keydown', { key: 'Home' }); expect(readPref('composerHeight')).toBe(64);
+    emit('keydown', { key: 'End' }); expect(readPref('composerHeight')).toBe(450);
+    emit('pointerdown'); emit('pointermove', { clientY: -9000 }); emit('pointerup'); expect(readPref('composerHeight')).toBe(450);
+    expect(calls).toHaveLength(0); expect(dom.node('composer-launcher').dataset.pending).toBe('false');
+  } finally {
+    delete input.getBoundingClientRect; delete handle.setPointerCapture; delete handle.hasPointerCapture; delete handle.releasePointerCapture;
+  }
+});
+
+test('input height uses validated project-local preferences and tolerates unavailable storage', () => {
+  for (const raw of ['', 'NaN', 'Infinity', '-1', '63', '4097', '{}']) expect(PREF_DEFS.composerHeight.parse(raw)).toBeNull();
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; writePref('composerHeight', 240);
+  dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/'; expect(readPref('composerHeight')).toBeNull();
+  writePref('composerHeight', 180);
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; expect(readPref('composerHeight')).toBe(240);
+  const original = dom.localStorage.setItem;
+  try {
+    dom.localStorage.setItem = () => { throw Error('blocked'); };
+    expect(() => writePref('composerHeight', 300)).not.toThrow();
+  } finally { dom.localStorage.setItem = original; writePref('composerHeight', 300); }
+  expect(readPref('composerHeight')).toBe(300);
+});
 
 test('every closed entry opens the category menu; collapse auto-saves references/settings/scroll and blurs', () => {
   expect(dom.node('input-form').hidden).toBe(true);

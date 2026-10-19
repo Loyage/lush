@@ -29,7 +29,12 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell #input-form[data-blocked="true"] .composer-target-status { color:var(--failed); }
 #composer-shell .composer-mode-behavior { display:none; }
 #composer-shell #input-form[data-expanded="true"] .composer-mode-behavior { display:block; flex-basis:100%; }
-#composer-shell textarea, #composer-shell textarea:focus { height:28dvh; min-height:64px; max-height:none; font-size:16px; }
+#composer-shell .composer-resize { display:flex; align-items:center; justify-content:center; height:20px; cursor:ns-resize; touch-action:none; user-select:none; border-radius:6px; }
+#composer-shell .composer-resize::after { content:''; width:48px; height:4px; border-radius:4px; background:var(--muted); }
+#composer-shell .composer-resize:hover::after, #composer-shell .composer-resize:focus-visible::after { background:var(--accent); }
+#composer-shell .composer-resize:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+@media(pointer:coarse) { #composer-shell .composer-resize { height:44px; } }
+#composer-shell textarea, #composer-shell textarea:focus { height:var(--composer-input-height,28dvh); min-height:64px; max-height:50dvh; font-size:16px; }
 #composer-shell .composer-recovery { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0; }
 #composer-shell .composer-recovery button { font-size:12px; min-height:44px; }
 #composer-shell .composer-draft-list { display:grid; gap:6px; max-height:160px; overflow:auto; margin:6px 0; }
@@ -52,7 +57,7 @@ html[data-lush-space="global"] #composer-shell { display:none; }
   html[data-lush-space="project"] #detail { min-height:0; overflow:auto; --module-mobile-sticky-top:-14px; }
   html[data-lush-space="project"] body { padding-bottom:0; }
   #composer-shell { bottom:auto; padding:6px 10px max(6px,env(safe-area-inset-bottom)); max-height:calc(var(--composer-visible-height,100dvh) * .8); }
-  #composer-shell textarea, #composer-shell textarea:focus { height:calc(var(--composer-visible-height,100dvh) * .3); }
+  #composer-shell textarea, #composer-shell textarea:focus { height:var(--composer-input-height,calc(var(--composer-visible-height,100dvh) * .3)); }
   #composer-shell .composer-toolbar { gap:4px; }
   #composer-shell .composer-toolbar button { font-size:12px; padding:6px 8px; }
   #composer-project { flex-basis:100%; font-size:11px; }
