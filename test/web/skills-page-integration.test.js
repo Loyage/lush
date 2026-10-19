@@ -105,15 +105,23 @@ test('Skills page -> authenticated Host -> device writer -> next Pi/Codex prompt
         expect(after.builtin_skills).not.toContain(skill.skill); expect(after.text).toContain(`${skill.id}（${skill.title}）`);
       }
       expect(before.builtin_skills).toContain(skill.skill); // the old invocation snapshot is untouched
-      const source = dom.node('detail').querySelectorAll('.skill-card').find(node => node.dataset.skill === skill.id).querySelector('.skill-source');
+      const card = dom.node('detail').querySelectorAll('.skill-card').find(node => node.dataset.skill === skill.id);
+      const source = card.querySelector('.skill-source');
+      expect(card.querySelectorAll('details')).toHaveLength(1);
+      expect(source.querySelector('summary').textContent).toBe('展开');
+      expect(source.querySelector('.skill-details').querySelector('h3').textContent).toBe('使用说明');
+      expect(deepText(source.querySelector('.skill-details'))).toContain(skill.trigger);
       expect(source.open).toBeFalsy();
       const writes = calls.filter(call => call.options?.method === 'POST').length;
       source.open = true; await source.ontoggle();
+      expect(source.querySelector('summary').textContent).toBe('收起');
       expect(source.querySelector('[data-skill-document="entry"]').textContent).toBe(fs.readFileSync(skill.skill, 'utf8'));
       expect(source.querySelector('[data-skill-document="guide"]').textContent).toBe(fs.readFileSync(skill.guide, 'utf8'));
       expect(source.querySelector('textarea')).toBeNull(); expect(source.querySelector('input')).toBeNull();
       expect(calls.filter(call => call.options?.method === 'POST')).toHaveLength(writes);
-      const reads = calls.length; source.open = false; await source.ontoggle(); source.open = true; await source.ontoggle();
+      const reads = calls.length; source.open = false; await source.ontoggle();
+      expect(source.querySelector('summary').textContent).toBe('展开');
+      source.open = true; await source.ontoggle();
       expect(calls).toHaveLength(reads); // cache only in this mounted panel
     }
     expect(agentPrompt(config, 'agent', {}, 'order').builtin_skills).toEqual([]);

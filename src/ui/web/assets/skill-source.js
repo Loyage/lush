@@ -2,10 +2,13 @@ import { button, el } from './dom.js';
 import { api } from './api.js';
 
 /** Explicit, read-only disclosure of the shipped files; never interpret their text as HTML. */
-export function skillSource(skill, ownsPage) {
+export function skillSource(skill, ownsPage, instructions) {
   const details = el('details', undefined, 'skill-source');
   const body = el('div', undefined, 'skill-source-body');
-  details.append(el('summary', '查看 Skill 原文（只读）'), body);
+  const summary = el('summary', '展开');
+  details.append(summary);
+  if (instructions) details.append(instructions);
+  details.append(body);
   let pending = null, loaded = false;
   const current = () => ownsPage();
   async function load() {
@@ -32,6 +35,9 @@ export function skillSource(skill, ownsPage) {
     })();
     pending = reading; return reading;
   }
-  details.ontoggle = () => details.open ? load() : undefined;
+  details.ontoggle = () => {
+    summary.textContent = details.open ? '收起' : '展开';
+    return details.open ? load() : undefined;
+  };
   return details;
 }

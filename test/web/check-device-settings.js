@@ -92,6 +92,11 @@ try {
     const scoped = value => ({...value, configuration_scope:{selected:url.searchParams.get('scope') || 'project', source:'device', project_override:false}});
     if (url.pathname === '/api/host/projects') return Response.json({ projects: [] });
     if (url.pathname === '/api/host/preferences') return Response.json(world.state.devicePreferences);
+    if (url.pathname === '/api/host/skills') {
+      const skill = AGENT_CAPABILITIES.find(entry => entry.id === url.searchParams.get('id'));
+      assert(skill, 'Unexpected Skill source ID');
+      return Response.json({ version: 1, id: skill.id, entry: fs.readFileSync(skill.skill, 'utf8'), guide: fs.readFileSync(skill.guide, 'utf8') });
+    }
     if (url.pathname === '/api/settings/runtime') return Response.json(scoped(world.state.runtimeSettings));
     if (url.pathname === '/api/agent/environment') return Response.json(scoped({target:'common',values:{},file:'/fixture/agent.env'}));
     if (url.pathname === '/api/agent/status') return diagnosisFails
@@ -164,7 +169,8 @@ try {
     assert(await execute(`return !document.querySelector('[data-runtime-input="progress_reporting"]')&&document.querySelector('a[href="/#skills"]')`),'System settings still duplicates Skills controls');
     await layout(`runtime-${theme}-${width}`,width);
     await execute('return window.openSkills()'); await waitFor('document.querySelectorAll(".skill-card").length===5');
-    assert(await execute(`return [...document.querySelectorAll('.skill-details')].every(n=>!n.open)`), 'Skill details are not collapsed by default');
+    assert(await execute(`const cards=[...document.querySelectorAll('.skill-card')];return cards.every((card,i)=>{const box=card.getBoundingClientRect(),previous=cards[i-1]?.getBoundingClientRect();return !previous||(box.top>=previous.bottom&&Math.abs(box.left-previous.left)<1&&Math.abs(box.width-previous.width)<1)})`), 'Skills must use one column at every viewport width');
+    assert(await execute(`return [...document.querySelectorAll('.skill-source')].every(n=>!n.open&&n.querySelector('summary').textContent==='展开'&&!n.querySelector('.skill-details').checkVisibility())&&document.querySelectorAll('.skill-card details').length===${AGENT_CAPABILITIES.length}`), 'Skill instructions and source must share one collapsed disclosure');
     assert(await execute(`return ${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n?.type==='checkbox'&&n.getAttribute('aria-label')?.startsWith('启用')}) && document.querySelector('.skills-page').textContent.includes('不是权限隔离')`), 'Capability switches or their effect explanation are missing');
     const previous = await execute(`const n=document.querySelector('[data-runtime-input=progress_reporting]');n.focus();return n.checked`);
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: ' ' }, { type: 'keyUp', value: ' ' }] }] });
@@ -174,6 +180,15 @@ try {
     assert(write.method==='system.configure' && write.params.scope==='device' && JSON.stringify(write.params.settings)===JSON.stringify({progress_reporting:!previous}), 'Capability save is not a fixed device partial patch');
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE004' }, { type: 'keyUp', value: '\uE004' }] }] });
     assert(await execute(`return document.activeElement?.tagName==='SUMMARY'`), 'Skill detail is not keyboard reachable');
+    const sourceReads = calls.filter(route=>route==='/api/host/skills').length;
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+    await waitFor('document.querySelector(".skill-source [data-skill-document=guide]")');
+    assert(calls.filter(route=>route==='/api/host/skills').length===sourceReads+1, 'Expanding a Skill must lazily read its full source once');
+    assert(await execute(`const n=document.querySelector('.skill-source');return n.open&&n.querySelector('summary').textContent==='收起'&&n.querySelector('.skill-details').checkVisibility()&&n.querySelector('[data-skill-document=guide]').checkVisibility()`), 'One expansion must show both instructions and full source');
+    await layout(`skills-expanded-${theme}-${width}`,width);
+    await click('.skill-source summary');
+    await waitFor('!document.querySelector(".skill-source").open && document.querySelector(".skill-source summary").textContent==="展开"');
+    assert(await execute(`const n=document.querySelector('.skill-source');return !n.querySelector('.skill-details').checkVisibility()&&!n.querySelector('[data-skill-document=guide]').checkVisibility()`), 'Collapsing must hide instructions and full source together');
     await click('[data-capability-reset]'); await waitFor(`${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n.checked&&!n.disabled})`);
     assert(JSON.stringify(capabilityWrites.at(-1).params.settings)===JSON.stringify(Object.fromEntries(capabilityKeys.map(key=>[key,null]))), 'Capability restoration did not reset all keys');
     await layout(`skills-${theme}-${width}`,width);

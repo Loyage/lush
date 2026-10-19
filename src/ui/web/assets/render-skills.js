@@ -68,10 +68,10 @@ export function openSkills() {
       input.dataset.runtimeInput = skill.setting; input.setAttribute('aria-label', `启用${skill.title}`);
       const status = el('span'), host = el('span', undefined, 'help-host'); host.append(input);
       toggle.append(host, status); head.append(title, toggle);
-      const details = el('details', undefined, 'skill-details');
-      details.append(el('summary', '使用说明'), el('p', `适用时机：${skill.trigger}`), el('p', skill.effect), el('code', skill.name));
-      card.append(head, el('p', skill.description, 'skill-description'), details,
-        skillSource(skill, () => owns() && paintRevision === revision)); content.append(card);
+      const instructions = el('div', undefined, 'skill-details');
+      instructions.append(el('h3', '使用说明'), el('p', `适用时机：${skill.trigger}`), el('p', skill.effect), el('code', skill.name));
+      card.append(head, el('p', skill.description, 'skill-description'),
+        skillSource(skill, () => owns() && paintRevision === revision, instructions)); content.append(card);
       controls.push({ skill, input, status, host }); input.onchange = () => save({ [skill.setting]: input.checked });
     }
   }
