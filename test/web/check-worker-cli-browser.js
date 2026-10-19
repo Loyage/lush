@@ -7,20 +7,31 @@ import { request } from 'node:http';
 
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-${['styles.css','styles-core.css','styles-worker-cli.css'].map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
-</head><body style="margin:0;padding:12px;box-sizing:border-box"><div id="detail"></div><div id="modal" hidden></div><div id="error"></div>
+${['styles.css','styles-core.css','styles-code.css','styles-performance.css','styles-worker-cli.css'].map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
+</head><body style="margin:0;padding:12px;box-sizing:border-box"><div id="project-app"><div id="detail"></div></div><div id="modal" class="modal-root" hidden></div><div id="error"></div>
 <script type="module">
 import { openWorkerCliPage } from '/assets/worker-cli-page.js';
+import { openExecutionPage } from '/assets/execution-page.js';
+import { ui } from '/assets/state.js';
+import { initHelp } from '/assets/help.js';
+initHelp();window.ui=ui;
 window.errors=[]; addEventListener('error',e=>errors.push(e.message)); addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 window.calls=[];
 const task={id:77,worker_number:'W324',task_kind:'order',workspace:'/project/'+('very-long-worker-directory/').repeat(12)};
 window.fetch=async(url,options)=>{
  if(String(url).endsWith('/api/worker/77'))return Response.json(task);
+ if(String(url).includes('/code-state'))return Response.json({availability:'unavailable',reason:'fixture',changes:[]});
+ if(!options?.body)return Response.json({steps:[],files:[],next:0,oldest:0,has_more:false,has_older:false});
  const {method,params:{command}}=JSON.parse(options.body);
+ if(method==='worker.cli_history')return Response.json({entries:[],before:null,has_more:false});
+ if(method==='worker.cli_history_clear')return Response.json({cleared:true});
  if(method==='worker.cli_preview'){calls.push('preview');return Response.json({id:77,command,workspace:task.workspace,argv:['status'],executable:'lush',path:'status',kind:command.includes('order')?'agent':'read',requires_confirmation:command.includes('order'),revision:'revision'});}
  calls.push('execute');return Response.json({command,workspace:task.workspace,status:'succeeded',exit_code:0,stdout:'a'.repeat(4000)+'\\n<literal-output>',stderr:'warning',duration_ms:2});
 };
-location.hash='#worker-77-cli';window.panel=await openWorkerCliPage({taskId:77});window.task=task;window.ready=true;
+// Set the route before opening, just as the application hashchange dispatcher does.
+history.replaceState(null,'','#worker-77-execution-cli');
+window.panel=await openExecutionPage({taskId:77,mode:'cli'});window.task=task;window.ready=true;
+window.switchTab=async index=>{ui.transcriptView.panel.querySelectorAll('[role="tab"]')[index].click();};
 </script></body></html>`;
 const server = Bun.serve({ hostname:'127.0.0.1', port:0, fetch(req) {
   const path = new URL(req.url).pathname;
@@ -56,9 +67,18 @@ try {
   assert(await execute('return panel.tagName==="SECTION" && calls.length===0 && panel.querySelector("textarea").checkVisibility() && !panel.querySelector(".worker-cli-advanced").open;'),'CLI page must show input without requests and keep advanced help collapsed');
   await execute('panel.querySelector(".worker-cli-advanced").open=true;panel.querySelector(".worker-cli-examples button").click();');
   assert(await execute('return calls.length===0 && panel.querySelector("textarea").value==="lush help";'),'example executed instead of filling');
+  await execute('panel.querySelector(".worker-cli-run").scrollIntoView({block:"center"});');
+  const runElement=await rpc(`/session/${session}/element`,{using:'css selector',value:'.worker-cli-run'});
+  await rpc(`/session/${session}/actions`,{actions:[{type:'pointer',id:'mouse',parameters:{pointerType:'mouse'},actions:[{type:'pointerMove',duration:0,origin:runElement,x:0,y:0},{type:'pointerDown',button:0},{type:'pause',duration:800},{type:'pointerUp',button:0}]}]});
+  assert(await execute('return calls.length===0&&document.querySelector("#help-tip")?.closest("dialog")?.open;'),'long press must show top-layer help without execution');
   await execute('panel.querySelector("textarea").focus();');
   await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'},{type:'keyUp',value:'\uE009'}]}]});
   assert(await untilScript('panel.querySelector(".worker-cli-status").textContent==="执行成功。"'),'fixture query did not complete');
+  assert(await execute('return panel.querySelector("textarea").value==="";'),'submitted draft not cleared');
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'}]}]});
+  assert(await execute('return panel.querySelector("textarea").value==="\\n"&&calls.length===2;'),'plain Enter must insert newline without execution');
+  await execute('const input=panel.querySelector("textarea");input.value="lush status";input.dispatchEvent(new Event("input",{bubbles:true}));for(const options of [{isComposing:true},{repeat:true}])input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",ctrlKey:true,bubbles:true,...options}));');
+  assert(await execute('return calls.length===2;'),'IME/repeated shortcut dispatched a command');
   for(const theme of ['light','dark'])for(const width of [1440,900,600,390,320]){
     await rpc(`/session/${session}/frame`,{id:null});await execute(`document.querySelector('#viewport').style.width='${width}px';`);await frame();
     await execute(`document.documentElement.dataset.theme='${theme}';`);
@@ -67,8 +87,14 @@ try {
       const a=input.getBoundingClientRect(),b=run.getBoundingClientRect();
       if(innerWidth<=600 && b.top<a.bottom)errors.push('narrow controls not stacked');
       const result=panel.querySelector('.worker-cli-result'),advanced=panel.querySelector('.worker-cli-advanced');
-      if(result.getBoundingClientRect().top<b.bottom || result.getBoundingClientRect().bottom>advanced.getBoundingClientRect().top)errors.push('result must follow input, before advanced help');
-      if(getComputedStyle(document.querySelector('.worker-cli-page')).maxWidth!=='none')errors.push('CLI page width capped');
+      if(!(panel.querySelector('.worker-cli-history').compareDocumentPosition(panel.querySelector('.worker-cli-controls'))&Node.DOCUMENT_POSITION_FOLLOWING))errors.push('history must precede bottom editor');
+      const parts=[...result.children];
+      if(!parts[0].classList.contains('worker-cli-result-command')||!parts.at(-1).classList.contains('worker-cli-result-meta'))errors.push('command/output/status order');
+      const tabs=[...document.querySelectorAll('.execution-tabs button')];
+      if(tabs.length!==4||tabs.at(-1).textContent!=='CLI 交互')errors.push('four reader tabs missing');
+      if(!document.querySelector('.transcript-dialog').open||document.querySelector('.transcript-back'))errors.push('not standalone reader');
+      for(const tab of tabs){const r=tab.getBoundingClientRect();if(r.right>innerWidth+1||r.left<0)errors.push('clipped tab');}
+      if(innerWidth===320&&tabs.at(-1).getBoundingClientRect().top<=tabs[0].getBoundingClientRect().top)errors.push('narrow tabs must wrap');
       for(const control of [input,run,...panel.querySelectorAll('.worker-cli-examples button')]){const r=control.getBoundingClientRect();if(r.right>innerWidth+1||r.left<0)errors.push('clipped control');}
       if(b.height<44)errors.push('small touch target');
       if(document.documentElement.scrollWidth>innerWidth)errors.push('page overflow');
@@ -79,13 +105,21 @@ try {
     assert(!result.errors.length&&!result.browserErrors.length,`${theme} ${width}: ${JSON.stringify(result)}`);
     console.log(`PASS ${theme} ${width}px: stacked narrow controls, 44px actions, wrapped cwd, plain scrollable output, no page overflow`);
   }
+  await execute('const input=panel.querySelector("textarea");input.value="lush status";input.dispatchEvent(new Event("input",{bubbles:true}));panel.querySelector(".worker-cli-run").click();');
+  assert(await untilScript('panel.querySelectorAll(".worker-cli-result").length===2 && panel.querySelector(".worker-cli-status").textContent==="执行成功。"'),'multiple ordered results missing');
+  await execute('panel.querySelector("textarea").value="next draft";panel.querySelector("textarea").dispatchEvent(new Event("input",{bubbles:true}));window.saved=panel.querySelector(".worker-cli-result");');
+  for(const index of [0,1,2,3]){
+    await execute(`switchTab(${index});`);
+    assert(await untilScript(`ui.transcriptView.mode===${JSON.stringify(['transcript','code','performance','cli'][index])}`),'tab did not activate');
+  }
+  assert(await execute('return ui.transcriptView.cli===panel&&panel.querySelector("textarea").value==="next draft"&&panel.querySelector(".worker-cli-result")===saved;'),'tab switching lost history/draft');
   await execute('const input=panel.querySelector("textarea");input.value="lush order example";input.dispatchEvent(new Event("input",{bubbles:true}));panel.querySelector(".worker-cli-run").click();');
   assert(await untilScript('document.querySelector(".worker-cli-confirm")'),'Agent confirmation missing');
-  assert(await execute(`const button=document.querySelector('#modal .agent-call');return !!button&&!!button.dataset.help&&calls.length===3&&document.documentElement.scrollWidth<=innerWidth;`),'Agent action marking, pre-confirm execution or confirmation overflow');
+  assert(await execute(`const button=document.querySelector('#modal .agent-call');return !!button&&!!button.dataset.help&&calls.length===5&&document.documentElement.scrollWidth<=innerWidth&&button.closest('dialog')?.open&&document.elementFromPoint(button.getBoundingClientRect().x+3,button.getBoundingClientRect().y+3)===button;`),'Agent action marking, pre-confirm execution or confirmation overflow');
   await execute(`const buttons=[...document.querySelectorAll('#modal button')];buttons.find(b=>b.textContent==='取消').click();`);
   assert(await untilScript(`panel.querySelector('.worker-cli-status').textContent==='已取消，未执行。'`),'cancel failed');
-  assert(await execute('return calls.length===3;'),'cancel executed command');
-  passed=true;console.log('PASS standalone page, native Ctrl+Enter, inline result before advanced help, examples do not execute, explicit Agent confirmation/cancel; no real model calls');
+  assert(await execute('return calls.length===5;'),'cancel executed command');
+  passed=true;console.log('PASS fullscreen fourth tab, native Ctrl+Enter, ordered terminal history, four-tab draft retention, top-layer Agent confirmation/cancel; no real model calls');
 }catch(error){
   if(session)await Bun.write(join(temp,'failure.png'),Buffer.from(await rpc(`/session/${session}/screenshot`,undefined,'GET'),'base64')).catch(()=>{});
   console.error(`Worker CLI browser failure logs: ${temp}`);throw error;

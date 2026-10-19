@@ -5,6 +5,7 @@ import { api } from './api.js';
 import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep, clearTranscriptSearch } from './transcript-reader.js';
 import { createCodeView } from './code-view.js';
 import { createPerformanceView } from './performance-view.js';
+import { detailWorkerCli, disposeWorkerCli } from './worker-cli-detail.js';
 import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange } from './prefs.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';
@@ -16,7 +17,9 @@ export function closeTranscriptView() {
   const state = current;
   if (!state) return;
   current = null;
-  state.code?.dispose(); state.performance?.dispose(); state.disposePreference?.();
+  state.code?.dispose(); state.performance?.dispose(); state.cli?.dispose(); disposeWorkerCli(); state.disposePreference?.();
+  if (state.modal) { state.modal.remove(); (state.modalParent || document.body).append(state.modal); }
+  if (ui.disposeWorkerCli === state.disposeCliPage) ui.disposeWorkerCli = null;
   releaseTranscriptReader(state.taskId);
   removeEventListener('hashchange', state.onNavigate);
   if (state.menu) { state.menu.hidden = true; (state.menuParent || document.body).append(state.menu); }
@@ -28,7 +31,7 @@ export function closeTranscriptView() {
 }
 
 /** Fullscreen rich reader; the existing bounded transcript projection remains authoritative. */
-export async function openTranscriptView(taskId, seq, { mode = 'transcript', task = null, standalone = ui.transcriptView?.standalone === true } = {}) {
+export async function openTranscriptView(taskId, seq, { mode = 'transcript', task = null, cli = {}, standalone = ui.transcriptView?.standalone === true } = {}) {
   closeTranscriptView();
   const knownTask = task || (ui.composerTask?.id === taskId ? ui.composerTask : null) || ui.lastSnapshot?.tasks?.find(item => item.id === taskId);
   const valet = isValet(knownTask) || workerLabel(taskId).startsWith('V');
@@ -36,11 +39,14 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const panel = el('dialog', undefined, 'transcript-dialog');
   panel.setAttribute('aria-label', `${type} ${workerLabel(knownTask || taskId)} 执行详情`);
   const holder = el('div', undefined, 'transcript');
-  const state = { panel, holder, taskId, standalone, returnTarget: document.activeElement,
+  const state = { panel, holder, taskId, standalone, document, path: location.pathname, hash: location.hash, boot: ui.workerNumbers, returnTarget: document.activeElement,
     returnScroll: $('detail').scrollTop, wasInert: $('project-app').inert,
-    menu: $('context-menu'), menuParent: $('context-menu')?.parentNode };
+    menu: $('context-menu'), menuParent: $('context-menu')?.parentNode,
+    modal: $('modal'), modalParent: $('modal')?.parentNode };
   state.mode = 'transcript';
   current = state; ui.transcriptView = state; transcriptOpen.add(taskId);
+  state.disposeCliPage = () => { if (current === state) closeTranscriptView(); };
+  ui.disposeWorkerCli = state.disposeCliPage;
   const toolbar = el('header', undefined, 'transcript-toolbar');
   // A dedicated reader tab has no underlying Worker page to return to.
   const leaveReader = () => { if (!standalone) closeTranscriptView(); };
@@ -77,6 +83,7 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const heading = el('strong', `${type} ${workerLabel(knownTask || taskId)}`);
   state.paintStatus = task => {
     if (!task || task.id !== taskId) return;
+    state.task = task; state.cli?.update(task);
     taskStatus.textContent = statusOf(task).label; taskStatus.className = `badge b-${task.status}`;
     heading.textContent = `${workTypeLabel(task)} ${workerLabel(task)}`;
     panel.setAttribute('aria-label', `${workTypeLabel(task)} ${workerLabel(task)} 执行详情`);
@@ -91,7 +98,9 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const recordsTab = button('执行记录', () => switchMode('transcript'), 'ghost');
   const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');
   const performanceTab = button('性能分析', () => switchMode('performance'), 'ghost');
-  const viewTabs = valet ? [[recordsTab, 'transcript']] : [[recordsTab, 'transcript'], [codeTab, 'code'], [performanceTab, 'performance']];
+  const cliTab = button('CLI 交互', () => switchMode('cli'), 'ghost');
+  const supportsCli = !valet && ['order', 'child'].includes(knownTask?.task_kind) && knownTask?.execution_retired !== true;
+  const viewTabs = valet ? [[recordsTab, 'transcript']] : [[recordsTab, 'transcript'], [codeTab, 'code'], [performanceTab, 'performance'], ...(supportsCli ? [[cliTab, 'cli']] : [])];
   for (const [tab, name] of viewTabs) {
     tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(name === state.mode));
     tab.setAttribute('aria-controls', `execution-${name}-${taskId}`);
@@ -131,6 +140,7 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
     for (const [tab, value] of viewTabs) {
       tab.setAttribute('aria-selected', String(mode === value)); tab.tabIndex = mode === value ? 0 : -1;
     }
+    state.cli?.setActive(mode === 'cli');
     if (state.code && mode !== 'code') { state.code.root.hidden = true; await state.code.setActive(false); }
     if (state.performance && mode !== 'performance') { state.performance.root.hidden = true; await state.performance.setActive(false); }
     if (current !== state || state.mode !== mode) return;
@@ -161,6 +171,15 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
         panel.append(state.performance.root);
       }
       state.performance.root.hidden = false; await state.performance.setActive(true);
+    } else if (mode === 'cli') {
+      if (!state.cli) {
+        state.cli = detailWorkerCli(state.task || knownTask, cli);
+        if (!state.cli) return;
+        state.cli.id = `execution-cli-${taskId}`;
+        state.cli.setAttribute('role', 'tabpanel'); state.cli.setAttribute('aria-labelledby', cliTab.id);
+        panel.append(state.cli);
+      }
+      state.cli.setActive(true);
     } else {
       transcriptOpen.add(taskId);
       if (!state.filtered && (!transcriptCache.has(taskId) || (transcriptCache.get(taskId)?.order && transcriptCache.get(taskId).order !== transcriptOrder()))) await loadTranscript(taskId);
@@ -244,7 +263,7 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   });
   sidebar.append(el('h2', '搜索'), reader);
   viewport.append(notice, holder); layout.append(sidebar, viewport); panel.append(toolbar, navigation, layout);
-  state.onNavigate = () => { if (current === state) closeTranscriptView(); }; addEventListener('hashchange', state.onNavigate);
+  state.onNavigate = () => { if (current === state && (location.hash !== state.hash || location.pathname !== state.path)) closeTranscriptView(); }; addEventListener('hashchange', state.onNavigate);
   panel.oncancel = event => { event.preventDefault(); leaveReader(); };
   panel.onkeydown = event => {
     if (event.defaultPrevented) return;
@@ -258,10 +277,12 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
     }
   };
   if (state.menu) { state.menu.hidden = true; panel.append(state.menu); }
+  // App confirmations must be in the native modal's top layer, not its inert background.
+  if (state.modal) { state.modal.remove(); panel.append(state.modal); }
   document.body.append(panel); panel.showModal?.(); $('project-app').inert = true;
   (back || heading).focus?.({ preventScroll: true });
   holder.replaceChildren(...transcriptContent(taskId));
-  if (['code', 'performance'].includes(mode) && !valet) { await switchMode(mode); return; }
+  if (['code', 'performance', 'cli'].includes(mode) && viewTabs.some(([, value]) => value === mode)) { await switchMode(mode); return; }
   try {
     if (!transcriptCache.has(taskId)) await loadTranscript(taskId);
     if (current !== state) return;

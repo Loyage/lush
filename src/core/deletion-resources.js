@@ -49,6 +49,9 @@ export function workerFiles(config, tasks, contexts, choices = []) {
   const sessions = path.join(home, 'sessions');
   deletionPath(config, sessions);
   const names = present(sessions) ? fs.readdirSync(sessions) : [];
+  const cliHistory = path.join(home, 'worker-cli-history');
+  deletionPath(config, cliHistory);
+  const historyNames = present(cliHistory) ? fs.readdirSync(cliHistory) : [];
   for (const task of tasks) {
     const id = task.id;
     for (const name of names) if (name.endsWith(`_lush-task-${id}.jsonl`) || name.endsWith(`_lush-task-${id}-pi.jsonl`) ||
@@ -56,6 +59,10 @@ export function workerFiles(config, tasks, contexts, choices = []) {
       new RegExp(`^(?:task-${id}-(?:input|system)\\.md|task-${id}-context\\.json(?:\\.\\d+\\.tmp)?|decision-${id}\\.json|codex-task-${id}(?:-result\\.md|\\.json(?:\\.\\d+\\.tmp)?))$`).test(name)) add(path.join(sessions, name));
     add(path.join(home, 'task-rules', `task-${id}.mjs`));
     add(path.join(home, 'choice-contexts', `task-${id}.jsonl`));
+    // Exact Worker-owned ciphertext only; the project-wide encryption key is shared.
+    add(path.join(cliHistory, `${id}.json`));
+    for (const name of historyNames) if (new RegExp(`^${id}\\.json\\.[a-f0-9]{32}\\.tmp$`).test(name))
+      add(path.join(cliHistory, name));
     for (const suffix of ['request.json', 'stop.json']) add(path.join(home, 'preempt', `task-${id}.${suffix}`));
     add(path.join(home, 'verify', String(id)), true);
   }

@@ -27,7 +27,11 @@ test('compiled root workbench loads global lazy pages with shared navigation sta
 });
 
 test('compiled project boot owns work pages and opens device settings separately', async () => {
-  const project = installProjectDom({ fetch: world.fetchImpl });
+  const project = installProjectDom({ fetch: async (url, options) => {
+    const response = await world.fetchImpl(url, options);
+    if (/\/api\/worker\/1$/.test(String(url))) return Response.json({ ...await response.json(), task_kind: 'order', worker_number: 'W333' });
+    return response;
+  } });
   try {
     await boot(); expect(project.node('detail').dataset.view).toBe('overview');
     for (const view of ['task-graph', 'inputs', 'hooks']) {
@@ -48,8 +52,12 @@ test('compiled project boot owns work pages and opens device settings separately
     expect(project.node('detail').dataset.view).toBe('workspace-link');
     expect(project.node('detail').querySelector('a').href).toBe('/#skills');
     project.location.hash = '#worker-1-cli'; await project.fire('hashchange');
-    expect(project.node('detail').dataset.view).toBe('worker-cli');
-    expect(project.node('detail').querySelector('.worker-cli-page')).not.toBeNull();
-    expect(project.node('detail').querySelector('.nav-back').href).toBe('/p/aaaaaaaaaaaaaaaa/#worker-1');
+    expect(project.node('detail').dataset.view).toBe('execution');
+    const panel = project.document.body.querySelector('.transcript-dialog');
+    expect(panel.querySelectorAll('[role="tab"]')).toHaveLength(4);
+    expect(panel.querySelector('.worker-cli')).not.toBeNull();
+    expect(panel.querySelector('.transcript-back')).toBeNull();
+    project.location.hash = '#worker-1-execution-cli'; await project.fire('hashchange');
+    expect(project.document.body.querySelector('.transcript-dialog').querySelector('.worker-cli')).not.toBeNull();
   } finally { project.restore(); await boot(); }
 });

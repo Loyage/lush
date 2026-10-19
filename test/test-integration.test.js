@@ -51,6 +51,8 @@ test('smoke groups contain existing unique test paths and selections deduplicate
   }
   expect(INTEGRATION_GROUPS.page).toContain('test/web/dom-navigation-links.test.js');
   expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-tool-chain.test.js');
+  for (const file of ['test/worker-cli-user-context.test.js', 'test/worker-cli-history.test.js', 'test/project/worker-cli-deletion.test.js'])
+    expect(INTEGRATION_GROUPS.rpc).toContain(file);
   expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-append.test.js');
   expect(INTEGRATION_GROUPS.page).toContain('test/web/dom-valet-append-api.test.js');
   expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-valet-append.test.js');

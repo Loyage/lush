@@ -15,19 +15,25 @@
 
 ## Worker CLI 交互
 
-Worker 详情提供「打开 CLI 交互」原生新标签链接，保留来源项目，进入可直接打开／重载的 `#worker-ID-cli` 独立页面。输入框默认可见，点击「执行」或 Ctrl+Enter 共用预览及按分类确认流程；普通 Enter 不发送，输入法确认与按键长按不触发执行，请求在途不重复提交。已发送命令、真实目录与 stdout／stderr、退出码、耗时紧接输入框下方；命令执行中仍可编辑下一条草稿。示例和详细限制默认折叠，示例只填入、不自动执行。页面使用可用宽度、长输出独立横向滚动，窄屏控件上下排列。
+Worker 详情提供「打开 CLI 交互」原生新标签链接，保留来源项目，进入可直接打开／重载的全屏执行详情第四标签 `#worker-ID-execution-cli`；旧 `#worker-ID-cli` 兼容同一容器，不再打开普通项目页面。命令历史按时间正序位于草稿上方，底部输入框默认可见，点击「执行」或 Ctrl+Enter 共用预览及按分类确认流程；普通 Enter 不发送，输入法确认与按键长按不触发执行，请求在途不重复提交。每条已发送命令依次展示真实目录、stdout／stderr、退出码及耗时；命令执行中仍可编辑下一条草稿。示例和详细限制默认折叠，示例只填入、不自动执行。页面使用可用宽度、长输出独立横向滚动，窄屏控件上下排列。
 
-同 Worker 页内刷新保留草稿和结果，不跨离页、项目切换或浏览器重载保存命令会话；离页作废迟到响应并关闭本页确认框。执行 ACK 与页面刷新分离，不因读取失败重发命令；离页不代表取消已发出的真实命令。
+同 Worker 页内刷新保留草稿和结果；草稿不跨离页、项目切换或浏览器重载保存，已执行命令历史按下文服务端加密协议恢复。离页作废迟到响应并关闭本页确认框。执行 ACK 与页面刷新分离，不因读取失败重发命令；离页不代表取消已发出的真实命令。
 
-用户专属 `worker.cli_preview {id,command}` 与 `worker.cli_execute {id,command,revision,confirm?}` 只经项目 `POST /api/action` 开放；普通 Agent 和 Valet 均不可调用，无新增 CLI 命令。命令为单行 `lush ...` 或 `lushw ...`，引号仅分组字面参数，不执行 Shell 展开、管道或重定向。入口、路径与 kind 来自代码 CLI catalog；不允许自选程序、环境或 `--project`。
+用户专属 `worker.cli_preview {id,command}`、`worker.cli_execute {id,command,revision,confirm?}`、`worker.cli_history {id,before?,limit?}` 与 `worker.cli_history_clear {id}` 只经项目 `POST /api/action` 开放；普通 Agent 和 Valet 均不可调用，无新增 CLI 命令。命令为单行 `lush ...` 或 `lushw ...`，引号仅分组字面参数，不执行 Shell 展开、管道或重定向。入口、路径与 kind 来自代码 CLI catalog；不允许自选程序、环境或 `--project`。
 
 preview 返回 `{id,workspace,command,argv,executable,path,kind,requires_confirmation,revision,limits}`。revision 为五分钟有效、至多保留最近 128 项的进程内单次凭据，固定解析结果、工作区 inode／真实 Git 仓库与分支、HEAD、Worker 生命周期和冻结状态；过期、重启、执行过或状态变化须重新预检。它不冻结外部文件编辑，也不是文件内容快照。execute 重新核验，修改／Agent／破坏性分类必须显式 `confirm:true`，原 CLI／RPC 的预检、revision、权限与生命周期安全门仍适用。
 
 cwd 必须是指定 order/child 仍存在、非软链接的真实专属 worktree，不能回落 canonical/main 或其它目录。活动或冻结的源工作区拒绝修改；修改命令还要求整个项目没有活动调用／Git／后台写入，领取短时项目写准入位，暂缓新调度并拒绝外来操作，避免与交付、同步和回收并发。只读命令仍可用于活动 Worker；执行期间不得回收／同步正在使用的目录或其祖先。非交互单次 CLI 以 daemon 所属登录系统用户权限运行，不是 OS 沙箱，也不限制标准 CLI 对其它合法目标的访问。
 
-只使用随代码的固定 bin，关闭 stdin，清除 Agent invocation 身份和运行时 preload 环境，不注入 Agent token；内部短时关联只将该用户 CLI 的 catalog RPC 绑定到准入位，不能变为 Agent 身份或额外权限。禁用工作区 `.env`／Bun 配置自动加载。help 也实际运行 CLI。watch/wait、服务启停／重启、交互认证明确拒绝；已有命令自身仍可因标准安全门拒绝操作。
+只使用随代码的固定 bin，关闭 stdin，清除 Agent invocation 身份和运行时 preload 环境，不注入 Agent token；内部短时关联只将该用户 CLI 的 catalog RPC 绑定到准入位，不能变为 Agent 身份或额外权限。`lushw` 页面用户模式按指定 Worker 解析 self／parent／直接 child，catalog 的 `user_context_rpc` 是支持集合单一来源；服务端校验关系后，以用户权限调用原等价管理 RPC，原 Agent／Valet 权限不扩大。用户上下文单次派发，不能直接用关联值绕过 context 转调目标 RPC；Agent 凭证与关联混用拒绝。没有用户映射的 progress／auto-title／自身 Notice 专用分页等入口在 preview 明确拒绝，普通 invocation 行为不变。禁用工作区 `.env`／Bun 配置自动加载。help 也实际运行 CLI。watch/wait、服务启停／重启、交互认证明确拒绝；已有命令自身仍可因标准安全门拒绝操作。
 
-命令最多 8192 字节、128 个词，真实执行最多 15 秒，stdout 与 stderr 合计最多 64 KiB，作为纯文本返回。execute 返回 `{command,workspace,stdout,stderr,exit_code,signal,timed_out,truncated,duration_ms,status}`，status 为 `succeeded`／`failed`／`unknown`。超时、输出超限、信号或已派发 RPC 断线属于 unknown，不自动重试；同一 revision 在 spawn 前消费，未知结果也不能重放。杀掉 CLI 不会取消已派发的 daemon 修改，准入位保留到该修改真正收尾。HTTP 断线后的结果同样未确认，应先检查现场，不能据此重试。
+命令最多 8192 字节、128 个词，真实执行最多 15 秒，stdout 与 stderr 合计最多 64 KiB，作为纯文本返回。execute 返回 `{command,workspace,stdout,stderr,exit_code,signal,timed_out,truncated,duration_ms,status,history_id,created_at,history_error?}`，status 为 `succeeded`／`failed`／`unknown`。超时、输出超限、信号或已派发 RPC 断线属于 unknown，不自动重试；同一 revision 在 spawn 前消费，未知结果也不能重放。杀掉 CLI 不会取消已派发的 daemon 修改，准入位保留到该修改真正收尾。HTTP 断线后的结果同样未确认，应先检查现场，不能据此重试。
+
+历史为项目／Worker 绑定的附属文件，不创建新实体或改写既有执行记录。历史读取／清空严格要求目标仍存在且为 order/child；归档后无 worktree 仍可读取／清空，main/owner/Valet 等类型拒绝。目标正被彻底删除时，历史存储读写和 CLI 预检／执行均拒绝，不得在删除期间重建历史文件。`worker.cli_history` 的 id／before 必须为正安全整数，limit 为 1..20、默认10；不接受 null 游标、字符串数字、未知参数或执行凭证。返回 `{entries:[{id,created_at,command,workspace,stdout,stderr,exit_code,signal,timed_out,truncated,duration_ms,status}],before,has_more}`；首次取最新页，before 读取更早页，页内按 id／创建顺序正序，before 是最旧实际返回 id、空页为 null。整份 JSON 的真实 UTF-8 字节严格小于900000，包含转义开销；游标只推进实际返回项。每 Worker 有界保留最近100条，不是永久审计档案。
+
+spawn 前以 `unknown`（空输出、未知退出码）持久写入占位，daemon 中断／重启保留未知、不自动重放；占位保存失败则不执行命令，已消费的预检仍不能重放。完成结果保存失败不抹去已经执行的 ACK：execute 保留真实结果与 history_id，另返回明确 `history_error`，占位可能仍为 unknown，应人工检查而非重试。clear 返回 `{cleared:true}`，清空后保持单调 id；同 Worker CLI 进程或已派发 RPC 在途时拒绝清空，避免清空后迟到结果复活。损坏或缺钥时 clear 同样拒绝，不把存储故障当作空历史。
+
+全部命令、目录、stdout／stderr 及结果元数据一并使用 AES-256-GCM 加密，不靠识别秘密作保护；随机12字节 nonce、16字节认证 tag，AAD 绑定版本、canonical 项目路径与 Worker ID，跨项目／Worker 复制不能解密。独立随机密钥 `<project>/.lush/worker-cli-history.key` 为 owner-only 0600，历史目录 `worker-cli-history/` 为0700、文件0600；固定路径拒绝软链接、硬链接、错误所有者／权限、损坏、认证失败、已有历史缺钥，且不自动重建密钥覆盖历史。单项目单 daemon 内同步串行读改写，临时文件独占创建、fsync、原子 rename 并同步目录，重启不依赖内存缓存。服务端自动解锁只保护单独泄漏的历史文件，不防同一系统用户／root、服务端入侵、密钥与密文一同泄漏、内存／浏览器明文、回滚旧的有效密文或未加密 HTTP；备份／迁移须同时保护密钥并保持项目路径绑定。
 
 ## 输入与结果完整历史读面
 

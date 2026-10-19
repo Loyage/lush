@@ -55,7 +55,7 @@ test('read-only preview executes exactly once, passes only revision/command/conf
     expect(f.status.textContent).toBe('执行成功。');
     expect(f.root.querySelectorAll('.worker-cli-output').map(node => node.textContent)).toEqual(['<script>bad()</script>', 'warning']);
     expect(f.root.querySelector('script')).toBeNull();
-    expect(f.dom.node('modal').children).toHaveLength(0); expect(f.input.value).toBe('lush status');
+    expect(f.dom.node('modal').children).toHaveLength(0); expect(f.input.value).toBe('');
     expect(f.root.querySelector('.worker-cli-result-meta').textContent).toContain('退出码：0');
   } finally { f.cleanup(); }
 });
@@ -76,14 +76,20 @@ test('Ctrl+Enter shares submit guards; plain Enter, IME and repeated keydown can
     expect(prevented).toBe(true); expect(f.requests).toHaveLength(2);
     const body = f.root.querySelector('.worker-cli-body'), result = f.root.querySelector('.worker-cli-result');
     const children = [...body.children];
-    expect(children.indexOf(result)).toBe(children.indexOf(f.status) + 1);
-    expect(children.indexOf(f.root.querySelector('.worker-cli-advanced'))).toBe(children.indexOf(result) + 1);
+    expect(result.parentNode).toBe(f.root.querySelector('.worker-cli-history'));
+    expect(children.indexOf(result.parentNode)).toBeLessThan(children.indexOf(f.root.querySelector('.worker-cli-controls')));
+    const order = [...result.children];
+    expect(order.indexOf(result.querySelector('.worker-cli-result-command'))).toBe(0);
+    expect(order.indexOf(result.querySelector('.worker-cli-result-meta'))).toBe(order.length - 1);
     expect(result.hidden).toBe(false);
     expect(f.root.querySelector('.worker-cli-result-command').textContent).toContain('lush status');
     expect(f.root.querySelector('.worker-cli-result-meta').textContent).toContain('等待输出');
     f.edit('lush help'); hold.resolve(); await pending;
     expect(f.input.value).toBe('lush help'); expect(f.status.textContent).toBe('执行成功。');
     expect(f.root.querySelector('.worker-cli-result-command').textContent).toContain('lush status');
+    f.edit('lush help'); await f.click();
+    expect(f.root.querySelectorAll('.worker-cli-result')).toHaveLength(2);
+    expect(f.root.querySelectorAll('.worker-cli-result-command').map(node => node.textContent.split('\n')[1])).toEqual(['$ lush status', '$ lush help']);
   } finally { hold.resolve(); f.cleanup(); await pending; }
 });
 
@@ -235,7 +241,7 @@ test('same Worker update preserves exact nodes, input/output/advanced disclosure
     f.root.querySelector('.worker-cli-advanced').open = true; f.edit('lush status');
     pending = f.click(); await Promise.resolve();
     f.root.update({ ...task, status: 'awaiting_acceptance' }); expect(f.root.querySelector('textarea')).toBe(f.input);
-    expect(f.input.value).toBe('lush status');
+    expect(f.input.value).toBe('');
     expect(f.root.querySelector('.worker-cli-advanced').open).toBe(true); expect(f.run.disabled).toBe(true);
     hold.resolve(); await pending; const output = f.root.querySelectorAll('.worker-cli-output')[0];
     f.edit('lush help'); f.root.update({ ...task, status: 'running' });

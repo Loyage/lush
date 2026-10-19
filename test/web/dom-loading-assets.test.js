@@ -15,20 +15,21 @@ test('CLI bookmark boots lazily, survives same-page navigation and disposes on l
   try {
     const { boot } = await import('../../src/ui/web/assets/app.js');
     dom.location.hash = '#worker-1-cli'; await boot();
-    expect(ui.view.id).toBe('worker-cli'); expect(ui.selected).toBeNull();
-    const root = dom.node('detail').querySelector('.worker-cli'), input = root.querySelector('textarea');
+    expect(ui.view.id).toBe('execution'); expect(ui.selected).toBe(1); expect(ui.transcriptView.mode).toBe('cli');
+    const root = ui.transcriptView.cli, input = root.querySelector('textarea');
     expect(root.tagName).toBe('SECTION'); input.value = 'lush status';
     await dom.fire('hashchange');
-    expect(dom.node('detail').querySelector('.worker-cli')).toBe(root); expect(input.value).toBe('lush status');
-    dom.location.hash = '#worker-2-cli'; await dom.fire('hashchange');
+    expect(ui.transcriptView.cli).toBe(root); expect(input.value).toBe('lush status');
+    dom.location.hash = '#worker-2-execution-cli'; await dom.fire('hashchange');
     expect(root.querySelector('.worker-cli-run').disabled).toBe(true);
-    const next = dom.node('detail').querySelector('.worker-cli'); expect(next).not.toBe(root);
+    const next = ui.transcriptView.cli; expect(next).not.toBe(root);
     expect(next.querySelector('textarea').value).toBe('');
     await boot(); expect(next.querySelector('.worker-cli-run').disabled).toBe(true);
-    const fresh = dom.node('detail').querySelector('.worker-cli');
+    const fresh = ui.transcriptView.cli;
     dom.location.hash = '#drafts'; await dom.fire('hashchange');
     expect(fresh.querySelector('.worker-cli-run').disabled).toBe(true); expect(ui.view.id).toBe('drafts');
-    expect(calls.some(path => path.endsWith('/api/action'))).toBe(false);
+    expect(world.state.actions.filter(action => action.method === 'worker.cli_history')).toHaveLength(3);
+    expect(world.state.actions.some(action => ['worker.cli_preview', 'worker.cli_execute', 'worker.cli_history_clear'].includes(action.method))).toBe(false);
     expect(calls.some(path => /\/(transcript|diff|history|usage)(\?|$)/.test(path))).toBe(false);
   } finally { ui.disposeWorkerCli?.(); dom.restore(); }
 });

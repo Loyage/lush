@@ -10,7 +10,7 @@ test('CLI interaction entry preserves project and uses strict reloadable Worker 
   const dom = installDom(); dom.location.pathname = '/p/0123456789abcdef/';
   try {
     const link = workerCliLink({ id: 42, worker_number: 'W333', task_kind: 'order' });
-    expect(link.textContent).toBe('打开 CLI 交互'); expect(link.href).toBe('/p/0123456789abcdef/#worker-42-cli');
+    expect(link.textContent).toBe('打开 CLI 交互'); expect(link.href).toBe('/p/0123456789abcdef/#worker-42-execution-cli');
     expect(link.target).toBe('_blank'); expect(link.rel).toBe('noopener'); expect(link.onclick).toBeFalsy();
     expect(link.classList.contains('nav-link')).toBe(true);
     expect(workerCliTarget('#worker-42-cli')).toEqual({ taskId: 42 });
@@ -32,6 +32,8 @@ test('execution and code reader entries use project-scoped native new-tab links'
     }
     expect(executionTarget('#worker-42-execution')).toEqual({ taskId: 42, mode: 'transcript' });
     expect(executionTarget('#worker-42-execution-code')).toEqual({ taskId: 42, mode: 'code' });
+    expect(executionTarget('#worker-42-execution-cli')).toEqual({ taskId: 42, mode: 'cli' });
+    expect(executionTarget('#worker-42-execution-performance')).toEqual({ taskId: 42, mode: 'performance' });
     expect(ui.selected).toBe(selected); expect(ui.transcriptView).toBe(reader); expect(dom.node('detail').scrollTop).toBe(321);
   } finally { dom.restore(); }
 });

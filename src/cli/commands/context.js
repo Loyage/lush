@@ -6,7 +6,7 @@ import { run as runProgress } from './progress.js';
 
 export async function run(command, args, ctx) {
   const { client } = ctx, verb = args.shift();
-  check(Boolean(client.token), 'lushw data commands require an active Worker invocation');
+  check(Boolean(client.token || ctx.userContext), 'lushw data commands require an active Worker invocation');
   if (command === 'self' && verb === 'progress') {
     return runProgress('progress', args, { ...ctx, client: { token: client.token, request: (method, params) => client.request(
       method === 'progress.plan' ? 'context.progress_plan' : 'context.progress_complete', params) } });

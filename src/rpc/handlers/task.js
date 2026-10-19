@@ -3,9 +3,12 @@ import { validateWorkerQuery } from '../../core/worker-query.js';
 import { managementCalls } from '../../core/project/management-calls.js';
 import { MANAGEMENT_READ_ITEMS } from '../../core/project/management-data.js';
 import { previewWorkerCLI, executeWorkerCLI } from '../../core/worker-cli.js';
+import { workerCLIHistory, clearWorkerCLIHistory } from '../../core/worker-cli-history.js';
 
 /** worker.* (persistent Task data and internal methods keep their names). */
 export const handlers = {
+  'worker.cli_history'(p, params) { return workerCLIHistory(p, params); },
+  'worker.cli_history_clear'(p, params) { return clearWorkerCLIHistory(p, params); },
   'worker.cli_preview'(p, params) { return previewWorkerCLI(p, params); },
   'worker.cli_execute'(p, params) { return executeWorkerCLI(p, params); },
   'worker.auto_title'(p, params, actor) { return p.setTaskAutoTitle(actor, params.title); },

@@ -7,6 +7,7 @@ import { CLI_COMMANDS, CLI_EXECUTABLES, commandExecutables } from '../cli/catalo
 import { ROOT } from '../identity.js';
 import { check, id } from './types.js';
 import { commandEnvironment } from './workspaces/command.js';
+import { beginCLIHistory, finishCLIHistory } from './worker-cli-history.js';
 
 export const WORKER_CLI_LIMITS = Object.freeze({ command_bytes: 8192, arguments: 128, timeout_ms: 15000, output_bytes: 65536 });
 const context = new AsyncLocalStorage();
@@ -53,11 +54,14 @@ export function parseWorkerCLI(command) {
     .filter(item => !item.directory && item.path.split(' ').every((part, index) => args[index] === part))
     .sort((a, b) => b.path.length - a.path.length)[0];
   check(entry && commandExecutables(entry).includes(executable), 'command is not available from this CLI entry point');
+  check(help || !entry.rpc.some(method => method.startsWith('context.')) || entry.user_context_rpc,
+    'command is Agent invocation only; no user-equivalent operation');
   check(help || !['worker watch','worker wait','agent sources login'].includes(entry.path)
     && !/^(daemon|host) (start|stop|restart)$/.test(entry.path), 'command requires an interactive or persistent terminal and is not supported here');
   // Never permit an argument to select a second executable; the fixed bin parses every remaining value.
   return { command, executable, argv: words, path: entry.path, kind: entry.kind,
-    requires_confirmation: !['read','local-read'].includes(entry.kind), rpc: help ? [] : [...entry.rpc] };
+    requires_confirmation: !['read','local-read'].includes(entry.kind), rpc: help ? [] : [...entry.rpc, ...(entry.user_context_rpc ? [entry.user_context_rpc] : [])],
+    user_context_rpc: help ? null : entry.user_context_rpc, context_method: help ? null : entry.rpc.find(method => method.startsWith('context.')) ?? null };
 }
 
 export function cliLeaseBlocks(project) {
@@ -69,7 +73,9 @@ export async function dispatchWorkerCLI(project, method, params, actor, run) {
   const marker = params._cli_trial;
   const lease = marker && project.cliRunning?.get(marker);
   check(marker === undefined || typeof marker === 'string' && /^[a-f0-9]{64}$/.test(marker)
-    && actor === null && lease && !lease.closed && lease.rpc.includes(method), 'invalid CLI execution context');
+    && actor === null && lease && !lease.closed && lease.rpc.includes(method)
+    && (!lease.userRPC || method === lease.contextMethod || method === lease.userRPC && context.getStore() === lease),
+  'invalid CLI execution context');
   check(!cliLeaseBlocks(project) || lease === project.cliMutation, 'Worker CLI execution is in progress; inspect before retrying');
   if (reclamation.has(method)) for (const running of project.cliRunning?.values() ?? [])
     check(!usesWorkspace(project, running, method, params), 'Worker CLI still uses this workspace; reclamation or synchronization must wait');
@@ -81,6 +87,7 @@ export async function dispatchWorkerCLI(project, method, params, actor, run) {
 
 function workspace(project, taskId, mutating) {
   const task = project.store.task(id(taskId));
+  check(!project.workerDeleteIds?.has(task.id), 'Worker deletion is in progress; CLI execution is unavailable');
   check(['order','child'].includes(task.task_kind) && task.workspace && task.branch, 'CLI requires an order/child dedicated worktree');
   check(!project.store.executionRetired(task.id), 'retired Worker has no executable worktree');
   const branch = project.store.branch(task.branch);
@@ -122,7 +129,7 @@ async function preview(project, params) {
 }
 
 export async function previewWorkerCLI(project, params) {
-  const { rpc: _rpc, ...value } = await preview(project, params);
+  const { rpc: _rpc, user_context_rpc: _userRPC, context_method: _contextMethod, ...value } = await preview(project, params);
   const previews = project.cliPreviews ??= new Map(), revision = randomBytes(32).toString('hex');
   previews.set(revision, { state: value.revision, expires: Date.now() + 300000 });
   if (previews.size > 128) previews.delete(previews.keys().next().value);
@@ -194,7 +201,8 @@ export async function executeWorkerCLI(project, params) {
   if (initial.requires_confirmation) check(project.maintenanceView().ready_to_restart, 'project has active calls or background work; modifications must wait');
   // Claim BEFORE asynchronous identity checks. No queueing/retry: each preview is consumed once.
   const source = workspace(project, params.id, initial.requires_confirmation);
-  const lease = { rpc: initial.rpc, taskId: source.task.id, branch: source.task.branch, workspace: source.actual,
+  const lease = { rpc: initial.rpc, contextMethod: initial.context_method, userRPC: initial.user_context_rpc,
+    taskId: source.task.id, branch: source.task.branch, workspace: source.actual,
     pending: new Set(), controller: new AbortController() }, marker = randomBytes(32).toString('hex');
   (project.cliRunning ??= new Map()).set(marker, lease);
   if (initial.requires_confirmation) project.cliMutation = lease;
@@ -208,9 +216,14 @@ export async function executeWorkerCLI(project, params) {
     const { actual } = workspace(project, params.id, initial.requires_confirmation);
     // Consume BEFORE spawn, including unknown outcomes. A fresh preview is an explicit new action, not a retry.
     project.cliPreviews.delete(params.revision);
+    // Persist unknown BEFORE spawn: a crash must never make execution disappear or suggest a retry.
+    const history = beginCLIHistory(project, source.task.id, value.command, actual);
     const result = await runWorkerCLI([path.join(ROOT, 'bin', value.executable), '--project', project.config.project, ...value.argv],
       actual, environment(project, marker), { ...project.workerCLIOptions, signal: lease.controller.signal });
-    return { command: value.command, workspace: actual, ...result };
+    let history_error;
+    try { finishCLIHistory(project, source.task.id, history.history_id, result); }
+    catch { history_error = 'CLI executed but history result could not be saved; inspect the outcome, do not replay'; }
+    return { command: value.command, workspace: actual, ...result, ...history, ...(history_error ? { history_error } : {}) };
   });
   const release = () => {
     project.cliRunning.delete(marker); if (project.cliMutation === lease) project.cliMutation = null;

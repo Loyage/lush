@@ -176,8 +176,8 @@ function openHashTarget(hash, project, doc, generation) {
   const input = /^#input-(draft|input|message|management)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
   const cli = workerCliTarget(hash);
-  if (cli) return openPage(() => import('./worker-cli-page.js'), module => module.openWorkerCliPage(cli), 'worker-cli',
-    { key: `worker-cli-${cli.taskId}`, push: false, hash });
+  if (cli) return openPage(() => import('./worker-cli-page.js'), module => module.openWorkerCliPage(cli), 'execution',
+    { key: `execution-${cli.taskId}-cli`, push: false, hash });
   const execution = executionTarget(hash);
   if (execution) return openPage(() => import('./execution-page.js'), module => module.openExecutionPage(execution), 'execution',
     { key: `execution-${execution.taskId}-${execution.mode}`, push: false, hash });

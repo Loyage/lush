@@ -34,7 +34,7 @@ export function managementDispatchParams(method, params) {
 const unavailable = new Set([
   'management.emergency_preview','management.emergency_stop', // User-only emergency; never a delegable capability.
   'worker.management_calls', // User-only audit; not an additional Agent read capability.
-  'cli.catalog','worker.cli_preview','worker.cli_execute', // User learning/trial surfaces, never manager tools.
+  'cli.catalog','worker.cli_preview','worker.cli_execute','worker.cli_history','worker.cli_history_clear', // User learning/trial surfaces, never manager tools.
   'hooks.automation_settings','worker.acceptance_notice', // user configuration, never model-authorized
   'management.permissions','management.permissions_update','management.submit','management.create','management.binding_update', // no self-replicating managers/authorization changes
   'worker.create','worker.spawn','worker.integrate','worker.resolve_child_divergence','notice.post',

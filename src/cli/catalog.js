@@ -198,6 +198,12 @@ const lifecycleNotes = {
   'worker completion': '验收不调用评审 Agent，脏工作区阻止自动回收；CLI 只接受 off/merge/accept。',
   'worker delete': '用户先运行 worker delete-preview ID 预检，再用 worker delete ID --confirm --revision REV 精确确认；强制模式两步均须 --force。管家须停用授权、模型真实退出且 occurrence／确认／受控操作安全收口后重新预检；unknown 副作用阻止删除。安全收口的 waiting 管家无需开发验收；仅删除专属非 Git 目录与历史，不删除其创建的开发 Worker 或时间信号。',
 };
+// The sole user-context command capability map. Absence means invocation-only.
+// Values are existing user-equivalent RPCs, not an arbitrary proxy permission.
+const userContextRPC = {
+  inspect: 'worker.inspect', history: 'worker.history', transcript: 'worker.transcript',
+  message: 'worker.message',
+};
 export const CLI_OPERATIONS = Object.freeze(['read', 'write']);
 // Classification describes the whole CLI entry, independently of RPC authorization.
 // Preparatory reads do not make a mutating command read-only.
@@ -205,7 +211,11 @@ const operationFor = entry => ['read', 'local-read'].includes(entry.kind) ? 'rea
 export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
   const numbered = entry.path.startsWith('worker ') && !['worker list','worker auto-title','worker merge-all'].includes(entry.path)
     || ['notice post','hooks management enable','hooks management disable'].includes(entry.path);
-  return Object.freeze({ ...entry, operation: entry.directory ? null : operationFor(entry),
+  const parts = entry.path.split(' ');
+  const userRPC = /^(self|parent|children)$/.test(parts[0])
+    ? userContextRPC[parts[1]] ?? ({ 'children list': 'worker.relations', 'children spawn': 'worker.spawn',
+      'children accept': 'worker.accept', 'self notice post': 'notice.post' })[entry.path] : undefined;
+  return Object.freeze({ ...entry, user_context_rpc: userRPC ?? null, operation: entry.directory ? null : operationFor(entry),
     advanced: [entry.advanced, lifecycleNotes[entry.path]].filter(Boolean).join(' '),
     risk: lifecycleNotes[entry.path],
     // ID below accepts the stable W/V forms described in shared help and detail notes.

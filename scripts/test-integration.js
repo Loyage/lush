@@ -13,7 +13,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-loading-assets.test.js', // lazy page boot
     'test/web/dom-detail.test.js', // Worker detail -> independent reader, without a Worker-return action
     'test/web/dom-task-graph-integration.test.js', // tree keeps only merge status; full scope/helper/diagnostics remain in Worker details
-    'test/web/dom-worker-cli-api.test.js', // detail -> standalone CLI page -> Ctrl+Enter -> authenticated preview/confirmation -> real CLI and lifecycle
+    'test/web/dom-worker-cli-api.test.js', // detail -> fullscreen fourth CLI tab (legacy/new links) -> Ctrl+Enter -> authenticated preview/confirmation -> real CLI and lifecycle
     'test/web/reading-conversation-integration.test.js', // input/output -> HTTP segmented raw copy
     'test/web/dom-navigation-links.test.js', // independent reader links
     'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
@@ -36,6 +36,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/worker-create-bridge.test.js', // user CLI -> user-only RPC -> paused creation -> controlled Pi fork/spawn
     'test/project/worker-child-create.test.js', // explicit current parent + self/direct-child source -> real CLI/Pi, ancestry and Git-wait relation guards
     'test/worker-cli-trial.test.js', // user HTTP -> fixed real CLI -> daemon; confirmation, worktree admission, limits and unknown effects
+    'test/worker-cli-user-context.test.js', // user lease -> fixed lushw -> original user RPC; relation/token isolation and lifecycle
+    'test/worker-cli-history.test.js', // authenticated encrypted history, byte pagination, unknown recovery and deletion exclusion
+    'test/project/worker-cli-deletion.test.js', // exact ciphertext reclamation, shared key preservation, drift/symlink and in-flight exclusion
     'test/web/automation-registry-api.test.js', // authenticated HTTP -> register-only, explicit mount/upgrade and auth rejection
     'test/web/silent-maintenance.test.js', // authenticated HTTP/RPC -> maintenance -> Host silent-batch evidence
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git state/tree/content/diff
@@ -70,7 +73,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation.test.js', // navigation main flow
     'test/web/dom-detail-layout-preferences.test.js', // confirmed detail hierarchy
     'test/web/version-lineage.test.js', // fixed dual lanes, curved Git/receipt routing, exact anchors and default disclosure
-    'test/web/dom-worker-cli.test.js', // visible CLI editor, keyboard/IME guards, inline results, confirmation and request disposal
+    'test/web/dom-worker-cli.test.js', // bottom CLI editor, keyboard/IME guards, ordered terminal results and confirmation
+    'test/web/dom-worker-cli-history.test.js', // optional history paging/clear races and four-tab retained state/reader lifecycle
     'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
     'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
     'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay

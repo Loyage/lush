@@ -8,7 +8,9 @@ W332／D695：`lush` 面向用户／Valet 的项目管理，`lushw`（Lush Worke
 
 这是破坏性迁移：旧 `lushw worker/branch/status/progress` 及 `lushw notice post/list` 不保留。自身查询改用 `self inspect/history/transcript`；父查询／消息用 `parent inspect/message`；直接 child 的分页、查询、派工、消息和安全验收用 `children …`；标题、Notice 与进度归 `self`。精确参数、完整命令与示例以 `bun run lushw help` 及 `src/cli/catalog.js` 为准，不在文档维护第二份命令清单。`skills list/get` 和本地 `notice example/check` 不需项目或 invocation。源码快捷 `bun run progress` 映射到 `lushw self progress`；`bun run message ID '说明'` 是用户管理的 `lush worker message`，不是开发消息入口。
 
-`context.*` 的参数、注册和校验同源于 `src/core/worker-context.js`，全部要求有效 invocation，拒绝未知参数；self 是默认关系，parent 自动解析，child 关系仅接受自己的直接 child（整数或真实 W 编号）。`context.children {after?,limit?}` 按 ID 升序返回 `items,total,cursor,has_more,limit`，默认50、最多200；`context.notices {before?,limit?}` 只查自身 Notice，倒序分页默认30、最多100。分页使用实际返回的 cursor；详情 `coverage=worker_context`，省略嵌套关系、收件箱、原始运行记录等，`omitted` 标明范围；历史 `coverage=event_metadata_only` 只含事件身份／类型／时间，使用 next/has_more 续读，不含事件正文。执行证据须按需读取相关 transcript，不把精简详情或历史元数据冒充全量。
+`context.*` 的参数、注册和校验同源于 `src/core/worker-context.js`，普通调用全部要求有效 invocation，拒绝未知参数；self 是默认关系，parent 自动解析，child 关系仅接受自己的直接 child（整数或真实 W 编号）。`context.children {after?,limit?}` 按 ID 升序返回 `items,total,cursor,has_more,limit`，默认50、最多200；`context.notices {before?,limit?}` 只查自身 Notice，倒序分页默认30、最多100。分页使用实际返回的 cursor；详情 `coverage=worker_context`，省略嵌套关系、收件箱、原始运行记录等，`omitted` 标明范围；历史 `coverage=event_metadata_only` 只含事件身份／类型／时间，使用 next/has_more 续读，不含事件正文。执行证据须按需读取相关 transcript，不把精简详情或历史元数据冒充全量。
+
+W348／D723：登录用户在 Worker CLI 页面执行 `lushw` 时另走用户上下文模式：self 绑定指定页面 Worker，parent／child 仍由服务端核验直接关系；只支持 catalog 标注 `user_context_rpc` 的用户等价操作，转调原管理 RPC 并重新检查用户权限、冻结及生命周期。未映射的 Agent 专属操作在 preview 拒绝；普通终端无 invocation 仍不能使用数据命令。私有关联仅属于已授权、在途且单次派发的 CLI lease，不能由环境中的 Worker ID 选择身份，不能复制／读取／伪造 Agent token，也不是通用 RPC 代理。用户详情／历史沿用用户读面，不冒充 `worker_context` 精简投影；Agent 与 Valet 的原权限不变。页面执行及加密历史边界见 [Worker CLI](rpc/tasks.md#worker-cli-交互)。
 
 后端同样限制普通 Worker 的 raw RPC 查询为自身、直接父和直接 child；拒绝项目级枚举、兄弟、孙辈和无关目标，不是只隐藏帮助目录。特殊整合 Worker 的额外只读查询须命中持久固定成员集合，不获得派工、消息或验收权限。原写入、冻结、生命周期与安全验收门保持。
 

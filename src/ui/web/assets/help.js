@@ -215,14 +215,20 @@ function onFocusIn(event) {
   const target = closestHelp(event?.target);
   if (target) delayedHelp(target);
 }
-function onFocusOut() { hideHelp(); }
+function onFocusOut(event) {
+  // Pointer-down precedes focus transfer from the editor to its action. Do not
+  // cancel that same press (or its suppressed release click) just because focus moved.
+  const pressed = pressOrigin?.target || (suppressClick ? suppressTarget : null);
+  if (pressed && closestHelp(event?.relatedTarget) === pressed) return;
+  hideHelp();
+}
 function onPressStart(event) {
   keyboardInput = false;
   hideHelp();
   if ((event?.button != null && event.button !== 0) || event?.isPrimary === false || event?.touches?.length > 1) return;
   const target = closestHelp(event?.target);
   if (!target) return;
-  pressOrigin = { x: event.clientX, y: event.clientY };
+  pressOrigin = { x: event.clientX, y: event.clientY, target };
   // 长按只读帮助，抑制随后 click / 右键菜单，避免误触按钮。
   pressTimer = later(() => {
     pressTimer = null;

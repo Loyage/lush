@@ -3,6 +3,7 @@ import { MANAGEMENT_DIAGNOSTIC_CODE, managementDiagnosticErrorMessage } from '..
 import { withManagementAudit, managementPhase } from '../core/project/management-diagnostic.js';
 import { beginManagementCall, finishManagementCall } from '../core/project/management-calls.js';
 import { dispatchWorkerCLI } from '../core/worker-cli.js';
+import { userCLIContext } from '../core/worker-cli-context.js';
 import { PARAMS, AGENT_ONLY, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { assertWorkerRead, contextDetail, contextHistory } from '../core/worker-context.js';
 import { publicResult } from './public-result.js';
@@ -57,6 +58,13 @@ export class Dispatcher {
     params = publicParams;
     // 身份解析交给 registry：只有白名单与未知参数都过了才去查 token（actor() 会写 agent_last_seen_at）。
     const p = this.project;
+    if (_cli_trial !== undefined && typeof method === 'string' && method.startsWith('context.')) {
+      // A correlation never converts an Agent/Valet token into a logged-in user.
+      check(!Object.hasOwn(params, '_token'), 'user CLI context cannot contain Agent credentials');
+      return dispatchWorkerCLI(p, method, { ...params, _cli_trial }, null, () =>
+        userCLIContext(p, p.cliRunning.get(_cli_trial), method, params,
+          (mapped, values) => this.dispatch(mapped, { ...values, _cli_trial })));
+    }
     let actor;
     try {
       actor = assertAllowed(method, params, () => p.actor(params._token));

@@ -116,7 +116,8 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
     const id = created.value.task.id;
     expect((await post('worker.cli_preview', { id, command: 'lush status' }, { anonymous: true })).code).toBe(401);
     expect((await post('worker.cli_preview', { id, command: 'lush status' }, { headers: { 'Content-Type': 'application/json', Origin: 'http://evil.invalid' } })).code).toBe(403);
-    for (const command of ['lush --json worker list', `lush worker rename ${id} actual-cli`]) {
+    for (const command of ['lush --json worker list', 'lushw --json self inspect', 'lushw --json parent inspect',
+      'lushw --json children list', `lush worker rename ${id} actual-cli`, "lushw --json self notice post 'user write' --kind info"]) {
       const preview = await post('worker.cli_preview', { id, command }); expect(preview.code).toBe(200);
       const result = await post('worker.cli_execute', { id, command, revision: preview.value.revision, confirm: true });
       expect(result.code).toBe(200); expect(result.value).toMatchObject({ status: 'succeeded', exit_code: 0 });
@@ -124,6 +125,18 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
     }
     const { UIClient } = await import('../src/ui/client.js');
     expect((await new UIClient(config).request('worker.inspect', { id })).display_title).toBe('actual-cli');
+    const saved = await post('worker.cli_history', { id });
+    expect(saved.value.entries).toHaveLength(6);
+    await cli(root, ['stop']);
+    // A durable pre-spawn placeholder is intentionally never retried after daemon restart.
+    const { beginCLIHistory } = await import('../src/core/worker-cli-history.js');
+    const pending = beginCLIHistory({ config, store: { task: () => ({ id, task_kind: 'order' }) } }, id, 'interrupted before acknowledgement', created.value.task.workspace);
+    await cli(root, ['start']);
+    const restored = await post('worker.cli_history', { id });
+    expect(restored.code).toBe(200); expect(restored.value.entries.slice(0, 6)).toEqual(saved.value.entries);
+    expect(restored.value.entries.at(-1)).toMatchObject({ id: pending.history_id, status: 'unknown', exit_code: null });
+    expect((await post('worker.cli_history_clear', { id })).value).toEqual({ cleared: true });
+    expect((await post('worker.cli_history', { id })).value).toEqual({ entries: [], before: null, has_more: false });
   } finally { if (web) await web.stop(true); await cli(root, ['stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -203,9 +216,9 @@ test('mutation lease prevents concurrency/reclamation/scheduling while preservin
     expect(f.project.cliMutation).toBeNull(); expect(f.project.cliRunning.size).toBe(0);
     await until(() => !f.project.taskMergeWakePending.has(f.task.parent_id));
     // The CLI does not acquire an Agent-only identity just because the executable is lushw.
-    const agentOnly = await f.execute(await f.preview('lushw self auto-title forbidden'), true);
-    expect(agentOnly.value).toMatchObject({ status: 'failed', exit_code: 1 });
-    expect(agentOnly.value.stderr).toContain('active Worker invocation');
+    const agentOnly = await f.post('worker.cli_preview', { id: f.task.id, command: 'lushw self auto-title forbidden' });
+    expect(agentOnly.code).toBe(400);
+    expect(agentOnly.value.error).toContain('Agent invocation only');
   } finally { pending.resolve(); await f.close(); }
 });
 
@@ -310,6 +323,9 @@ test('unknown mutation keeps lease until already dispatched handler settles; rev
     await entered.promise;
     const result = await job;
     expect(result.value).toMatchObject({ status: 'unknown', timed_out: true });
+    const { workerCLIHistory, clearWorkerCLIHistory } = await import('../src/core/worker-cli-history.js');
+    expect(workerCLIHistory(f.project, { id: f.task.id }).entries.at(-1)).toMatchObject({ id: result.value.history_id, status: 'unknown', timed_out: true });
+    expect(() => clearWorkerCLIHistory(f.project, { id: f.task.id })).toThrow('in progress');
     expect(f.project.cliMutation).toBeTruthy();
     const lifetime = f.project.cliMutation.promise; let drained = false; void lifetime.then(() => { drained = true; });
     await Promise.resolve(); expect(drained).toBe(false);

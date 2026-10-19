@@ -7,15 +7,21 @@ import { openTranscriptView } from './transcript-view.js';
 /** A reloadable project-scoped destination; the reader retains its existing bounded reads. */
 export async function openExecutionPage({ taskId, mode }) {
   const view = activateDetailView({ view: 'execution', key: `execution-${taskId}-${mode}`, title: '执行详情', push: false });
-  const owner = document, path = location.pathname, hash = location.hash;
-  const current = () => document === owner && ui.view === view && location.pathname === path && location.hash === hash;
+  const owner = document, path = location.pathname, hash = location.hash, boot = ui.workerNumbers;
+  const current = () => document === owner && ui.view === view && ui.workerNumbers === boot && location.pathname === path && location.hash === hash;
   $('detail').replaceChildren(el('p', '正在读取执行详情…', 'hint'));
   try {
     const task = await api(`/api/worker/${taskId}`);
     if (!current()) return;
+    if (task?.id !== taskId) throw Error('返回的 Worker 身份不匹配。');
+    if (mode === 'cli' && (!['order', 'child'].includes(task.task_kind) || task.execution_retired === true)) throw Error('此 Worker 不支持 CLI 交互。');
     // Existing live polling follows the selected Worker, without loading its detail page.
     ui.selected = taskId;
-    await openTranscriptView(taskId, undefined, { mode, task, standalone: true });
+    const reader = ui.transcriptView;
+    if (reader?.standalone && reader.taskId === taskId && reader.mode === mode && reader.document === owner && reader.path === path && reader.hash === hash && reader.boot === boot) {
+      reader.paintStatus(task);
+    } else await openTranscriptView(taskId, undefined, { mode, task, standalone: true });
+    return ui.transcriptView?.cli;
   } catch (error) {
     if (current()) $('detail').replaceChildren(el('p', `无法打开执行详情：${error.message}`, 'error'));
   }

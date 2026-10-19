@@ -92,13 +92,13 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
     if (value !== undefined) print(value, json);
     return;
   }
-  if (executable === 'lushw') check(Boolean(process.env.LUSH_AGENT_TOKEN), 'lushw data commands require an active Worker invocation');
+  if (executable === 'lushw') check(Boolean(process.env.LUSH_AGENT_TOKEN || process.env.LUSH_CLI_TRIAL), 'lushw data commands require an active Worker invocation');
   const globalWeb = command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
   const client = globalWeb
     ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }
     : new UIClient(selectedConfig, process.env.LUSH_AGENT_TOKEN || null);
-  const value = await invoke({ client, json, executable });
+  const value = await invoke({ client, json, executable, userContext: !client.token && Boolean(process.env.LUSH_CLI_TRIAL) });
   if (value === undefined) return;
   if (value?.fingerprint) {
     const local = codeIdentity();

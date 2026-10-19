@@ -280,6 +280,8 @@ export function makeWorld() {
       const body = JSON.parse(options.body);
       if (body.method.startsWith('task.')) return { ok: false, status: 404, json: async () => ({ error: `unknown method ${body.method}` }) };
       state.actions.push(body);
+      if (body.method === 'worker.cli_history') return json({ entries: [], before: null, has_more: false });
+      if (body.method === 'worker.cli_history_clear') return json({ cleared: true });
       if (body.method === 'worker.auto_merge') return json({ task_id: body.params.id, changed: true,
         auto_merge: { enabled: body.params.enabled, locked: false, editable: true, reason: null } });
       if (body.method === 'agent.connections.query') return json(state.agentConnections);

@@ -51,6 +51,8 @@ function databasePlan(project, rootId) {
     } else if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
     if (store.executionRetired(task.id)) blockers.push(`${workerLabel(task)}: ${RETIRED_EXECUTION}`);
     if (project.running.has(task.id)) blockers.push(`${workerLabel(task)}: invocation is still exiting; wait before deletion`);
+    if ([...(project.cliRunning?.values() ?? [])].some(lease => lease.taskId === task.id))
+      blockers.push(`${workerLabel(task)}: CLI execution or its dispatched effect is still in progress; wait before deletion`);
     if (project.commandHookRunning?.has(task.id)) blockers.push(`${workerLabel(task)}: shortcut command is pending or running; wait before deletion`);
     if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);
     if (project.taskSyncBusy?.has(task.id)) blockers.push(`${workerLabel(task)}: parent synchronization is in progress`);

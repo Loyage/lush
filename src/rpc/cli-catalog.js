@@ -24,7 +24,7 @@ export function cliCatalog() {
     directory: entry.directory, operation: entry.operation, operations: [...entry.operations], description: entry.description,
     usage: entry.usage ?? `${executable} ${entry.path} <子命令>`, format: entry.format ?? `${executable} ${entry.path} <子命令>`, example: entry.example ?? null,
     risk: entry.directory ? '选择子命令查看实际调用与风险；目录本身不执行命令。' : [risks[entry.kind], entry.risk].filter(Boolean).join(' '),
-    advanced: entry.advanced ?? '',
+    advanced: entry.advanced ?? '', user_context_rpc: entry.user_context_rpc,
     rpc: entry.rpc.map(method => {
       const policy = managementPolicy(method);
       return { method, parameters: [...PARAMS[method]], ...(MERGE_CONDITION_CAPABILITIES[method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[method] ?? {}),

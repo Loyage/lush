@@ -5,11 +5,11 @@ import { renderWorkerCli } from './worker-cli.js';
 // One visible CLI page only; never retain a command session across projects or boots.
 let active = null;
 export function disposeWorkerCli() {
-  active?.node.dispose();
+  active?.node?.dispose();
   active = null;
 }
 
-export function detailWorkerCli(task) {
+export function detailWorkerCli(task, { preview, execute, loadHistory, clearHistory } = {}) {
   if (!['order', 'child'].includes(task.task_kind) || task.execution_retired === true) {
     disposeWorkerCli();
     return null;
@@ -31,10 +31,13 @@ export function detailWorkerCli(task) {
     return api(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method, params: { ...params, id: entry.id } }) });
   };
-  entry.node = renderWorkerCli(task, {
-    preview: command => request('worker.cli_preview', { command }),
-    execute: params => request('worker.cli_execute', params),
-  });
+  // Initial history loading starts during render; bind identity before callbacks run.
   active = entry;
+  entry.node = renderWorkerCli(task, {
+    preview: preview || (command => request('worker.cli_preview', { command })),
+    execute: execute || (params => request('worker.cli_execute', params)),
+    loadHistory: loadHistory || (params => request('worker.cli_history', params)),
+    clearHistory: clearHistory || (() => request('worker.cli_history_clear', {})),
+  });
   return entry.node;
 }
