@@ -154,11 +154,35 @@ try {
   await execute(`document.querySelector('#viewport').src='/p/${projectId}/'`);
   await wait(`document.querySelector('#viewport').contentDocument?.querySelector('#tasks [data-id="${worker.id}"]')`); await frame();
   await execute(`location.hash='#worker-${worker.id}'`);
-  await wait(`document.querySelector('.code-reader-open')&&document.querySelector('.agent-panel a.nav-link')`);
+  await wait(`document.querySelector('.task-actions .worker-workbench-open')`);
+  for (const theme of ['light', 'dark']) for (const width of [1440, 768, 390, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null });
+    await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.reducedMotion='true'`);
+    const checkToolbar = async expanded => {
+      const result = await execute(`const bar=document.querySelector('.task-actions'),more=bar.querySelector('.worker-action-more');
+        const nodes=[...bar.querySelectorAll('a,button,summary')].filter(n=>n.getClientRects().length&&n.getBoundingClientRect().height>0);
+        return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,first:bar.firstElementChild.textContent,
+          beforeFacts:bar.previousElementSibling.classList.contains('task-hero'),count:document.querySelectorAll('.worker-workbench-open').length,
+          expanded:more.open,controls:nodes.map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,left:r.left,right:r.right,height:r.height}}),
+          settingsVisible:!!more.querySelector('.worker-action-settings button')?.getClientRects().length};`);
+      assert(result.width === width && !result.overflow && result.first === '打开工作台' && result.beforeFacts && result.count === 1, `toolbar hierarchy ${theme}/${width}: ${JSON.stringify(result)}`);
+      assert(result.expanded === expanded && result.settingsVisible === expanded, `toolbar disclosure ${theme}/${width}`);
+      assert(result.controls.every(n => n.left >= 0 && n.right <= width && n.height >= (width <= 760 ? 44 : 30)), `toolbar targets/fit ${theme}/${width}: ${JSON.stringify(result)}`);
+      layouts.push({ theme, width, toolbar: result });
+      await screenshot(`toolbar-${theme}-${width}-${expanded ? 'expanded' : 'compact'}`);
+    };
+    await checkToolbar(false);
+    await execute(`document.querySelector('.worker-action-more>summary').focus()`);
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'toolbar-keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+    await checkToolbar(true);
+    await execute(`document.querySelector('.worker-action-more>summary').focus()`);
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'toolbar-keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+  }
   for (const width of [1440, 320]) for (const mode of ['transcript', 'code']) {
     await rpc(`/session/${session}/frame`, { id: null });
     await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
-    const selector = mode === 'code' ? '.code-reader-open' : '.agent-panel a.nav-link';
+    const selector = '.worker-workbench-open';
     await execute(`document.querySelector('#input').value='preserve reader source draft';document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'});`);
     await click(selector);
     // Native focus may minimally reveal the anchor. Measure retained reading after that click settles.
@@ -169,12 +193,15 @@ try {
     for (let i = 0; i < 30; i++) { tabs = await rpc(`/session/${session}/window/handles`, undefined, 'GET'); if (tabs.length > 1) break; await Bun.sleep(100); }
     const tab = tabs.find(id => id !== original); assert(tab, `${mode}/${width} did not open a new tab`);
     await rpc(`/session/${session}/window`, { handle: tab });
-    const hash = `#worker-${worker.id}-execution${mode === 'code' ? '-code' : ''}`;
+    const hash = `#worker-${worker.id}-execution`;
     const active = mode === 'code' ? '.code-view' : '.transcript-viewport';
-    await wait(`location.pathname==='/p/${projectId}/'&&location.hash==='${hash}'&&document.querySelector('${active}')`);
+    await wait(`location.pathname==='/p/${projectId}/'&&location.hash==='${hash}'&&document.querySelector('.transcript-viewport')`);
+    assert(await execute(`return document.querySelector('#execution-tab-transcript-${worker.id}').getAttribute('aria-selected')==='true'&&!document.querySelector('.worker-cli')&&!document.querySelector('.code-view')`), 'workbench must default to records without eager CLI/code');
+    if (mode === 'code') { await click(`#execution-tab-code-${worker.id}`); await wait(`document.querySelector('.code-view')`); }
     assert(await execute(`return window.opener===null`), 'reader exposed opener');
     await rpc(`/session/${session}/refresh`, {});
-    await wait(`location.hash==='${hash}'&&document.querySelector('${active}')`);
+    await wait(`location.hash==='${hash}'&&document.querySelector('.transcript-viewport')`);
+    if (mode === 'code') { await click(`#execution-tab-code-${worker.id}`); await wait(`document.querySelector('.code-view')`); }
     assert(await execute(`return !document.querySelector('.transcript-back')&&!document.querySelector('#detail a[href="#worker-${worker.id}"]')`), 'standalone reader offers a Worker return entry');
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'reader-keyboard', actions: [{ type: 'keyDown', value: '\uE00C' }, { type: 'keyUp', value: '\uE00C' }] }] });
     assert(await execute(`return location.hash==='${hash}'&&!!document.querySelector('${active}')&&!document.querySelector('.transcript-back')`), 'Escape left the standalone reader');

@@ -9,7 +9,7 @@ export function executionTarget(hash) {
 
 /** Native links preserve the source project, modifiers and the original detail page. */
 export function executionLink(taskId, { mode = 'transcript', className = '', help = '' } = {}) {
-  const link = el('a', mode === 'cli' ? '打开 CLI 交互' : mode === 'code' ? '打开代码阅读器' : '打开执行详情', `nav-link ${className}`.trim());
+  const link = el('a', '打开工作台', `nav-link worker-workbench-open ${className}`.trim());
   link.href = `${projectBase()}/#worker-${taskId}-execution${['code', 'performance', 'cli'].includes(mode) ? `-${mode}` : ''}`;
   link.target = '_blank'; link.rel = 'noopener';
   if (help) link.setAttribute('data-help', help);

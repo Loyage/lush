@@ -15,7 +15,11 @@ test('Worker detail links its original Input and opens the execution reader on d
   const input = findByText(detail.querySelector('.head'), '输入 O1');
   expect(input.tagName).toBe('A'); expect(input.getAttribute('href')).toBe('#input-input-1');
   expect(world.state.transcriptAfter).toEqual([]);
-  expect(findByText(detail, '打开执行详情').target).toBe('_blank');
+  const toolbar = detail.querySelector('.task-actions');
+  const entry = findByText(toolbar, '打开工作台');
+  expect(entry.target).toBe('_blank'); expect(toolbar.children[0]).toBe(entry);
+  expect(detail.querySelectorAll('.worker-workbench-open')).toHaveLength(1);
+  for (const old of ['打开执行详情', '打开代码阅读器', '打开 CLI 交互']) expect(findByText(detail, old)).toBeNull();
   dom.location.hash = '#worker-1-execution'; await dom.fire('hashchange');
   const panel = () => dom.document.body.querySelector('.transcript-dialog');
   await until(() => panel()?.querySelector('.steps')?.children.length === 5);

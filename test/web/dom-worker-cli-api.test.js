@@ -7,6 +7,7 @@ import { repo, until, gate } from '../helpers.js';
 import { loadDetail } from '../../src/ui/web/assets/detail.js';
 import { detailWorkerCli, disposeWorkerCli } from '../../src/ui/web/assets/worker-cli-detail.js';
 import { openWorkerCliPage } from '../../src/ui/web/assets/worker-cli-page.js';
+import { openExecutionPage } from '../../src/ui/web/assets/execution-page.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 import { openResource } from '../../src/ui/web/assets/sidebar-ui.js';
@@ -22,6 +23,42 @@ function controls(node) {
   };
 }
 
+test('unified workbench → default records → overview polling → CLI tab → authenticated real CLI result without eager execution', async () => {
+  const f = await setup(); await repo(f.root); f.project.kick = () => {};
+  const calls = [], dom = installDom({ fetch: (url, options) => {
+    if (options?.method === 'POST') calls.push(JSON.parse(options.body));
+    return httpFetch(f.url + url, options);
+  } });
+  resetUiState();
+  const disposePolling = initRefreshPolling();
+  const restore = registerNavigation({ detail: loadDetail });
+  try {
+    const task = (await f.project.order('unified workbench chain', null, [], null, false)).task;
+    await loadDetail(task.id);
+    const entry = dom.node('detail').querySelector('.worker-workbench-open');
+    dom.location.hash = new URL(entry.href, 'http://fixture').hash;
+    await openExecutionPage({ taskId: task.id, mode: 'transcript' });
+    expect(ui.transcriptView.mode).toBe('transcript'); expect(calls).toEqual([]);
+    await refresh({ force: true });
+    expect(Object.hasOwn(ui.lastSnapshot.tasks.find(row => row.id === task.id), 'workspace')).toBe(false);
+    expect(calls).toEqual([]);
+    const tabs = ui.transcriptView.panel.querySelectorAll('[role="tab"]');
+    expect(tabs).toHaveLength(4); await tabs[3].onclick();
+    const cli = ui.transcriptView.cli; await cli.ready;
+    expect(calls.map(call => call.method)).toEqual(['worker.cli_history']);
+    expect(cli.querySelector('.worker-cli-workspace').textContent).toBe(task.workspace);
+    const c = controls(cli); c.edit('lushw --json self inspect'); await c.send();
+    expect(calls.map(call => call.method)).toEqual(['worker.cli_history', 'worker.cli_preview', 'worker.cli_execute']);
+    expect(JSON.parse(cli.querySelector('.worker-cli-output').textContent)).toMatchObject({ id: task.id, workspace: task.workspace });
+    c.edit('lush help'); await refresh({ force: true });
+    expect(cli.querySelector('.worker-cli-run').disabled).toBe(false);
+    expect(cli.querySelector('.worker-cli-status').textContent).toBe('执行成功。');
+    await tabs[1].onclick(); expect(ui.transcriptView.code).toBeTruthy();
+    await tabs[3].onclick(); expect(ui.transcriptView.cli).toBe(cli); expect(c.input.value).toBe('lush help');
+    expect(calls.filter(call => call.method === 'worker.cli_execute')).toHaveLength(1);
+  } finally { disposePolling(); ui.closeTranscriptView?.(); disposeWorkerCli(); restore(); resetUiState(); dom.restore(); await f.close(); }
+});
+
 test('fourth CLI tab → overview polling → real lush/lushw → encrypted history reload and confirmed clear without replay', async () => {
   const f = await setup(); await repo(f.root); f.project.kick = () => {};
   const calls = [];
@@ -36,8 +73,8 @@ test('fourth CLI tab → overview polling → real lush/lushw → encrypted hist
   try {
     const task = (await f.project.order('CLI detail integration', null, [], null, false)).task;
     await loadDetail(task.id);
-    const link = dom.node('detail').querySelector('.worker-cli-open');
-    expect(link.target).toBe('_blank'); expect(link.href).toBe(`/#worker-${task.id}-execution-cli`);
+    const link = dom.node('detail').querySelector('.worker-workbench-open');
+    expect(link.target).toBe('_blank'); expect(link.href).toBe(`/#worker-${task.id}-execution`);
     expect(dom.node('detail').querySelector('.worker-cli')).toBeNull();
     dom.location.hash = `#worker-${task.id}-cli`;
     const root = await openWorkerCliPage({ taskId: task.id }), c = controls(root);

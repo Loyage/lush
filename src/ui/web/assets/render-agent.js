@@ -3,7 +3,6 @@ import { lastView, money, relative, tokens } from './format.js';
 import { tokensChip } from './render-transcript.js';
 import { ui } from './state.js';
 import { show } from './messages.js';
-import { executionLink } from './execution-route.js';
 
 import { copyText } from './clipboard.js';
 
@@ -64,10 +63,6 @@ export function renderAgent(task, usage) {
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
   const process = block('执行过程');
-  const controls = el('div', undefined, 'actions');
-  controls.append(executionLink(task.id,
-    { help: '在新标签页全屏阅读执行记录，可切换正序和倒序、搜索完整历史；只读，不执行命令，也不调用 Agent。' }));
-  process.append(controls);
   // 只复制终端内观看命令；项目来自本页固定来源，单引号避免路径成为 Shell 代码。
   const project = ui.lastSnapshot?.status?.project;
   const projectArg = typeof project === 'string' && project ? ` --project '${project.replaceAll("'", "'\\''")}'` : '';

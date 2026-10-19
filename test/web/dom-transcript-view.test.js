@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { installDom, deepText, findByText } from '../dom-stub.js';
 import { openTranscriptView, closeTranscriptView } from '../../src/ui/web/assets/transcript-view.js';
-import { renderAgent } from '../../src/ui/web/assets/render-agent.js';
+import { detailActions } from '../../src/ui/web/assets/detail-actions.js';
 import { appendTranscriptSteps, paintTranscript, loadTranscript, transcriptMatch } from '../../src/ui/web/assets/render-transcript.js';
 import { resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { ui, transcriptCache } from '../../src/ui/web/assets/state.js';
@@ -116,9 +116,9 @@ test('execution reader switches order, pairs live results and returns to Worker 
   } });
   const taskId = 998; ui.selected = taskId; writePref('transcriptOrder', 'desc');
   try {
-    const agent = renderAgent({ id: taskId }, { files: ['a'], totals: {} }); dom.node('detail').append(agent);
+    const toolbar = detailActions({ id: taskId }).root; dom.node('detail').append(toolbar);
     expect(requests).toHaveLength(0); await refreshDevicePreferences();
-    const trigger = findByText(agent, '打开执行详情'); trigger.focus(); dom.node('detail').scrollTop = 420;
+    const trigger = findByText(toolbar, '打开工作台'); trigger.focus(); dom.node('detail').scrollTop = 420;
     await openTranscriptView(taskId); const panel = ui.transcriptView.panel;
     expect(panel.querySelector('.transcript-back').textContent).toBe('返回 Worker');
     let list = panel.querySelector('.steps');

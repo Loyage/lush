@@ -60,7 +60,7 @@ test('retired task detail preserves historical output and code reader but no mut
         const panel = dom.node('detail');
         expect(panel.querySelector('.execution-retired').textContent).toContain('不再续跑、迁移或回收');
         expect(deepText(panel)).toContain('保留的历史结果');
-        expect(panel.querySelector('.code-reader-open')).toBeTruthy();
+        expect(panel.querySelector('.worker-workbench-open')).toBeTruthy();
         expect(panel.querySelector('.worker-runner')).toBeNull();
         expect(panel.querySelector('.worker-hooks')).toBeNull();
         expect(panel.querySelector('.task-actions').querySelectorAll('button').map(node => node.textContent)).toEqual(['刷新详情']);

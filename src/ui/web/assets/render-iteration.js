@@ -48,7 +48,7 @@ export function guardedAction(node, reason) {
 }
 
 /** Detail and graph share the same non-Agent acceptance/sync and explicit Agent conflict path. */
-export function iterationControls(task, { refresh = () => {}, events = [], showParentDistance = false } = {}) {
+export function iterationControls(task, { refresh = () => {}, events = [], showParentDistance = false, onRebuild = () => {}, root = null } = {}) {
   if (task.execution_retired === true || !isIterationTask(task) || isHistoricalDelivery(task)) return null;
   const ended = ['completed', 'failed', 'cancelled'].includes(task.status);
   const accepted = task.accepted === true || events.some(event => event.type === 'task.accepted');
@@ -59,7 +59,8 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
   const reclaimAccepted = task.status === 'completed' && accepted && Boolean(task.branch)
     && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived;
   if (ended && !historical && !reclaimAccepted && !recovery) return null;
-  const panel = el('div', undefined, 'iteration-controls');
+  const panel = root || el('div', undefined, 'iteration-controls');
+  panel.replaceChildren();
   const view = ui.view, scope = projectBase(), owner = globalThis.document;
   const owns = () => ui.view === view && projectBase() === scope && !routeContext().invalid && globalThis.document === owner;
   const actions = el('div', undefined, 'actions iteration-actions');
@@ -175,18 +176,20 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
       }
     }
     if (reclaimAccepted || recovery) { panel.append(actions); return panel; }
-    actions.append(guardedAction(button('同步父分支', async () => {
+    const sync = guardedAction(button('同步父分支', async () => {
       try {
         const result = await action('worker.sync_parent', { id: task.id });
         if (result.conflict) {
           task.parent_sync_conflict = { source_commit: result.source_commit, parent_commit: result.parent_commit, reason: result.reason };
           show(`同步冲突：${result.reason || '请单独点击「Agent 解决同步冲突」'}。未启动 Agent。`, 'error');
-          const diagnosis = iterationControls(task, { refresh, events, showParentDistance });
-          panel.replaceChildren(...diagnosis.children);
+          iterationControls(task, { refresh, events, showParentDistance, onRebuild, root: panel });
+          // Detail may present action rows elsewhere; keep its slots current before refresh.
+          onRebuild(panel);
         } else show(result.synced ? '已同步父分支；未调用 Agent。' : result.reason || '已与父分支同步。');
         await refresh();
       } catch (error) { show(error.message, 'error'); }
-    }, 'ghost', { help: '只在当前 Worker 分支安全吸收父分支提交；无冲突由程序完成，冲突只显示诊断，不调用 Agent，不推进父分支。' }), reason));
+    }, 'ghost', { help: '只在当前 Worker 分支安全吸收父分支提交；无冲突由程序完成，冲突只显示诊断，不调用 Agent，不推进父分支。' }), reason);
+    sync.classList.add('iteration-sync-control'); actions.append(sync);
     if (showParentDistance) {
       const { ahead, behind } = task.parent_relation || {};
       const distance = el('span', undefined, 'parent-commit-distance');

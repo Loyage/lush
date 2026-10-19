@@ -24,7 +24,7 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
 import { renderWorkerVersions, disposeWorkerVersions } from './render-versions.js';
 import { renderWorkerRelations } from './render-worker-relations.js';
-import { workerCliLink } from './worker-cli-route.js';
+import { detailActions } from './detail-actions.js';
 import { deliveryControls } from './render-delivery.js';
 import { integrationControl, integrationSummary, integrationDetails } from './render-integration.js';
 import { workerHooks } from './render-hooks.js';
@@ -76,6 +76,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   progressivePanels.get(panel)?.dispose();
   progressivePanels.delete(panel);
   const sameTask = panel.dataset.taskId === String(task.id);
+  const moreActionsOpen = sameTask && panel.querySelector('.worker-action-more')?.open === true;
   const previousConversation = sameTask ? panel.querySelector('.conversation-panel') : null;
   const previousTimeline = sameTask ? panel.querySelector('.worker-timeline-panel') : null;
   const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
@@ -108,6 +109,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
+  const toolbar = detailActions(task, { open: moreActionsOpen });
+  const actions = toolbar.work;
+  panel.append(toolbar.root);
   if (task.execution_retired === true) panel.append(el('p',
     '远端执行已退役：此 Worker 仅保留只读历史与固定提交，不再续跑、迁移或回收远端资源。新工作请在本机新建 Worker。',
     'hint execution-retired'));
@@ -122,13 +126,12 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
   const creationFacts = workerCreationFacts(task); if (creationFacts) panel.append(creationFacts);
-  const actions = el('div', undefined, 'actions task-actions');
-  const childCreate = workerCreateControl(task); if (!readOnly && childCreate) actions.append(childCreate);
+  const childCreate = workerCreateControl(task); if (!readOnly && childCreate) toolbar.add('collaboration', childCreate);
   if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
     const help = waitingFirstInput(task) ? FIRST_INPUT_HELP : '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
     actions.append(guardedAction(button(waitingFirstInput(task) ? '输入工作指令' : '追加输入', () => appendToWorker(task), undefined, { help }), appendInputBlocker(task)));
   }
-  if (!readOnly) actions.append(workerRenameControl(task, { refresh: () => detail(task.id) }));
+  if (!readOnly) toolbar.add('settings', workerRenameControl(task, { refresh: () => detail(task.id) }));
   const queueText = inputQueueText(task);
   if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
   const managementFailure = management ? renderManagementFailure(task) : null;
@@ -150,7 +153,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     const host = el('span', undefined, 'help-host');
     host.setAttribute('data-help', `${workerLabel(freeze.task_id)} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突 Worker 作废），${task.target_branch} 上的合并才能继续。`);
     host.append(node);
-    actions.append(host);
+    toolbar.add('delivery', host);
   } else if (!readOnly && !task.task_kind && task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
     const live = resolver && !TERMINAL_STATUS.has(resolver.status);
     const readyResolver = resolver && resolver.status === 'completed' && ['pending', 'review'].includes(resolver.integration)
@@ -181,8 +184,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       const host = el('span', undefined, 'help-host');
       host.setAttribute('data-help', `${workerLabel(resolver)} 正在解冲突：等它结束，或者先取消它再重试。`);
       host.append(node);
-      actions.append(host);
-    } else actions.append(node);
+      toolbar.add('delivery', host);
+    } else toolbar.add('delivery', node);
   }
   if (!readOnly && !waitingFirstInput(task) && ['failed', 'cancelled'].includes(task.status) && ['order','child'].includes(workerKind(task))
     && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
@@ -193,7 +196,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const acceptedWorker = task.accepted === true || (history?.events || []).some(event => event.type === 'task.accepted');
   const cleanableWorker = !['order', 'child'].includes(workerKind(task))
     || ['failed', 'cancelled'].includes(task.status) || (task.status === 'completed' && !acceptedWorker);
-  if (!readOnly && task.branch_archive?.archivable && cleanableWorker) actions.append(button('清理资源', () => runBranchArchive(
+  if (!readOnly && task.branch_archive?.archivable && cleanableWorker) toolbar.add('danger', button('清理资源', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
     { help: BRANCH_ARCHIVE_HELP }));
   // 中断只是可撤销的意图；请求期间即可继续、调整下一轮设置或明确放弃。
@@ -218,10 +221,10 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       catch (error) { show(`无法${neverStarted ? '开始' : '继续'}：${error.message}`, 'error'); }
       await detail(task.id);
     }, undefined, { agent: true, help: agentHelp('撤销尚未生效的中断；若已暂停，则请求按当前运行设置调度 Agent。无需等待旧调用释放，重复继续不重复启动；工作区、提交、会话与消息保留。') }));
-    if (liveWorkTask && (task.status === 'paused' || interruptRequested)) actions.append(button('调整运行设置', async () => {
+    if (liveWorkTask && (task.status === 'paused' || interruptRequested)) toolbar.add('settings', button('调整运行设置', async () => {
       if (await configureTask(task)) await detail(task.id);
     }, 'ghost', { help: '在同一面板调整配置模式、Agent、模型来源、模型与思考深度，高级设置包含 Prompt、扩展、Skills、预算和环境变量；保留未修改设置，不启动 Agent，不改变当前调用。' }));
-    actions.append(button('放弃 Worker', async () => {
+    toolbar.add('danger', button('放弃 Worker', async () => {
       const confirmed = await confirmDialog({
         title: '放弃这个 Worker 树？',
         message: '放弃这条 Worker 及所有子 Worker（进入已取消），工作区与分支保留；放弃后不能直接恢复。',
@@ -233,16 +236,18 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }, 'danger', { help: '放弃这条 Worker 及它下面的全部子 Worker，工作区与分支保留；这是不可恢复的终态操作。' }));
   }
   if (task.divergence_resolution) {
-    actions.append(button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link', { worker: task.parent_id }));
+    toolbar.add('utility', button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link', { worker: task.parent_id }));
   }
   const clearOverride = readOnly ? null : clearOverrideControl(task, () => detail(task.id));
-  if (clearOverride) actions.append(clearOverride);
+  if (clearOverride) toolbar.add('settings', clearOverride);
   const valetControls = management && task.execution_retired !== true ? valetLifecycleControls(task, { refresh: () => detail(task.id) }) : null;
-  if (valetControls) actions.append(valetControls);
+  if (valetControls) {
+    toolbar.add('work', valetControls.querySelector('.valet-append-control'));
+    if (valetControls.children.length) toolbar.add('danger', valetControls);
+  }
   const deletion = workerDeleteControl(task);
-  if (deletion) actions.append(deletion);
-  actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
-  panel.append(actions);
+  if (deletion) toolbar.add('danger', deletion);
+  toolbar.add('utility', button('刷新详情', () => detail(task.id), 'ghost'));
   const source = management || ['order', 'child'].includes(workerKind(task)) ? modelSourceSummary(task, history?.events, connections) : null;
   if (source) {
     panel.append(source);
@@ -276,10 +281,15 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       if (control) panel.append(control);
     }
   }
-  const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true });
-  if (iteration) panel.append(iteration);
+  const placeIteration = section => {
+    toolbar.adopt(section, '.iteration-sync-control', 'settings');
+    toolbar.adopt(section, '.parent-commit-distance', 'settings');
+    toolbar.adopt(section, '.iteration-actions');
+  };
+  const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true, onRebuild: placeIteration });
+  if (iteration) { placeIteration(iteration); panel.append(iteration); }
   const delivery = management ? null : deliveryControls(task, { refresh: () => detail(task.id) });
-  if (delivery) panel.append(delivery);
+  if (delivery) { toolbar.adopt(delivery, '.delivery-actions'); panel.append(delivery); }
   const hooks = readOnly ? null : previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
   if (hooks) {
     if (hookManagementOpen) hooks.querySelector('.hook-management').open = true;
@@ -403,8 +413,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     panel.append(record);
   }
   panel.append(...(relations ? [relations] : []), stats, ...supplemental);
-  const cli = workerCliLink(task);
-  if (cli) panel.append(cli);
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
