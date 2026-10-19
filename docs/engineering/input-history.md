@@ -84,12 +84,12 @@ D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手�
 
 ## 验证入口与边界
 
-当前保留 `test/project/input-history.test.js`、Web 输入历史 API 与编辑／发送主流程，以及 `test/web/dom-inputs-api.test.js` 的真实临时 HTTP／RPC／SQLite／Git 链；不连接用户项目。键盘模式、条件历史、迟到响应和冻结等组合不再逐项回归；精确 Web 入口用 `bun run test:integration --list` 查询，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
+当前保留 `test/project/input-history.test.js` 的草稿编辑／发射主流程，以及 `test/web/dom-inputs-api.test.js` 的真实临时 HTTP／RPC／SQLite／Git 链；不连接用户项目。键盘模式、条件历史、迟到响应和冻结等组合不再逐项回归；精确 Web 入口用 `bun run test:integration --list` 查询，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 - `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。
 - `bun run scripts/check-input-history-ui.js`：Firefox/geckodriver 真实 app shell 与 fixture API，用 iframe 浏览上下文实际验证双主题 1440/900/390px 的独立导航、发送边界、暂存分类／摘要、原文只读、条件默认展开与高级项收起、窄屏无溢出，以及后退、Ctrl+S、提交收据和历史原文往返；不连接 daemon／模型，不代替手机真机验收。
 - `bun run scripts/check-composer-layout.js`：真实 `/p/<id>/` 项目页与 fixture API；Firefox iframe 验证三模式的字段线型与项目配色、双主题、1440/760/390/320px、长标题、冻结／阻塞目标、Enter 投递、追加 ACK 恢复新建，以及导航收起而不改投。不连接 daemon 或模型，运行后清理服务与浏览器进程。
 
 - `bun run test/web/check-mobile-composer-browser.js`：隔离 Firefox iframe 验证 320/390/760/1440px、双主题、默认零表单占位、文字菜单、停靠不遮挡阅读、44px 控件、默认大输入框、收起自动保存与类别恢复、阅读位置、原位草稿更新及版本授权，保留页头／导航和回车／撤销／追加／创建回归。软键盘通过 VisualViewport 模拟，不等同于 iOS／Android 真机验收。
-- `test/web/dom-floating-composer.test.js` 与 `test/web/dom-inputs-api.test.js`：覆盖分层黄点、按原目标继续、旧快照发现、同目标多条编辑、缓存目标重新读取与失败／迟到隔离，以及独立目标、按项目隔离的浏览器自动保存／重开恢复、手动暂存清空、全分页恢复、条件／版本、迟到响应与单飞；真实临时 HTTP／RPC／SQLite／Git 链验证新建与追加续写更新原草稿、重复授权不重复投递及权限拒绝，不调用模型。
+- `test/web/dom-inputs-api.test.js`：仅保留真实临时 HTTP／RPC／SQLite／Git 链上的追加输入与草稿恢复、修改、发射主流程，不调用模型。浏览器缓存、黄点、键盘、旧快照、失败／迟到隔离及组合矩阵不再独立自动回归。
 
 缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、任意 Worker 消息的全局全文检索或原始 Input 改写；普通用户追加仅在来源有持久证明时纳入历史检索；不将其它 Worker 消息或信号变成用户输入。

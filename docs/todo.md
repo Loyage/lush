@@ -36,7 +36,7 @@
 
 验收方向：新工具既在目录可见，也能经实际入口调用；缺注册、缺权限或缺 Provider 接线均有对应失败断言。
 
-落实入口：可构建中间交付约定位于 `src/agent/skills/lush-delegation/guide.md`；快速检查用法见[贡献指南](contributing/README.md#全量前快速集成检查)；真实管理工具链与集合一致性回归位于 `test/project/management-tool-chain.test.js`。这些约定和回归不构成 runtime 构建／合并门禁，也不证明真实模型行为。
+落实入口：可构建中间交付约定位于 `src/agent/skills/lush-delegation/guide.md`；快速检查用法见[贡献指南](contributing/README.md#全量前快速集成检查)；当前管理 CLI 主链冒烟位于 `test/project/management-cli.test.js`，不再覆盖完整工具／权限矩阵。这些约定和回归不构成 runtime 构建／合并门禁，也不证明真实模型行为。
 
 ## 优先级二：降低协作成本与产品返工
 

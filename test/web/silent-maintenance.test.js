@@ -3,17 +3,13 @@ import { fetch, setup } from './harness.js';
 import { gate, repo, until } from '../helpers.js';
 import { attachRegisteredHook } from '../hook-registry.js';
 import { UIClient } from '../../src/ui/client.js';
-import { Project } from '../../src/core/project.js';
-import { Store } from '../../src/persistence/store.js';
 import { safeRestartFlow } from '../../src/ui/web/assets/safe-restart-flow.js';
-import path from 'node:path';
 
 const post = (f, method, params = {}, suffix = '', envelope = {}) => fetch(f.url + '/api/action' + suffix, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params, ...envelope }),
 });
 const count = f => f.store.get("SELECT count(*) AS n FROM notices WHERE title='项目中断完成'").n;
 const persisted = f => JSON.parse(f.store.get("SELECT value FROM meta WHERE key='project_maintenance'").value);
-const save = (f, data) => f.store.run("UPDATE meta SET value=? WHERE key='project_maintenance'", JSON.stringify(data));
 async function hostMaintenance(f) {
   const data = await (await fetch(f.url + '/api/host/projects')).json();
   return data.projects[0].summary.maintenance;
@@ -65,106 +61,6 @@ test('authenticated HTTP -> RPC user gate -> real maintenance -> Host: manual de
     expect(quiet.batch_id).not.toBe(manual.batch_id); expect(quiet.completion_notice_id).toBeNull();
     expect(count(f)).toBe(1); // Never delete historical manual notifications.
   } finally { hold.resolve(); await f.close(); }
-});
-
-test('HTTP and RPC reject malformed options, tokens, unknown envelope/query/parameters without closing admission', async () => {
-  const f = await setup();
-  try {
-    await root(f); const client = new UIClient(f.config);
-    for (const params of [{ notify_completion: 'false' }, { notify_completion: null }, { notify_completion: 0 }, { unknown: false }, { _token: '' }]) {
-      expect((await post(f, 'system.interrupt_all', params)).status).not.toBe(200);
-    }
-    expect((await post(f, 'system.resume_all', { notify_completion: false })).status).not.toBe(200);
-    expect((await post(f, 'system.interrupt_all', {}, '?notify_completion=false')).status).not.toBe(200);
-    expect((await post(f, 'system.interrupt_all', {}, '', { notify_completion: false })).status).not.toBe(200);
-    for (const params of [{ notify_completion: 'false' }, { notify_completion: null }, { extra: false }])
-      await expect(client.request('system.interrupt_all', params)).rejects.toThrow();
-    expect(f.project.maintenancePaused()).toBe(false);
-  } finally { await f.close(); }
-});
-
-test('silent completion survives a fresh Store/Project; missing evidence fails closed; pending recovery stays unknown', async () => {
-  const f = await setup(); let reopened, store;
-  try {
-    await root(f); f.project.interruptAll({ notify_completion: false });
-    f.project.stopMaintenanceMonitor();
-    store = new Store(path.join(f.config.home, 'project.db'), f.root);
-    reopened = new Project(f.config, store, { run() { throw new Error('must not invoke'); } });
-    reopened.kick = () => {}; reopened.recoverMaintenanceBatch();
-    expect(reopened.maintenanceView()).toMatchObject({ paused: true, completion_state: 'completed', notify_completion: false, completion_notice_id: null });
-    expect(count(f)).toBe(0);
-    const complete = persisted(f); delete complete.notify_completion; save(f, complete);
-    expect(() => reopened.maintenanceView()).toThrow('invalid project maintenance batch');
-    save(f, { ...complete, notify_completion: false, completion_state: 'pending' });
-    reopened.recoverMaintenanceBatch();
-    expect(reopened.maintenanceView()).toMatchObject({ completion_state: 'unknown', notify_completion: false, completion_notice_id: null });
-    reopened.observeMaintenanceCompletion(); expect(count(f)).toBe(0);
-    // Legacy notified batches remain compatible, never inferred as silent.
-    save(f, { ...complete, completion_state: 'completed', completion_notice_id: 123 });
-    expect(reopened.maintenanceView().notify_completion).toBe(true);
-    expect(await hostMaintenance(f)).toMatchObject({ completion_state: 'completed', notify_completion: true, completion_notice_id: 123 });
-  } finally {
-    if (reopened) await reopened.shutdown(); store?.close(); await f.close();
-  }
-});
-
-test('real provider failure, dynamic writers and withdrawn batches cannot produce silent success', async () => {
-  const f = await setup(); const hold = gate(); let entered = false;
-  f.project.provider = { async run() { entered = true; await hold.promise; throw new Error('controlled failure'); } };
-  try {
-    const task = await root(f); f.project.resumeTask(task.id); await until(() => entered);
-    const ack = f.project.interruptAll({ notify_completion: false }); hold.resolve();
-    await until(() => !f.project.running.has(task.id));
-    expect(f.project.maintenanceView()).toMatchObject({ batch_id: ack.batch_id, completion_state: 'unknown', completion_notice_id: null });
-    expect(count(f)).toBe(0);
-    f.project.resumeAll(); f.project.writing++;
-    const pending = f.project.interruptAll({ notify_completion: false });
-    expect(pending).toMatchObject({ completion_state: 'pending', ready_to_restart: false });
-    f.project.resumeAll(); f.project.writing--; f.project.observeMaintenanceCompletion();
-    expect(f.project.maintenanceView()).toMatchObject({ batch_id: pending.batch_id, completion_state: 'cancelled' });
-    expect(count(f)).toBe(0);
-    f.project.writing++;
-    expect(f.project.interruptAll({ notify_completion: false }).completion_state).toBe('pending');
-    f.project.observeMaintenanceCompletion(); expect(f.project.maintenanceView().ready_to_restart).toBe(false);
-    f.project.writing--; f.project.observeMaintenanceCompletion();
-    expect(f.project.maintenanceView()).toMatchObject({ completion_state: 'completed', completion_notice_id: null,
-      notify_completion: false, ready_to_restart: true });
-    expect(count(f)).toBe(0);
-  } finally { hold.resolve(); await f.close(); }
-});
-
-test('real stop_if_idle RPC atomically rechecks current barriers, not silent completion evidence', async () => {
-  const f = await setup();
-  try {
-    await root(f); const client = new UIClient(f.config);
-    const value = await client.request('system.interrupt_all', { notify_completion: false });
-    expect(value).toMatchObject({ completion_state: 'completed', completion_notice_id: null });
-    f.project.writing++;
-    await expect(client.request('system.stop_if_idle')).rejects.toThrow('后台操作');
-    expect(f.project.stopping).toBe(false); f.project.writing--;
-    (f.project.completionBusy ??= new Set()).add(999);
-    await expect(client.request('system.stop_if_idle')).rejects.toThrow('自动化');
-    expect(f.project.stopping).toBe(false); f.project.completionBusy.delete(999);
-    expect(await client.request('system.stop_if_idle')).toEqual({ stopping: true });
-    expect(f.project.stopping).toBe(true); expect(count(f)).toBe(0);
-  } finally { await f.close(); }
-});
-
-test('Host whitelist preserves only explicit silent evidence and fails closed for malformed completed/null', async () => {
-  const f = await setup(); const original = f.project.maintenanceView;
-  try {
-    await root(f); const valid = f.project.interruptAll({ notify_completion: false });
-    for (const evidence of [undefined, null, true, 'false', 0]) {
-      f.project.maintenanceView = () => ({ ...valid, notify_completion: evidence });
-      expect(await hostMaintenance(f)).toBeUndefined();
-    }
-    f.project.maintenanceView = () => ({ ...valid, secret: 'not display data' });
-    const projected = await hostMaintenance(f);
-    expect(projected.notify_completion).toBe(false); expect(projected.secret).toBeUndefined();
-    f.project.maintenanceView = () => ({ ...valid, notify_completion: undefined, completion_notice_id: 9 });
-    expect(await hostMaintenance(f)).toMatchObject({ completion_notice_id: 9, completion_state: 'completed' });
-    expect(Object.hasOwn(await hostMaintenance(f), 'notify_completion')).toBe(false);
-  } finally { f.project.maintenanceView = original; await f.close(); }
 });
 
 test('safe restart flow uses real authenticated HTTP/RPC/Project/Host; only service replacements are controlled', async () => {

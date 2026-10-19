@@ -50,7 +50,7 @@ settings-write／migration／packages 锁协调多个 daemon 的共享写入，�
 
 临时设备根＋两个临时项目＋mock 认证／模型／安装进程；覆盖设备唯一有效值、另一个 daemon 后续读取、Worker 显式覆盖、来源 ID／OAuth 并发锁、迁移冲突／权限／TOCTOU／幂等／部分失败、API 用户边界、无项目不启动后台、草稿／迟到响应和历史隔离。
 
-`test/device-settings.test.js` 与 `test/integration/device-settings.test.js` 保留少量设备设置主流程；迁移、接口及完整页面组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。`bun run check:device-settings`／`check:agent-layout` 使用 Firefox 临时 fixture，不证明真实 OAuth／模型／第三方包可用，不操作用户服务。fixture 的 HOME／XDG／LUSH_GLOBAL_CONFIG 必须临时隔离；共享双项目测试显式拥有同一临时根并负责退出清理。
+`test/integration/device-settings.test.js` 保留设备设置主流程；迁移、接口及完整页面组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。`bun run check:device-settings`／`check:agent-layout` 使用 Firefox 临时 fixture，不证明真实 OAuth／模型／第三方包可用，不操作用户服务。fixture 的 HOME／XDG／LUSH_GLOBAL_CONFIG 必须临时隔离；共享双项目测试显式拥有同一临时根并负责退出清理。
 
 ## W116 组合交付验证
 

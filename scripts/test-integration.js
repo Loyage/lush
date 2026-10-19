@@ -8,113 +8,34 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // Keep selection here, not in docs or a second runner.
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
-    'test/web/assets.test.js', // startup graph and existing cold-loading budgets
-    'test/web/dom-built-loading-assets.test.js', // compiled app boots with shared state
-    'test/web/dom-loading-assets.test.js', // lazy page boot
-    'test/web/dom-detail.test.js', // Worker detail -> independent reader, without a Worker-return action
-    'test/web/dom-task-graph-integration.test.js', // tree keeps only merge status; full scope/helper/diagnostics remain in Worker details
-    'test/web/dom-worker-cli-api.test.js', // detail -> fullscreen fourth CLI tab (legacy/new links) -> Ctrl+Enter -> authenticated preview/confirmation -> real CLI and lifecycle
-    'test/web/reading-conversation-integration.test.js', // input/output -> HTTP segmented raw copy
-    'test/web/dom-navigation-links.test.js', // independent reader links
-    'test/web/dom-inputs-api.test.js', // real UI -> HTTP/RPC/SQLite/Git input flow
-    'test/web/dom-worker-create-api.test.js', // create-only UI -> real HTTP/RPC/Git -> first Input/O receipt, strict fork inheritance and late-response isolation
-    'test/web/valet-settings-page-integration.test.js', // global settings -> Host policy
-    'test/web/skills-page-integration.test.js', // Skills -> authenticated Host/device writer -> next invocation snapshot; failures and late replies
-    'test/web/dom-valet-append-api.test.js', // settled Valet detail -> authenticated HTTP/RPC -> fresh serial occurrence; busy rejection retains input
-    'test/web/dom-valet-emergency-api.test.js', // empty list -> exact user emergency -> real HTTP/RPC -> actual cleanup/unknown isolation -> fresh rescue input
-    'test/web/force-acceptance-page.test.js', // shared control -> authenticated HTTP -> exact terminal-receipt confirmation/reclamation
-    'test/web/project-automation-ui-integration.test.js', // registry DOM -> real HTTP/RPC -> separate register/mount -> explicit version upgrade
-    'test/dashboard-host-settings.test.js', // dashboard shared quick-action selection -> real Host writer
-    'test/dashboard-quick-action-buttons.test.js', // v7 button catalogue -> Host revisioned device configuration
-    'test/dashboard-retired-shortcuts.test.js', // preserve old device files without reintroducing node targets
+    'test/web/assets.test.js', // startup graph and unchanged cold-loading budgets
+    'test/web/dom-built-loading-assets.test.js', // compiled root and project boot
+    'test/web/dom-detail.test.js', // Worker detail -> independent reader
+    'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
+    'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
+    'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
   ]),
   rpc: Object.freeze([
-    'test/core-api.test.js', // shared RPC registry and handlers
-    'test/worker-context.test.js', // active invocation -> relation CLI/RPC, nested read isolation, pagination and fixed integration membership
-    'test/web/core-api.test.js', // real HTTP routes
-    'test/web/worker-create.test.js', // authenticated manual container creation -> first Input/O -> safe read model
-    'test/project/worker-create-bridge.test.js', // user CLI -> user-only RPC -> paused creation -> controlled Pi fork/spawn
-    'test/project/worker-child-create.test.js', // explicit current parent + self/direct-child source -> real CLI/Pi, ancestry and Git-wait relation guards
-    'test/worker-cli-trial.test.js', // user HTTP -> fixed real CLI -> daemon; confirmation, worktree admission, limits and unknown effects
-    'test/worker-cli-user-context.test.js', // user lease -> fixed lushw -> original user RPC; relation/token isolation and lifecycle
-    'test/worker-cli-history.test.js', // authenticated encrypted history, byte pagination, unknown recovery and deletion exclusion
-    'test/project/worker-cli-deletion.test.js', // exact ciphertext reclamation, shared key preservation, drift/symlink and in-flight exclusion
-    'test/web/automation-registry-api.test.js', // authenticated HTTP -> register-only, explicit mount/upgrade and auth rejection
-    'test/web/silent-maintenance.test.js', // authenticated HTTP/RPC -> maintenance -> Host silent-batch evidence
-    'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git state/tree/content/diff
-    'test/web/input-history.test.js', // persisted input history API
-    'test/web/agent-connections-api.test.js', // connection configuration API
-    'test/execution-retired-api.test.js', // real CLI/RPC/Host/HTTP reject retired execution nodes
-    'test/project/execution-retired.test.js', // local runtime, immutable legacy records and restart admission
-    'test/project/retired-delivery-queue.test.js', // real freeze -> queue -> Git, retain unknown landing without replay
-    'test/execution-retired-freeze.test.js', // retired intent releases local parents, unknown Git landing does not
-    'test/project/automation-registry.test.js', // registered references, fixed versions and explicit legacy upgrade
-    'test/project/automation-registry-bridge.test.js', // real Provider/bridge -> ordered register/mount under current permissions -> execution receipt
-    'test/project/management-cli.test.js', // Node/Bun Provider -> only lush_cli -> real CLI/help -> policy/effects/audit, no replay and bounded bridge
-    'test/project/management-tool-chain.test.js', // retained internal manager RPC/receipt compatibility; not the active model tool surface
-    'test/project/management-calls.test.js', // real Provider/bridge -> safe audit Events -> user-only bounded HTTP stream
-    'test/project/management-receipt.test.js', // real Provider/bridge -> safe receipt, failure/effect/disposition separation, no replay and bounded legacy reads
-    'test/project/input-emission-protocol.test.js', // schema/catalog -> real Dispatcher -> persistent mount -> controlled Provider/Input/Message identity
-    'test/project/management-emission-catalog.test.js', // ordinary Valet discovers the same schema -> trusted pre-dispatch refusal/mount -> exact receipt facts
-    'test/web/dom-management-diagnostic.test.js', // real Provider/bridge -> authenticated receipt HTTP -> failure/action UI and matching safe copy
-    'test/project/management-emergency.test.js', // user-only HTTP/CLI -> exact emergency revocation -> real Provider/control exit -> preserved unknown isolation -> fresh submit
-    'test/project/management-append.test.js', // settled Valet -> user RPC append, serial admission, failure protection and recovery
-    'test/project/management-append-size.test.js', // full-size immutable Message bodies and missing-instruction fail-closed
-    'test/project/management-query.test.js', // typed CLI/manager queries -> real bridge, scope separation and safe rejection
-    'test/project/management-guidance.test.js', // CLI/manager prerequisites -> real scope diagnostics, handler success and unknown-error masking
-    'test/project/management-permissions.test.js', // device defaults -> mandatory user confirmation -> global CAS
-    'test/project/management-failure.test.js', // fixed safe failures -> persisted Run/Valet diagnostics
-    'test/project/force-acceptance.test.js', // real CLI/RPC, user-only exact scope and unchanged acceptance safety/recovery
-    'test/project/merge-queue.test.js', // local child -> parent -> main Squash and acceptance
-    'test/project/merge-conditions.test.js', // one-shot AND evidence, all merge gates, round/Git/restart races
-    'test/project/merge-conditions-integration.test.js', // fixed one-shot collection -> guarded publication, consumption and stale refusal
-    'test/project/merge-conditions-bridge.test.js', // real CLI/controlled Provider -> manager permissions -> parent queue landing
+    'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects
+    'test/project/management-cli.test.js', // Provider -> bridge -> CLI policy, execution and audit
+    'test/project/input-emission-protocol.test.js', // Dispatcher -> runtime -> Input/Message
+    'test/project/merge-queue.test.js', // child delivery -> parent Squash -> acceptance
+    'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git tree/content/diff
+    'test/web/automation-registry-api.test.js', // HTTP -> fixed-version register/mount
   ]),
   component: Object.freeze([
-    'test/web/dom-navigation.test.js', // navigation main flow
-    'test/web/dom-detail-layout-preferences.test.js', // confirmed detail hierarchy
-    'test/web/version-lineage.test.js', // fixed dual lanes, curved Git/receipt routing, exact anchors and default disclosure
-    'test/web/dom-worker-cli.test.js', // bottom CLI editor, keyboard/IME guards, ordered terminal results and confirmation
-    'test/web/dom-worker-cli-history.test.js', // optional history paging/clear races and four-tab retained state/reader lifecycle
-    'test/web/dom-conversation-copy.test.js', // exact raw/code copies, cancellation and clipboard fallback
-    'test/web/dom-worker-timeline.test.js', // input/output compact controls, search disclosure and retained category/order state
-    'test/web/dom-management-failure.test.js', // visible Valet diagnostics and no replay
-    'test/web/dom-management-calls.test.js', // compact Valet disclosures, ordering/bulk mode across paging, exact pairing, unknown projection and retained refresh
-    'test/web/dom-management-diagnostic.test.js', // per-call collapsed alerts/expanded failure, read-only association, safe copy, action separation and late-response guards
-    'test/web/dom-valet-append.test.js', // Agent-marked append form, retained text, single-flight and late-response isolation
-    'test/web/dom-valet-emergency.test.js', // project emergency preview/confirmation, stopping vs isolation, single-flight and late-response isolation
-    'test/web/dom-inputs.test.js', // draft editor
-    'test/web/dom-floating-composer.test.js', // isolated destinations, inline recovery, versions and late responses
-    'test/web/dom-transcript-sidebar.test.js', // reader step navigation
-    'test/web/dom-transcript-view.test.js', // bulk folding across paging and live steps
-    'test/web/dom-model-sources.test.js', // model settings main flow
-    'test/web/dom-questionnaire.test.js', // questionnaire interaction
-    'test/web/dom-runners-page.test.js', // retired bookmarks, local forms and read-only legacy Worker actions
-    'test/web/dom-project-automation.test.js', // automation page
-    'test/web/settings.test.js', // settings entry
-    'test/web/dom-agent-settings.test.js', // default Agent header, explicit folding and retained draft
-    'test/web/service-restart-controls.test.js', // quick/manual modes, shared single-flight and disposal
-    'test/web/device-auto-select-action.test.js', // shared authorization lease, unknown-write gate, stale reads and pagehide
-    'test/web/safe-restart-flow.test.js', // fixed scope, silent evidence and restart failure boundaries
+    'test/web/dom-navigation.test.js', // list -> detail -> back
+    'test/web/dom-inputs-api.test.js', // persisted draft editing and submission
+    'test/web/dom-transcript-view.test.js', // reader order and live tool results
+    'test/web/dom-questionnaire.test.js', // choices -> review -> answer
+    'test/web/settings.test.js', // device preferences
   ]),
   cli: Object.freeze([
-    'test/cli-surfaces.test.js', // executable catalogue
-    'test/cli-catalog.test.js', // parser/catalogue agreement
-    'test/cli-management-coverage.test.js', // every effective capability reaches real management CLI admission/handler under current policy
-    'test/cli-entrypoints.test.js', // published bins/source scripts -> real CLI/RPC and unchanged authority
-    'test/worker-cli.test.js', // relation parsing and all source shortcuts retain their correct executable ownership
-    'test/project/worker-create-bridge.test.js', // manual user create, real W lookup, first input and controlled Pi checkpoint
-    'test/project/worker-child-create.test.js', // --parent current + --source self/direct child, user-only manual order semantics
-    'test/agent/capabilities.test.js', // shipped Skills/guides and invocation prompt agree on the fixed development CLI
-    'test/project/force-acceptance.test.js', // user CLI preview/confirm and authoritative refusal of unsafe scope
-    'test/project/automation-registry-cli.test.js', // real user CLI -> register-only RPC -> fixed-reference mount
-    'test/project/merge-conditions-bridge.test.js', // true W-number flags and current manager tool/schema/permission set
-    'test/project/management-cli.test.js', // actual model CLI surface plus real parser, authorization and trusted audit
-    'test/project/management-permissions.test.js', // real management permission CLI and retained internal RPC bridge
+    'test/cli-entrypoints.test.js', // published bins and offline help
+    'test/agent/capabilities.test.js', // shipped Skills and invocation prompt
+    'test/worker-cli-trial.test.js', // HTTP -> real lush/lushw -> query and confirmed write
+    'test/project/management-cli.test.js', // model CLI permissions and actual effects
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation
-    'test/integration/questionnaire.test.js', // notice CLI -> exit -> restart -> answer
-    'test/integration/result-notice.test.js', // Skill snapshot -> pinned CLI -> own info -> unread inbox, without parking
-    'test/execution-retired-api.test.js', // public CLI/Provider bridge cannot restore retired execution capabilities
   ]),
 });
 

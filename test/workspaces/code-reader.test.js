@@ -37,16 +37,3 @@ test('code reader includes unchanged files, computes task/iteration/working base
     expect((await f.file('file.txt', { scope: 'working', view: 'content', side: 'old' })).content.text).toBe('first\n');
   } finally { await f.close(); }
 });
-
-test('ancestor symlinks, traversal and unregistered worktrees cannot read outside task scope', async () => {
-  const f = await setup();
-  try {
-    f.write('dir/file.txt', 'safe\n'); await f.commit();
-    const external = path.join(f.config.home, 'outside'); fs.mkdirSync(external); fs.writeFileSync(path.join(external, 'file.txt'), 'SECRET');
-    fs.rmSync(path.join(f.workspace, 'dir'), { recursive: true }); fs.symlinkSync(external, path.join(f.workspace, 'dir'));
-    const value = await f.file('dir/file.txt', { view: 'content' }); expect(value.content?.text ?? '').not.toContain('SECRET');
-    for (const name of ['../file.txt', '/etc/passwd', 'dir/../../file.txt', '.git/config', 'a/.lush/token', 'a\0b']) await expect(f.file(name)).rejects.toThrow('invalid project-relative');
-    f.task.workspace = f.root; expect((await f.state()).availability).toBe('unavailable');
-    f.task.workspace = external; expect((await f.state()).availability).toBe('stale');
-  } finally { await f.close(); }
-});

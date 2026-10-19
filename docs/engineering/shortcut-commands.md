@@ -53,6 +53,6 @@ CLI `hooks command list/save/export/remove/import/history`；save／import 用�
 
 ## 验证入口
 
-`test/project/shortcut-pinned-versions.test.js` 覆盖版本字段规范化、修订保存与旧版导出、历史版 claim／start 证据、真实 Shell 正文和 Prompt 创建收据、归并验证隔离 checkout 的固定定义与执行门、异步编辑／删除／类型失配及 unknown 不重放。既有快捷提示与命令 Hook 保留主流程冒烟，不代表完整互斥／异常／兼容矩阵；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。测试使用临时项目与受控命令，不接用户账号或服务。
+快捷提示与命令 Hook 仅保留创建输入、执行真实命令的主流程冒烟，不再独立回归固定版本、互斥、异常或兼容矩阵；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。测试使用临时项目与受控命令，不接用户账号或服务。
 
 快捷指令定义与 Hook 收据保持项目归属，不因设备连接／余额共享而全局化；历史修复记录不替代当前树的回归证据。

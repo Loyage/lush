@@ -170,7 +170,7 @@ W325：真实 Dispatcher 在验证当前 invocation 的管理身份后，为全�
 
 `input_emit` 仅在精确收据参数／返回的 draft_id+revision 或原 client_request_id 不可逆指纹及定义指纹匹配 `input.emitted` 时证明 mount:confirmed；否则 unknown。匹配沿用 canonical ID 解析（整数或十进制字符串）及显式 null 的旧 revision；只规范化只读查询身份，不改写原请求或指纹。不按正文／相邻时间猜草稿。返回 draft_id、revision、source_draft_id、mount_event_id，以及精确 dispatch 成功 Event 关联的 dispatch_event_id／input_id／worker_id；草稿事实限定在原请求收口前的挂载与该草稿下一次挂载之间，不把后续同 revision 重挂混为原授权。只读仍属于该授权的同 revision 草稿排队状态可标 dispatch:not_started，缺证据为 unknown。worker_started 仅依据已关联 Input 的 Worker 持久 Run 证据；追加到已有目标不因旧 Run 就宣称该消息已启动，另保留 message_id。挂载绝不当作创建或启动。后续核查不调用 input.emit，不重放；旧参数已不在保留范围时诚实返回未知。
 
-专项 `test/project/management-receipt.test.js` 使用隔离项目和可控 Provider→真实工具→固定 bridge，覆盖执行／完成／保存／返回中断、可信拒绝、精确确认、未知去重、隔离保留原错、伪造前置错误、跨项目／伪造身份、白名单、旧记录及分页；不触碰用户真实 Valet／草稿。
+`test/project/management-cli.test.js` 保留可控 Provider→真实 CLI／固定 bridge 的执行、权限与审计主链；`test/web/dom-management-diagnostic.test.js` 保留失败收据读取／展示／复制主链。中断、未知去重、伪造身份、旧记录及分页等完整矩阵已删除；仅使用隔离项目，不触碰用户真实 Valet／草稿。
 
 ## 确认、作用域与恢复
 

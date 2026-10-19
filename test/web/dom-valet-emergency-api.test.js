@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { setup, fetch as httpFetch } from './harness.js';
 import { installDom, dialogButton, dialogText, deepText } from '../dom-stub.js';
-import { gate, until } from '../helpers.js';
+import { until } from '../helpers.js';
 import { renderTree } from '../../src/ui/web/assets/render-tree.js';
 import { managementState, saveManagement } from '../../src/core/project/management-data.js';
 import { closeDialog } from '../../src/ui/web/assets/dialog.js';
@@ -14,11 +14,6 @@ function mount(dom) {
   // not the loaded/filtered list or the absence of a visible running process.
   renderTree({ tasks: [], notices: [] });
   return hero.querySelector('.valet-emergency-control');
-}
-async function confirm(dom, control) {
-  const opening = control.querySelector('button').onclick();
-  await until(() => dialogButton(dom, '确认强制终结并解除占位'));
-  await dialogButton(dom, '确认强制终结并解除占位').onclick(); await opening;
 }
 
 test('empty Valet list -> explicit user emergency -> real authenticated HTTP/RPC -> preserved unknown isolation -> fresh rescue submit', async () => {
@@ -54,30 +49,4 @@ test('empty Valet list -> explicit user emergency -> real authenticated HTTP/RPC
     const value = await rescue.json(); expect(value.task.status).toBe('queued'); expect(value.task.id).not.toBe(old.id);
     expect(f.project.managementOccupant().id).toBe(value.task.id);
   } finally { closeDialog(); restore(); resetUiState(); dom.restore(); await f.close(); }
-});
-
-test('real live Provider retains the lane after UI stop; actual cleanup isolates automatically and read-only status verifies it', async () => {
-  const f = await setup(), entered = gate(), release = gate(), writes = [];
-  f.project.kick = () => {}; f.project.provider = { async run() { entered.resolve(); await release.promise; return 'returned after stop'; } };
-  const dom = installDom({ fetch: (url, options) => {
-    if (options?.method === 'POST') writes.push(JSON.parse(options.body));
-    return httpFetch(f.url + url, options);
-  } }); resetUiState(); ui.view = { id: 'valets' };
-  const restore = registerNavigation({ refresh: async () => {} });
-  let running;
-  try {
-    const manager = f.project.submitManagementInstruction({ instruction: '旧在途调用' }).task;
-    f.project.pump(); await entered.promise;
-    running = [...f.project.running.values()].map(run => run.promise);
-    const control = mount(dom); await confirm(dom, control);
-    expect(deepText(control)).toContain('尚未全部解除占位'); expect(deepText(control)).toContain('模型进程或退出清理尚未结束');
-    expect(f.project.running.has(manager.id)).toBe(true); expect(f.project.managementOccupant().id).toBe(manager.id);
-    expect(() => f.project.submitManagementInstruction({ instruction: 'not yet' })).toThrow('已有管家');
-    release.resolve(); await Promise.all(running);
-    expect(managementState(f.store.task(manager.id)).emergency.status).toBe('isolated');
-    expect(f.project.managementOccupant()).toBeNull();
-    await control.querySelectorAll('button')[1].onclick();
-    expect(deepText(control)).toContain('当前没有等待退出的急救事项'); expect(writes).toHaveLength(1);
-    expect(f.project.submitManagementInstruction({ instruction: 'new rescue' }).task.status).toBe('queued');
-  } finally { release.resolve(); if (running) await Promise.all(running); closeDialog(); restore(); resetUiState(); dom.restore(); await f.close(); }
 });

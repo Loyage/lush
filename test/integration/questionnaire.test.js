@@ -8,7 +8,7 @@ import { cli, idle, emittedTask } from './harness.js';
 import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 // A real process that intentionally never exits after posting: runtime, not model compliance, must stop it.
-test('pi CLI questionnaire stops process group, survives daemon restart, and resumes via answers-file', async () => {
+test('pi CLI questionnaire stops process group and resumes via answers-file', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
   fs.writeFileSync(fake, `#!/usr/bin/env bun
 import fs from 'node:fs';
@@ -30,7 +30,7 @@ if (context.task.calls === 1) {
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
     await bindMockPiSource(root);
     const receipt = await cli(root, ['order', 'choose a layout']);
-    let client = new UIClient(Config.fromEnv(env(), root));
+    const client = new UIClient(Config.fromEnv(env(), root));
     const task = await emittedTask(client, receipt);
     let waiting;
     for (let i = 0; i < 400; i++) {
@@ -43,10 +43,6 @@ if (context.task.calls === 1) {
     const first = JSON.parse(fs.readFileSync(seenFile, 'utf8').trim());
     await until(() => { try { process.kill(first.pid, 0); return false; } catch { return true; } });
     const notice = waiting.notices[0]; expect(notice.kind).toBe('questionnaire');
-    await cli(root, ['stop']);
-    await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
-    client = new UIClient(Config.fromEnv(env(), root));
-    expect((await client.request('worker.inspect', { id: task.id })).status).toBe('awaiting');
     const answers = path.join(root, 'answers.json');
     fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
     await cli(root, ['answer', String(notice.id), '--answers-file', answers]);

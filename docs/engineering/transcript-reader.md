@@ -120,7 +120,7 @@ Valet 详情在「Valet 管理状态」旁新增独立的「接口调用时间�
 
 同一详情保留分页、节点、展开、焦点、选区和阅读锚点，选择正文时延后补丁；项目、boot、document、页面和 AbortSignal 共同隔离迟到结果，离页取消读取和监听。不新增定时器、模型或进程。最多保留 5000 个事件／8 MiB 调用快照，预算触顶保留正文并明确部分范围。失败与旧服务不支持明确为不可用、可重试，不冒充无记录；空页不证明旧历史未调用。展开区在窄屏自然换行，整个模块复用共享超高预览与页面主滚动。
 
-专项 `test/web/dom-management-calls.test.js` 覆盖配对、分页、迟到／取消、失败、精确收据与 unknown 更新；`test/web/dom-management-diagnostic.test.js` 以可控 Provider／真实 bridge 产生失败及真实 HTTP 读取，核对原失败与隔离、白名单摘要／复制一致性、旧数据、关联链接、缺页／失败／迟到响应；`bun run test/web/check-management-calls-browser.js` 使用隔离 HTTP fixture 和 Firefox，核对真实 HTTP 分页、1440／390／320px 单行省略与异常标识、键盘逐条展开、正逆序、跨页全局折叠模式、刷新节点／焦点／选区及终态投影，不启动用户服务或模型。
+`test/web/dom-management-diagnostic.test.js` 仅保留可控 Provider／真实 bridge 产生失败及真实 HTTP 读取、展示与复制摘要的代表主链，不再独立回归分页、迟到／取消、旧数据或 unknown 更新矩阵；`bun run test/web/check-management-calls-browser.js` 使用隔离 HTTP fixture 和 Firefox，核对真实 HTTP 分页、1440／390／320px 单行省略与异常标识、键盘逐条展开、正逆序、跨页全局折叠模式、刷新节点／焦点／选区及终态投影，不启动用户服务或模型。
 
 ### 规划历史
 

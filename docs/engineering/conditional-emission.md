@@ -47,4 +47,4 @@
 
 先提交挂载收据，再异步准入；跨 Git 等待后重新核验父空闲、冻结、基线、草稿占用和独占门。挂载中拒绝编辑与删除。取消未开始的意图可恢复可编辑草稿；已经开始却无确定结果的发射标记 `unknown`，重启不重放。只释放未知独占仍保留未知收据。已挂载追加阻止目标验收、归档或删除吞掉需求，实际投递仍沿用消息收件箱门禁。
 
-实现入口为 `src/core/project/input-emissions.js`、`input-emission-safety.js` 与 `input-emission-data.js`；公共适配为 RPC 输入 handler、Web action 与 CLI `order`。`test/project/input-emissions.test.js` 保留代表性条件发射主流程；管理授权及完整 HTTP／main 交付组合不再独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。`test/project/input-emission-protocol.test.js` 验证同源协议、Dispatcher、真实持久挂载及 Input／Message 来源；`test/project/management-emission-catalog.test.js` 验证普通 Valet 经真实工具／bridge 发现同一协议、执行前参数拒绝和精确挂载收据。受控 Provider 不代表真实模型或物理浏览器验证。
+实现入口为 `src/core/project/input-emissions.js`、`input-emission-safety.js` 与 `input-emission-data.js`；公共适配为 RPC 输入 handler、Web action 与 CLI `order`。`test/project/input-emission-protocol.test.js` 仅保留 Dispatcher、真实持久挂载、受控 Provider 及 Input／Message 来源主链；条件／协议参数矩阵、管理发现／授权及完整 HTTP／main 交付组合不再独立回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。受控 Provider 不代表真实模型或物理浏览器验证。

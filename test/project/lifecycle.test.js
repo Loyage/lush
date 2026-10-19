@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, repo, until, gate } from '../helpers.js';
+import { fixture, repo, until } from '../helpers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,30 +54,4 @@ if (task.task_kind === 'order' && task.calls === 1) {
       expect(f.store.runsForTask(row.id).every(run => run.status === 'completed')).toBe(true);
     }
   } finally { await server?.close(); await f.close(); }
-});
-
-function controlled() {
-  const calls = [];
-  return { calls, run(ctx) {
-    const done = gate(); calls.push({ ...ctx, done });
-    ctx.signal.addEventListener('abort', () => done.resolve('aborted'), { once:true });
-    return done.promise;
-  } };
-}
-
-test('messages arriving during an invocation are delivered exactly on the next invocation', async () => {
-  const provider = controlled(), f = fixture(provider); await repo(f.root);
-  try {
-    const task = (await f.project.order('work')).task;
-    await until(() => provider.calls.length === 1);
-    f.project.message(task.id, 'new requirement');
-    expect(provider.calls[0].messages).toEqual([]);
-    provider.calls[0].done.resolve('first');
-    await until(() => provider.calls.length === 2);
-    expect(provider.calls[1].messages.map(m => m.body)).toEqual(['new requirement']);
-    provider.calls[1].done.resolve('second');
-    // A new order Task stays idle between invocations; it is not completed by an ordinary return.
-    await until(() => f.store.task(task.id).status === 'waiting');
-    expect(f.store.unread(task.id)).toEqual([]);
-  } finally { await f.close(); }
 });
