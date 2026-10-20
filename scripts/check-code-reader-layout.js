@@ -101,6 +101,7 @@ try {
     try {
       if (route === '/') return new Response('<!doctype html><body style="margin:0"><iframe src="/reader" style="border:0;display:block;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
       if (route === '/reader') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+      if (route === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../src/administrator/project-protocol.js', import.meta.url)));
       if (/^\/assets\/[\w.-]+\.(js|css)$/.test(route) || route === '/highlight.min.js') return new Response(Bun.file(path.join(assets, path.basename(route))));
       if (route.endsWith('/transcript-search')) return Response.json({ steps: [step], files: ['fixture'], next: 1, has_more: false });
       if (route.endsWith('/transcript-step')) return Response.json({ step, related: [], context: [], has_more: false });
@@ -153,7 +154,16 @@ try {
       assert(box.body.right <= box.width + 1 && box.body.bottom <= box.height + 1, `escaped viewport: ${JSON.stringify(box)}`);
       if (box.width > 760) assert(box.side.right <= box.body.x + 1 && Math.abs(box.side.y - box.body.y) < 1, `desktop columns misplaced: ${JSON.stringify(box)}`);
       else assert(box.side.bottom <= box.body.y + 1 && box.split === 'none' && box.unified !== 'none', `mobile must stack and show unified: ${JSON.stringify(box)}`);
-      assert(box.filter.bottom <= box.side.bottom + 1, 'filter clipped inside sidebar');
+      if (width > 760) assert(box.filter.bottom <= box.side.bottom + 1, 'filter clipped inside sidebar');
+      else {
+        assert(await execute(`const side=document.querySelector('.code-sidebar'),checkbox=side.querySelector('input[type=checkbox]');
+          checkbox.scrollIntoView({block:'nearest'});const r=checkbox.getBoundingClientRect(),s=side.getBoundingClientRect();
+          return getComputedStyle(side).overflowY==='auto'&&r.top>=s.top&&r.bottom<=s.bottom+1&&[...side.querySelectorAll('.search-field-row>button')].every(n=>n.getBoundingClientRect().height>=44);`), 'mobile file filter not scroll reachable or touch sized');
+        assert(await execute(`const side=document.querySelector('.code-sidebar'),file=side.querySelector('.code-file-entry');
+          file.scrollIntoView({block:'nearest'});const r=file.getBoundingClientRect(),s=side.getBoundingClientRect();
+          return r.top>=s.top&&r.bottom<=s.bottom+1&&getComputedStyle(side.querySelector('.code-tree-scroll')).overflowY==='visible';`), 'mobile file list clipped or nested scrolling');
+        await execute(`document.querySelector('.code-sidebar').scrollTop=0;`);
+      }
       await screenshot(`code-${theme}-${width}`); console.log(`PASS real Git diff and layout ${theme}/${width}`);
     }
   }

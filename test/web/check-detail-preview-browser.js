@@ -92,6 +92,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (!gate.ok) return gate;
   if (path === '/host') return new Response('<!doctype html><iframe id="fixture" src="/" style="border:0;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -221,6 +222,10 @@ try {
         (getComputedStyle(toggle).display!=='none')===(${width}<=760)&&toggle.getAttribute('aria-expanded')==='false'&&
         toggle.getAttribute('aria-controls')===search.id&&(${width}>760||
           [...root.querySelectorAll('.conversation-filter,.conversation-order button,.conversation-search-toggle')].every(n=>n.getBoundingClientRect().height>=44));`), 'responsive search disclosure default or touch targets');
+    assert(await execute(`const root=document.querySelector('.conversation-panel');
+      return !!root.querySelector('.ui-list-pagination .conversation-more')&&[...root.querySelectorAll('.conversation-filters button,.ui-list-pagination button')].every(n=>{
+        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='8px'&&r.height>=(innerWidth<=760?44:36));
+      });`), 'conversation shared filter/pagination sizes or wiring');
     if(width<=760){
       await execute(`const root=document.querySelector('.conversation-panel');root.querySelector('.conversation-search-toggle').click();
         window.savedSearch=root.querySelector('.conversation-search');window.savedSearch.querySelector('input').focus();`);
@@ -282,7 +287,7 @@ try {
   assert(await execute(`const n=document.querySelector('.conversation-panel');return !n.classList.contains('detail-preview-expanded')&&
     n.querySelector('.detail-preview-body').getBoundingClientRect().height<=400&&
     getComputedStyle(n.querySelector('.detail-preview-body')).maskImage.includes('linear-gradient');`), 'collapse not bounded or missing fade');
-  assert(await execute(`const n=document.querySelector('.agent-panel');const target=n.querySelector('.detail-preview-content button');target.focus();
+  assert(await execute(`const n=document.querySelector('.agent-panel');const target=document.createElement('button');target.textContent='隔离焦点目标';n.querySelector('.detail-preview-content').append(target);target.focus();
     return n.classList.contains('detail-preview-expanded')&&document.activeElement===target;`), 'keyboard focus stayed clipped');
   assert(await execute(`const n=document.querySelector('.conversation-panel');
     n.revealConversationReference({kind:'message',target:{message_id:20}});

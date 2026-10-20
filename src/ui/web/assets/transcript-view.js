@@ -1,4 +1,5 @@
 import { $, el, button } from './dom.js';
+import { sortControl, paintDisclosure } from './view-controls.js';
 import { ui, transcriptCache, transcriptOpen } from './state.js';
 import { loadTranscript, paintTranscript, transcriptContent, transcriptMatch, locateTranscriptStep, transcriptOrder } from './render-transcript.js';
 import { api } from './api.js';
@@ -53,31 +54,19 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const back = standalone ? null : button(`返回 ${type}`, leaveReader, 'ghost transcript-back');
   const order = el('div', undefined, 'transcript-order');
   order.setAttribute('role', 'group'); order.setAttribute('aria-label', '执行过程排序');
-  const orderButtons = new Map();
-  for (const [value, label, help] of [
-    ['asc', '正序', '按时间从早到晚阅读执行记录，并保存设备统一阅读偏好；不改变项目记录，不调用 Agent。'],
-    ['desc', '逆序', '按时间从晚到早阅读执行记录，并保存设备统一阅读偏好；不改变项目记录，不调用 Agent。'],
-  ]) {
-    const control = button(label, () => {}, 'ghost', { help });
-    // Shared preference/search state owns both buttons, not the generic button busy wrapper.
-    control.onclick = async () => {
-      if (control.disabled || value === transcriptOrder()) return;
-      try { await saveDevicePreference('transcriptOrder', value); }
-      catch (error) { if (current === state) state.notice.textContent = `阅读偏好未保存：${error.message}`; }
-      finally { if (current === state) syncOrder(); }
-    };
-    control.dataset.transcriptOrder = value;
-    orderButtons.set(value, control); order.append(control);
-  }
-  const orderHost = el('span', undefined, 'help-host'); orderHost.tabIndex = 0; orderHost.append(order);
-  const syncOrder = () => {
+  const sort = sortControl({ getOrder: transcriptOrder, setOrder: async value => {
+    try { await saveDevicePreference('transcriptOrder', value); }
+    catch (error) { if (current === state) state.notice.textContent = `阅读偏好未保存：${error.message}`; }
+  }, scope: '保存设备统一执行记录阅读偏好；已打开记录重新读取对应头／尾窗口，未打开记录不读取。不改变项目记录或调用 Agent。',
+  disabled: () => {
     const device = devicePreferencesStatus();
-    for (const [value, control] of orderButtons) {
-      control.setAttribute('aria-pressed', String(value === transcriptOrder()));
-      control.disabled = Boolean(state.filtered) || device.saving || !device.ready || Boolean(device.error);
-    }
-    orderHost.setAttribute('data-help', state.filtered ? '搜索结果按步骤编号排列，退出搜索后可修改阅读偏好。' : !device.ready || device.error ? `设备偏好当前不可用，不能保存排序。${device.error || '正在读取权威配置。'}` : device.saving ? '正在保存设备阅读偏好，请等待保存完成。' : '设备统一的执行记录阅读顺序，不改变项目记录。');
-  };
+    return state.filtered ? '搜索结果按步骤编号排列，退出搜索后可修改阅读偏好。'
+      : !device.ready || device.error ? `设备偏好当前不可用，不能保存排序。${device.error || '正在读取权威配置。'}`
+      : device.saving ? '正在保存设备阅读偏好，请等待保存完成。' : '';
+  } });
+  sort.button.dataset.transcriptOrder = 'toggle'; order.append(sort.root);
+  const orderHost = order;
+  const syncOrder = sort.sync;
   state.syncOrder = syncOrder; state.disposePreference = onDevicePreferences(syncOrder);
   const taskStatus = el('span', '状态未知', 'badge');
   const heading = el('strong', `${type} ${workerLabel(knownTask || taskId)}`);
@@ -129,11 +118,10 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   function setSearchOpen(open, focus = false) {
     state.searchOpen = open;
     panel.classList.toggle('transcript-search-open', open);
-    toggleSearch.textContent = open ? '收起搜索' : '搜索';
-    toggleSearch.setAttribute('aria-expanded', String(open));
+    paintDisclosure(toggleSearch, open, { expand: '搜索', collapse: '收起搜索' });
     if (focus) (open ? reader.querySelector('input') : toggleSearch).focus?.({ preventScroll: true });
   }
-  toggleSearch.setAttribute('aria-expanded', 'false');
+  paintDisclosure(toggleSearch, false, { expand: '搜索', collapse: '收起搜索' });
   readingTools.append(orderHost, toggleSearch); navigation.append(tabs, readingTools);
   async function switchMode(mode) {
     if (current !== state || mode === state.mode || !viewTabs.some(([, value]) => value === mode)) return;

@@ -1,4 +1,6 @@
 import { block, button, el, revealModule } from './dom.js';
+import { sortControl, batchDisclosure, disclosureIcon } from './view-controls.js';
+import { listSurface } from './list-surface.js';
 import { api, isReadAbort, projectApi } from './api.js';
 import { routeContext } from './route.js';
 import { ui } from './state.js';
@@ -46,23 +48,22 @@ export function renderManagementCalls(task, previous, options = {}) {
     const retry = button('重试读取', () => read(failedDirection), 'ghost');
     const recheck = button('继续核对未完成调用', () => read('projection'), 'ghost');
     const controls = el('div', undefined, 'management-calls-controls'); controls.append(older, newer, retry, recheck);
+    listSurface({ tools: controls });
     const ordering = el('div', undefined, 'management-calls-order');
     ordering.setAttribute('role', 'group'); ordering.setAttribute('aria-label', '接口调用排序');
-    const orderButtons = new Map();
-    for (const [value, label, help] of [['asc', '正序', '按开始 Event ID 从早到晚排列已加载调用，不改变记录或分页范围。'],
-      ['desc', '逆序', '按开始 Event ID 从晚到早排列已加载调用，不改变记录或分页范围。']]) {
-      const control = button(label, () => { if (current() && order !== value) { order = value; paint(true); } }, 'ghost', { help });
-      orderButtons.set(value, control); ordering.append(control);
-    }
+    const sort = sortControl({ getOrder: () => order, setOrder: value => { if (current()) { order = value; paint(true); } },
+      scope: '按开始 Event ID 重排已加载调用；同详情刷新保留，不改变记录或分页范围。' });
+    ordering.append(sort.root);
     const setAll = open => {
       if (!current()) return;
       allOpen = open;
       for (const view of nodes.values()) {
-        view.fold.open = open; view.head.setAttribute('aria-expanded', String(open));
+        view.fold.open = open; view.head.setAttribute('aria-expanded', String(open)); disclosureIcon(view.caret, open);
       }
     };
-    controls.append(ordering, button('全部展开', () => setAll(true), 'ghost', { help: '展开已加载及随后读取调用的详情；不自动读取关联安全时间线。' }),
-      button('全部收起', () => setAll(false), 'ghost', { help: '收起已加载及随后读取调用的详情，保留已读取内容与关联状态。' }));
+    const foldControl = batchDisclosure({ getItems: () => nodes.values(), isExpanded: view => view.fold.open, setExpanded: setAll,
+      scope: '作用于已加载调用详情，也设为后续分页及新增调用的默认状态；保留已读内容，不自动读取关联安全时间线。' });
+    controls.append(ordering, foldControl.root);
     const list = el('ol', undefined, 'management-calls-list');
     section.append(coverage, status, controls, list);
     let failedDirection = 'initial';
@@ -90,19 +91,19 @@ export function renderManagementCalls(task, previous, options = {}) {
           const head = el('summary', undefined, 'management-call-head');
           head.setAttribute('aria-expanded', String(fold.open));
           head.setAttribute('data-help', '点击或按 Enter／空格展开、收起这次调用的详情。');
-          const caret = el('span', '▸', 'management-call-caret'); caret.setAttribute('aria-hidden', 'true');
+          const caret = el('span', undefined, 'management-call-caret'); disclosureIcon(caret, fold.open);
           const id = el('span', `Event #${row.call_id}`, 'hint management-call-id');
           const time = el('time'), method = el('code'), target = el('span', undefined, 'management-call-target');
           const result = el('span', undefined, 'management-call-status'), alert = el('span', undefined, 'management-call-alert');
           head.append(caret, id, time, method, target, alert, result);
           const body = el('pre', undefined, 'management-call-body');
-          fold.ontoggle = () => head.setAttribute('aria-expanded', String(fold.open));
+          fold.ontoggle = () => { head.setAttribute('aria-expanded', String(fold.open)); disclosureIcon(caret, fold.open); foldControl.sync(); };
           const diagnostic = createCallDiagnostic(() => {
             const version = generation;
             return { signal: controller.signal, current: () => current(version) };
           }, diagnosticBudget);
           fold.append(head, diagnostic.root, body); item.append(fold);
-          view = { item, fold, head, time, method, target, result, alert, body, diagnostic }; nodes.set(row.call_id, view);
+          view = { item, fold, head, caret, time, method, target, result, alert, body, diagnostic }; nodes.set(row.call_id, view);
         }
         // Move only out-of-order nodes; never rebuild folds, selection or loaded diagnostics.
         if (list.children[at] !== view.item) list.insertBefore(view.item, list.children[at] || null);
@@ -129,7 +130,7 @@ export function renderManagementCalls(task, previous, options = {}) {
       section.classList.toggle('management-calls-has-failures', hasFailures);
       if (hasFailures && section.classList.contains('ui-module') && !section.classList.contains('module-expanded')) revealModule(section);
       text(coverage, `按开始 Event ID ${order === 'asc' ? '正序（早 → 晚）' : '逆序（晚 → 早）'}；首次仅最新 50 个事件（非全历史序号）。仅覆盖可信 RPC；不补旧历史或桥接前拒绝，不展示任意原文。`);
-      for (const [value, control] of orderButtons) control.setAttribute('aria-pressed', String(order === value));
+      sort.sync(); foldControl.sync();
       text(status, `${error ? '读取不可用或失败（旧服务可能不支持）；保留已有记录，可重试。' : busy ? '正在读取…' : !state.loaded ? '尚未读取。' : !state.calls.size ? state.limited ? '当前范围超出读取预算。' : '当前窗口无采集记录；不代表历史未调用。' : `已显示 ${state.calls.size} 次调用／${state.events.size} 个事件；最新已读 Event #${state.high}。`}${state.hasNewer ? ' 仍有新事件，继续读取最新调用。' : ''}${state.limited ? ' 已达 5000 事件／8 MiB 预算，仅显示部分范围；保留已读内容。' : ''}${!state.hasOlder && state.loaded ? ' 已到采集范围起点，不代表完整历史。' : ''}${projections.length ? ` 尚有 ${projections.length} 个未完成调用待核对。` : ''}`);
       older.hidden = !state.loaded || !state.hasOlder; retry.hidden = !error;
       recheck.hidden = !projections.length; newer.textContent = state.hasNewer ? '继续读取最新调用' : '读取最新调用';

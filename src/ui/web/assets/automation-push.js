@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { api, action } from './api.js';
 import { detail } from './navigate.js';
 import { confirmDialog } from './dialog.js';
@@ -69,8 +70,9 @@ export function renderPushAutomation(options) {
     catch (error) { if (owns()) { status.textContent = `推送设置读取失败：${error.message}`; status.className = 'error'; } }
     finally { saving = false; paint(); }
   }, 'ghost');
-  const openAdvanced = button('展开推送高级设置', () => { if (!owns()) return; advanced.hidden = !advanced.hidden; openAdvanced.textContent = advanced.hidden ? '展开推送高级设置' : '收起推送高级设置'; openAdvanced.setAttribute('aria-expanded', String(!advanced.hidden)); }, 'ghost');
-  openAdvanced.setAttribute('aria-expanded', 'false');
+  const openAdvanced = button('', () => { if (!owns()) return; advanced.hidden = !advanced.hidden; paintAdvanced(); }, 'ghost');
+  const paintAdvanced = () => paintDisclosure(openAdvanced, !advanced.hidden, { expand: '展开推送高级设置', collapse: '收起推送高级设置', help: '仅显示或隐藏推送设置，不保存或执行推送。' });
+  paintAdvanced();
   for (const control of [...choices.map(item => item.control), reload]) { const click = control.onclick; control.onclick = async () => { await click(); paint(); }; }
   function paint() {
     if (!owns()) return;

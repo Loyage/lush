@@ -10,5 +10,5 @@
 .project-elevation-confirmation button,.project-elevation-receipts button,.project-elevation-modal button{min-height:44px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .project-elevation-modal{width:min(840px,100%);min-width:0}
 .management-authority{font-weight:650;overflow-wrap:anywhere}.management-authority-administrator{color:var(--failed);padding:9px 12px;background:var(--amber-soft);border-radius:7px}
-.management-audit-details summary{min-height:44px;padding:10px 0;cursor:pointer}
+details.management-audit-details>summary{min-height:44px;padding:10px 0;cursor:pointer}
 @media(max-width:640px){.project-elevation-modal .modal-actions{flex-direction:column;align-items:stretch}.project-elevation-modal .modal-actions button,.project-elevation-receipts button{width:100%}.project-elevation-confirmation{width:100%}.valet-append-form{min-width:0}}

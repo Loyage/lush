@@ -31,6 +31,8 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
   if (path === '/') return new Response('<!doctype html><html><body style="margin:0"><iframe id="viewport" src="/fixture" style="width:1440px;height:900px;border:0"></iframe></body></html>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
+  if (path === '/shared/dashboard-quick-actions.js') return new Response(Bun.file(new URL('../../src/shared/dashboard-quick-actions.js', import.meta.url)));
   if (/^\/assets\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.split('/').at(-1))));
   return new Response('not found', { status: 404 });
 } });
@@ -79,7 +81,15 @@ try {
         if(card.scrollWidth>card.clientWidth)errors.push('card overflow');
         if(getComputedStyle(card).overflowY!=='visible'||card.scrollHeight>card.clientHeight+1)errors.push('internally scrolling account');
         for(const child of card.querySelectorAll('progress,details,p')){const c=child.getBoundingClientRect();if(c.right>r.right+.5||c.left<r.left-.5||c.bottom>r.bottom+.5)errors.push('content clipping');}
-        for(const summary of card.querySelectorAll('summary'))if(summary.getBoundingClientRect().height<44)errors.push('small detail touch target');
+        for(const summary of card.querySelectorAll('summary')){
+          if(summary.getBoundingClientRect().height<44)errors.push('small detail touch target');
+          const opened=getComputedStyle(summary,'::before');
+          if(opened.content!=='\"\"'||parseFloat(opened.borderBottomWidth)<=0)errors.push('missing shared line caret');
+          const shape=opened.transform;summary.parentNode.open=false;
+          if(getComputedStyle(summary,'::before').transform===shape)errors.push('caret does not follow disclosure state');
+          summary.parentNode.open=true;summary.focus();
+          if(document.activeElement!==summary)errors.push('summary not keyboard reachable');
+        }
         if(button.disabled){const host=button.parentNode;if(!host.dataset.help||host.tabIndex!==0)errors.push('missing disabled help');host.focus();if(document.activeElement!==host)errors.push('disabled help not focusable');}
       }
       const first=cards[0].textContent;

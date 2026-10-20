@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
-const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"></head>
+const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-search-field.css"></head>
 <body><div id="project-app"><div id="detail"></div></div><div id="context-menu"></div>
 <script type="module">
 import { openTranscriptView } from '/assets/transcript-view.js';
@@ -18,7 +18,8 @@ const originalFetch = window.fetch;
 window.fetch = async (url, opts) => {
   if (String(url).includes('/transcript-search')) {
     window.searchCalls++;
-    return Response.json({steps:Array.from({length:12}, (_,i)=>step(i+10)), files:['fixture'], has_more:false});
+    const after=Number(new URL(url, location.href).searchParams.get('after'));
+    return Response.json({steps:Array.from({length:12}, (_,i)=>step(i+(after ? 22 : 10))), files:['fixture'], has_more:!after, next:after ? 33 : 21});
   }
   if (String(url).includes('/transcript-step')) return Response.json({step:step(Number(new URL(url, location.href).searchParams.get('seq'))), related:[]});
   return originalFetch(url, opts);
@@ -40,6 +41,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
   // An explicitly sized browsing context avoids Firefox's desktop minimum window width.
   if (path === '/') return new Response('<!doctype html><body style="margin:0"><iframe src="/reader" style="border:0;display:block;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/reader') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/assets\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.split('/').at(-1))));
   return new Response('not found', { status: 404 });
 } });
@@ -89,6 +91,20 @@ async function checkCompactMetadata(width) {
     return '';`);
   assert(!problem, `compact metadata at ${width}: ${problem}`);
 }
+async function checkSearchTools(width) {
+  const problem = await execute(`
+    for(const button of document.querySelectorAll('.search-field-row>button,.ui-list-pagination button')) {
+      const r=button.getBoundingClientRect(),style=getComputedStyle(button);
+      if(r.height<(innerWidth<=760?44:36)||r.width<(innerWidth<=760?44:36)||style.fontSize!=='12px'||style.borderRadius!=='8px') return button.textContent+' has inconsistent toolbar sizing';
+    }
+    for(const row of document.querySelectorAll('.search-field-row')) {
+      const input=row.querySelector('input'),r=input.getBoundingClientRect(),button=row.querySelector('button').getBoundingClientRect();
+      if(row.scrollWidth>row.clientWidth+1) return 'search row overflow';
+      if(innerWidth<=760&&(getComputedStyle(input).fontSize!=='16px'||button.top<r.bottom||r.width<row.clientWidth-1)) return 'narrow input must own its row';
+    }
+    return '';`);
+  assert(!problem, `shared search/pagination at ${width}: ${problem}`);
+}
 async function readerScreenshot() {
   await rpc(`/session/${session}/frame`, { id: null });
   const frame = await rpc(`/session/${session}/element`, { using: 'css selector', value: 'iframe' });
@@ -114,7 +130,7 @@ try {
       const rect = selector => { const r=document.querySelector(selector).getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}; };
       return {sidebar:rect('.transcript-sidebar'),body:rect('.transcript-viewport'),query:rect('.search-field-row'),dialog:rect('.transcript-dialog'),width:innerWidth,height:innerHeight,area:getComputedStyle(document.querySelector('.transcript-sidebar')).gridArea};`);
     assert(box.width === width && box.height === height, `wrong test viewport: ${JSON.stringify(box)}`);
-    assert(await execute(`const group=document.querySelector('.transcript-order'),buttons=[...group.querySelectorAll('button')];return group.getAttribute('role')==='group'&&group.getAttribute('aria-label')==='执行过程排序'&&buttons.map(n=>n.textContent).join(',')==='正序,逆序'&&buttons.map(n=>n.getAttribute('aria-pressed')).join(',')==='false,true'&&buttons.every(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.x>=0&&r.right<=innerWidth&&r.bottom<=document.querySelector('.execution-navigation').getBoundingClientRect().bottom;})&&!document.querySelector('.transcript-reading-tools select');`), `sort buttons missing, clipped or incorrectly selected at ${width}`);
+    assert(await execute(`const group=document.querySelector('.transcript-order'),buttons=[...group.querySelectorAll('button')];return group.getAttribute('role')==='group'&&group.getAttribute('aria-label')==='执行过程排序'&&buttons.length===1&&buttons[0].textContent==='最新在前'&&buttons[0].dataset.order==='desc'&&(buttons[0].disabled?buttons[0].parentNode.dataset.help.includes('设备偏好当前不可用'):buttons[0].dataset.help.includes('设备统一'))&&buttons.every(n=>{const r=n.getBoundingClientRect(),style=getComputedStyle(n);return style.fontSize==='12px'&&style.borderRadius==='8px'&&r.width>=36&&r.height>=(innerWidth<=760?44:36)&&r.x>=0&&r.right<=innerWidth&&r.bottom<=document.querySelector('.execution-navigation').getBoundingClientRect().bottom;})&&!document.querySelector('.transcript-reading-tools select');`), `sort control missing, clipped or incorrectly selected at ${width}`);
     assert(box.area.startsWith('search'), 'sidebar must not inherit app navigation grid-area');
     assert(box.body.w > 0 && box.body.h > 80, `empty reading area at ${width}: ${JSON.stringify(box)}`);
     if (box.width > 760) {
@@ -140,7 +156,8 @@ try {
   await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0]; let tries=0; const check=()=>{if(document.querySelectorAll('.transcript-match [data-seq]').length===12)done(true);else if(++tries>100)done(false);else setTimeout(check,50);}; check();`, args: [] }).then(ready => assert(ready, 'Enter search did not hydrate match bodies'));
   assert(await execute(`return window.searchCalls===1 && document.querySelectorAll('.search-hit').length===12 && document.querySelectorAll('dialog[open]').length===1 && !document.querySelector('.transcript-sidebar .step');`), 'search must stay in one dialog with bodies only in main column');
   await checkCompactMetadata(1440);
-  assert(await execute(`return [...document.querySelectorAll('.transcript-order button')].every(n=>n.disabled)&&document.querySelector('.transcript-order').parentNode.dataset.help.includes('搜索结果按步骤编号排列');`), 'search must disable both sort buttons with an explanation');
+  await checkSearchTools(1440);
+  assert(await execute(`const button=document.querySelector('.transcript-order button');return button.disabled&&button.parentNode.tabIndex===0&&button.parentNode.dataset.help.includes('搜索结果按步骤编号排列');`), 'search must disable the sort control with an accessible explanation');
   assert(await execute(`const hits=document.querySelectorAll('.search-hit'); hits[5].querySelector('button').click(); return document.querySelectorAll('.step-located').length===1 && document.querySelector('[data-match-seq="15"]').classList.contains('step-located');`), 'hit navigation did not locate corresponding body');
   const queryTop = await execute(`return document.querySelector('.search-field-row').getBoundingClientRect().y;`);
   await execute(`document.querySelector('.transcript-search-results').scrollTop=200; document.querySelector('.transcript-viewport').scrollTop=300;`);
@@ -148,6 +165,11 @@ try {
   await execute(`document.querySelector('.search-field-submit').click();`);
   assert(await execute('return window.searchCalls===2'), 'native search button must submit');
   await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0]; let tries=0; const check=()=>{if(document.querySelector('.transcript-reader').getAttribute('aria-busy')==='false')done(true);else if(++tries>100)done(false);else setTimeout(check,50);}; check();`, args: [] }).then(ready => assert(ready, 'native search button left reader busy'));
+  for (const [label, seq] of [['下一页',22],['上一页',10]]) {
+    await execute(`Array.from(document.querySelectorAll('.ui-list-pagination button')).find(n=>n.textContent==='${label}').click();`);
+    const ready=await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>document.querySelector('.transcript-reader').getAttribute('aria-busy')==='false'&&document.querySelector('.search-hit')?.dataset.hitSeq==='${seq}'?done(true):++n>100?done(false):setTimeout(check,30);check();`, args: [] });
+    assert(ready, `shared pagination lost ${label} semantics`);
+  }
   const screenshotPath = process.argv[2] || '/tmp/lush-transcript-layout.png';
   async function capture(suffix) {
     const screenshot = await readerScreenshot();
@@ -156,11 +178,12 @@ try {
   for (const theme of ['light', 'dark']) {
     await execute(`document.documentElement.dataset.theme='${theme}';`);
     await resize(390, 844);
-    assert(await execute(`const [asc,desc]=document.querySelectorAll('.transcript-order button');return getComputedStyle(asc).backgroundColor!==getComputedStyle(desc).backgroundColor&&desc.getAttribute('aria-pressed')==='true';`), `sort selection not distinguishable in ${theme} theme`);
+    assert(await execute(`const button=document.querySelector('.transcript-order button'),icon=button.querySelector('.view-sort-icon');return button.textContent==='最新在前'&&button.dataset.order==='desc'&&getComputedStyle(icon).flexDirection==='column'&&getComputedStyle(icon.children[0]).width!==getComputedStyle(icon.children[2]).width&&getComputedStyle(icon.querySelector('i')).backgroundColor===getComputedStyle(button).color;`), `sort state/icon not distinguishable in ${theme} theme`);
     assert(await execute(`return getComputedStyle(document.querySelector('.transcript-sidebar')).display==='none' && document.querySelector('.transcript-viewport').getBoundingClientRect().height>innerHeight*.7;`), `mobile search must start closed in ${theme}`);
     await capture('-mobile-' + theme);
     await execute(`document.querySelector('.transcript-search-toggle').click();`);
-    assert(await execute(`const view=document.querySelector('.transcript-viewport').getBoundingClientRect(); const form=document.querySelector('.transcript-search').getBoundingClientRect(); const side=document.querySelector('.transcript-sidebar').getBoundingClientRect(); return view.height>innerHeight*.3 && form.bottom<=side.bottom && side.bottom<=view.y+1 && document.activeElement.type==='search';`), `mobile search/body clipped in ${theme} theme`);
+    assert(await execute(`const view=document.querySelector('.transcript-viewport').getBoundingClientRect(); const reader=document.querySelector('.transcript-reader'); const side=document.querySelector('.transcript-sidebar').getBoundingClientRect(); return view.height>innerHeight*.3 && getComputedStyle(reader).overflowY==='auto' && side.bottom<=view.y+1 && document.activeElement.type==='search';`), `mobile search/body clipped in ${theme} theme`);
+    await checkSearchTools(390);
     assert(await execute(`return document.querySelector('input[type=checkbox]').getBoundingClientRect().width<24;`), 'failure checkbox inherited text input flex sizing');
     await capture('-mobile-' + theme + '-search');
     assert(await execute(`document.querySelectorAll('.search-hit')[5].querySelector('button').click(); const card=document.querySelector('[data-match-seq="15"]');const view=document.querySelector('.transcript-viewport');return getComputedStyle(document.querySelector('.transcript-sidebar')).display==='none' && document.activeElement===view && card.getBoundingClientRect().top>=view.getBoundingClientRect().top-1 && document.querySelector('.search-field-input').value==='needle';`), 'mobile hit did not close search, focus reader and locate body');
@@ -171,7 +194,9 @@ try {
     await resize(320, 568);
     await execute(`document.querySelector('.transcript-search-toggle').click();`);
     const narrowSearch = await execute(`const side=document.querySelector('.transcript-sidebar').getBoundingClientRect(),form=document.querySelector('.transcript-search').getBoundingClientRect();return {formBottom:form.bottom,sideBottom:side.bottom,sideWidth:side.width,scrollWidth:document.querySelector('.transcript-sidebar').scrollWidth,bodyHeight:document.querySelector('.transcript-viewport').getBoundingClientRect().height};`);
-    assert(narrowSearch.formBottom<=narrowSearch.sideBottom+1 && narrowSearch.scrollWidth<=narrowSearch.sideWidth+1 && narrowSearch.bodyHeight>80, '320px shared controls clipped or overflowed: ' + JSON.stringify(narrowSearch));
+    assert(narrowSearch.scrollWidth<=narrowSearch.sideWidth+1 && narrowSearch.bodyHeight>80, '320px shared controls clipped or overflowed: ' + JSON.stringify(narrowSearch));
+    await checkSearchTools(320);
+    assert(await execute(`const reader=document.querySelector('.transcript-reader'),last=reader.querySelector('.ui-list-pagination button');last.scrollIntoView({block:'end',behavior:'instant'});const r=last.getBoundingClientRect(),box=reader.getBoundingClientRect();return reader.scrollTop>0&&r.top>=box.top&&r.bottom<=box.bottom+1;`), 'narrow search pagination cannot be reached by scrolling');
     assert(await execute(`const input=document.querySelector('.search-field-input');input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));return getComputedStyle(document.querySelector('.transcript-sidebar')).display==='none' && input.value==='needle';`), 'reader Escape must collapse search without clearing its applied query');
     console.log('PASS mobile search collapse, hit focus/location, 320px controls and short viewport ' + theme);
   }
@@ -180,6 +205,16 @@ try {
   assert(await execute(`const step=document.querySelector('.step-failed');return step?.textContent.includes('fixture failure')&&step.querySelector('.step-meta').textContent.includes('#2')&&step.querySelector('.step-call-status').textContent==='失败'&&document.querySelector('.transcript-viewport').scrollWidth<=innerWidth;`), 'failure command/output or step metadata lost/overflowed');
   await checkCompactMetadata(390);
   await capture('-mobile-steps');
+  // Actual WebDriver touch input; batch toggles must retain the loaded step nodes.
+  await execute(`window.savedStep=document.querySelector('[data-seq="2"]');document.querySelector('[data-live="transcript-fold"]').scrollIntoView({block:'center'});`);
+  const foldElement = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-live="transcript-fold"]' });
+  for (const open of [false, true]) {
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'pointer', id: 'finger', parameters: { pointerType: 'touch' }, actions: [
+      { type: 'pointerMove', duration: 0, origin: foldElement, x: 0, y: 0 }, { type: 'pointerDown', button: 0 }, { type: 'pointerUp', button: 0 },
+    ] }] });
+    assert(await execute(`return document.querySelector('[data-seq="2"]')===window.savedStep&&[...document.querySelectorAll('.steps>.step')].every(n=>n.classList.contains('open')===${open});`), 'touch batch fold lost state or nodes');
+  }
+  console.log('PASS WebDriver touch collapse/expand and retained loaded nodes');
   await execute(`document.documentElement.dataset.theme='light';`);
   await resize(1440, 900);
   // Let theme transitions settle before capturing the final light-theme view.

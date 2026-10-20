@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { api } from './api.js';
 import { onPrefChange, pollingIntervals } from './prefs.js';
 import { createCodeTree } from './code-tree.js';
@@ -27,9 +28,11 @@ export function createCodeView(taskId, { onSearch } = {}) {
   metadata.append(summaryLine, provenance, sampling, warning);
   const refreshButton = button('刷新', () => refresh(), 'ghost', { help: '重新采样当前 Worker 工作区，并显式更新文件列表和选中文件；不会修改文件或调用 Agent。' });
   const toggleFiles = button('收起文件栏', () => {
-    const collapsed = root.classList.toggle('code-files-collapsed'); toggleFiles.textContent = collapsed ? '展开文件栏' : '收起文件栏';
-    toggleFiles.setAttribute('aria-expanded', String(!collapsed));
-  }, 'ghost'); toggleFiles.setAttribute('aria-expanded', 'true');
+    const collapsed = root.classList.toggle('code-files-collapsed');
+    paintFiles(!collapsed);
+  }, 'ghost');
+  const paintFiles = open => paintDisclosure(toggleFiles, open, { expand: '展开文件栏', collapse: '收起文件栏', help: '只改变文件栏显示；保留路径筛选、文件选择与正文，不读取文件。' });
+  paintFiles(true);
   toolbar.append(scopeSelect, refreshButton, toggleFiles, metadata);
   const banner = el('div', undefined, 'code-update-banner'); banner.hidden = true;
   const bannerText = el('span'); bannerText.setAttribute('role', 'status');

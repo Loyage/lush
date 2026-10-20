@@ -1,4 +1,5 @@
 import { button, el } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { absolute, noticeNumber } from './format.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { agentText, markdownEnabled } from './text.js';
@@ -36,10 +37,10 @@ function prose(text, copyCode = false, className = 'message-prose') {
     const toggle = button('展开完整正文', () => {
       const expanded = toggle.getAttribute('aria-expanded') !== 'true';
       root.replaceChildren(agentText(expanded ? text : preview, { className: 'message-prose', copyCode }), toggle);
-      toggle.textContent = expanded ? '收起正文' : '展开完整正文';
-      toggle.setAttribute('aria-expanded', String(expanded));
+      paint(expanded);
     }, 'ghost');
-    toggle.setAttribute('aria-expanded', 'false'); root.append(toggle);
+    const paint = expanded => paintDisclosure(toggle, expanded, { expand: '展开完整正文', collapse: '收起正文', help: '只显示或收起这条已加载消息的正文，不读取未加载历史。' });
+    paint(false); root.append(toggle);
   }
   return root;
 }

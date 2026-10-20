@@ -1,5 +1,6 @@
 import { el, button } from './dom.js';
 import { searchField } from './search-field.js';
+import { listSurface } from './list-surface.js';
 import { api } from './api.js';
 import { STEP } from './format.js';
 import { ui } from './state.js';
@@ -40,7 +41,9 @@ export async function openTranscriptStep(taskId, seq, { root: scopedRoot } = {})
   const content = el('div'), status = el('p', '', 'hint');
   let offset = 0;
   const more = button('继续读取原文', load, 'ghost');
-  raw.append(content, status, more); target.append(raw);
+  const pagination = el('div'); pagination.append(status, more);
+  listSurface({ pagination });
+  raw.append(content, pagination); target.append(raw);
   async function load() {
     more.disabled = true;
     try {
@@ -73,6 +76,7 @@ function readerState(taskId) {
   const filters = el('div', undefined, 'transcript-search-filters'); filters.append(kind, toolControl.root, errorLabel);
   const hint = el('p', 'Enter 搜索 · Ctrl/⌘+Shift+F 聚焦搜索框；包含未加载记录。', 'hint transcript-search-hint');
   form.append(queryControl.root, filters, hint);
+  listSurface({ tools: form });
   const results = el('div', undefined, 'transcript-search-results'); results.setAttribute('aria-label', '搜索命中摘要');
   root.append(form, results);
   // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里。
@@ -117,6 +121,7 @@ function readerState(taskId) {
         row.append(excerpt); results.append(row);
       }
       const actions = el('div', undefined, 'actions');
+      listSurface({ pagination: actions });
       if (pageIndex) actions.append(button('上一页', () => { pageIndex--; void search(cursors[pageIndex]); }, 'ghost'));
       if (data.has_more) actions.append(button('下一页', () => { cursors[++pageIndex] = data.next; void search(data.next); }, 'ghost'));
       results.append(actions);

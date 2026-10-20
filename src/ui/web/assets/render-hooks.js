@@ -1,4 +1,5 @@
 import { el, button, badge, block } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { api, action, projectApi } from './api.js';
 import { ui } from './state.js';
 import { detail } from './navigate.js';
@@ -402,8 +403,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     get: () => !management.hidden,
     set(value) {
       management.hidden = !value;
-      toggle.textContent = value ? '收起高级与记录' : '高级与记录';
-      toggle.setAttribute('aria-expanded', String(Boolean(value)));
+      paintDisclosure(toggle, Boolean(value), { expand: '高级与记录', collapse: '收起高级与记录', help: '只展开或收起高级设置与运行记录；保留当前编辑，不提交设置或调用 Agent。' });
     },
   });
   management.open = featureState.management?.open === true;

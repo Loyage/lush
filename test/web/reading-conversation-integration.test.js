@@ -3,6 +3,7 @@ import { setup, fetch as httpFetch } from './harness.js';
 import { installDom, deepText, findByText } from '../dom-stub.js';
 import { ui, resetUiState } from '../../src/ui/web/assets/state.js';
 import { renderConversation } from '../../src/ui/web/assets/render-conversation.js';
+import { renderWorkerTimeline } from '../../src/ui/web/assets/render-worker-timeline.js';
 import { clear } from '../../src/ui/web/assets/messages.js';
 
 test('real HTTP reading projections locate a user input and search all its stored history', async () => {
@@ -16,12 +17,24 @@ test('real HTTP reading projections locate a user input and search all its store
     const root = renderConversation(task); expect(calls).toHaveLength(0);
     const input = await root.revealConversationReference({ kind: 'message', target: { task_id: task.id, message_id: messageId } });
     expect(input.dataset.conversationKey).toBe(`input:${eventId}`); expect(deepText(input)).toContain('needle 输入');
+    const sort = root.querySelector('.conversation-order').querySelector('button'), reads = calls.length;
+    await sort.onclick(); expect(deepText(sort).trim()).toBe('最早在前'); expect(calls).toHaveLength(reads);
+    expect(root.querySelector(`[data-conversation-key="input:${eventId}"]`)).toBe(input);
+    expect(root.querySelector('.ui-list-pagination').querySelector('.conversation-more')).not.toBeNull();
     const keyword = root.querySelector('.conversation-search').querySelector('input');
     keyword.value = 'needle'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
     await findByText(root, '查找全部历史').onclick();
     expect(deepText(root)).toContain('查找完成'); expect(root.querySelectorAll('.conversation-input')).toHaveLength(1);
     expect(root.querySelector('.conversation-input').dataset.ref).toContain(`event-${eventId}`);
     expect(f.store.get('SELECT consumed FROM messages WHERE id=?', messageId).consumed).toBe(0);
+    const timeline = renderWorkerTimeline(task);
+    await findByText(timeline, '加载更早时间线').onclick();
+    const record = timeline.querySelector('.lifecycle-evidence-record'), timelineReads = calls.length;
+    expect(record.dataset.lifecycleRecord).toBe(`event:${eventId}`);
+    expect(deepText(record)).toContain('A8-1');
+    await timeline.querySelector('.lifecycle-order').querySelector('button').onclick();
+    expect(timeline.querySelector(`[data-lifecycle-record="event:${eventId}"]`)).toBe(record); expect(calls).toHaveLength(timelineReads);
+    expect(timeline.querySelector('.ui-list-pagination').querySelector('.lifecycle-more')).not.toBeNull();
   } finally { resetUiState(); dom.restore(); await f.close(); }
 });
 

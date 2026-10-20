@@ -53,6 +53,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     }
     return fetch(f.url + url.pathname + url.search);
   }
+  if (url.pathname === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(join(assets, url.pathname.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -108,13 +109,18 @@ try {
       return {width:w.innerWidth,overflow:n.scrollWidth>n.clientWidth+1,bodyOverflow:d.documentElement.scrollWidth>w.innerWidth+1,
       compact:[...n.querySelectorAll('.management-call')].every(row=>row.getBoundingClientRect().height<=46&&row.querySelector('summary').getBoundingClientRect().height>=44),
       closed:[...n.querySelectorAll('.management-call-fold')].every(f=>!f.open),
+      unified:n.querySelectorAll('.management-calls-order button').length===1&&n.querySelector('.management-calls-order button').textContent==='最早在前'
+        &&[...n.querySelectorAll('.management-calls-controls .view-control')].filter(b=>!b.hidden).every(b=>b.getBoundingClientRect().height>=(w.innerWidth<=760?44:36)),
       preview:n.classList.contains('detail-preview'),unclipped:w.getComputedStyle(n.querySelector('.module-body')).maxHeight==='none',
       failureHidden:d.querySelector('[data-call-id="${fault.call_id}"] .management-call-failure').getBoundingClientRect().height===0,
       unknownVisible:d.querySelector('[data-call-id="${fault.call_id}"] .management-call-alert').textContent.includes('未知'),
       badgeUnclipped:[...n.querySelectorAll('.management-call-alert')].filter(e=>!e.hidden).every(e=>e.scrollWidth<=e.clientWidth+1),
       ellipsis:w.getComputedStyle(n.querySelector('code')).textOverflow==='ellipsis'};`);
     assert(layout.width===width&&!layout.overflow&&!layout.bodyOverflow&&layout.preview&&layout.unclipped&&layout.failureHidden
-      &&layout.compact&&layout.closed&&layout.unknownVisible&&layout.badgeUnclipped&&layout.ellipsis, 'layout failure '+JSON.stringify(layout));
+      &&layout.unified&&layout.compact&&layout.closed&&layout.unknownVisible&&layout.badgeUnclipped&&layout.ellipsis, 'layout failure '+JSON.stringify(layout));
+    assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,w=d.defaultView,audit=d.querySelector('.management-audit-details'),head=audit.querySelector('summary');
+      const shape=w.getComputedStyle(head,'::before').transform; if(audit.open||head.getBoundingClientRect().height<44)return false;
+      head.click();const changed=audit.open&&w.getComputedStyle(head,'::before').transform!==shape;head.click();return changed&&!audit.open;`), 'project authority audit must retain native default fold, shared caret and 44px target');
     assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,n=d.querySelector('.management-calls');
       n.querySelector('.management-call-head').click();
       d.querySelector('[data-call-id="${fault.call_id}"] .management-call-head').click();
@@ -150,7 +156,8 @@ try {
   await execute(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-details>summary').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
   assert(await wait(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-timeline-status').textContent.includes('已读取')`), 'safe associated timeline not loaded');
-  await execute(`document.activeElement.blur();document.querySelector('.management-calls-order button:last-child').click();
+  assert(await execute(`const b=[...document.querySelectorAll('.management-calls-controls button')].find(b=>b.textContent==='全部展开');return !!b&&!b.disabled;`), 'mixed individual state must offer expand all');
+  await execute(`document.activeElement.blur();document.querySelector('.management-calls-order button').click();
     [...document.querySelectorAll('.management-calls-controls button')].find(b=>b.textContent==='全部展开').click();`);
   await click('.management-calls-controls button:first-child');
   assert(await wait(`document.querySelectorAll('.management-call').length===37`), 'older real HTTP page missing '+JSON.stringify(await execute(`return {n:document.querySelectorAll('.management-call').length,status:document.querySelector('.management-calls-status').textContent,focus:document.activeElement?.outerHTML,toast:document.getElementById('error')?.textContent};`))+' paths='+JSON.stringify(paths));

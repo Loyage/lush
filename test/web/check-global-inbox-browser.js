@@ -17,7 +17,7 @@ const info={...record,notice:{...record.notice,id:8,status:'sent',kind:'info',ti
 window.fetch=async (url,options={})=>{
  requests.push(url);if(options.body){writes.push(JSON.parse(options.body));record.notice.status='answered';record.notice.answer=JSON.parse(options.body).answer;record.notice.answer_source='user';record.notice.sync_revision++;return Response.json(record);}
  if(url.includes('/notice?'))return Response.json(url.includes('id=8')?info:record);
- return Response.json({version:1,items:[record,info],cursor:null,has_more:false,complete:record.online,projects:[{id:'${B}',name:'来源项目 B',online:record.online,complete:true,checked_at:record.checked_at,error:record.online?null:'离线'}]});
+ return Response.json({version:1,items:url.includes('&before=')?[]:[record,info],cursor:'older',has_more:!url.includes('&before='),complete:record.online,projects:[{id:'${B}',name:'来源项目 B',online:record.online,complete:true,checked_at:record.checked_at,error:record.online?null:'离线'}]});
 };
 window.paint=async online=>{record.online=online;await openGlobalInbox({projectId:'${B}',noticeId:7,push:false});};
 window.paintInfo=()=>openGlobalInbox({projectId:'${B}',noticeId:8,push:false});
@@ -29,6 +29,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   if (path === '/' || path === `/p/${B}/`) return new Response(html, { headers: { ...headers, 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixture, { headers: { ...headers, 'Content-Type': 'text/javascript' } });
   if (path === `/p/${B}/api/worker/21/notice/7/preview/0/0`) return new Response('<!doctype html><p>来源项目 B 的静态预览</p>', { headers: { ...headers, 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/assets\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.split('/').at(-1))));
   return new Response('not found', { status: 404 });
 } });
@@ -84,6 +85,7 @@ try {
     const layout = await execute(`const viewport=document.getElementById('fixture-viewport');return {viewportOverflow:viewport.scrollWidth-viewport.clientWidth,pageOverflow:document.documentElement.scrollWidth-innerWidth,nested:!!document.querySelector('button a'),preview:document.querySelector('iframe').getAttribute('src'),workerTarget:document.querySelector('.worker-link').target,hostOnly:requests.every(url=>url.startsWith('/api/host/')),wide:[...document.querySelectorAll('.search-field,.ui-list-tools,.ui-list-tools>*,.ui-list-tools .filters button,.ui-list-card,.global-inbox-detail')].map(n=>({class:n.className,width:n.clientWidth,scroll:n.scrollWidth,rect:n.getBoundingClientRect().width,text:n.textContent.slice(0,32)}))};`);
     assert(layout.viewportOverflow<=0&&layout.pageOverflow<=0&&!layout.nested&&layout.preview===`/p/${B}/api/worker/21/notice/7/preview/0/0`&&layout.workerTarget==='_blank'&&layout.hostOnly, `layout/source routing/CSP preview/nested control failed: ${JSON.stringify(layout)}`);
     assert(await execute(`const rows=document.querySelectorAll('.global-inbox-row'),q=rows[0],i=rows[1];return q.tagName==='A'&&q.getAttribute('href')==='/p/${B}/#notices-7'&&i.getAttribute('href')==='/p/${B}/#notices-8'&&i.target==='_blank'&&getComputedStyle(q.querySelector('.goal')).color!==getComputedStyle(i.querySelector('.goal')).color&&getComputedStyle(q).backgroundColor!==getComputedStyle(i).backgroundColor;`), 'source record links or decision/info colors are indistinguishable');
+    assert(await execute(`const controls=[...document.querySelectorAll('.ui-list-tools button,.ui-list-pagination button')].filter(n=>n.getClientRects().length);const input=document.querySelector('.search-field-input'),row=input.closest('.search-field-row');return controls.every(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return r.height>=(innerWidth<=760?44:36)&&s.fontSize==='12px'&&s.borderRadius==='8px';})&&(innerWidth>760||(getComputedStyle(input).fontSize==='16px'&&input.getBoundingClientRect().width>=row.clientWidth-1&&row.querySelector('button').getBoundingClientRect().top>=input.getBoundingClientRect().bottom));`), 'shared inbox toolbar sizing or narrow input row failed');
     const questionColor = await execute(`return getComputedStyle(document.querySelector('.global-inbox-detail')).backgroundColor;`);
     await asyncExecute('const done=arguments[0];paintInfo().then(done);');
     assert(await execute(`return getComputedStyle(document.querySelector('.global-inbox-detail')).backgroundColor!==${JSON.stringify(questionColor)}&&!document.querySelector('textarea')&&writes.length===0;`), 'info detail uses decision color or performs a mutation');
@@ -108,6 +110,12 @@ try {
     assert(await execute(`return detail.textContent.includes('离线草稿')&&Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认全部选择并继续 Worker').classList.contains('agent-call');`), 'source-scoped draft or Agent label was lost');
     console.log(`PASS ${theme} ${width}x${height}: layout, source links/preview, offline guard, accessible help, draft restoration`);
   }
+  await execute(`document.querySelector('.ui-list-pagination button').focus();`);
+  assert(await execute(`const b=document.querySelector('.ui-list-pagination button');return getComputedStyle(b).outlineStyle==='solid'&&getComputedStyle(b).outlineWidth==='2px';`), 'pagination keyboard focus is not visible');
+  await click('.ui-list-pagination button');
+  assert(await wait(`requests.some(url=>url.includes('&before=older'))&&!document.querySelector('.ui-list-pagination button')`), 'load earlier must retain its cursor semantics');
+  assert(await execute(`return document.querySelectorAll('.global-inbox-row').length===2&&writes.length===0&&detail.textContent.includes('离线草稿');`), 'paging must retain records/draft and stay read-only');
+  console.log('PASS shared inbox search/paging dimensions, visible focus and load-earlier cursor');
   const original = await rpc(`/session/${session}/window`, undefined, 'GET');
   await click('.global-inbox-row');
   const handles = await rpc(`/session/${session}/window/handles`, undefined, 'GET');

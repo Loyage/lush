@@ -1,4 +1,5 @@
 import { SIDEBAR_SECTIONS, toggleCollapsed } from './sidebar.js';
+import { batchDisclosure } from './view-controls.js';
 import { $, el } from './dom.js';
 import { filterInput, filterMulti, filterSelect, filterToggle, filterUi, plannerOption, roleOption, specStatusOption, statusOption, syncSelectOptions, withCurrent } from './filters-ui.js';
 import { applyFilters } from './refresh.js';
@@ -15,12 +16,6 @@ export function navTo(id) {
 
 /* ---------- 左侧栏：快速导航、可折叠区块、三个列表的筛选 ---------- */
 // 纯逻辑（筛选规则、摘要、折叠 / 筛选状态形态）都在 sidebar.js，这里只负责接到 DOM。
-function makeFoldButton(text, fn) {
-  const node = el('button', text, 'nav-fold-btn');
-  node.type = 'button';
-  node.onclick = fn;
-  return node;
-}
 function makeNavItem(section) {
   const item = el('button', undefined, 'nav-item');
   item.type = 'button';
@@ -46,9 +41,10 @@ export function initSidebar() {
   }
   // 兼容已有的折叠偏好；控制项保持低调，主要导航仍然只负责打开右侧页面。
   const folds = el('span', undefined, 'nav-fold');
-  folds.append(
-    makeFoldButton('全部折叠', () => { ui.collapsed = new Set(SIDEBAR_SECTIONS.map(section => section.id)); paintCollapsed(); saveCollapsedPref(); }),
-    makeFoldButton('全部展开', () => { ui.collapsed = new Set(); paintCollapsed(); saveCollapsedPref(); }));
+  const foldControl = batchDisclosure({ getItems: () => SIDEBAR_SECTIONS, isExpanded: section => !ui.collapsed.has(section.id),
+    setExpanded: open => { ui.collapsed = new Set(open ? [] : SIDEBAR_SECTIONS.map(section => section.id)); paintCollapsed(); saveCollapsedPref(); },
+    scope: '作用于侧栏资源列表区块；保存当前项目折叠偏好，不切换页面或读取历史。' });
+  folds.syncFold = foldControl.sync; folds.append(foldControl.root);
   nav.append(folds);
   for (const section of SIDEBAR_SECTIONS) {
     ui.sideHeads.get(section.id)?.addEventListener('click', () => {

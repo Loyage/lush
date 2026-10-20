@@ -1,4 +1,5 @@
 import { SIDEBAR_SECTIONS } from './sidebar.js';
+import { paintDisclosure } from './view-controls.js';
 import { ui } from './state.js';
 import { listSurface } from './list-surface.js';
 import { isValet } from './work-type.js';
@@ -97,8 +98,7 @@ export function toggleMobileNavigation(force) {
   if (!sidebar || !toggle) return false;
   const open = force ?? !sidebar.classList.contains('mobile-open');
   sidebar.classList.toggle('mobile-open', open);
-  toggle.setAttribute('aria-expanded', String(open));
-  toggle.textContent = open ? '收起菜单' : '导航菜单';
+  paintDisclosure(toggle, open, { expand: '导航菜单', collapse: '收起菜单' });
   if (!open && node('navigation-menu')?.contains?.(globalThis.document?.activeElement)) toggle.focus();
   return open;
 }
@@ -119,6 +119,7 @@ export function paintCollapsed() {
     ui.sideNodes.get(section.id)?.classList.toggle('collapsed', collapsedNow);
     ui.sideHeads.get(section.id)?.setAttribute('aria-expanded', String(!collapsedNow));
   }
+  node('side-nav')?.querySelector('.nav-fold')?.syncFold?.();
 }
 export function setNavCount(id, count) { const target = ui.navCounts.get(id); if (target) target.textContent = String(count); }
 export function selectNav(id) {

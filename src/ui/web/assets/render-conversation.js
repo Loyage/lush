@@ -1,6 +1,8 @@
 import { block, button, el, syncChildren } from './dom.js';
+import { sortControl, paintDisclosure } from './view-controls.js';
 import { agentText, markdownEnabled } from './text.js';
 import { searchField } from './search-field.js';
+import { listSurface } from './list-surface.js';
 import { absolute, inputNumber, noticeNumber } from './format.js';
 import { ui } from './state.js';
 import { loadHostSession, usernameInitial } from './host-session.js';
@@ -69,14 +71,17 @@ export function renderConversation(task, history = {}, previous = null) {
     toggle.dataset.conversationFilter = category; toggle.style.color = color;
     toggle.setAttribute('aria-pressed', String(initial)); toggles[category] = toggle; filters.append(toggle);
   }
-  const asc = button('正序', () => { direction = 'asc'; paint(); }, 'ghost', { help: '按时间从早到晚阅读已加载输入输出，只改变显示顺序，不调用 Agent。' });
-  const desc = button('倒序', () => { direction = 'desc'; paint(); }, 'ghost', { help: '按时间从晚到早阅读已加载输入输出，只改变显示顺序，不调用 Agent。' });
+  const sort = sortControl({ getOrder: () => direction, setOrder: value => { direction = value; paint(); },
+    scope: '仅重排已加载输入输出；同 Worker 刷新保留，不读取历史或调用 Agent。' });
   const searchToggle = button('搜索', () => {
     const open = searchToggle.getAttribute('aria-expanded') !== 'true';
-    searchToggle.setAttribute('aria-expanded', String(open)); root.classList.toggle('conversation-search-open', open);
+    root.classList.toggle('conversation-search-open', open);
+    paintSearch(open);
   }, 'ghost conversation-search-toggle', { help: '展开或收起关键词筛选与全历史查找，保留搜索草稿和已应用条件，不调用 Agent。' });
-  searchToggle.setAttribute('aria-expanded', 'false'); searchToggle.setAttribute('aria-controls', `conversation-search-${task.id}`);
-  ordering.append(asc, desc); head.append(count, ordering, searchToggle);
+  const paintSearch = (open = searchToggle.getAttribute('aria-expanded') === 'true') => paintDisclosure(searchToggle, open,
+    { expand: query ? '搜索 · 已筛选' : '搜索', collapse: query ? '收起搜索 · 已筛选' : '收起搜索' });
+  paintSearch(false); searchToggle.setAttribute('aria-controls', `conversation-search-${task.id}`);
+  ordering.append(sort.root); head.append(count, ordering, searchToggle);
   const search = el('div', undefined, 'conversation-search'); search.id = `conversation-search-${task.id}`;
   const searchControl = searchField({ label: '筛选输入输出', placeholder: '搜索输入、回复与决策正文', scope: '范围：已加载完整内容；全历史查找分批读取旧内容，不含生命周期、Worker 通信、系统元数据或执行过程', onSubmit: value => {
     cancelRead(); query = value.toLowerCase(); remoteQuery = null; remoteHits.clear();
@@ -94,7 +99,9 @@ export function renderConversation(task, history = {}, previous = null) {
   search.append(searchControl.root, findHost);
   const more = button('加载更早输入输出', () => loadMore(), 'ghost conversation-more');
   const moreHost = el('span', undefined, 'help-host'); moreHost.setAttribute('data-help', '逐批遍历更早历史，只呈现输入输出内容；生命周期与通信保留在独立时间线，其他读取进行中时请先取消或等待。'); moreHost.append(more);
-  root.append(filters, search, cancel, list, status, moreHost);
+  const pagination = el('div'); pagination.append(status, moreHost);
+  listSurface({ tools: filters, pagination }); listSurface({ tools: search });
+  root.append(filters, search, cancel, list, pagination);
 
   function alive() {
     return globalThis.document === ownerDocument && ui.workerNumbers === boot && ui.view === view
@@ -144,8 +151,7 @@ export function renderConversation(task, history = {}, previous = null) {
       meta.append(copy, toggle); node.append(meta, body); node.expanded = false;
       function setExpanded(value) {
         node.expanded = Boolean(value); node.classList.toggle('conversation-expanded', node.expanded);
-        toggle.textContent = node.expanded ? '收起消息' : '展开消息';
-        toggle.setAttribute('aria-expanded', String(node.expanded));
+        paintDisclosure(toggle, node.expanded, { expand: '展开消息', collapse: '收起消息' });
       }
       body.addEventListener('focusin', () => setExpanded(true));
       node.revealReadingContent = () => setExpanded(true); node.updateExpansion = () => setExpanded(node.expanded);
@@ -295,8 +301,8 @@ export function renderConversation(task, history = {}, previous = null) {
     const incomplete = all.filter(entry => entry.truncated).length, limited = all.filter(entry => entry.limitations?.length).length;
     const unreadable = all.filter(entry => entry.unreadable).length;
     count.textContent = `显示 ${shown.length} / 已加载 ${all.length} 条 · ${complete ? '历史已遍历' : '历史范围未完成'}${incomplete ? ` · ${incomplete} 条正文未读完` : ''}${limited ? ` · ${limited} 条附属字段受限` : ''}${unreadable ? ` · ${unreadable} 条正文不可读` : ''}${historyState}`;
-    asc.setAttribute('aria-pressed', String(direction === 'asc')); desc.setAttribute('aria-pressed', String(direction === 'desc'));
-    searchToggle.textContent = query ? '搜索 · 已筛选' : '搜索';
+    sort.sync();
+    paintSearch();
     root.dataset.order = direction; more.hidden = complete;
   }
   function storeEntry(map, entry) {

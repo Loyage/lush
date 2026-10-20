@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { createPerformanceData } from './performance-data.js';
 import { analyzeShellCommands } from './performance-model.js';
 import { absolute, lifecycleDuration } from './format.js';
@@ -49,8 +50,10 @@ export function createPerformanceView(taskId, { onStep = async () => {} } = {}) 
     if (group.command.length > 400) {
       const toggle = button(expandedCommands.has(group.key) ? '收起命令预览' : '展开命令预览', () => {
         if (expandedCommands.has(group.key)) expandedCommands.delete(group.key); else expandedCommands.add(group.key);
-        toggle.textContent = expandedCommands.has(group.key) ? '收起命令预览' : '展开命令预览'; preview();
-      }, 'ghost'); card.append(toggle);
+        paint(); preview();
+      }, 'ghost');
+      const paint = () => paintDisclosure(toggle, expandedCommands.has(group.key), { expand: '展开命令预览', collapse: '收起命令预览', help: '仅展开已加载的命令预览；完整原文仍需定位步骤后读取。' });
+      paint(); card.append(toggle);
     }
     const parameters = typeof group.parameters === 'string' ? group.parameters : JSON.stringify(group.parameters);
     if (parameters && parameters !== '{}') card.append(el('p', `其余参数：${parameters}`, 'hint performance-parameters'));

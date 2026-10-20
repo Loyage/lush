@@ -22,9 +22,7 @@
 .dashboard-account-progress::-webkit-progress-value{background:var(--accent);border-radius:4px}
 .dashboard-account-progress::-moz-progress-bar{background:var(--accent);border-radius:4px}
 .dashboard-account-metric-details,.dashboard-account-old{min-width:0;border-top:1px solid var(--line-soft);padding-top:3px;overflow:visible}
-.dashboard-account-metric-details summary,.dashboard-account-old summary{cursor:pointer;font-size:11px;line-height:1.4;color:var(--muted);box-sizing:border-box;min-height:44px;display:flex;align-items:center;gap:4px;padding:3px 0;overflow-wrap:anywhere}
-.dashboard-account-metric-details summary::before,.dashboard-account-old summary::before{content:'▸';flex:none}
-.dashboard-account-metric-details[open]>summary::before,.dashboard-account-old[open]>summary::before{content:'▾'}
+details.dashboard-account-metric-details>summary,details.dashboard-account-old>summary{cursor:pointer;font-size:11px;line-height:1.4;color:var(--muted);box-sizing:border-box;min-height:44px;display:flex;align-items:center;gap:4px;padding:3px 0;overflow-wrap:anywhere}
 .dashboard-account-metric-details summary:focus-visible,.dashboard-account-old summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .dashboard-account-metric-details[open],.dashboard-account-old[open]{display:grid;gap:4px}
 .dashboard-account-old{padding:5px;border:1px dashed var(--line);border-radius:6px}

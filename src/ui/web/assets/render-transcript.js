@@ -1,4 +1,6 @@
 import { $, button, el } from './dom.js';
+import { batchDisclosure, disclosureIcon } from './view-controls.js';
+import { listSurface } from './list-surface.js';
 import { api } from './api.js';
 import { STEP, relative, tokensView } from './format.js';
 import { onPrefChange, readPref } from './prefs.js';
@@ -17,9 +19,7 @@ const stepExpanded = (taskId, step) => ui.stepToggle.get(stepKey(taskId, step))
   ?? ui.stepToggle.get(`${taskId}:all`) ?? STEP_OPEN.has(step.kind);
 const foldableNodes = list => [...list.children].filter(node => node.querySelector('.step-body'));
 function syncFoldControl(control, list) {
-  const nodes = foldableNodes(list);
-  control.hidden = nodes.length < 2;
-  control.textContent = nodes.every(node => node.classList.contains('open')) ? '收起全部步骤' : '展开全部步骤';
+  control.syncFold?.();
 }
 
 /** 当前快速查看的阅读方向：默认倒序（最新在前），设置里可切回正序。 */
@@ -146,10 +146,11 @@ function stepNode(taskId, step, { expanded, remember = true } = {}) {
   const paint = open => {
     closedSummary.hidden = open;
     item.classList.toggle('open', open);
-    caret.textContent = open ? '▾' : '▸';
+    disclosureIcon(caret, open);
     body.hidden = !open;
     head.setAttribute('aria-expanded', String(open));
   };
+  item.setExpanded = paint;
   head.setAttribute('data-help', '点击展开／收起这一步的正文');
   head.onclick = () => {
     const open = !item.classList.contains('open');
@@ -276,7 +277,6 @@ export function transcriptContent(taskId) {
     button('重试读取', () => loadTranscript(taskId), 'ghost')];
   const meta = el('p', transcriptMetaText(state), 'hint');
   meta.dataset.live = 'transcript-meta';
-  if (!state.steps.length) return [meta, ...reader()];
   const desc = state.order === 'desc';
   const grouped = groupSteps(state.steps);
   const list = el('ol', undefined, 'steps');
@@ -286,21 +286,20 @@ export function transcriptContent(taskId) {
   const actions = el('div', undefined, 'actions transcript-pagination');
   const controls = el('div', undefined, 'transcript-record-controls');
   const readingActions = el('div', undefined, 'actions');
+  listSurface({ tools: readingActions, pagination: actions });
   controls.append(meta, readingActions);
   // 一步一行，但轮到要看全文时不该点几十次：一个按钮把整段过程一次摊开或收起。
-  const fold = button('', () => {
-    const open = !foldableNodes(list).every(node => node.classList.contains('open'));
+  const fold = batchDisclosure({ getItems: () => foldableNodes(list), isExpanded: node => node.classList.contains('open'), setExpanded: open => {
     // A Worker-wide default also covers unseen pages and future live steps.
     // Reset only step overrides: long-content previews keep their own state.
     ui.stepToggle.set(`${taskId}:all`, open);
     for (const key of ui.stepToggle.keys()) {
       if (key.startsWith(`${taskId}:`) && /^\d+$/.test(key.slice(String(taskId).length + 1))) ui.stepToggle.delete(key);
     }
-    paintTranscript(taskId);
-  }, 'ghost');
-  fold.dataset.live = 'transcript-fold';
-  syncFoldControl(fold, list);
-  readingActions.append(fold);
+    for (const node of foldableNodes(list)) node.setExpanded(open);
+  }, scope: '作用于已加载步骤，也设为随后分页和新增步骤的默认状态；保留正文节点与长内容预览，不自动读取历史。' });
+  fold.button.dataset.live = 'transcript-fold'; fold.button.syncFold = fold.sync;
+  readingActions.append(fold.root);
   // 两个方向都给出明确的翻页入口：搜索定位后窗口两侧都可能有未加载记录。
   const older = olderButton(taskId, state);
   const newer = newerButton(taskId, state);

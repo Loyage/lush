@@ -1,4 +1,5 @@
 import { $, button, el } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { attachComposerViewport, usesTouchEnter } from './composer-viewport.js';
 import { attachComposerResize } from './composer-resize.js';
 import { workerKind } from './worker-kind.js';
@@ -178,7 +179,7 @@ export function paintComposerDetails() {
   toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
     ? '展开：显示正文的撤销与重做按钮、草稿、历史输入；不改变追加目标。'
     : `展开：显示正文的撤销与重做按钮、草稿、历史输入、运行设置，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
-  toggle.textContent = open ? '收起高级' : '高级设置';
+  paintDisclosure(toggle, open, { expand: '高级设置', collapse: '收起高级' });
 }
 export function renderParentOptions() {
   const select = $('input-parent');

@@ -48,6 +48,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (path === '/p/aaaaaaaaaaaaaaaa/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
   if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text()).replace('../../src/ui/web/assets/prefs.js', '/prefs.js').replace("import { listCapabilityGuides } from '../../src/agent/capabilities.js';", `const listCapabilityGuides=()=>${JSON.stringify(listCapabilityGuides())};`), { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -83,7 +84,7 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1120 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   await frame('await until(()=>win.ready);return true;');
-  for (const theme of ['light','dark']) for (const width of [1440,900,390]) {
+  for (const theme of ['light','dark']) for (const width of [1440,900,390,320]) {
     await execute(`document.querySelector('#view').style.width='${width}px';`);
     const result=await frame(`
       doc.documentElement.dataset.theme='${theme}';win.location.hash='#inputs';
@@ -92,6 +93,9 @@ try {
       const history=[...doc.querySelectorAll('.input-record')].map(node=>node.dataset.input);
       const advanced=doc.querySelector('.input-advanced-filters');
       const historyClosed=!advanced.open;
+      const controls=[...doc.querySelectorAll('.ui-list-tools button')].filter(node=>node.getClientRects().length).map(node=>{const r=node.getBoundingClientRect(),s=win.getComputedStyle(node);return {height:r.height,font:s.fontSize,radius:s.borderRadius};});
+      const search=doc.querySelector('.search-field-input'),searchRow=doc.querySelector('.search-field-row');
+      const searchFits=searchRow.scrollWidth<=searchRow.clientWidth+1&&(${width}>760||(win.getComputedStyle(search).fontSize==='16px'&&search.getBoundingClientRect().width>=searchRow.clientWidth-1&&doc.querySelector('.search-field-submit').getBoundingClientRect().top>=search.getBoundingClientRect().bottom));
       const equal=[...doc.querySelectorAll('.input-row')].map(node=>node.getBoundingClientRect().height);
       doc.querySelector('[data-input="input:20"] .input-row').click();
       await until(()=>win.location.hash==='#input-input-20'&&doc.querySelector('.input-original'));
@@ -117,10 +121,11 @@ try {
       const conditionOpen=!conditions.hidden,advancedClosed=doc.querySelector('.emission-advanced-body').hidden&&!runtime.open;
       const fits=[doc.querySelector('.input-detail'),conditions,...doc.querySelectorAll('.input-actions')].every(node=>node.scrollWidth<=node.clientWidth+1);
       const actions=[...doc.querySelectorAll('.input-actions button')].filter(node=>node.getClientRects().length).map(node=>{const r=node.getBoundingClientRect();return {text:node.textContent,x:r.x,right:r.right,height:r.height};});
-      return {width:win.innerWidth,scrollWidth:doc.documentElement.scrollWidth,history,historyClosed,equal,readOnly,draftScope,summary,workOnly,appendOnly,target,retained,conditionOpen,advancedClosed,fits,actions};
+      return {width:win.innerWidth,scrollWidth:doc.documentElement.scrollWidth,history,historyClosed,controls,searchFits,equal,readOnly,draftScope,summary,workOnly,appendOnly,target,retained,conditionOpen,advancedClosed,fits,actions};
     `);
     assert(result.width===width&&result.scrollWidth<=width&&result.fits,`overflow ${theme}/${width}: ${JSON.stringify(result)}`);
     assert(JSON.stringify(result.history)===JSON.stringify(['input:20','message:21','management:22'])&&result.readOnly&&result.historyClosed,`history ${JSON.stringify(result)}`);
+    assert(result.searchFits&&result.controls.every(row=>row.height>=(width<=760?44:36)&&row.font==='12px'&&row.radius==='8px'),`search/filter controls ${JSON.stringify(result)}`);
     assert(result.equal.every(height=>height===result.equal[0])&&result.draftScope==='drafts'&&result.summary.includes('W17 本轮合入 main'),`list summaries ${JSON.stringify(result)}`);
     assert(result.workOnly&&result.appendOnly&&result.target&&result.retained&&result.conditionOpen&&result.advancedClosed,`hierarchy ${JSON.stringify(result)}`);
     assert(result.actions.every(row=>row.x>=0&&row.right<=width+1&&(width>760||row.height>=44)),`actions ${JSON.stringify(result)}`);
@@ -134,9 +139,29 @@ try {
     }
     console.log(`PASS ${theme}/${width}px real iframe: sent history, independent navigation, two draft classes, expanded conditions, advanced collapsed, no overflow`);
   }
+  // Existing history search goes through the real app, keeping draft text separate from filters.
+  assert(await frame(`
+    win.location.hash='#inputs';await until(()=>win.ui.view.id==='inputs'&&doc.querySelector('.search-field-input'));
+    const input=doc.querySelector('.search-field-input'),before=win.reads.length;
+    input.value='工作原文';input.dispatchEvent(new win.Event('input',{bubbles:true}));
+    input.dispatchEvent(new win.CompositionEvent('compositionstart',{bubbles:true}));
+    input.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}));
+    if(win.reads.length!==before)return false;
+    input.dispatchEvent(new win.CompositionEvent('compositionend',{bubbles:true}));
+    doc.querySelector('[data-mode="management"]').click();await until(()=>win.reads.length>before);
+    if(new URLSearchParams(win.reads.at(-1)).get('q'))return false;
+    const count=win.reads.length;doc.querySelector('.search-field-submit').click();
+    await until(()=>win.reads.length>count&&doc.querySelectorAll('.input-record').length===1);
+    if(new URLSearchParams(win.reads.at(-1)).get('q')!=='工作原文')return false;
+    const submitted=win.reads.length;doc.querySelector('.search-field-clear').click();
+    await until(()=>win.reads.length>submitted&&doc.querySelectorAll('.input-record').length===2);
+    const params=new URLSearchParams(win.reads.at(-1));
+    return !params.get('q')&&!JSON.parse(params.get('modes')).includes('management')&&!doc.querySelector('.input-advanced-filters').open;
+  `),'search IME, explicit submission, instant filter or keyword-only clear changed');
+  console.log('PASS real app shared search: IME guard, draft isolation, explicit submit and keyword-only clear');
   // Actual history/back and keyboard save within the iframe browsing context.
   await execute("document.querySelector('#view').style.width='900px';");
-  await frame("win.location.hash='#drafts';await until(()=>!doc.querySelector('.inputs-browse').hidden);doc.querySelector('[data-input=\"draft:1\"] .input-row').click();await until(()=>!doc.querySelector('.input-detail').hidden);return true;");
+  await frame("win.location.hash='#drafts';await until(()=>win.ui.view.id==='drafts'&&!doc.querySelector('.inputs-browse').hidden&&doc.querySelector('[data-input=\"draft:1\"] .input-row'));doc.querySelector('[data-input=\"draft:1\"] .input-row').click();await until(()=>!doc.querySelector('.input-detail').hidden);return true;");
   const frameElement=await rpc(`/session/${session}/element`,{using:'css selector',value:'#view'});
   await rpc(`/session/${session}/frame`,{id:frameElement});
   await rpc(`/session/${session}/back`,{});

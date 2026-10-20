@@ -33,7 +33,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // list -> detail -> back
     'test/web/dom-inputs-api.test.js', // persisted draft editing and submission
-    'test/web/dom-transcript-view.test.js', // reader order and live tool results
+    'test/web/dom-transcript-view.test.js', // single-button order, mixed/bulk fold and live tool results
+    'test/web/reading-conversation-integration.test.js', // shared reading controls -> real HTTP history/record pagination
+    'test/web/transcript-reader.test.js', // shared search and explicit full-record reads
     'test/web/dom-questionnaire.test.js', // choices -> review -> answer
     'test/web/settings.test.js', // device preferences
   ]),

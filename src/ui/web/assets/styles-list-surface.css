@@ -18,7 +18,18 @@
 .ui-list-page .ui-list-entry.selected{border-color:var(--accent);background:var(--accent-soft)}
 .ui-list-page .ui-list-entry.notice-question{background:var(--amber-soft)}
 .ui-list-page .ui-list-entry.notice-info{background:var(--blue-soft)}
-.ui-list-pagination{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0 0}
+/* Opt-in toolbars only: record actions and business primary buttons stay unchanged. */
+:is(.ui-list-tools,.ui-list-pagination) button{box-sizing:border-box;min-width:36px;min-height:36px;max-width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+:is(.ui-list-tools,.ui-list-pagination) button:focus-visible,.ui-list-tools :is(select,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ui-list-tools select{box-sizing:border-box;min-height:36px;max-width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px}
+.ui-list-tools :is(.filter-check,details>summary){box-sizing:border-box;min-height:36px;font-size:12px}
+.ui-list-tools .filter-check{display:inline-flex;align-items:center}
+.ui-list-tools .filter-check:has(:focus-visible){outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+.ui-list-pagination{display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:8px;min-width:0;margin:14px 0 0;padding:0;border:0;background:none}
+.ui-list-pagination>.hint,.ui-list-pagination>.error{min-width:0;max-width:100%;margin:0;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.ui-list-pagination>.hint{flex:1 1 240px;font-size:12px}
+.ui-list-pagination>.error{flex-basis:100%}
+.ui-list-pagination[hidden],.ui-list-pagination:empty{display:none}
 @media(max-width:760px){
   .ui-list-page .ui-list-tools{align-items:stretch;gap:9px;padding:10px}
   .ui-list-tools>.filters{flex-basis:100%}
@@ -26,5 +37,9 @@
   .ui-list-page .ui-list-heading,.resource-panels .ui-list-heading{top:42px}
   #side-notices{--notice-list-heading-top:var(--mobile-header-height,42px)}
   .ui-list-page .ui-list-entry{padding:10px}
-  .ui-list-pagination button{min-height:40px}
+}
+@media(max-width:760px),(pointer:coarse){
+  :is(.ui-list-tools,.ui-list-pagination) button{min-width:44px;min-height:44px}
+  .ui-list-tools :is(select,.filter-check,details>summary){min-height:44px}
+  .ui-list-tools select{font-size:16px}
 }

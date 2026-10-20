@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 
 /** Text-only JSON tree: lazy children, bounded depth/width; raw text always remains available. */
 export function structuredValue(text, { openRoot = false, preview = true } = {}) {
@@ -20,9 +21,10 @@ export function structuredValue(text, { openRoot = false, preview = true } = {})
         let full = false;
         const toggle = button('展开剩余字符串', () => {
           full = !full; content.textContent = full ? value : excerpt;
-          toggle.textContent = full ? '收起为预览' : '展开剩余字符串'; toggle.setAttribute('aria-expanded', String(full));
+          paint();
         }, 'ghost');
-        toggle.setAttribute('aria-expanded', 'false'); leaf.append(toggle);
+        const paint = () => paintDisclosure(toggle, full, { expand: '展开剩余字符串', collapse: '收起为预览', help: '仅显示或收起这条已加载字符串，不读取历史。' });
+        paint(); leaf.append(toggle);
       }
       return leaf;
     }

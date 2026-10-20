@@ -1,4 +1,5 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
+import { batchDisclosure, paintDisclosure } from './view-controls.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
 import { isValet } from './work-type.js';
 import { projectBase } from './route.js';
@@ -118,13 +119,13 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
   row.classList.add(`task-graph-${taskVisualState(node)}`);
   const head = el('div', undefined, 'task-graph-head');
   if (node.children.length) {
-    const toggle = button(folded.has(node.id) ? '▸' : '▾', () => {
+    const toggle = button('', () => {
       if (hasPendingInput()) { show('请先提交或清空正在编辑的待决答复，再折叠 Worker。'); return; }
       if (folded.has(node.id)) folded.delete(node.id); else folded.add(node.id);
       save(folded); refresh();
     }, 'ghost', { help: `展开或收起 Worker ${workerLabel(node)} 的 ${node.children.length} 条直接子 Worker` });
     toggle.dataset.graphFocus = `fold-${node.id}`;
-    toggle.setAttribute('aria-expanded', String(!folded.has(node.id)));
+    paintDisclosure(toggle, !folded.has(node.id));
     head.append(toggle);
   }
   const title = button(`${workerLabel(node)} ${node.title}`, () => detail(node.id), 'ghost', { worker: node });
@@ -511,15 +512,10 @@ export function renderTaskGraph(graph) {
   };
   const foldControls = el('div', undefined, 'task-graph-fold-controls');
   foldControls.setAttribute('role', 'group'); foldControls.setAttribute('aria-label', '工作树展开与折叠');
-  for (const [folded, label, key] of [[false, '全部展开', 'expand-all'], [true, '全部折叠', 'collapse-all']]) {
-    const control = button(label, () => bulkFold(folded), 'ghost', {
-      help: `${folded ? '折叠' : '展开'}当前已加载树中的全部子 Worker 层级；保留状态筛选、归档显示和详情模式，不改变 Worker 状态或调用 Agent。`,
-    });
-    control.dataset.graphFocus = key; control.disabled = branches.length === 0;
-    const helpHost = el('span', undefined, 'help-host');
-    helpHost.setAttribute('data-help', branches.length ? control.getAttribute('data-help') : '当前筛选范围没有可展开或折叠的子 Worker 层级。');
-    helpHost.append(control); foldControls.append(helpHost);
-  }
+  const foldControl = batchDisclosure({ getItems: () => branches, isExpanded: id => !saved.has(id), setExpanded: open => bulkFold(!open),
+    scope: '作用于当前已加载且符合筛选的全部子 Worker 层级，含被祖先收起的层级；未加载层级不受影响。保留筛选、归档显示与详情模式，不改变 Worker 状态或调用 Agent。',
+    empty: '当前筛选范围没有可展开或收起的子 Worker 层级。' });
+  foldControl.button.dataset.graphFocus = 'toggle-all'; foldControls.append(foldControl.root);
   hero.append(summary, mode, foldControls, button('刷新', () => loadTaskGraph({ retry: true }).catch(graphFailure), 'ghost'),
     el('p', undefined, 'hint task-graph-load-status'));
   box.append(hero);

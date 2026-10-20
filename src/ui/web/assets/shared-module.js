@@ -1,4 +1,5 @@
 import { button, el } from './dom-base.js';
+import { paintDisclosure } from './view-controls.js';
 import { captureModuleReading, restoreModuleReading } from './module-reading.js';
 
 // Allocate registries only on first use; importing the common UI base has no eager state work.
@@ -48,8 +49,7 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary,
         section.classList.toggle('module-expanded', this.expanded);
         if (section.classList.contains('detail-preview')) section.classList.toggle('detail-preview-expanded', this.expanded);
         if (mode === 'fold') body.hidden = !this.expanded;
-        top.textContent = this.expanded ? '收起' : mode === 'preview' ? '展开完整内容' : '展开';
-        top.setAttribute('aria-expanded', String(this.expanded));
+        paintDisclosure(top, this.expanded, { expand: mode === 'preview' ? '展开完整内容' : '展开' });
         top.setAttribute('aria-label', `${top.textContent}：${title}`);
         if (note) note.hidden = this.expanded;
         if (user) this.states.set(this.key, this.expanded);

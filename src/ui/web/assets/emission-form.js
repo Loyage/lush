@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { api } from './api.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 import { taskTitle } from './format.js';
@@ -131,10 +132,10 @@ export function createEmissionConditions({ conditions = [], exclusive = false, m
   const advancedSummary = el('p', undefined, 'hint emission-advanced-summary');
   const advancedToggle = controlledButton(advancedLabel, () => {
     if (busy || importing || !ownsPage()) return;
-    advanced.hidden = !advanced.hidden; advancedToggle.setAttribute('aria-expanded', String(!advanced.hidden));
-    advancedToggle.textContent = advanced.hidden ? advancedLabel : '收起高级设置';
+    advanced.hidden = !advanced.hidden; paintAdvanced();
   });
-  advancedToggle.setAttribute('aria-expanded', 'false'); advancedToggle.setAttribute('aria-controls', advanced.id);
+  const paintAdvanced = () => paintDisclosure(advancedToggle, !advanced.hidden, { expand: advancedLabel, collapse: '收起高级设置' });
+  paintAdvanced(); advancedToggle.setAttribute('aria-controls', advanced.id);
   advancedToggle.setAttribute('data-help', '展开或收起静息等待和独占开发设置；收起保留已选设置，不提交、不调用 Agent。');
   const advancedHost = el('span', undefined, 'help-host'); advancedHost.append(advancedToggle);
   const quiet = check('等待目标树彻底静息后执行', conditions.some(item => item.kind === 'parent_quiet'));

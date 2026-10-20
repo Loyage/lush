@@ -1,4 +1,5 @@
 import { badge, button, el } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { action } from './api.js';
 import { promptDialog } from './dialog.js';
 import { show } from './messages.js';
@@ -37,8 +38,7 @@ export function branchDiagnostics(branch) {
       const paint = () => {
         const open = ui.taskGraphFilesExpanded.has(branch.name);
         body.hidden = !open;
-        toggle.setAttribute('aria-expanded', String(open));
-        toggle.textContent = `${open ? '收起' : '展开'}文件改动列表`;
+        paintDisclosure(toggle, open, { expand: '展开文件改动列表', collapse: '收起文件改动列表', help: '仅显示或隐藏已加载的文件改动列表，保留当前工作树的阅读选择。' });
       };
       paint(); box.append(toggle, body);
     }

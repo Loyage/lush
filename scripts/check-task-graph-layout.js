@@ -52,6 +52,7 @@ await refreshDevicePreferences(); window.paint(); window.ready=true;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
   const path = new URL(request.url).pathname;
   if (path === '/') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/assets\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.split('/').at(-1))));
   return new Response('not found', { status: 404 });
 } });
@@ -131,13 +132,14 @@ try {
     assert(!layout.mobile || layout.separated, `mobile metadata covers progress: ${JSON.stringify(layout)}`);
     assert(!layout.overflow && !layout.pageOverflow && layout.titleWidths.every(w=>w>=48), `clipped controls: ${JSON.stringify(layout)}`);
     assert(layout.checkbox===16 && layout.paragraphs===0, 'minimal mode retained full card content');
-    await click('[data-graph-focus="collapse-all"]');
+    assert(await execute(`const b=document.querySelector('[data-graph-focus="toggle-all"]');return b.textContent==='全部收起'&&b.getBoundingClientRect().height>=(innerWidth<=760?44:36);`), 'unified bulk control missing');
+    await click('[data-graph-focus="toggle-all"]');
     assert(await execute(`return document.querySelectorAll('.task-graph-card').length===1
-      && document.activeElement.dataset.graphFocus==='collapse-all'
+      && document.activeElement.dataset.graphFocus==='toggle-all'
       && JSON.parse(localStorage.getItem('lush.taskGraph.collapsed')).sort().join(',')==='1,2';`), 'bulk collapse lost nested branches or focus');
-    await click('[data-graph-focus="expand-all"]');
+    await click('[data-graph-focus="toggle-all"]');
     assert(await execute(`return document.querySelectorAll('.task-graph-card').length===8
-      && document.activeElement.dataset.graphFocus==='expand-all'
+      && document.activeElement.dataset.graphFocus==='toggle-all'
       && document.documentElement.scrollWidth<=innerWidth;`), 'bulk expand did not restore all levels or overflowed toolbar');
     await click('[data-graph-focus="show-archived"]');
     assert(await execute(`const toggle=document.querySelector('[data-graph-focus="show-archived"]');return toggle.tagName==='BUTTON' && toggle.getAttribute('aria-pressed')==='true' && document.activeElement===toggle && !!document.querySelector('[data-task-id="99"]') && document.documentElement.scrollWidth<=innerWidth;`), 'archived tag did not reveal history or preserve focus');
@@ -145,12 +147,12 @@ try {
     assert(await execute(`const toggle=document.querySelector('[data-graph-focus="show-archived"]');return toggle.getAttribute('aria-pressed')==='false' && toggle.classList.contains('is-off') && !document.querySelector('[data-task-id="99"]');`), 'Space did not disable archived display');
     if (bulkOnly) {
       await click('[data-graph-focus="detail-mode"]');
-      await click('[data-graph-focus="collapse-all"]');
+      await click('[data-graph-focus="toggle-all"]');
       assert(await execute(`return document.querySelectorAll('.task-graph-card').length===1
         && document.querySelector('[data-graph-focus="detail-mode"]').checked;`), 'detail-mode bulk collapse failed');
-      await click('[data-graph-focus="expand-all"]');
+      await click('[data-graph-focus="toggle-all"]');
       assert(await execute(`return document.querySelectorAll('.task-graph-card').length===8
-        && document.activeElement.dataset.graphFocus==='expand-all'
+        && document.activeElement.dataset.graphFocus==='toggle-all'
         && document.documentElement.scrollWidth<=innerWidth;`), 'detail-mode bulk expand failed');
       await click('[data-graph-focus="detail-mode"]');
       console.log(`PASS bulk tree controls, both modes, focus and toolbar ${theme} ${width}x${height}`);

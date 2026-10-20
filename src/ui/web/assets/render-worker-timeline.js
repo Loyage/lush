@@ -1,8 +1,10 @@
 import { block, button, el, syncChildren } from './dom.js';
+import { sortControl, paintDisclosure } from './view-controls.js';
 import { absolute, eventLabel, lifecycleDuration } from './format.js';
 export { lifecycleDuration } from './format.js';
 import { ui } from './state.js';
 import { searchField } from './search-field.js';
+import { listSurface } from './list-surface.js';
 import { loadReadingPage, loadReadingRecord } from './api.js';
 import { previewHistoryEvent } from './reading-projection.js';
 import { lifecycleModel } from './worker-lifecycle-model.js';
@@ -34,8 +36,9 @@ export function renderWorkerTimeline(task, history = {}, previous = null, option
   const currentNode = el('div', undefined, 'lifecycle-current'), list = el('div', undefined, 'lifecycle-list');
   const status = el('p', '历史范围尚未读完；缺少旧证据的等待原因与起点保持未知。', 'hint lifecycle-status'); status.setAttribute('role', 'status');
   const order = el('div', undefined, 'lifecycle-order'); order.setAttribute('role', 'group'); order.setAttribute('aria-label', '生命周期排序');
-  const asc = button('正序', () => { direction = 'asc'; paint(); }, 'ghost');
-  const desc = button('倒序', () => { direction = 'desc'; paint(); }, 'ghost'); order.append(asc, desc); root.querySelector('.section-title').append(order);
+  const sort = sortControl({ getOrder: () => direction, setOrder: value => { direction = value; paint(); },
+    scope: '仅重排已加载生命周期与完整事件列表；同 Worker 刷新保留，不读取历史或调用 Agent。' });
+  order.append(sort.root); root.querySelector('.section-title').append(order);
   const more = button('加载更早时间线', () => loadMore(), 'ghost lifecycle-more');
   const advanced = el('details', undefined, 'lifecycle-advanced'); advanced.append(el('summary', '完整事件与通信（按需展开）'));
   const records = el('div', undefined, 'lifecycle-records');
@@ -44,7 +47,10 @@ export function renderWorkerTimeline(task, history = {}, previous = null, option
     onSubmit: value => { cancelRead(); query = value.toLowerCase(); remoteHits.clear(); paint(); } });
   const scan = button('查找全部历史', () => scanAll(), 'ghost');
   const cancel = button('取消读取', () => { cancelRead(); notice = '读取已取消，历史范围未完成；可重试。'; paint(); }, 'ghost'); cancel.hidden = true;
-  advanced.append(search.root, scan, records); root.append(currentNode, list, status, more, cancel, advanced);
+  const tools = el('div'); tools.append(search.root, scan);
+  const pagination = el('div'); pagination.append(status, more, cancel);
+  listSurface({ tools, pagination });
+  advanced.append(tools, records); root.append(currentNode, list, pagination, advanced);
   const alive = () => globalThis.document === owner && ui.workerNumbers === boot && ui.view === view && !lifetime?.aborted && (!live || live());
   function cancelRead() { generation++; active?.abort(); active = null; cancel.hidden = true; more.disabled = false; scan.disabled = false; }
   function beginRead() { cancelRead(); const controller = new AbortController(); active = controller; const ticket = generation;
@@ -192,11 +198,12 @@ export function renderWorkerTimeline(task, history = {}, previous = null, option
         if (preview.textContent !== excerpt) preview.textContent = excerpt;
         if (body.textContent !== text) body.textContent = text;
         body.hidden = !node.expanded; preview.hidden = Boolean(node.expanded);
-        open.textContent = node.expanded ? '收起记录' : '展开记录'; load.hidden = Boolean(cached?.complete);
+        paintDisclosure(open, node.expanded, { expand: '展开记录', collapse: '收起记录', help: '仅展开或收起这条已加载记录；完整原文仍需显式读取。' }); load.hidden = Boolean(cached?.complete);
         load.textContent = cached ? cached.complete ? '完整原文已读完' : '继续读取原文' : '读取完整原文';
       }
       node.paintRecord = paintRecord; node.revealReadingContent = () => { node.expanded = true; paintRecord(); };
-      node.append(title, when, preview, open, body, load); cards.set(entry.key, node);
+      const pagination = el('div'); pagination.append(load); listSurface({ pagination });
+      node.append(title, when, preview, open, body, pagination); cards.set(entry.key, node);
     }
     node.entry = entry; node.paintRecord();
     referenceable(node, { kind: entry.kind === 'event' ? 'history_event' : 'message',
@@ -217,7 +224,7 @@ export function renderWorkerTimeline(task, history = {}, previous = null, option
     syncChildren(list, ordered.map(row => renderRow(row, model)));
     const all = rawEntries(), filtered = all.filter(entry => !query || remoteHits.has(entry.key) || `${entry.title}\n${full.get(entry.key)?.text || entry.text}\n${JSON.stringify(entry.metadata || {})}`.toLowerCase().includes(query));
     syncChildren(records, (direction === 'desc' ? [...filtered].reverse() : filtered).map(renderRecord));
-    asc.setAttribute('aria-pressed', String(direction === 'asc')); desc.setAttribute('aria-pressed', String(direction === 'desc')); root.dataset.order = direction;
+    sort.sync(); root.dataset.order = direction;
     const message = [historyState, notice].filter(Boolean).join(' · ');
     status.textContent = `${message}${message ? ' · ' : ''}已加载 ${model.calls.length} 次调用、${model.phases.length} 个阶段，${all.length} 条事件／通信；${complete ? '历史已遍历，长原文仍可分段读取' : '历史范围未完成'}。`;
     more.hidden = complete;

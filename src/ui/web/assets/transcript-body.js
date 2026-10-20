@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { paintDisclosure } from './view-controls.js';
 import { agentText } from './text.js';
 import { structuredValue } from './structured-value.js';
 import { ui } from './state.js';
@@ -33,8 +34,8 @@ function readableText(value, { markdown = false, preview = true, key, expanded =
       render(open); paint();
     }, 'ghost content-expand');
     const paint = () => {
-      toggle.textContent = open ? '收起为预览' : `展开剩余内容（本段 ${text.length.toLocaleString()} 字符）`;
-      toggle.setAttribute('aria-expanded', String(open));
+      paintDisclosure(toggle, open, { expand: '展开剩余内容', collapse: '收起为预览',
+        help: `仅展开或收起本段已加载的 ${text.length.toLocaleString()} 字符，不读取未加载原文。` });
     };
     paint(); root.append(toggle);
   }

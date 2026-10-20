@@ -12,7 +12,7 @@ import { orderTasks, treeParent } from './tree-order.js';
 import { referenceable } from './context-references.js';
 import { progressReportingEnabled, progressStats, refreshProgressDurations, renderCompactProgress } from './render-progress.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
-import { listEntry } from './list-surface.js';
+import { listEntry, listSurface } from './list-surface.js';
 import { isDevelopmentWorker, isValet, workTypeLabel } from './work-type.js';
 import { workerCreateControl, waitingFirstInput } from './worker-create.js';
 import { valetEmergencyControl } from './valet-emergency.js';
@@ -212,6 +212,7 @@ function renderWorkList(data, kind) {
     const pagingKey = JSON.stringify([page, records.length]);
     if (list.pagingKey !== pagingKey) {
       const paging = el('div', undefined, 'task-pagination');
+      listSurface({ pagination: paging });
       paging.append(el('span', `已读取 ${records.length} 个${noun}；共享工作历史${page.has_more ? '仍有更早分页未读取，筛选仅覆盖已加载范围' : '已读完'}。`, 'hint'));
       const failure = el('p', '', 'error'); failure.hidden = true; paging.append(failure);
       if (page.has_more) {

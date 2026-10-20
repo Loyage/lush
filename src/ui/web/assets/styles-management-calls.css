@@ -11,7 +11,7 @@
 .management-call-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .management-call-head > * { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .management-call-head .management-call-caret { flex: none; width: 10px; transition: transform .1s; }
-.management-call-fold[open] > .management-call-head .management-call-caret { transform: rotate(90deg); }
+.management-call-head .management-call-caret { transform: none; }
 .management-call-id { flex: 0 1 90px; }
 .management-call-head time { flex: 1 1 130px; }
 .management-call-head code { flex: 1.2 1 140px; }

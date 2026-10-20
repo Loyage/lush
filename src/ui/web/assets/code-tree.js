@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { disclosureIcon } from './view-controls.js';
 import { searchField } from './search-field.js';
 
 export function fileStatusText(entry) {
@@ -65,20 +66,22 @@ export function createCodeTree({ request, onSelect, onStale }) {
         if (entry.kind !== 'directory') { container.append(fileRow(entry, Boolean(term))); continue; }
         const group = el('div', undefined, 'code-directory');
         const children = el('div', undefined, 'code-directory-children'); children.hidden = true;
-        const toggle = button(`▸ ${entry.name || entry.path.split('/').at(-1)}${entry.changed ? ' · 含改动' : ''}`, async () => {
+        const caret = el('span'); disclosureIcon(caret, false);
+        const toggle = button('', async () => {
           const open = !expanded.has(entry.path);
           if (open) { expanded.add(entry.path); collapsed.delete(entry.path); }
           else { expanded.delete(entry.path); collapsed.add(entry.path); }
           children.hidden = !open; toggle.setAttribute('aria-expanded', String(open));
-          toggle.textContent = `${open ? '▾' : '▸'} ${entry.name || entry.path.split('/').at(-1)}${entry.changed ? ' · 含改动' : ''}`;
+          disclosureIcon(caret, open);
           if (open && !children.dataset.loaded) await loadDirectory(entry.path, children, 0, epoch, autoDepth + 1);
         }, 'ghost code-directory-toggle', { help: '展开或收起目录；展开时按需读取文件列表，不读取文件正文。' });
+        toggle.append(caret, el('span', `${entry.name || entry.path.split('/').at(-1)}${entry.changed ? ' · 含改动' : ''}`));
         toggle.setAttribute('aria-expanded', 'false');
         group.append(toggle, children); container.append(group);
         // Open immediate changed directories only. Deeper expansion stays explicit and bounded.
         if (expanded.has(entry.path) || (!collapsed.has(entry.path) && !term && entry.changed && autoDepth === 0 && expanded.size < 8)) {
           expanded.add(entry.path); children.hidden = false; toggle.setAttribute('aria-expanded', 'true');
-          toggle.textContent = `▾ ${entry.name || entry.path.split('/').at(-1)}${entry.changed ? ' · 含改动' : ''}`;
+          disclosureIcon(caret, true);
           // Sequential auto-expansion bounds request fanout; it never recurses just because of changed=true.
           await loadDirectory(entry.path, children, 0, version, autoDepth + 1);
           if (!isCurrent(version)) return;
