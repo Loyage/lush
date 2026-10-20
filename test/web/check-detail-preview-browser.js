@@ -22,6 +22,7 @@ const at='2026-10-08T10:00:00Z';
 const long=Array.from({length:50},(_,i)=>'段落 '+i+'：这是一段较长的正文，预览应保留格式，后续内容仍然完整存在。').join('\\n\\n');
 window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'waiting',calls:1,
   goal:long,result:long+'\\n\\n最后一段结果',created_at:at,updated_at:at,
+  workspace:'/home/developer/projects/'+('long-workspace-name/'.repeat(12))+'worker-7',
   progress:{version:1,items:Array.from({length:30},(_,i)=>({key:'step'+i,label:'步骤 '+i+' '+('较长的阶段名称 '.repeat(5)),status:i<5?'completed':'pending'}))},
   children:Array.from({length:20},(_,i)=>({id:100+i,worker_number:'W7-'+(i+1),role:'agent',status:'waiting',goal:'子 Worker '+i,updated_at:at})),
   notices:[{id:71,kind:'questionnaire',status:'answered',title:'历史决定',body:JSON.stringify({version:1,body:'保留决定',questions:[{header:'范围',question:'选择范围？',options:[{label:'方案一',description:'当前方案'},{label:'方案二',description:'候选方案'}]}]}),answer:JSON.stringify({answers:[{selected:[0],labels:['方案一'],custom:''}]})}],
@@ -169,6 +170,9 @@ try {
       advanced.open=false;if(timeline.classList.contains('detail-preview-expanded'))timeline.querySelector('.detail-preview-toggle').click();
       if(!document.querySelector('.decision-record').open)throw new Error('decision state');return true;
     })();`), 'separate input/output and lifecycle defaults, safe evidence, exact references and retained nodes');
+    assert(await execute(`const context=document.querySelector('.code-context'),card=context.querySelector('.kv'),grid=context.nextElementSibling.querySelector('.grid');
+      const gap=grid.getBoundingClientRect().top-card.getBoundingClientRect().bottom;
+      return Math.abs(gap-parseFloat(getComputedStyle(grid).rowGap))<=1&&card.scrollWidth<=card.clientWidth+1;`), 'workspace card must retain the grid card gap and wrap long paths');
     assert(await execute(`const titles=[...document.querySelector('#detail').children].filter(n=>n.matches('.block')).map(n=>n.matches('.worker-hooks')?'自动化':n.querySelector('h2')?.textContent).slice(0,9).join('/');
       if(titles!=='自动化/计划/输入输出/时间线/Agent/代码与提交/版本迭代/决策记录/Worker 关系')throw new Error('primary order: '+titles);return true;`), 'primary module order');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
