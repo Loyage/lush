@@ -49,7 +49,7 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary,
         section.classList.toggle('module-expanded', this.expanded);
         if (section.classList.contains('detail-preview')) section.classList.toggle('detail-preview-expanded', this.expanded);
         if (mode === 'fold') body.hidden = !this.expanded;
-        paintDisclosure(top, this.expanded, { expand: mode === 'preview' ? '展开完整内容' : '展开' });
+        paintDisclosure(top, this.expanded, { expand: mode === 'preview' ? '展开完整内容' : '展开', compact: true });
         top.setAttribute('aria-label', `${top.textContent}：${title}`);
         if (note) note.hidden = this.expanded;
         if (user) this.states.set(this.key, this.expanded);

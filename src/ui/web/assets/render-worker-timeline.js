@@ -198,7 +198,7 @@ export function renderWorkerTimeline(task, history = {}, previous = null, option
         if (preview.textContent !== excerpt) preview.textContent = excerpt;
         if (body.textContent !== text) body.textContent = text;
         body.hidden = !node.expanded; preview.hidden = Boolean(node.expanded);
-        paintDisclosure(open, node.expanded, { expand: '展开记录', collapse: '收起记录', help: '仅展开或收起这条已加载记录；完整原文仍需显式读取。' }); load.hidden = Boolean(cached?.complete);
+        paintDisclosure(open, node.expanded, { expand: '展开记录', collapse: '收起记录', compact: true, help: '仅展开或收起这条已加载记录；完整原文仍需显式读取。' }); load.hidden = Boolean(cached?.complete);
         load.textContent = cached ? cached.complete ? '完整原文已读完' : '继续读取原文' : '读取完整原文';
       }
       node.paintRecord = paintRecord; node.revealReadingContent = () => { node.expanded = true; paintRecord(); };

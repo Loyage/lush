@@ -52,7 +52,7 @@ export function createPerformanceView(taskId, { onStep = async () => {} } = {}) 
         if (expandedCommands.has(group.key)) expandedCommands.delete(group.key); else expandedCommands.add(group.key);
         paint(); preview();
       }, 'ghost');
-      const paint = () => paintDisclosure(toggle, expandedCommands.has(group.key), { expand: '展开命令预览', collapse: '收起命令预览', help: '仅展开已加载的命令预览；完整原文仍需定位步骤后读取。' });
+      const paint = () => paintDisclosure(toggle, expandedCommands.has(group.key), { expand: '展开命令预览', collapse: '收起命令预览', compact: true, help: '仅展开已加载的命令预览；完整原文仍需定位步骤后读取。' });
       paint(); card.append(toggle);
     }
     const parameters = typeof group.parameters === 'string' ? group.parameters : JSON.stringify(group.parameters);

@@ -125,7 +125,7 @@ try {
     `);
     assert(result.width===width&&result.scrollWidth<=width&&result.fits,`overflow ${theme}/${width}: ${JSON.stringify(result)}`);
     assert(JSON.stringify(result.history)===JSON.stringify(['input:20','message:21','management:22'])&&result.readOnly&&result.historyClosed,`history ${JSON.stringify(result)}`);
-    assert(result.searchFits&&result.controls.every(row=>row.height>=(width<=760?44:36)&&row.font==='12px'&&row.radius==='8px'),`search/filter controls ${JSON.stringify(result)}`);
+    assert(result.searchFits&&result.controls.every(row=>row.height>=(width<=760?44:36)&&row.font==='12px'&&row.radius==='9px'),`search/filter controls ${JSON.stringify(result)}`);
     assert(result.equal.every(height=>height===result.equal[0])&&result.draftScope==='drafts'&&result.summary.includes('W17 本轮合入 main'),`list summaries ${JSON.stringify(result)}`);
     assert(result.workOnly&&result.appendOnly&&result.target&&result.retained&&result.conditionOpen&&result.advancedClosed,`hierarchy ${JSON.stringify(result)}`);
     assert(result.actions.every(row=>row.x>=0&&row.right<=width+1&&(width>760||row.height>=44)),`actions ${JSON.stringify(result)}`);

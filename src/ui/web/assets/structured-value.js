@@ -23,7 +23,7 @@ export function structuredValue(text, { openRoot = false, preview = true } = {})
           full = !full; content.textContent = full ? value : excerpt;
           paint();
         }, 'ghost');
-        const paint = () => paintDisclosure(toggle, full, { expand: '展开剩余字符串', collapse: '收起为预览', help: '仅显示或收起这条已加载字符串，不读取历史。' });
+        const paint = () => paintDisclosure(toggle, full, { expand: '展开剩余字符串', collapse: '收起为预览', compact: true, help: '仅显示或收起这条已加载字符串，不读取历史。' });
         paint(); leaf.append(toggle);
       }
       return leaf;

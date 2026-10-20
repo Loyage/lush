@@ -39,7 +39,7 @@ function prose(text, copyCode = false, className = 'message-prose') {
       root.replaceChildren(agentText(expanded ? text : preview, { className: 'message-prose', copyCode }), toggle);
       paint(expanded);
     }, 'ghost');
-    const paint = expanded => paintDisclosure(toggle, expanded, { expand: '展开完整正文', collapse: '收起正文', help: '只显示或收起这条已加载消息的正文，不读取未加载历史。' });
+    const paint = expanded => paintDisclosure(toggle, expanded, { expand: '展开完整正文', collapse: '收起正文', compact: true, help: '只显示或收起这条已加载消息的正文，不读取未加载历史。' });
     paint(false); root.append(toggle);
   }
   return root;

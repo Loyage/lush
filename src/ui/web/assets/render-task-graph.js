@@ -1,5 +1,5 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
-import { batchDisclosure, paintDisclosure } from './view-controls.js';
+import { batchDisclosure, disclosureIcon } from './view-controls.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
 import { isValet } from './work-type.js';
 import { projectBase } from './route.js';
@@ -123,9 +123,12 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
       if (hasPendingInput()) { show('请先提交或清空正在编辑的待决答复，再折叠 Worker。'); return; }
       if (folded.has(node.id)) folded.delete(node.id); else folded.add(node.id);
       save(folded); refresh();
-    }, 'ghost', { help: `展开或收起 Worker ${workerLabel(node)} 的 ${node.children.length} 条直接子 Worker` });
+    }, 'ghost task-graph-fold', { help: `展开或收起 Worker ${workerLabel(node)} 的 ${node.children.length} 条直接子 Worker` });
     toggle.dataset.graphFocus = `fold-${node.id}`;
-    paintDisclosure(toggle, !folded.has(node.id));
+    const expanded = !folded.has(node.id), caret = el('span');
+    disclosureIcon(caret, expanded); toggle.append(caret);
+    toggle.setAttribute('aria-expanded', String(expanded));
+    toggle.setAttribute('aria-label', `${expanded ? '收起' : '展开'} ${workerLabel(node)} 的子 Worker`);
     head.append(toggle);
   }
   const title = button(`${workerLabel(node)} ${node.title}`, () => detail(node.id), 'ghost', { worker: node });

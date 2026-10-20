@@ -151,7 +151,7 @@ export function renderConversation(task, history = {}, previous = null) {
       meta.append(copy, toggle); node.append(meta, body); node.expanded = false;
       function setExpanded(value) {
         node.expanded = Boolean(value); node.classList.toggle('conversation-expanded', node.expanded);
-        paintDisclosure(toggle, node.expanded, { expand: '展开消息', collapse: '收起消息' });
+        paintDisclosure(toggle, node.expanded, { expand: '展开消息', collapse: '收起消息', compact: true });
       }
       body.addEventListener('focusin', () => setExpanded(true));
       node.revealReadingContent = () => setExpanded(true); node.updateExpansion = () => setExpanded(node.expanded);

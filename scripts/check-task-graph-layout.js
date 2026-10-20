@@ -132,7 +132,8 @@ try {
     assert(!layout.mobile || layout.separated, `mobile metadata covers progress: ${JSON.stringify(layout)}`);
     assert(!layout.overflow && !layout.pageOverflow && layout.titleWidths.every(w=>w>=48), `clipped controls: ${JSON.stringify(layout)}`);
     assert(layout.checkbox===16 && layout.paragraphs===0, 'minimal mode retained full card content');
-    assert(await execute(`const b=document.querySelector('[data-graph-focus="toggle-all"]');return b.textContent==='全部收起'&&b.getBoundingClientRect().height>=(innerWidth<=760?44:36);`), 'unified bulk control missing');
+    assert(await execute(`const b=document.querySelector('[data-graph-focus="toggle-all"]'),s=getComputedStyle(b);return b.textContent==='全部收起'&&b.getBoundingClientRect().height>=(innerWidth<=760?44:36)&&s.fontSize==='12px'&&s.fontWeight==='600'&&s.borderRadius==='9px';`), 'bulk control must match ordinary secondary buttons');
+    assert(await execute(`return [...document.querySelectorAll('.task-graph-fold')].every(b=>{const r=b.getBoundingClientRect(),head=b.closest('.task-graph-head').getBoundingClientRect(),s=getComputedStyle(b);return b.textContent===''&&!b.classList.contains('view-control')&&b.getAttribute('aria-label').includes('子 Worker')&&b.getAttribute('aria-expanded')==='true'&&b.querySelector('.view-disclosure-icon').dataset.expanded==='true'&&s.borderTopWidth==='0px'&&r.width===(innerWidth<=760?44:24)&&r.height===(innerWidth<=760?44:24)&&r.top>=head.top&&r.bottom<=head.bottom;});`), 'tree nodes must retain a compact icon-only caret and a contained touch target');
     await click('[data-graph-focus="toggle-all"]');
     assert(await execute(`return document.querySelectorAll('.task-graph-card').length===1
       && document.activeElement.dataset.graphFocus==='toggle-all'
@@ -147,6 +148,7 @@ try {
     assert(await execute(`const toggle=document.querySelector('[data-graph-focus="show-archived"]');return toggle.getAttribute('aria-pressed')==='false' && toggle.classList.contains('is-off') && !document.querySelector('[data-task-id="99"]');`), 'Space did not disable archived display');
     if (bulkOnly) {
       await click('[data-graph-focus="detail-mode"]');
+      assert(await execute(`return [...document.querySelectorAll('.task-graph-fold')].every(b=>b.textContent===''&&b.getBoundingClientRect().width===(innerWidth<=760?44:24));`), 'detail mode restored oversized node disclosure');
       await click('[data-graph-focus="toggle-all"]');
       assert(await execute(`return document.querySelectorAll('.task-graph-card').length===1
         && document.querySelector('[data-graph-focus="detail-mode"]').checked;`), 'detail-mode bulk collapse failed');

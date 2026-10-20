@@ -212,7 +212,7 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 .conversation-search{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0 8px}.conversation-search input{flex:1 1 220px;min-width:0;max-width:100%}.conversation-search button{font-size:12px}.conversation-incomplete{white-space:normal}.conversation-status{overflow-wrap:anywhere}
 .conversation-filters{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;font-size:12px;color:var(--muted)}.conversation-filter{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;font-size:11px;border:1px solid currentColor;border-radius:5px;background:color-mix(in srgb,currentColor 10%,transparent)}
 .conversation-other{border-style:dashed;border-left:3px solid var(--muted)}.conversation-other.conversation-failed{border-left-color:var(--failed)}.conversation-prose.conversation-communication{white-space:normal}.avatar-other{background:var(--panel);color:var(--muted)}
-.conversation-panel>.section-title .count{white-space:normal;overflow-wrap:anywhere;min-width:0;max-width:100%}.conversation-order{display:flex;gap:4px;margin-left:auto}.conversation-order button,.transcript-order button{font-size:11px;padding:4px 8px}.conversation-order button[aria-pressed="true"],.transcript-order button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.conversation-panel>.section-title .count{white-space:normal;overflow-wrap:anywhere;min-width:0;max-width:100%}.conversation-order{display:flex;gap:4px;margin-left:auto}.conversation-order button[aria-pressed="true"],.transcript-order button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .conversation-list{display:flex;flex-direction:column;gap:18px;padding:12px 0}.conversation-message{position:relative;align-self:flex-start;width:fit-content;max-width:90%;min-width:0;border:1px solid var(--line);border-radius:4px 16px 16px 16px;padding:10px 14px;background:var(--panel-2);--conversation-background:var(--panel-2)}
 .conversation-input{align-self:flex-end;border-radius:16px 4px 16px 16px;background:var(--green-soft);--conversation-background:var(--green-soft)}
 .conversation-meta{position:sticky;top:calc(-30px + var(--detail-heading-height,48px));z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:6px 9px;background:var(--conversation-background);padding:4px 0 8px;color:var(--muted);font-size:11px}.conversation-input .conversation-meta{justify-content:flex-end;text-align:right}.conversation-sender{color:var(--text);overflow-wrap:anywhere}.conversation-kind{font-size:10px}.conversation-time{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -532,7 +532,7 @@ button.context-action{display:block;width:100%;background:transparent;color:var(
 .transcript-full-original{margin:12px 0}.transcript-full-original summary{cursor:pointer}
 @media(max-width:760px){
   .transcript-toolbar{gap:8px;padding:5px 10px}.transcript-toolbar strong{font-size:11px}.transcript-back{font-size:12px;padding:6px 8px}.transcript-view-label{display:none}.transcript-identity{gap:6px}.transcript-identity .badge{font-size:10px;padding:2px 6px}
-  .transcript-reading-tools{gap:5px}.transcript-back,.transcript-search-toggle,.transcript-order button,.execution-tabs button{min-height:36px}.transcript-search-toggle{display:block;white-space:nowrap;font-size:12px;padding:6px 8px}
+  .transcript-reading-tools{gap:5px}.transcript-back,.execution-tabs button{min-height:36px}.transcript-search-toggle{display:block;min-height:44px;white-space:nowrap;font-size:12px;padding:6px 8px}
   .transcript-layout{grid-template-areas:"body";grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.transcript-sidebar{display:none;padding:8px 10px;border-right:0;border-bottom:1px solid var(--line)}
   .transcript-search-open .transcript-layout{grid-template-areas:"search" "body";grid-template-rows:minmax(0,min(340px,55%)) minmax(0,1fr)}.transcript-search-open .transcript-sidebar{display:flex}.transcript-sidebar h2,.transcript-sidebar .transcript-search-hint{display:none}.transcript-sidebar .transcript-search{margin-bottom:6px}.transcript-sidebar .transcript-search input:not([type=checkbox]),.transcript-sidebar .transcript-search select{padding:6px 8px;font-size:16px}.transcript-sidebar .transcript-search-results>.hint{font-size:11px;margin:4px 0}.transcript-search-filters{gap:6px;margin-top:6px}.transcript-sidebar .transcript-search-filters label{font-size:12px}
   .transcript-viewport{padding:10px 10px 30px}.transcript-record-controls{gap:5px;margin-bottom:8px}.transcript-dialog .steps>.step{padding:10px;margin-bottom:10px;border-radius:8px}.transcript-dialog .step-head{gap:5px 7px}.transcript-dialog .step-kind{font-size:11px}.transcript-dialog .step-title{font-size:12px}.transcript-dialog .step-body{font-size:13px;line-height:1.75}.transcript-dialog .step-source pre:not(.transcript-prose){padding:10px}.transcript-dialog .tool-field-inline{gap:8px}.transcript-dialog .step-results>.step-failed{padding-left:8px}
@@ -713,6 +713,11 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-minimal .task-graph-card{height:68px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) 30px;grid-template-rows:26px 20px;gap:4px 7px;border-radius:7px}
 .task-graph-minimal .task-graph-head{grid-column:1;grid-row:1;flex-wrap:nowrap;gap:5px;min-width:0;margin:0}
 .task-graph-minimal .task-graph-head>button{padding:2px 5px;flex:none}
+/* A node caret is a tree affordance, not a labelled toolbar button. */
+.task-graph-head>button.task-graph-fold{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted)}
+.task-graph-head>button.task-graph-fold:hover{background:var(--panel-2);box-shadow:none;filter:none}
+@media(max-width:760px),(pointer:coarse){.task-graph-head>button.task-graph-fold{width:44px;height:44px}}
+
 .task-graph-minimal .task-graph-head>.task-graph-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:48px;font-size:12px}
 .task-graph-minimal .badge{flex:none;padding:1px 4px;font-size:10px}
 .task-graph-minimal-summary{grid-column:1;grid-row:2;display:flex;align-items:center;gap:6px;min-width:0;color:var(--muted);font-size:11px;line-height:20px}
@@ -736,9 +741,10 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-actions-title{font-size:13px;white-space:normal}
 .task-graph-actions-popover .delivery-controls,.task-graph-actions-popover .iteration-controls{margin:0}
 .task-graph-actions-popover button{white-space:normal;text-align:left}
+@media(max-width:760px),(pointer:coarse){.task-graph-minimal .task-graph-card{height:auto;min-height:86px;grid-template-rows:44px auto}}
 @media(max-width:640px){
   .task-graph-actions-popover{right:16px;bottom:16px}
-  .task-graph-minimal .task-graph-card{height:auto;min-height:68px;grid-template-rows:26px auto}
+  .task-graph-minimal .task-graph-card{height:auto;min-height:68px;grid-template-rows:44px auto}
   .task-graph-minimal-summary{flex-direction:column;align-items:stretch;gap:4px}
   .task-graph-minimal-progress{flex:none}
   .task-graph-minimal-note,.task-graph-minimal-progress>.task-graph-merge-relations{white-space:normal;overflow:visible;overflow-wrap:anywhere}

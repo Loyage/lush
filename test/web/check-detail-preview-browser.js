@@ -69,7 +69,11 @@ window.makeCopyFixture=()=>{
   window.copyOutput='**原始回复**\\n\\n'+fence+'\\n输出代码\\n'+fence;
   window.copied=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.copied.push(text)}});
   const root=renderConversation({id:99,worker_number:'W313',goal:window.copySource,result:window.copyOutput});
-  document.querySelector('#detail').replaceChildren(root);
+  const panel=document.querySelector('#detail');panel.replaceChildren(root);
+  panel.scrollTop=0;window.scrollTo(0,0);
+  // Match the real detail page: wrapped toolbars must feed the sticky message-header offset.
+  const view=enhanceModule(root,{key:'copy',states:new Map([['copy',true]])});
+  observeModules(panel,[view]);
 };
 window.paint(); window.ready=true;
 </script></body>`);
@@ -224,8 +228,9 @@ try {
           [...root.querySelectorAll('.conversation-filter,.conversation-order button,.conversation-search-toggle')].every(n=>n.getBoundingClientRect().height>=44));`), 'responsive search disclosure default or touch targets');
     assert(await execute(`const root=document.querySelector('.conversation-panel');
       return !!root.querySelector('.ui-list-pagination .conversation-more')&&[...root.querySelectorAll('.conversation-filters button,.ui-list-pagination button')].every(n=>{
-        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='8px'&&r.height>=(innerWidth<=760?44:36));
+        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='9px'&&s.fontWeight==='600'&&r.height>=(innerWidth<=760?44:36));
       });`), 'conversation shared filter/pagination sizes or wiring');
+    assert(await execute(`return [...document.querySelectorAll('.module-toggle,.conversation-expand')].filter(n=>!n.hidden&&n.getClientRects().length).every(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.classList.contains('view-disclosure')&&s.fontSize==='12px'&&s.fontWeight==='400'&&s.borderTopColor==='rgba(0, 0, 0, 0)'&&r.height===(innerWidth<=760?44:28);});`), 'reading disclosures must stay lighter and more compact than toolbar buttons');
     if(width<=760){
       await execute(`const root=document.querySelector('.conversation-panel');root.querySelector('.conversation-search-toggle').click();
         window.savedSearch=root.querySelector('.conversation-search');window.savedSearch.querySelector('input').focus();`);
@@ -364,7 +369,9 @@ try {
     return root.dataset.order==='asc'&&before.every((n,i)=>after[after.length-1-i]===n)&&document.querySelector('.conversation-panel').dataset.order==='asc';`), 'order change replaced messages or refresh lost selection');
   console.log('PASS height-only resize, bubbles, message/module sticky headers, sorting, expand/collapse, refresh, focus, reference reveal, lazy growth and Worker isolation');
   const copyClick = async selector => {
-    await execute(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'});`);
+    await execute(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'});`);
+    // Let viewport reflow and sticky headings settle before the real WebDriver hit test.
+    await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });
     await click(selector);
   };
   for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {

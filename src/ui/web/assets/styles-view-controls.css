@@ -2,14 +2,18 @@
 :where(button.view-control) { display: inline-flex; }
 /* A real box makes the disabled help host keyboard-focusable as well as hover/touch reachable. */
 :root .view-control-host { display: inline-flex; min-width: 0; max-width: 100%; }
-:root button.view-control.view-control, #sidebar-toggle.view-control, #composer-shell #input-form button.view-control {
+/* Share icon layout, not a second button theme: toolbar actions retain the site's ghost style. */
+button.view-control {
   align-items: center; justify-content: center; gap: 6px;
-  min-width: 36px; min-height: 36px; padding: 6px 10px; margin: 0;
-  border: 1px solid var(--line); border-radius: 8px;
-  background: var(--panel); color: var(--text); font-size: 12px; line-height: 1.4;
-  font-weight: 400; white-space: normal; vertical-align: middle;
+  max-width: 100%; white-space: normal; vertical-align: middle;
 }
-button.view-control:hover:not(:disabled) { background: var(--accent-soft); }
+/* Reading disclosures are secondary to their heading/body, not standalone toolbar actions. */
+button.view-control.view-disclosure {
+  min-width: 0; min-height: 28px; padding: 2px 4px;
+  border-color: transparent; border-radius: 4px; background: transparent;
+  color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5;
+}
+button.view-disclosure:hover:not(:disabled) { background: var(--panel-2); color: var(--text); box-shadow: none; filter: none; }
 button.view-control:focus-visible, .view-control-host:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
@@ -27,7 +31,7 @@ button.view-control:disabled { opacity: .55; cursor: not-allowed; }
 .side-head::before { position: relative; left: auto; top: 0; flex: 0 0 6px; }
 .side-head[aria-expanded="true"]::before { transform: rotate(45deg); top: -2px; }
 /* Native summary stays the disclosure target; CSS follows open without JS or extra buttons. */
-:where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head) { list-style: none; min-height: 36px; }
+:where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head) { list-style: none; }
 :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head)::marker { content: ''; }
 :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head)::-webkit-details-marker { display: none; }
 :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head)::before { position: relative; display: inline-block; flex: none; left: auto; top: -1px; margin-right: 10px; }
@@ -39,7 +43,7 @@ button.view-control:disabled { opacity: .55; cursor: not-allowed; }
 .view-sort-icon i:nth-child(3) { width: 40%; }
 [data-order="asc"] > .view-sort-icon { flex-direction: column-reverse; }
 @media (max-width: 760px), (pointer: coarse) {
-  :root button.view-control.view-control, #sidebar-toggle.view-control, #composer-shell #input-form button.view-control { min-height: 44px; min-width: 44px; }
+  button.view-control, button.view-control.view-disclosure, #sidebar-toggle.view-control { min-height: 44px; min-width: 44px; }
   button.step-head, button.code-directory-toggle,
   :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary { min-height: 44px; }
 }

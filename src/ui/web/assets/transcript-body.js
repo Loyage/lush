@@ -34,7 +34,7 @@ function readableText(value, { markdown = false, preview = true, key, expanded =
       render(open); paint();
     }, 'ghost content-expand');
     const paint = () => {
-      paintDisclosure(toggle, open, { expand: '展开剩余内容', collapse: '收起为预览',
+      paintDisclosure(toggle, open, { expand: '展开剩余内容', collapse: '收起为预览', compact: true,
         help: `仅展开或收起本段已加载的 ${text.length.toLocaleString()} 字符，不读取未加载原文。` });
     };
     paint(); root.append(toggle);

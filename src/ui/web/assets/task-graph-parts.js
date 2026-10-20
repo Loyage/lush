@@ -38,7 +38,7 @@ export function branchDiagnostics(branch) {
       const paint = () => {
         const open = ui.taskGraphFilesExpanded.has(branch.name);
         body.hidden = !open;
-        paintDisclosure(toggle, open, { expand: '展开文件改动列表', collapse: '收起文件改动列表', help: '仅显示或隐藏已加载的文件改动列表，保留当前工作树的阅读选择。' });
+        paintDisclosure(toggle, open, { expand: '展开文件改动列表', collapse: '收起文件改动列表', compact: true, help: '仅显示或隐藏已加载的文件改动列表，保留当前工作树的阅读选择。' });
       };
       paint(); box.append(toggle, body);
     }

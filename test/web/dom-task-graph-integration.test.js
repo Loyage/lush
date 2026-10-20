@@ -48,6 +48,17 @@ for (const minimal of [true, false]) test(`tree ${minimal ? 'minimal' : 'detail'
     renderTaskGraph({ nodes: nodes(incomplete), edges: [], total: 3 });
     expect(dom.node('detail').querySelector('.task-graph-integration-status').textContent).toBe('合并状态待核查');
     expect(deepText(dom.node('detail'))).not.toContain('整合 Worker');
+    const fold = dom.node('detail').querySelector('.task-graph-fold');
+    expect(deepText(fold)).toBe('');
+    expect(fold.getAttribute('aria-label')).toBe('收起 W1 的子 Worker');
+    expect(fold.getAttribute('aria-expanded')).toBe('true');
+    fold.onclick();
+    expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(1);
+    const reopen = dom.node('detail').querySelector('.task-graph-fold');
+    expect(reopen.getAttribute('aria-expanded')).toBe('false');
+    expect(reopen.querySelector('.view-disclosure-icon').dataset.expanded).toBe('false');
+    reopen.onclick();
+    expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(2);
   } finally { resetUiState(); dom.restore(); }
 });
 

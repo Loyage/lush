@@ -9,12 +9,13 @@ export function disclosureIcon(node, expanded) {
 }
 
 /** Use on a standalone disclosure, not an entire tree row or native summary. */
-export function paintDisclosure(node, expanded, { expand = '展开', collapse = '收起', help } = {}) {
+export function paintDisclosure(node, expanded, { expand = '展开', collapse = '收起', help, compact = false } = {}) {
   if (!node.viewLabel) {
     node.viewIcon = el('span'); node.viewLabel = el('span', undefined, 'view-control-label');
     node.replaceChildren(node.viewIcon, node.viewLabel);
     node.classList.add('view-control');
   }
+  node.classList.toggle('view-disclosure', compact);
   disclosureIcon(node.viewIcon, expanded);
   const label = expanded ? collapse : expand;
   if (node.viewLabel.textContent !== label) node.viewLabel.textContent = label;
