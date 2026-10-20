@@ -22,10 +22,11 @@ import * as hooks from './commands/hooks.js';
 import * as skills from './commands/skills.js';
 import * as valet from './commands/valet.js';
 import * as input from './commands/input.js';
+import * as administrator from './commands/administrator.js';
 
 export { HELP };
 const COMMANDS = new Map();
-const modules = { system, intent, worker, context, notice, question, branch, agent, config, hooks, skills, valet, input };
+const modules = { system, intent, worker, context, notice, question, branch, agent, config, hooks, skills, valet, input, administrator };
 for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   const module = modules[key];
   for (const name of names) {
@@ -95,7 +96,8 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush', 
     }
     if (executable === 'lushw' && !process.env.LUSH_AGENT_TOKEN && !process.env.LUSH_CLI_TRIAL)
       throw Object.assign(new Error('lushw data commands require an active Worker invocation'), { exitCode: 3, execution: 'not_started' });
-    const globalWeb = command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;
+    check(command !== 'administrator' || !projectPath, 'administrator service is device-scoped; --project is not accepted');
+    const globalWeb = command === 'administrator' || command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;
     const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
     const client = globalWeb ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }
       : new UIClient(selectedConfig, process.env.LUSH_AGENT_TOKEN || null);

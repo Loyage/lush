@@ -6,6 +6,8 @@ import { createUserServices } from '../../host/user-services.js';
 import { validateAppearanceUpdate } from '../../host/project-appearance.js';
 import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../../host/device-settings.js';
 import { emptyJson, settingQuery, userQuery, userBody } from './server-query.js';
+import { administratorControl } from '../../host/administrator.js';
+import { createAdministratorHostRoutes } from './server-administrator-routes.js';
 
 /** Root-only Host routes precede project identity normalization; services stay lazy. */
 export function createHostRoutes(projectHost, auth, options, env) {
@@ -13,8 +15,12 @@ export function createHostRoutes(projectHost, auth, options, env) {
   let deviceSettings = null, userServices = null;
   const getDeviceSettings = () => deviceSettings ||= options.deviceSettingsService || new DeviceSettingsService(env, options.deviceSettingsOptions);
   const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env });
+  const administrator = createAdministratorHostRoutes(administratorControl(env, options.administratorOptions));
   return {
-    async handle({ request, url, headers, json }) {
+    async handle(context) {
+      const { request, url, headers, json } = context;
+      const privileged = await administrator(context);
+      if (privileged) return privileged;
       // These root-only reads never attach a project or instantiate device services.
       if (/^\/p\/[a-z0-9]{16}\/api\/host\/(?:session|skills)$/.test(url.pathname)) return json({ error: 'not found' }, 404);
       if (url.pathname === '/api/host/cli/catalog') {

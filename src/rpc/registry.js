@@ -17,6 +17,7 @@ export const PARAMS = {
   ...CONTEXT_PARAMETERS,
   ...MERGE_CONDITION_PARAMETERS,
   'cli.catalog': [],
+  'administrator.dispatch': ['request','signature'],
   'worker.cli_preview': ['id','command'], 'worker.cli_execute': ['id','command','revision','confirm'],
   'worker.cli_history': ['id','before','limit'], 'worker.cli_history_clear': ['id'],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
@@ -112,6 +113,7 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
+  'administrator.dispatch',
   'system.status','system.summary','worker.list','worker.tree','worker.graph','worker.activity','worker.page',
   'graph.get','branch.tree','branch.show','notice.list','notice.page',
   ...Object.keys(MERGE_CONDITION_PARAMETERS),

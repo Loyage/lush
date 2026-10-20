@@ -127,7 +127,8 @@ function originAllowed(request, url, origins) {
 export function createAuthHandler(auth) {
   const sessions = new Map();
   const failures = new Map();
-  return async function authenticate({ request, server, url, headers, json }) {
+  return async function authenticate(context) {
+    const { request, server, url, headers, json } = context;
     const host = request.headers.get('host');
     const localHosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
     if (!host || url.host !== host || (auth.hostname === '127.0.0.1' && !localHosts.includes(host) && !auth.origins.some(origin => new URL(origin).host === host))) return new Response('Invalid host', { status: 403 });
@@ -183,6 +184,10 @@ export function createAuthHandler(auth) {
       if (token) sessions.delete(token);
       return new Response(null, { status: 303, headers: { Location: '/login', 'Set-Cookie': `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`, ...headers } });
     }
+    // Trusted request-local identity for high-privilege entrance confirmations. Never accept
+    // this from headers/body or return the session cookie to downstream services or models.
+    context.user = Object.freeze({ kind: 'user_session', username: auth.username,
+      sessionBinding: createHash('sha256').update(`lush-web-user-session:${token}`).digest('hex') });
     return null;
   };
 }

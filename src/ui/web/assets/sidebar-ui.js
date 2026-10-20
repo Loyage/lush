@@ -15,6 +15,7 @@ const PAGES = {
   'task-graph': ['工作树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
   deliveries: ['历史合并记录', '历史', '旧链接只读兼容 · 不提供持续归并设置'],
   'cli-interfaces': ['CLI 接口', '用户工作台', '搜索与学习命令 · 此设备用户所有项目的管家权限'],
+  administrator: ['管理员管家', '用户工作台', '独立管理员身份 · 跨项目高权限'],
   hooks: ['项目自动化', '工作', '功能设置 · 新 Worker 默认与显示原则'],
   inputs: ['历史输入', '工作', '已发送原文 · 时间与来源检索'],
   drafts: ['草稿', '工作', '工作暂存 · 追加输入暂存 · 执行条件'],
@@ -46,7 +47,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
+  if (changed) { ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null; ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';

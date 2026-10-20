@@ -10,6 +10,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
     'test/web/assets.test.js', // startup graph and unchanged cold-loading budgets
     'test/web/dom-built-loading-assets.test.js', // compiled root and project boot
+    'test/web/dom-administrator-page.test.js', // separate creation/input confirmations, unknown reconciliation and emergency stop
     'test/web/dom-detail.test.js', // Worker detail -> independent reader
     'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
@@ -21,6 +22,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
   rpc: Object.freeze([
     'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects
     'test/project/management-cli.test.js', // Provider -> bridge -> CLI policy, execution and audit
+    'test/project/administrator-execution.test.js', // logged-in confirmation -> real device runtime/Provider -> signed cross-project call
+    'test/administrator-runtime.test.js', // device identity, audited invocation, real-owner stop and crash-unknown preservation
     'test/project/merge-conditions-bridge.test.js', // real new merge syntax -> fixed parent queue
     'test/project/input-emission-protocol.test.js', // Dispatcher -> runtime -> Input/Message
     'test/project/merge-queue.test.js', // child delivery -> parent Squash -> acceptance

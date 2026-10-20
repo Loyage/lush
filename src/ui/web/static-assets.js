@@ -21,6 +21,25 @@ function safeFile(file) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_BYTES) throw new Error('Unsafe Web asset file');
   return stat;
 }
+// Browser pages may import pure shared protocols outside assets/. Include the real
+// relative dependency closure so a protocol-only change cannot reuse stale bundles.
+function sharedBrowserSources(assets) {
+  const scanned = new Set(), shared = new Map(), parser = new Bun.Transpiler({ loader: 'js' });
+  const pending = fs.readdirSync(assets).filter(name => NAME.test(name) && name.endsWith('.js')).map(name => path.join(assets, name));
+  while (pending.length) {
+    const file = pending.pop();
+    if (scanned.has(file)) continue;
+    scanned.add(file); safeFile(file);
+    const source = fs.readFileSync(file, 'utf8');
+    const relative = path.relative(assets, file);
+    if (relative.startsWith(`..${path.sep}`)) shared.set(relative, source);
+    for (const imported of parser.scanImports(source)) {
+      if (!imported.path.startsWith('.') || !imported.path.endsWith('.js')) continue;
+      pending.push(path.resolve(path.dirname(file), imported.path));
+    }
+  }
+  return [...shared].sort(([left], [right]) => left.localeCompare(right));
+}
 function privateDirectory(directory) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const stat = fs.lstatSync(directory);
@@ -71,6 +90,7 @@ export function createStaticAssets({ assets = ASSETS, cache = path.join(os.tmpdi
     safeFile(path.join(assets, name));
     hash.update(name).update('\0').update(fs.readFileSync(path.join(assets, name))).update('\0');
   }
+  for (const [name, source] of sharedBrowserSources(assets)) hash.update(name).update('\0').update(source).update('\0');
   const version = hash.digest('hex').slice(0, 32);
   const archive = path.join(cache, `${version}.json`);
   const unpack = file => {

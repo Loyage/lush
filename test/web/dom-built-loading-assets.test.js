@@ -18,7 +18,7 @@ afterAll(() => { dom.restore(); fs.rmSync(root, { recursive: true, force: true }
 
 test('compiled root workbench loads global lazy pages with shared navigation state', async () => {
   expect(dom.node('detail').dataset.view).toBe('projects');
-  for (const [view, hash] of [['settings', 'settings'], ['skills', 'skills'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'notices']]) {
+  for (const [view, hash] of [['settings', 'settings'], ['skills', 'skills'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['administrator', 'administrator'], ['global-inbox', 'notices']]) {
     await dom.node(`${view}-open`).onclick();
     expect(dom.node('detail').dataset.view).toBe(view); expect(dom.location.hash).toBe(`#${hash}`);
     expect(dom.node(`${view}-open`).getAttribute('aria-current')).toBe('page');
@@ -48,6 +48,13 @@ test('compiled project boot owns work pages and opens device settings separately
     await project.node('skills-open').onclick();
     expect(project.node('skills-open').href).toBe('/#skills'); expect(project.node('skills-open').target).toBe('_blank');
     expect(project.node('input').value).toBe('unsent'); expect(project.node('detail').scrollTop).toBe(120);
+    await project.node('administrator-project-open').onclick();
+    expect(project.node('administrator-project-open').href).toBe('/#administrator');
+    expect(project.node('administrator-project-open').target).toBe('_blank');
+    expect(project.node('input').value).toBe('unsent'); expect(project.node('detail').scrollTop).toBe(120);
+    project.location.hash = '#administrator'; await project.fire('hashchange');
+    expect(project.node('detail').dataset.view).toBe('workspace-link');
+    expect(project.node('detail').querySelector('a').href).toBe('/#administrator');
     project.location.hash = '#skills'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('workspace-link');
     expect(project.node('detail').querySelector('a').href).toBe('/#skills');

@@ -14,7 +14,7 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
     expect(commands.some(item => !item.directory && item.command_path === migration.path)).toBe(false);
   }
   const management = cliCommands('lush').filter(item => !item.directory);
-  const localExceptions = new Set(['help','doctor','daemon start','daemon stop','daemon restart','daemon log','host start','host stop','host restart','host status']);
+  const localExceptions = new Set(['help','doctor','daemon start','daemon stop','daemon restart','daemon log','host start','host stop','host restart','host status','administrator start','administrator stop','administrator status']);
   expect(management.filter(item => !managementCLICommandPolicy(item).available).map(item => item.path).sort())
     .toEqual([...localExceptions].filter(item => item !== 'help').sort());
   for (const item of management) {

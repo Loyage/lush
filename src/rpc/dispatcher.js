@@ -18,6 +18,7 @@ import { handlers as branchHandlers } from './handlers/branch.js';
 import { handlers as candidateHandlers } from './handlers/candidate.js';
 import { handlers as hookHandlers } from './handlers/hooks.js';
 import { handlers as contextHandlers } from './handlers/context.js';
+import { dispatchAdministrator } from '../administrator/project-dispatch.js';
 
 /** 合并各 handler 表：重名说明两个分区认领了同一个方法，PARAMS 里没有对应 handler 说明拆漏了。 */
 function mergeHandlers(groups) {
@@ -30,7 +31,11 @@ function mergeHandlers(groups) {
   return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers, contextHandlers]);
+export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers, contextHandlers, {
+  'administrator.dispatch'(project, params) {
+    return dispatchAdministrator(project, params, (method, values) => this.dispatch(method, values));
+  },
+}]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) {

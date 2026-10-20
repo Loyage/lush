@@ -34,6 +34,7 @@ export const ui = {
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
   automationPage: null, disposeProjectAutomation: null,
   valetSettingsPage: null, disposeValetSettings: null,
+  disposeAdministratorPage: null, // 独立管理员页离开时撤销旧弹窗与只读请求；不撤回已提交副作用。
   composerManagement: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
   composerWorkspace: null, openComposer: null, collapseComposer: null,
   composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
@@ -90,6 +91,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null;
   ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null;
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };

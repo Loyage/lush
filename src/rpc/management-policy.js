@@ -32,6 +32,7 @@ export function managementDispatchParams(method, params) {
   return definition;
 }
 const unavailable = new Set([
+  'administrator.dispatch', // Independent signed identity, never an ordinary Valet capability.
   'management.emergency_preview','management.emergency_stop', // User-only emergency; never a delegable capability.
   'worker.management_calls', // User-only audit; not an additional Agent read capability.
   'cli.catalog','worker.cli_preview','worker.cli_execute','worker.cli_history','worker.cli_history_clear', // User learning/trial surfaces, never manager tools.

@@ -78,6 +78,10 @@ async function openPage(load, open, view, options = {}) {
   catch (error) { if (current()) show(`${error.message}（若界面已更新，请刷新后重试）`, 'error'); }
 }
 const openCliInterfaces = () => openPage(() => import('./render-valet-settings.js'), module => module.openCliInterfaces({ registerPageLeaveGuard }), 'cli-interfaces');
+const openAdministrator = () => openPage(() => import('./administrator-page.js'), module => {
+  ui.disposeAdministratorPage = module.disposeAdministratorPage;
+  return module.openAdministrator();
+}, 'administrator');
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openSkills = () => openPage(() => import('./render-skills.js'), module => module.openSkills(), 'skills');
@@ -111,7 +115,7 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'nav-link'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'nav-link nav-back'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:settings|skills|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
+const deviceHash = hash => /^#(?:administrator|settings|skills|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
@@ -135,6 +139,7 @@ function openHashTarget(hash, project, doc, generation) {
   if (!project) {
     if (!hash || hash === '#projects') return openProjectOverview({ push: false });
     if (hash === '#project-management') return openProjectManager({ push: false });
+    if (hash === '#administrator') return openAdministrator();
     if (hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
     if (hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
     if (hash === '#skills') return ui.view?.id === 'skills' ? undefined : openSkills();
@@ -218,6 +223,8 @@ function initGlobalNavigation() {
   workspaceLink('global-inbox-open', '#notices', () => openGlobalInbox());
   workspaceLink('automation-open', '#automation', openAutomation);
   workspaceLink('cli-interfaces-open', '#cli-interfaces', openCliInterfaces);
+  workspaceLink('administrator-open', '#administrator', openAdministrator);
+  workspaceLink('administrator-project-open', '#administrator', openAdministrator);
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
   workspaceLink('skills-open', '#skills', openSkills);

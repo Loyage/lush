@@ -7,12 +7,13 @@ import { COMMANDS as WORKER_SYSTEM_COMMANDS } from './specs/worker-system.js';
 import { COMMANDS as AGENT_CONFIG_COMMANDS } from './specs/agent-config.js';
 import { COMMANDS as AUTOMATION_VALET_COMMANDS } from './specs/automation-valet.js';
 import { COMMANDS as INPUT_CONTEXT_COMMANDS } from './specs/input-context.js';
+import { COMMANDS as ADMINISTRATOR_COMMANDS } from './specs/administrator.js';
 
 export const COMMAND_MODULES = Object.freeze({
   system: ['daemon', 'status', 'project', 'doctor', 'host:start', 'host:stop', 'host:restart', 'host:status'],
   input: ['input'], intent: ['order'], worker: ['worker'], context: ['self','parent','children'],
   notice: ['notice'], question: ['question'], branch: ['branch'], agent: ['agent'], config: ['config'],
-  hooks: ['automation'], skills: ['skills'], valet: ['valet'],
+  hooks: ['automation'], skills: ['skills'], valet: ['valet'], administrator: ['administrator'],
 });
 const HELP_COMMANDS = defineCommands(add => add('help', '[PATH...] [--search TEXT | --all] [--limit N] [--cursor CURSOR]',
   '离线分层帮助、固定文档搜索与工作流；不发现项目、不发送 RPC。', 'worker merge request', [], 'local-read',
@@ -40,12 +41,13 @@ const directoryHints = {
   config: '设备策略；设备作用域不等于执行授权。',
   project: '当前项目维护与用量诊断，不跨项目。', daemon: '项目后台本地生命周期与受控停止请求。',
   host: '本地 Web 工作台生命周期，不等于项目后台。',
+  administrator: '独立设备级管理员服务；创建和新输入必须在已登录全局页面确认。',
   self: 'invocation 绑定自身，不接受自身 ID。', parent: '服务端确定的直接父 Worker。',
   children: '真实直接 child，独立执行且不等待轮询。', question: '离线准备与校验问卷，不发布。',
   skills: '固定随代码指南，不读取设备开启状态。',
 };
 const commandEntries = [...HELP_COMMANDS, ...WORKER_SYSTEM_COMMANDS, ...INPUT_CONTEXT_COMMANDS,
-  ...AUTOMATION_VALET_COMMANDS, ...AGENT_CONFIG_COMMANDS];
+  ...AUTOMATION_VALET_COMMANDS, ...AGENT_CONFIG_COMMANDS, ...ADMINISTRATOR_COMMANDS];
 if (new Set(commandEntries.map(entry => entry.path)).size !== commandEntries.length) throw new Error('duplicate CLI command path');
 if (new Set(commandEntries.map(entry => entry.id)).size !== commandEntries.length) throw new Error('duplicate CLI command ID');
 const commandDirectories = new Map();
