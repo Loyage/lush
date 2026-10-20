@@ -1,12 +1,18 @@
 import { check } from '../types.js';
 import { hookRevision } from '../hooks.js';
-import { managementState, managementTime, saveManagement } from './management-data.js';
+import { managementState, managementTime, managementUnsettled, saveManagement } from './management-data.js';
 import { capabilityDiagnostic } from './management-diagnostic.js';
 
 const limit = 100;
 const reason = '用户急救已永久撤销此管家的旧授权；历史与未知副作用保留，不重放、不回滚。';
 const rows = project => project.store.all("SELECT * FROM tasks WHERE task_kind='management' ORDER BY id");
-const needsStop = task => managementState(task)?.emergency?.status !== 'isolated';
+const needsStop = (project, task) => {
+  const state = managementState(task);
+  // Only revoke identities that still hold the lane; completed history and
+  // untriggered future bindings must retain their status and authorization.
+  return state?.emergency ? state.emergency.status !== 'isolated' || managementEmergencyBlockers(project, task, state).length > 0
+    : managementUnsettled(project, task, state);
+};
 const label = task => ({ id: task.id, worker_number: typeof task.worker_number === 'string' && task.worker_number.length <= 128 ? task.worker_number : null });
 const lastRequest = project => project.store.get("SELECT value FROM meta WHERE key='management_emergency'")?.value ?? null;
 
@@ -46,7 +52,7 @@ function result(project, revision) {
 export default {
   managementEmergencyPreview() {
     const { tasks, facts, revision } = snapshot(this);
-    const affected = tasks.filter(needsStop);
+    const affected = tasks.filter(task => needsStop(this, task));
     const totals = { enabled: 0, pending_occurrences: 0, unstarted_actions: 0, unstarted_calls: 0,
       started_receipts: 0, unknown_receipts: 0, open_decisions: 0, live_workers: 0 };
     const decisionCounts = new Map(facts.map(item => [item.id, item.decisions.length]));
@@ -64,7 +70,7 @@ export default {
       if (items.length < limit) items.push({ ...label(task), ...counts, blockers: kinds });
     }
     return { version: 1, scope: 'current_project', revision, total: tasks.length, affected_total: affected.length,
-      already_isolated_total: tasks.filter(task => managementState(task)?.emergency?.status === 'isolated').length,
+      already_isolated_total: tasks.filter(task => managementState(task)?.emergency?.status === 'isolated' && !needsStop(this, task)).length,
       stopping_total: tasks.filter(task => managementState(task)?.emergency?.status === 'stopping').length,
       items, items_truncated: affected.length > items.length, totals, history_preserved: true };
   },
@@ -77,7 +83,7 @@ export default {
     if (lastRequest(this) === revision) return result(this, revision);
     const preview = snapshot(this);
     check(revision === preview.revision, 'management emergency revision changed; reload preview and confirm again');
-    const affected = preview.tasks.filter(needsStop);
+    const affected = preview.tasks.filter(task => needsStop(this, task));
     this.store.transaction(() => {
       for (const task of affected) {
         if (managementState(task)?.emergency) {

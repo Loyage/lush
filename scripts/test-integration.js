@@ -15,6 +15,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
     'test/web/dom-worker-cli-api.test.js', // CLI keyboard -> preview -> real CLI and history
     'test/web/valet-settings-page-integration.test.js', // same CLI schemas -> learning and live permissions
+    'test/web/dom-valet-emergency-api.test.js', // user confirmation -> only occupied Valets -> isolation and fresh input
     'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
   ]),
   rpc: Object.freeze([

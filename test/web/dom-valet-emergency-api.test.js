@@ -25,6 +25,12 @@ test('empty Valet list -> explicit user emergency -> real authenticated HTTP/RPC
   } }); resetUiState(); ui.view = { id: 'valets' };
   const restore = registerNavigation({ refresh: async () => {} });
   try {
+    const healthy = f.store.create({ role: 'manager', task_kind: 'management', goal: '正常结束的管家' });
+    saveManagement(f.project, healthy.id, { version: 1, config_revision: 1, mode: 'once', enabled: false,
+      consumed: true, state: 'idle', pending_signal: null, receipts: [], control_calls: [],
+      last_execution: { id: 1, status: 'succeeded', started_at: new Date().toISOString() } });
+    f.store.update(healthy.id, { status: 'completed' });
+    const preserved = f.store.task(healthy.id);
     const old = f.project.submitManagementInstruction({ instruction: '旧管家' }).task;
     const state = managementState(f.store.task(old.id));
     state.enabled = false; state.state = 'unknown'; state.pending_signal.phase = 'started';
@@ -35,7 +41,10 @@ test('empty Valet list -> explicit user emergency -> real authenticated HTTP/RPC
     const control = mount(dom);
     const opening = control.querySelector('button').onclick();
     await until(() => dialogButton(dom, '确认强制终结并解除占位'));
+    expect(dialogText(dom)).toContain('当前项目共 2 个管家');
     expect(dialogText(dom)).toContain('本次影响 1 个'); expect(dialogText(dom)).toContain('结果未知收据 1 项');
+    expect(dialogText(dom)).toContain('不占位且不受影响 1 个');
+    expect(dialogText(dom)).toContain('已正常收口或仅等待未来信号的管家保持原状');
     expect(writes).toEqual([]);
     await dialogButton(dom, '确认强制终结并解除占位').onclick(); await opening;
     expect(writes).toHaveLength(1); expect(writes[0]).toMatchObject({ method: 'management.emergency_stop', params: { confirm: true } });
@@ -43,6 +52,8 @@ test('empty Valet list -> explicit user emergency -> real authenticated HTTP/RPC
     const isolated = managementState(f.store.task(old.id));
     expect(isolated.emergency.status).toBe('isolated'); expect(isolated.control_calls).toEqual(state.control_calls);
     expect(isolated.pending_signal).toEqual(state.pending_signal); expect(f.project.managementOccupant()).toBeNull();
+    expect(f.store.task(healthy.id)).toEqual(preserved);
+    expect(f.project.managementView(healthy.id).can_append).toBe(true);
     const rescue = await httpFetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method: 'management.submit', params: { instruction: '新授权：救援 Lush' } }) });
     expect(rescue.status).toBe(200);
