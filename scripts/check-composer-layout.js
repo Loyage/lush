@@ -90,7 +90,11 @@ async function checkLayout(mode, theme, color, focused) {
       fits:r.width>0 && r.top>=0 && r.bottom<=innerHeight && fr.left>=0 && fr.right<=innerWidth && form.scrollWidth<=form.clientWidth+1
         && document.documentElement.scrollWidth<=innerWidth+1 && [...band.children].filter(n=>n.getClientRects().length).every(n=>{const cr=n.getBoundingClientRect();return cr.left>=r.left && cr.right<=r.right+1 && cr.bottom<=r.bottom+1;}),
       described:box.getAttribute('aria-describedby').includes('composer-mode-target'),
-      fieldColor:field.borderTopColor,iconColor:getComputedStyle(icon).color,accent:getComputedStyle(document.querySelector('#sidebar')).borderTopColor};`);
+      fieldColor:field.borderTopColor,iconColor:getComputedStyle(icon).color,
+      menuColor:getComputedStyle(document.querySelector('#composer-menu-'+({create:'order',append:'append',management:'management'})[form.dataset.mode])).color,
+      modeColor:field.getPropertyValue('--composer-mode-color').trim(),
+      bandTint:getComputedStyle(band).backgroundColor,submitColor:getComputedStyle(document.querySelector('#draft-commit')).backgroundColor,
+      violet:getComputedStyle(form).getPropertyValue('--violet-ink').trim(),focusHalo:field.boxShadow};`);
   assert(layout.mode === mode && layout.fits && layout.described, `clipped/inaccessible ${theme}/${color}/${mode}/${focused}: ${JSON.stringify(layout)}`);
   assert(layout.outerBorderless && layout.fieldWidth === (focused ? '3px' : '2px') && (!focused || layout.outlineStyle === 'none')
     && layout.regionTint !== layout.fieldBackground, `extra frame or missing regional tint/focus: ${JSON.stringify(layout)}`);
@@ -103,8 +107,10 @@ async function checkLayout(mode, theme, color, focused) {
     : mode === 'append' ? ['补充要求、提供反馈，或说明需要调整的地方…', '追加指令正文', '提交追加']
       : ['描述你希望管家查询、调整或安排的事项…', '管理指令正文', '提交管理指令'];
   assert(layout.placeholder === copy[0] && layout.contentLabel === copy[1] && layout.submit === copy[2], `wrong input copy: ${JSON.stringify(layout)}`);
-  assert(layout.fieldColor === layout.accent && layout.iconColor === layout.accent,
-    `mode lost project color ${theme}/${color}: ${JSON.stringify(layout)}`);
+  const rgb = hex => `rgb(${hex.slice(1).match(/../g).map(part => parseInt(part, 16)).join(', ')})`;
+  assert(layout.fieldColor === rgb(layout.modeColor) && layout.iconColor === layout.fieldColor && layout.menuColor === layout.fieldColor
+    && layout.submitColor === rgb(layout.violet) && layout.bandTint !== layout.fieldBackground
+    && (!focused || layout.focusHalo !== 'none'), `mode tint, purple authorization or focus lost ${theme}/${color}: ${JSON.stringify(layout)}`);
   return layout;
 }
 try {
@@ -121,10 +127,28 @@ try {
   await setViewport(1440, 900);
   assert(await waitFor('window.ready && window.ui.composerTask?.id===1'), 'project app/detail did not load');
   assert(await execute(`return document.querySelector('#input-form').dataset.mode==='create';`), 'detail implicitly entered append mode');
+  // Check real CSS appearance and mode-color transitions, then settle motion for layout measurements.
+  const motion = await execute(`const launcher=document.querySelector('#composer-launcher');launcher.click();
+    const menu=document.querySelector('#composer-menu'),style=getComputedStyle(menu);
+    const result={menu:style.animationName,active:menu.getAnimations().length};
+    document.querySelector('#composer-menu-order').click();
+    const form=document.querySelector('#input-form'),box=document.querySelector('#input');
+    result.form=getComputedStyle(form).animationName;result.formActive=form.getAnimations().length;
+    result.transition=getComputedStyle(box).transitionProperty;
+    result.duration=getComputedStyle(box).transitionDuration;
+    document.documentElement.dataset.reducedMotion='true';
+    result.reduced=getComputedStyle(form).animationName==='none'&&getComputedStyle(box).transitionDuration==='0s';
+    launcher.click();result.collapsed=form.hidden&&document.querySelector('#composer-shell').getBoundingClientRect().height===0;
+    return result;`);
+  assert(motion.menu==='composer-reveal' && motion.form==='composer-reveal' && motion.active>0 && motion.formActive>0
+    && motion.transition.includes('border-color') && motion.duration.includes('0.18s') && motion.reduced && motion.collapsed,
+    `appearance/reduced-motion/collapse failure: ${JSON.stringify(motion)}`);
+  console.log('PASS actual menu/editor entrance animations, border-color transition, reduced-motion and immediate collapse');
   // Enter append using the actual visible mode-selection control, not a synthetic destination.
   await execute(`const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='追加输入');if(!entry)throw Error('append entry missing');entry.id='fixture-append';`);
   await click('#fixture-append');
   assert(await waitFor('document.querySelector("#input-form").dataset.mode==="append"'), 'explicit entry did not select Worker');
+  const modeColors = new Map();
   for (const mode of ['append', 'create', 'management']) {
     if (mode === 'management') {
       await execute(`document.querySelector('#input').blur();`);
@@ -145,13 +169,16 @@ try {
         for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
           const layout = await checkLayout(mode, theme, color, focused); viewport = layout.viewport;
           fieldColors.add(layout.fieldColor); regionTints.add(layout.regionTint);
+          const key = `${theme}/${width}/${focused}`, colors = modeColors.get(key) || new Set();
+          colors.add(layout.fieldColor); modeColors.set(key, colors);
         }
-        assert(fieldColors.size === 6 && regionTints.size === 6, `mode did not follow all six project palettes: ${theme}/${mode}`);
+        assert(fieldColors.size === 1 && regionTints.size === 6, `mode color must stay distinct from six project palettes: ${theme}/${mode}`);
       }
       if (width === 390 || width === 1440) await Bun.write(`${output}-${mode}-${theme}-${width}.png`, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-      console.log(`PASS ${mode} ${theme} ${viewport}px: six palettes, whole-region tint, single solid/dashed field edge, focused/unfocused target`);
+      console.log(`PASS ${mode} ${theme} ${viewport}px: stable mode color across six project palettes, shallow title tint, purple submit, focused/unfocused target`);
     }
   }
+  assert([...modeColors.values()].every(colors => colors.size === 3), 'three modes must remain visually distinct in both themes and focus states');
   await setViewport(390, 844);
   const checks = await execute(`window.composer.toggleComposerDetails(false);const original=window.ui.composerTask,results=[];const title='很长的追加目标标题'.repeat(20)+' <img src=x onerror=alert(1)>';
     for(const change of [{},{freeze:{reason:'固定交付'},input_queue:{buffered:2,reason:'等待交付结束'}},{status:'completed'}]){
@@ -209,6 +236,23 @@ try {
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'resize-keys', actions: [{ type: 'keyDown', value: '\uE013' }, { type: 'keyUp', value: '\uE013' }] }] });
   assert(await execute(`return Number(localStorage.getItem('lush.composer.height:aaaaaaaaaaaaaaaa'))===${Number(resized.pref)+16};`), 'keyboard resizing did not save');
   console.log('PASS actual pointer drag, persisted reload, narrow-screen/soft-keyboard temporary clamp and keyboard resize');
+  // A separate browser preference exercises the real system media query, not only the app override.
+  await rpc(`/session/${session}`, undefined, 'DELETE'); session = null;
+  session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox',
+    'moz:firefoxOptions': { args: ['-headless'], prefs: { 'ui.prefersReducedMotion': 1 } } } } })).sessionId;
+  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture-frame` });
+  await setViewport(390, 844);
+  assert(await waitFor('window.ready && window.ui.composerTask?.id===1'), 'reduced-motion fixture failed');
+  const reduced = await execute(`delete document.documentElement.dataset.reducedMotion;
+    document.querySelector('#composer-launcher').click();const menu=document.querySelector('#composer-menu');
+    const menuReduced=getComputedStyle(menu).animationName==='none'&&menu.getAnimations().length===0;
+    document.querySelector('#composer-menu-order').click();
+    return matchMedia('(prefers-reduced-motion: reduce)').matches&&menuReduced
+      &&getComputedStyle(document.querySelector('#input-form')).animationName==='none'
+      &&getComputedStyle(document.querySelector('#input')).transitionDuration==='0s'
+      &&!document.querySelector('#input-form').hidden;`);
+  assert(reduced, 'system reduced-motion failed to disable entrance/color/focus motion');
+  console.log('PASS real system reduced-motion preference: menu/editor open without animations or transitions');
   passed = true;
 } catch (error) {
   if (session) console.error('Browser diagnostic:', await execute(`return {url:location.href,ready:window.ready,error:document.querySelector('#error')?.textContent,detail:document.querySelector('#detail')?.textContent?.slice(0,1000)};`).catch(() => null));
