@@ -3,6 +3,15 @@ import { isHistoricalDelivery, TERMINAL_STATUS } from './format.js';
 import { ui } from './state.js';
 import { workerLabel } from './worker-label.js';
 
+/** Valet rounds use their own admission, never the development branch/inbox rules. */
+export function valetAppendBlocker(task) {
+  if (task.role !== 'manager' || task.task_kind !== 'management') return '此目标不是可追加的项目管家。';
+  if (task.management?.version !== 1 || typeof task.management.can_append !== 'boolean') return '服务未提供管家追加准入信息，请更新服务并刷新详情；不会尝试提交。';
+  if (task.execution_retired === true || task.agent?.active || !['completed', 'waiting'].includes(task.status)
+    || ['failed', 'unknown', 'stopping'].includes(task.management.state)) return task.management.append_reason || '管家尚未正常结束并安全收口；失败、取消或未知操作不能通过追加恢复。';
+  return task.management.can_append === true ? null : task.management.append_reason || '当前管家暂不能追加，请刷新详情核对安全收口状态。';
+}
+
 /** Receiving input is independent of permission to mutate a frozen branch. */
 export function appendInputBlocker(task, workers = ui.lastSnapshot?.tasks || []) {
   if (task.execution_retired === true) return '远端执行已退役，此 Worker 仅保留只读历史，不能追加输入。';

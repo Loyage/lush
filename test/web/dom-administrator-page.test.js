@@ -16,7 +16,7 @@ const storageText = storage => Array.from({ length: storage.length }, (_, index)
 // claim real Host password verification or elevated native execution; W363 integrates those.
 test('project Valet input: ordinary default, one-input password elevation, unknown receipt and next-input ordinary', async () => {
   const passwordCanary = 'isolated-test-password-7A', ordinary = [], elevated = [];
-  let passwordAccepted = false, receiptFound = false, lastUnknown = null;
+  let passwordAccepted = false, receiptFound = false, lastUnknown = null, deferReceipt = false, releaseReceipt;
   const task = { id: 17, worker_number: 'V9', role: 'manager', task_kind: 'management', status: 'completed',
     management: { version: 1, can_append: true, state: 'idle', enabled: false, origin: 'input', authority: { mode: 'administrator', scope: 'current_project' } } };
   const dom = installDom({ fetch: async (url, options = {}) => {
@@ -34,9 +34,12 @@ test('project Valet input: ordinary default, one-input password elevation, unkno
       if (body.definition.instruction === 'append unknown') { lastUnknown = structuredClone(body.definition); throw new Error(passwordCanary); }
       return Response.json({ management: true, task, instruction: body.definition.instruction });
     }
-    if (path.endsWith('/api/management/elevation-receipt')) return Response.json(receiptFound
-      ? { version: 1, found: true, definition: lastUnknown, task, instruction: lastUnknown.instruction }
-      : { version: 1, found: false });
+    if (path.endsWith('/api/management/elevation-receipt')) {
+      if (deferReceipt) await new Promise(resolve => { releaseReceipt = resolve; });
+      return Response.json(receiptFound
+        ? { version: 1, found: true, definition: lastUnknown, task, instruction: lastUnknown.instruction }
+        : { version: 1, found: false });
+    }
     throw new Error('unexpected isolated UI route: ' + path);
   } });
   resetUiState(); ui.view = { id: 'overview' }; ui.lastSnapshot = { status: { project: '/isolated/elevation-project' } }; dom.location.pathname = '/p/1234567890abcdef/';
@@ -72,27 +75,37 @@ test('project Valet input: ordinary default, one-input password elevation, unkno
 
     ui.view = { id: 'task', key: 'task:17' }; ui.selected = task.id;
     const root = dom.node('detail'); root.replaceChildren(valetLifecycleControls(task));
-    let appending = find(root, '追加输入').onclick();
-    let body = dom.node('modal').querySelector('textarea'); body.value = 'ordinary append'; body.oninput();
-    expect(choice(dom.node('modal')).checked).toBe(false);
-    await dialogButton(dom, '提交追加').onclick(); await appending;
+    find(root, '追加输入').onclick();
+    expect(find(root, '追加输入').classList.contains('agent-call')).toBe(false);
+    input.value = 'ordinary append'; input.oninput();
+    expect(choice(shell).checked).toBe(false);
+    expect(dom.node('composer-mode-target').textContent).toContain('V9');
+    await dom.node('input-form').onsubmit({ preventDefault() {} });
     expect(ordinary.at(-1)).toEqual({ method: 'worker.message', params: { id: 17, body: 'ordinary append' } });
-    appending = find(root, '追加输入').onclick(); body = dom.node('modal').querySelector('textarea'); body.value = 'append unknown'; body.oninput();
-    const toggle = choice(dom.node('modal')); toggle.checked = true; toggle.onchange();
+    find(root, '追加输入').onclick(); input.value = 'append unknown'; input.oninput();
+    const toggle = choice(shell); toggle.checked = true; toggle.onchange();
+    opening = dom.node('input-form').onsubmit({ preventDefault() {} });
+    await until(() => dialogButton(dom, '验证密码并执行这一条'));
     expect(dialogText(dom)).toContain('V9 · ID 17');
     secret = dom.node('modal').querySelector('.project-elevation-password'); secret.value = passwordCanary;
     await dialogButton(dom, '验证密码并执行这一条').onclick();
     expect(secret.value).toBe(''); expect(dialogText(dom)).not.toContain(passwordCanary);
     expect(dialogButton(dom, '验证密码并执行这一条').disabled).toBe(true);
+    closeDialog(); await opening;
     const count = elevated.length;
-    await find(dom.node('modal'), '只读核对提权提交').onclick();
-    expect(dialogText(dom)).toContain('继续保留未知'); expect(elevated).toHaveLength(count);
+    expect(dom.node('draft-commit').disabled).toBe(true);
+    await find(shell, '只读核对提权提交').onclick();
+    expect(deepText(shell)).toContain('继续保留未知'); expect(elevated).toHaveLength(count);
     expect(storageText(dom.sessionStorage)).toContain(lastUnknown.client_request_id);
     expect(storageText(dom.sessionStorage)).not.toContain(passwordCanary);
-    receiptFound = true; await find(dom.node('modal'), '只读核对提权提交').onclick();
-    expect(dialogText(dom)).toContain('不代表执行成功'); expect(elevated).toHaveLength(count);
-    closeDialog(); await appending;
-    appending = find(root, '追加输入').onclick(); expect(choice(dom.node('modal')).checked).toBe(false); closeDialog(); await appending;
+    receiptFound = true; deferReceipt = true;
+    const checking = find(shell, '只读核对提权提交').onclick(); await until(() => releaseReceipt);
+    input.value = '核对期间的新管理输入'; input.oninput(); releaseReceipt(); await checking;
+    expect(input.value).toBe('核对期间的新管理输入'); expect(dom.node('draft-commit').disabled).toBe(true);
+    deferReceipt = false; await find(shell, '只读核对提权提交').onclick();
+    expect(input.value).toBe('核对期间的新管理输入');
+    expect(dom.node('error').textContent).toContain('不代表执行成功'); expect(elevated).toHaveLength(count);
+    find(root, '追加输入').onclick(); expect(choice(shell).checked).toBe(false);
     const state = renderManagementState(task); expect(deepText(state)).toContain('管理员 · 仅当前项目／本条');
     expect(state.querySelector('.management-audit-details').open).not.toBe(true);
     const nextRound = renderManagementState({ ...task, management: { ...task.management,

@@ -5,6 +5,7 @@ import { confirmDialog } from './dialog.js';
 import { taskTitle } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { waitingFirstInput } from './worker-create.js';
+import { isValet } from './work-type.js';
 import { composerReferences, setComposerReferences } from './context-references.js';
 import { show } from './messages.js';
 import { draftLabel } from './draft-label.js';
@@ -29,7 +30,7 @@ function applyEntry(entry) {
   ui.composerManagement = entry.mode === 'management';
   // Elevation is an explicit choice for one input, never part of a cached draft or mode restore.
   ui.composerElevated = false;
-  ui.composerAppendTarget = entry.mode === 'append' ? { id: entry.target_id, task: entry.taskFresh === false ? null : entry.task } : null;
+  ui.composerAppendTarget = entry.target_id != null ? { id: entry.target_id, task: entry.taskFresh === false ? null : entry.task } : null;
   ui.composerProfile = entry.mode === 'order' ? entry.profile : null;
   ui.composerManagementProfile = entry.mode === 'management' ? entry.profile : null;
   ui.composerExpanded = Boolean(entry.expanded);
@@ -40,7 +41,7 @@ function applyEntry(entry) {
   if (entry.selection?.every(Number.isInteger)) $('input').setSelectionRange?.(...entry.selection);
   $('composer-shell').scrollTop = entry.panelScroll || 0;
   $('composer-draft-list').hidden = true; ui.syncComposer?.();
-  if (entry.mode === 'append' && entry.taskFresh === false) void refreshEntryTarget(space, entry);
+  if (entry.target_id != null && entry.taskFresh === false) void refreshEntryTarget(space, entry);
 }
 async function refreshEntryTarget(space, entry) {
   const target = ui.composerAppendTarget, read = space.read;
@@ -59,11 +60,12 @@ async function refreshEntryTarget(space, entry) {
 export function selectComposerMode(mode, task = null, branch = 'main', { open = true } = {}) {
   if (ui.composerSubmitting) { show('请求正在处理；编辑内容仍可修改，请稍后切换去向。'); return; }
   if (mode === 'append' && !Number.isSafeInteger(task?.id)) return;
+  if (mode === 'append' && isValet(task)) mode = 'management';
   rememberComposer();
   const space = workspace(), spec = { mode, branch, ...(task ? { target_id: task.id, task } : {}) }, dest = destinationKey(spec);
   let entry = space.entries.get(space.last.get(dest) || dest);
   if (!entry) { entry = createEntry(spec); space.entries.set(entry.key, entry); space.last.set(dest, entry.key); }
-  if (task) { entry.task = task; entry.taskFresh = true; }
+  if (task) { entry.task = task; entry.taskFresh = true; (entry.request ||= {}).uncertain = false; }
   applyEntry(entry); if (open) openComposer();
 }
 export function openComposer({ focus = true } = {}) {
@@ -84,7 +86,7 @@ function currentWorker() {
   return task && ui.selected === task.id && (ui.view?.id === 'task' || ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id)) ? task : null;
 }
 // Away from Worker detail, an explicitly pinned inbox remains a valid named menu destination.
-const menuWorker = () => currentWorker() || (currentEdit()?.mode === 'append' && currentEdit().taskFresh !== false ? currentEdit().task : null);
+const menuWorker = () => currentWorker() || (currentEdit()?.target_id != null && currentEdit().taskFresh !== false ? currentEdit().task : null);
 export function toggleComposerMenu() {
   const space = workspace(); if (!space) return;
   space.menu = !space.menu; paintComposerWorkspace();
@@ -98,7 +100,7 @@ function editStatus(entry) {
   return entry.key === currentEdit()?.key && workspace().open ? '编辑中 · 收起时保留在本浏览器' : '已保留在本浏览器';
 }
 function entryTarget(entry) {
-  if (entry.mode === 'management') return '继续管理 · 当前项目';
+  if (entry.mode === 'management') return entry.target_id != null ? `继续追加管家 ${workerLabel(entry.task || entry.target_id)}` : '继续管理 · 当前项目';
   if (entry.mode === 'append') return `继续追加 ${workerLabel(entry.task || entry.target_id)}`;
   const parent = ui.composerParents?.find(parent => parent.branch === entry.branch) || entry.parent;
   return `继续新建 · 父 ${entry.branch === 'main' ? 'main' : parent ? workerLabel(parent) : entry.branch}`;

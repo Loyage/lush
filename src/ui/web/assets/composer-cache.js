@@ -1,7 +1,7 @@
 import { readStored, writeStored, storedKeys, scopedKey } from './prefs.js';
 import { show } from './messages.js';
 
-export const destinationKey = ({ mode, target_id, branch = 'main' }) => mode === 'append' ? `append:${target_id}` : mode === 'order' ? `order:${branch}` : 'management';
+export const destinationKey = ({ mode, target_id, branch = 'main' }) => mode === 'append' ? `append:${target_id}` : mode === 'order' ? `order:${branch}` : target_id != null ? `management:${target_id}` : 'management';
 // UI expansion and settings alone are not unfinished input, but still survive collapse.
 export const hasContent = entry => Boolean(entry?.content?.trim() || entry?.references?.length || entry?.saved);
 const keepEntry = entry => hasContent(entry) || entry.profile || entry.expanded || entry.localOptions;
@@ -14,7 +14,7 @@ const snapshot = entry => {
 };
 function validate(value) {
   if (!value || !['order', 'append', 'management'].includes(value.mode) || typeof value.content !== 'string' || value.content.length > 32000 || !Array.isArray(value.references)
-    || value.mode === 'append' && (!Number.isSafeInteger(value.target_id) || value.target_id <= 0)
+    || (value.mode === 'append' || value.mode === 'management' && value.target_id != null) && (!Number.isSafeInteger(value.target_id) || value.target_id <= 0)
     || value.mode === 'order' && (typeof value.branch !== 'string' || !value.branch)) throw Error('自动保存格式不完整');
   const destination = destinationKey(value);
   if (value.saved && (!Number.isSafeInteger(value.saved.id) || value.saved.id <= 0 || destinationKey(value.saved) !== destination)) throw Error('自动保存的草稿去向不匹配');

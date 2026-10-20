@@ -8,6 +8,7 @@ const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const composerOnly = process.argv.includes('--composer-only');
 const script = `<script type="module">
 import {initComposer,appendToWorker,syncComposer} from '/composer.js';
+import {valetLifecycleControls} from '/valet-actions.js';
 import {ui} from '/state.js';
 import {openComposer,resumeComposerDraft,selectComposerMode} from '/composer-workspace.js';
 window.openComposer=openComposer;window.resumeDraft=resumeComposerDraft;window.selectComposer=selectComposerMode;
@@ -25,10 +26,12 @@ window.fetch=async(url,options)=>{if(String(url).endsWith('/api/input-parents'))
 if(String(url).includes('/api/inputs?'))return Response.json({items:[window.fixtureDraft],next_cursor:null});
 if(String(url).endsWith('/api/input/draft/40'))return Response.json(window.fixtureDraft);
 if(String(url).endsWith('/api/worker/8'))return Response.json({id:8,worker_number:'W8',task_kind:'order',status:'waiting',branch:'feature',workspace:'/tmp/fixture',goal:'追加目标'});
+if(String(url).endsWith('/api/worker/9'))return Response.json(window.valetTask);
 const body=JSON.parse(options.body);window.calls.push(body);if(window.defer)await new Promise(r=>window.release=r);
 if(window.fail)return Response.json({error:'fixture failure'},{status:500});
 if(body.method==='draft.update'){Object.assign(window.fixtureDraft,body.params,{revision:window.fixtureDraft.revision+1});return Response.json(window.fixtureDraft);}
 if(body.method==='draft.remove'){window.fixtureDraft=null;return Response.json({id:body.params.id});}
+if(body.method==='worker.message')return Response.json({...window.valetTask,status:'queued'});
 return Response.json(body.method==='draft.add'?{id:4}:{emitted:true,draft_id:body.params.draft_id||4,dispatch:{state:'queued'}});};
 registerNavigation({refresh:async()=>{},detail:async()=>{}});ui.view={id:'overview'};
 document.documentElement.dataset.lushSpace='project';
@@ -41,6 +44,8 @@ window.space=value=>{document.documentElement.dataset.lushSpace=value;document.q
 for(const id of ['notices','tasks'])document.querySelector('#side-'+id+'-body').innerHTML='<div style="height:1800px">Scrollable resource content</div>';
 document.querySelector('#detail').innerHTML='<h1>Long content</h1><div style="height:1800px">Scrollable content</div>';
 window.append=(change={})=>{ui.view={id:'task'};ui.selected=8;appendToWorker({id:8,worker_number:'W8',task_kind:'order',status:'waiting',branch:'feature',workspace:'/tmp/fixture',goal:'追加目标',...change});};
+window.valetTask={id:9,worker_number:'V3',role:'manager',task_kind:'management',status:'completed',goal:'管家原始需求',management:{version:1,can_append:true,state:'idle'}};
+window.valet=()=>{ui.view={id:'task'};ui.selected=9;ui.composerTask=window.valetTask;const host=document.createElement('div');host.id='valet-controls';host.append(valetLifecycleControls(window.valetTask));document.querySelector('#valet-controls')?.remove();document.querySelector('#detail').prepend(host);};
 window.frozen=value=>{ui.composerParents=[{id:1,branch:'main',...(value?{freeze:{reason:'fixture freeze'}}:{})}];syncComposer();};
 await initComposer();window.ready=true;
 </script>`;
@@ -49,6 +54,7 @@ const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){
   const path=new URL(req.url).pathname;
   if(path==='/')return new Response('<html><body style="margin:0"><iframe id="viewport" src="/fixture" style="width:390px;height:844px;border:0"></iframe></body></html>',{headers:{'Content-Type':'text/html'}});
   if(path==='/fixture')return new Response(html,{headers:{'Content-Type':'text/html'}});
+  if(path==='/administrator/project-protocol.js')return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js',import.meta.url)));
   if(/^\/[\w.-]+\.(js|css)$/.test(path))return new Response(Bun.file(join(assets,path.slice(1))));
   return new Response('not found',{status:404});
 }});
@@ -68,7 +74,7 @@ function assert(value,message){if(!value)throw Error(message);}
 async function click(selector){const e=await rpc(`/session/${session}/element`,{using:'css selector',value:selector});await rpc(`/session/${session}/element/${e['element-6066-11e4-a52e-4f735466cecf']}/click`,{});}
 async function keys(values){const actions=values.flatMap(value=>[{type:'keyDown',value},{type:'keyUp',value}]);await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions}]});}
 async function resize(width,height){await rpc(`/session/${session}/frame`,{id:null});await execute(`const f=document.querySelector('#viewport');f.style.width='${width}px';f.style.height='${height}px';`);
-  const frame=await rpc(`/session/${session}/element`,{using:'css selector',value:'#viewport'});await rpc(`/session/${session}/frame`,{id:frame});await execute('window.keyboard(innerHeight)');}
+  const frame=await rpc(`/session/${session}/element`,{using:'css selector',value:'#viewport'});await rpc(`/session/${session}/frame`,{id:frame});assert(await wait('window.ready'),'fixture module startup failed');await execute('window.keyboard(innerHeight)');}
 try{
   let ready=false;for(let i=0;i<100;i++){try{await rpc('/status',undefined,'GET');ready=true;break;}catch{}if(driver.exitCode!==null)throw Error('geckodriver exited');await Bun.sleep(100);}assert(ready,'driver startup timeout');
   session=(await rpc('/session',{capabilities:{alwaysMatch:{browserName:'firefox','moz:firefoxOptions':{args:['-headless']}}}})).sessionId;
@@ -83,7 +89,7 @@ try{
     await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.projectColor='blue';window.touch=${width<=760};window.openComposer();document.querySelector('#input').focus();`);
     assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=innerHeight+1`),'focus did not expose input');
     assert(await execute(`return document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length===0;`),`editor controls visible by default ${width} ${theme}`);
-    assert(await execute(`const visible=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length);const r=visible.map(b=>b.getBoundingClientRect());return visible.length===3&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth);`),`default actions not one compact row ${width} ${theme}`);
+    assert(await execute(`const visible=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length);const r=visible.map(b=>b.getBoundingClientRect());return visible.length===5&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth)&&['composer-resume','composer-choose-draft'].every(id=>{const b=document.getElementById(id);return b.parentElement.classList.contains('composer-actions')&&b.getBoundingClientRect().top>=document.querySelector('#input').getBoundingClientRect().bottom;});`),`default draft actions not in bottom tool flow ${width} ${theme}`);
     assert(await execute(`return !document.querySelector('#composer-runner-choice,.runner-input-choice');`),`retired environment present before More ${width} ${theme}`);
     await click('#composer-expand');
     assert(await execute(`return !document.querySelector('#composer-runner-choice,.runner-input-choice');`),`retired environment present after More ${width} ${theme}`);
@@ -104,7 +110,7 @@ try{
     console.log(`PASS focus, dock reservation, menu, default large editor, collapse/auto-resume, themes ${theme} ${width}x${height}`);
     if(width<=760){
       await execute('window.frozen(true);');
-      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===3&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth);`),`frozen buttons wrap/overflow ${width}`);
+      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===5&&r.every(b=>b.height>=44&&b.left>=0&&b.right<=innerWidth);`),`frozen buttons wrap/overflow ${width}`);
       await execute('window.frozen(false);');
     }
     if(width<=760 && !composerOnly){
@@ -236,6 +242,26 @@ try{
   await execute(`document.querySelector('#composer-launcher').click();`);await click('#composer-pending-append button');
   assert(await wait(`!document.querySelector('#input').disabled&&document.querySelector('#input').value==='重开追加'`),'cached append continuation did not re-read and restore original target');
   assert(await execute(`return window.calls.length===0&&document.querySelector('#composer-mode-target').textContent.includes('W8')`),'continuation mutated data or changed target');
+  // Valet detail uses the same non-modal editor, with separately recoverable management targets.
+  for(const theme of ['light','dark'])for(const width of [320,390,760,1440]){
+    await resize(width,900);await execute(`document.documentElement.dataset.theme='${theme}';window.valet();document.querySelector('#valet-controls button').click();window.compact();`);
+    assert(await execute(`const form=document.querySelector('#input-form');return form.dataset.mode==='management'&&!form.hidden&&document.querySelector('#modal').hidden&&document.querySelector('#composer-mode-target').textContent.includes('V3')&&document.querySelector('#input-buffer').hidden&&document.querySelector('#composer-choose-draft').hidden&&!document.querySelector('#valet-controls button').classList.contains('agent-call')&&document.querySelector('.project-elevation-label input').checked===false;`),`Valet did not use common ordinary management editor ${theme}/${width}`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.project-elevation-label')).filter(n=>n.getClientRects().length).every(n=>{const r=n.getBoundingClientRect();return r.height>=44&&r.left>=0&&r.right<=innerWidth+1});`),`Valet controls overflow or shrink ${theme}/${width}`);
+    await execute(`const i=document.querySelector('#input');i.value='保留管家追加';i.dispatchEvent(new Event('input'));window.selectComposer('management');i.value='独立新管家';i.dispatchEvent(new Event('input'));window.valet();document.querySelector('#valet-controls button').click();`);
+    assert(await execute(`return document.querySelector('#input').value==='保留管家追加'&&document.querySelector('#composer-mode-target').textContent.includes('V3');`),'Valet input was redirected or overwritten by new management input');
+  }
+  await execute(`document.querySelector('#composer-launcher').click();`);
+  await rpc(`/session/${session}/frame`,{id:null});await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});await resize(390,844);
+  await click('#composer-launcher');
+  assert(await execute(`return document.querySelector('#composer-pending-management').querySelectorAll('button').length===2;`),'new management and Valet append were merged in browser recovery');
+  await click('[data-edit-key="management:9"]');
+  assert(await wait(`!document.querySelector('#input').disabled&&document.querySelector('#input').value==='保留管家追加'&&document.querySelector('#composer-mode-target').textContent.includes('V3')`),'cached Valet append did not revalidate its original target');
+  await execute(`window.touch=false;document.querySelector('#input').focus();`);await keys(['\uE007']);
+  assert(await execute(`return document.querySelector('#input').value.includes('\\n')&&window.calls.length===0`),'Valet Enter authorized instead of newline');
+  await click('#draft-commit');
+  assert(await wait(`window.calls.length===1&&document.querySelector('#input-form').dataset.mode==='create'`),'Valet submit did not return to create');
+  assert(await execute(`return window.calls[0].method==='worker.message'&&window.calls[0].params.id===9&&!document.querySelector('#input').value.includes('保留管家追加');`),'Valet submit used development emission or wrong target');
+  console.log('PASS shared Valet append, independent management drafts, themes/widths, newline and explicit same-target submit');
   passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});driver.kill();await driver.exited;server.stop(true);

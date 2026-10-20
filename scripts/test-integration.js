@@ -13,6 +13,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-administrator-page.test.js', // project Valet password elevation, ordinary fallback, unknown receipts and emergency stop
     'test/web/dom-detail.test.js', // Worker detail -> independent reader
     'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
+    'test/web/dom-valet-append-api.test.js', // Valet detail -> shared composer -> same-identity fresh round
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
     'test/web/dom-worker-cli-api.test.js', // CLI keyboard -> preview -> real CLI and history
     'test/web/valet-settings-page-integration.test.js', // same CLI schemas -> learning and live permissions

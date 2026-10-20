@@ -51,8 +51,6 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell .composer-resize:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 @media(pointer:coarse) { #composer-shell .composer-resize { height:44px; } }
 #composer-shell textarea, #composer-shell textarea:focus { height:var(--composer-input-height,28dvh); min-height:64px; max-height:50dvh; font-size:16px; }
-#composer-shell .composer-recovery { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0; }
-#composer-shell .composer-recovery button { font-size:12px; min-height:44px; }
 #composer-shell .composer-draft-list { display:grid; gap:6px; max-height:160px; overflow:auto; margin:6px 0; }
 #composer-shell .composer-draft-list button { min-height:44px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
 #composer-shell #composer-draft-status, #composer-shell #composer-condition-summary { margin:4px 0; font-size:11px; overflow-wrap:anywhere; }
@@ -78,7 +76,6 @@ html[data-lush-space="global"] #composer-shell { display:none; }
   #composer-shell .composer-toolbar button { font-size:12px; padding:6px 8px; }
   #composer-project { flex-basis:100%; font-size:11px; }
   #composer-shell .composer-mode-target { flex-basis:100%; }
-  #composer-shell .composer-recovery button { flex:1 1 auto; }
   #composer-shell .composer-actions button { padding:6px 8px; }
   /* While typing over an overlay keyboard, keep the target, body and primary actions together.
      Advanced controls reappear on leaving the text field; their values/expanded state are untouched. */

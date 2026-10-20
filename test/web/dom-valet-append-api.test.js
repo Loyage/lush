@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fetch as httpFetch, setup } from './harness.js';
-import { installDom, dialogButton, dialogText } from '../dom-stub.js';
+import { installDom } from '../dom-stub.js';
+import { initComposer } from '../../src/ui/web/assets/composer.js';
 import { loadDetail } from '../../src/ui/web/assets/detail.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
@@ -19,27 +20,31 @@ test('real Valet detail -> authenticated HTTP/RPC rejects busy input intact, the
   resetUiState();
   const restore = registerNavigation({ detail: loadDetail, refresh: async () => {} });
   const pump = async () => { f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise)); };
-  let opening;
   try {
+    await initComposer();
     const manager = f.project.submitManagementInstruction({ instruction: '保留的最初管理指令' }).task;
     await pump();
     await loadDetail(manager.id);
     expect(append(dom).disabled).toBe(false);
     const other = f.project.submitManagementInstruction({ instruction: '占用串行位' }).task;
-    opening = append(dom).onclick();
-    const input = dom.node('modal').querySelector('textarea'); input.value = '本轮新增需求';
-    await dialogButton(dom, '提交追加').onclick();
-    expect(dialogText(dom)).toContain('已有管家'); expect(input.value).toBe('本轮新增需求');
+    append(dom).onclick();
+    expect(dom.node('modal').querySelector('textarea')).toBe(null);
+    expect(dom.node('composer-mode-target').textContent).toContain(manager.worker_number);
+    const input = dom.node('input'); input.value = '本轮新增需求'; input.oninput();
+    // Management Enter is a newline, not an implicit authorization.
+    input.onkeydown({ key: 'Enter', preventDefault() { throw Error('plain Enter must not submit'); } });
+    await dom.node('input-form').onsubmit({ preventDefault() {} });
+    expect(dom.node('error').textContent).toContain('已有管家'); expect(input.value).toBe('本轮新增需求');
+    expect(dom.node('draft-commit').disabled).toBe(true);
     expect(f.store.unread(manager.id)).toEqual([]);
     expect(f.store.task(manager.id).calls).toBe(1);
-    closeDialog(); await opening;
     f.project.cancel(other.id);
     await loadDetail(manager.id);
     expect(append(dom).disabled).toBe(false);
-    opening = append(dom).onclick();
-    dom.node('modal').querySelector('textarea').value = '本轮新增需求';
-    await dialogButton(dom, '提交追加').onclick(); await opening;
-    expect(dom.node('modal').hidden).toBe(true);
+    append(dom).onclick();
+    expect(input.value).toBe('本轮新增需求');
+    await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    expect(input.value).toBe(''); expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(f.store.task(manager.id)).toMatchObject({ goal: manager.goal, worker_number: manager.worker_number, status: 'queued' });
     expect(writes).toEqual([
       { method: 'worker.message', params: { id: manager.id, body: '本轮新增需求' } },
@@ -54,6 +59,6 @@ test('real Valet detail -> authenticated HTTP/RPC rejects busy input intact, the
     expect(f.store.unread(manager.id)).toEqual([]);
     await loadDetail(manager.id); expect(append(dom).disabled).toBe(false);
   } finally {
-    closeDialog(); await opening; ui.disposeDetailRequests?.(); restore(); resetUiState(); dom.restore(); await f.close();
+    closeDialog(); ui.disposeDetailRequests?.(); restore(); resetUiState(); dom.restore(); await f.close();
   }
 });

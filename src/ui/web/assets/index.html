@@ -164,11 +164,6 @@
     <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">先暂存为草稿，准备好再提交</span></div>
     <div class="composer-target"><label for="input-parent">父 Worker</label><select id="input-parent" aria-describedby="input-parent-help"><option value="">main（默认父 Worker）</option></select><span id="input-parent-help" class="hint">新 Worker 从所选父 Worker 的分支创建独立 worktree</span></div>
   </div>
-  <div class="composer-recovery">
-    <button type="button" id="composer-resume" class="ghost">继续最近草稿</button>
-    <button type="button" id="composer-choose-draft" class="ghost" data-help="选择本项目同模式与同目标的可编辑草稿；当前编辑保留在本页，不自动授权提交。">选择其他草稿</button>
-    <span id="composer-remove-draft-help" class="help-host" hidden><button type="button" id="composer-remove-draft" class="danger" data-help="经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑保留，不删除已发送输入或 Worker。" hidden>删除草稿</button></span>
-  </div>
   <div id="composer-draft-list" class="composer-draft-list" hidden></div>
   <p id="composer-condition-summary" class="hint" hidden></p>
   <p id="composer-draft-status" class="hint" hidden></p>
@@ -184,7 +179,9 @@
   <div class="composer-foot">
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存为草稿 <span class="shortcut-separator">/</span> <kbd>↑ / ↓</kbd> 空框切换草稿 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
     <span class="composer-actions">
-
+      <button type="button" id="composer-resume" class="ghost composer-recovery">继续最近草稿</button>
+      <button type="button" id="composer-choose-draft" class="ghost composer-recovery" data-help="选择本项目同模式与同目标的可编辑草稿；当前编辑保留在本页，不自动授权提交。">选择其他草稿</button>
+      <span id="composer-remove-draft-help" class="help-host composer-recovery" hidden><button type="button" id="composer-remove-draft" class="danger" data-help="经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑保留，不删除已发送输入或 Worker。" hidden>删除草稿</button></span>
       <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开正文编辑、草稿、历史输入、运行设置、父 Worker 与快捷键">⌃ 更多</button>
 
       <button type="button" id="composer-reset" class="ghost" data-help="恢复新建工作的独立编辑；当前追加或管理内容留在原去向，不带入新建。" hidden>回到新建工作</button>
