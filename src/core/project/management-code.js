@@ -4,6 +4,7 @@ import { assertManager } from './management-auth.js';
 import { MANAGEMENT_READ_ITEMS, managementState, managementInstruction } from './management-data.js';
 import { managementDispatchParams, validateManagementCall } from '../../rpc/management-policy.js';
 import { MANAGEMENT_CODE_METHODS } from '../../rpc/management-code-methods.js';
+import { actorInputSource } from '../../persistence/store/input-sources.js';
 
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : isPlainObject(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -116,7 +117,7 @@ export async function dispatchManagementCode(project, method, params, actorId, r
     check(params.parent !== undefined, 'Valet delegation requires an explicit development parent');
     const parent = project.store.task(id(params.parent));
     check(['order','child'].includes(parent.task_kind), 'Valet can only delegate under a development Worker');
-    return project.spawn(parent.id, params.goal, 'agent', [], params.name ?? null);
+    return project.spawn(parent.id, params.goal, 'agent', [], params.name ?? null, null, undefined, actorInputSource(project.store, actorId));
   }
   if (method === 'worker.message') {
     check(['order','child'].includes(project.store.task(id(params.id)).task_kind), 'Valet messages require a development Worker');

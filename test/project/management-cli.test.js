@@ -5,6 +5,9 @@ import { fixture, repo, until } from '../helpers.js';
 import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
+import { Store } from '../../src/persistence/store.js';
+import { Project } from '../../src/core/project.js';
+import { goalInputSource } from '../../src/persistence/store/input-sources.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { createSignal } from '../../src/signal.js';
 import { callDiagnosticReport, diagnosticSummaryLines } from '../../src/ui/web/assets/management-diagnostic-model.js';
@@ -53,6 +56,8 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
     expect(result.values[7].scope).toBe('current_project');
     expect(f.store.unread(target.id).some(row => row.sender_id === result.task.id && row.body === 'PRIVATE-CLI-MESSAGE')).toBe(true);
     expect(f.store.unread(target.id).some(row => row.sender_id === result.task.id && row.body === '--file')).toBe(true);
+    const ordinary = (await f.dispatcher.dispatch('worker.reading_page', { id: target.id })).messages.find(row => row.body === 'PRIVATE-CLI-MESSAGE');
+    expect(ordinary.input_source).toEqual({ kind: 'valet', worker_id: result.task.id, worker_number: result.task.worker_number });
     const audit = await f.dispatcher.dispatch('worker.management_calls', { id: result.task.id, after: 0 });
     expect(audit.items.filter(item => item.phase === 'finished').map(item => item.method)).toEqual([
       'worker.lookup','worker.inspect','worker.lookup','worker.message','worker.lookup','manager.query','worker.lookup','manager.history','worker.lookup','worker.message',
@@ -68,10 +73,62 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
     expect(rejected.replies.every(reply => Boolean(reply.error))).toBe(true);
     for (const reply of rejected.replies) expect(JSON.parse(reply.error)).toMatchObject({ kind: 'invalid_parameters', execution: 'not_started' });
     expect((await f.dispatcher.dispatch('worker.management_calls', { id: rejected.task.id, after: 0 })).items).toHaveLength(0);
-    const inline = await f.invoke([command(['order','conditional inline profile','--after-merged',target.worker_number,
-      '--data','{"agent":"pi","config_mode":"pi"}'])]);
-    expect(inline.replies[0].error).toBeUndefined();
+    const condition = (await f.project.order('condition Worker', 'main', [], null, false)).task;
+    const empty = (await f.dispatcher.dispatch('worker.create', { mode: 'spawn' })).task;
+    const emptyDraft = await f.dispatcher.dispatch('draft.add', { content: 'must not authorize the first user input', mode: 'append', target_id: empty.id,
+      conditions: [{ kind: 'worker_settled', worker_id: condition.id }] });
+    const appendDraft = await f.dispatcher.dispatch('draft.add', { content: 'Valet authorized saved append', mode: 'append', target_id: target.id,
+      conditions: [{ kind: 'worker_settled', worker_id: condition.id }] });
+    const inline = await f.invoke([
+      command(['order','conditional inline profile','--after-merged',target.worker_number, '--data','{"agent":"pi","config_mode":"pi"}']),
+      command(['order','Valet mounted goal','--after-settled',condition.worker_number]),
+      command(['input','draft','submit',String(appendDraft.id),'--revision','1']),
+      command(['worker','spawn','Valet delegated goal','--parent',target.worker_number]),
+      command(['input','draft','submit',String(emptyDraft.id),'--revision','1']),
+    ]);
+    expect(inline.replies.every(reply => !reply.error)).toBe(true);
     expect(inline.values[0]).toMatchObject({ method: 'input.emit', status: 'succeeded' });
+    const source = { kind: 'valet', worker_id: inline.task.id, worker_number: inline.task.worker_number };
+    expect(f.project.inspect(inline.values[3].result.id).goal_input_source).toEqual(source);
+    const draftId = inline.values[1].result.draft_id;
+    expect(JSON.parse(f.store.draft(draftId).emission).input_source).toEqual(source);
+    expect(f.project.inputEmissionResult(draftId).dispatch.state).toBe('waiting_conditions');
+    // Actual fresh Store/Project reads the durable mount after the original runtime exits.
+    await f.project.shutdown();
+    const store = new Store(path.join(f.config.home, 'project.db'), f.root), resumed = new Project(f.config, store);
+    resumed.kick = () => {};
+    const rpc = new Dispatcher(resumed);
+    try {
+      resumed.recoverInputEmissions();
+      store.update(condition.id, { status: 'waiting' }); store.event(condition.id, 'task.idle', {});
+      await resumed.drainInputEmissions();
+      await until(() => resumed.inputEmissionResult(draftId).dispatch.state === 'succeeded');
+      const dispatched = resumed.inputEmissionResult(draftId).dispatch;
+      expect((await rpc.dispatch('worker.inspect', { id: dispatched.worker_id })).goal_input_source).toEqual(source);
+      const queries = [], probe = { get: store.get.bind(store), all(sql, ...args) { queries.push(sql); return store.all(sql, ...args); } };
+      expect(goalInputSource(probe, store.task(dispatched.worker_id))).toEqual(source);
+      expect(queries.some(sql => sql.includes('management.capability_started') || sql.includes('json_each'))).toBe(false);
+      const append = resumed.inputEmissionResult(appendDraft.id).dispatch;
+      expect(append.state).toBe('succeeded'); expect(append.append_number).toBeNull();
+      expect(resumed.inputEmissionResult(emptyDraft.id).dispatch.state).toBe('failed');
+      expect(store.task(empty.id)).toMatchObject({ input_id: null, goal: '', status: 'paused' });
+      const reading = await rpc.dispatch('worker.reading_page', { id: target.id });
+      expect(reading.messages.find(row => row.id === append.message_id).input_source).toEqual(source);
+      expect(reading.events.find(row => row.type === 'message' && row.data.message_id === append.message_id).data.input_source).toEqual(source);
+      expect(store.get('SELECT sender_id FROM messages WHERE id=?', append.message_id).sender_id).toBeNull();
+      expect(JSON.stringify(await rpc.dispatch('worker.inspect', { id: dispatched.worker_id }))).not.toContain('control_calls');
+      // Recreate an old record without the new attachments: exact management
+      // receipts restore the author read-only; absence of that proof stays unknown.
+      for (const event of store.all("SELECT id,data FROM events WHERE (task_id=? AND type='input.anchor') OR (type='input.emitted' AND json_extract(data,'$.draft_id')=?)", dispatched.worker_id, draftId)) {
+        const data = JSON.parse(event.data); delete data.input_source;
+        store.run('UPDATE events SET data=? WHERE id=?', JSON.stringify(data), event.id);
+      }
+      const before = store.all('SELECT id,data FROM events ORDER BY id');
+      expect((await rpc.dispatch('worker.inspect', { id: dispatched.worker_id })).goal_input_source).toEqual(source);
+      expect(store.all('SELECT id,data FROM events ORDER BY id')).toEqual(before);
+      store.update(inline.task.id, { management: null });
+      expect((await rpc.dispatch('worker.inspect', { id: dispatched.worker_id })).goal_input_source).toEqual({ kind: 'unknown', worker_id: null, worker_number: null });
+    } finally { await resumed.shutdown(); store.close(); }
   } finally { await f.close(); }
 });
 

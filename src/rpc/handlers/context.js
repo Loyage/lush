@@ -1,4 +1,5 @@
 import { check, id } from '../../core/types.js';
+import { actorInputSource } from '../../persistence/store/input-sources.js';
 import { contextTarget, contextDetail, contextHistory } from '../../core/worker-context.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 
@@ -23,7 +24,7 @@ export const handlers = {
   },
   'context.spawn'(p, params, actor) {
     check(['order','child'].includes(p.store.task(actor).task_kind), 'only order/child Workers can delegate');
-    return Promise.resolve(p.spawn(actor, params.goal, 'agent', [], params.name ?? null))
+    return Promise.resolve(p.spawn(actor, params.goal, 'agent', [], params.name ?? null, null, undefined, actorInputSource(p.store, actor)))
       .then(value => contextDetail(p, value.id));
   },
   async 'context.message'(p, params, actor) {

@@ -11,6 +11,7 @@ test('real Dispatcher mount -> runtime -> controlled Provider -> Input and appen
   try {
     const reference = { kind: 'text', label: 'saved quote', quote: 'original selection' };
     const request = { content: 'real schema chain', references: [reference], client_request_id: 'real-chain' };
+    await expect(emit({ ...request, input_source: { kind: 'valet', worker_id: 1 } })).rejects.toThrow('unknown parameter');
     const receipt = await emit(validate(request));
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0); expect(calls).toBe(0);
     f.project.stopping = false; f.project.kick();
@@ -19,6 +20,8 @@ test('real Dispatcher mount -> runtime -> controlled Provider -> Input and appen
     await until(() => f.store.task(dispatch.worker_id).result && !f.project.running.has(dispatch.worker_id));
     f.project.stopping = true;
     expect(calls).toBe(1);
+    const userSource = { kind: 'user', worker_id: null, worker_number: null };
+    expect((await rpc.dispatch('worker.inspect', { id: dispatch.worker_id })).goal_input_source).toEqual(userSource);
     expect(f.project.inputGet('input', dispatch.input_id)).toMatchObject({ content: request.content, source_draft_id: receipt.draft_id });
     expect((await emit(request)).dispatch).toMatchObject(dispatch);
     const appendRequest = { content: 'follow-up verbatim', mode: 'append', target_id: String(dispatch.worker_id), client_request_id: 'append-chain' };
@@ -30,5 +33,8 @@ test('real Dispatcher mount -> runtime -> controlled Provider -> Input and appen
     expect(delivered.input_id).toBeUndefined(); expect(delivered.message_id).toBeGreaterThan(0);
     expect(f.project.inputGet('message', delivered.message_id)).toMatchObject({ content: appendRequest.content, source_draft_id: append.draft_id });
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(1);
+    const reading = await rpc.dispatch('worker.reading_page', { id: dispatch.worker_id });
+    expect(reading.messages.find(row => row.id === delivered.message_id).input_source).toEqual(userSource);
+    expect(reading.events.find(row => row.type === 'message' && row.data.message_id === delivered.message_id).input_source).toEqual(userSource);
   } finally { await f.close(); }
 });

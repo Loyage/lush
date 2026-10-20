@@ -21,14 +21,15 @@ window.enhanceVersions=enhanceVersionModule;
 const at='2026-10-08T10:00:00Z';
 const long=Array.from({length:50},(_,i)=>'段落 '+i+'：这是一段较长的正文，预览应保留格式，后续内容仍然完整存在。').join('\\n\\n');
 window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'waiting',calls:1,
-  goal:long,result:long+'\\n\\n最后一段结果',created_at:at,updated_at:at,
+  goal:long,goal_input_source:{kind:'user'},result:long+'\\n\\n最后一段结果',created_at:at,updated_at:at,
   workspace:'/home/developer/projects/'+('long-workspace-name/'.repeat(12))+'worker-7',
   progress:{version:1,items:Array.from({length:30},(_,i)=>({key:'step'+i,label:'步骤 '+i+' '+('较长的阶段名称 '.repeat(5)),status:i<5?'completed':'pending'}))},
   children:Array.from({length:20},(_,i)=>({id:100+i,worker_number:'W7-'+(i+1),role:'agent',status:'waiting',goal:'子 Worker '+i,updated_at:at})),
   notices:[{id:71,kind:'questionnaire',status:'answered',title:'历史决定',body:JSON.stringify({version:1,body:'保留决定',questions:[{header:'范围',question:'选择范围？',options:[{label:'方案一',description:'当前方案'},{label:'方案二',description:'候选方案'}]}]}),answer:JSON.stringify({answers:[{selected:[0],labels:['方案一'],custom:''}]})}],
-  messages:Array.from({length:20},(_,i)=>({id:i+1,sender_id:null,body:'消息 '+i+'\\n\\n'+long,created_at:at}))};
+  messages:Array.from({length:20},(_,i)=>({id:i+1,sender_id:null,body:'消息 '+i+'\\n\\n'+long,created_at:at,
+    input_source:i===19?{kind:'unknown'}:i===0?{kind:'valet',worker_id:42,worker_number:'V42'}:{kind:'user'}}))};
 window.fixtureHistory={events:[...Array.from({length:50},(_,i)=>({id:i+1,type:'invocation.completed',created_at:at,data:{run_id:i+1,result:'此前结果 '+i+'\\n'+long}})),
-  {id:80,type:'message',created_at:'2026-10-08T10:01:00Z',data:{sender:null,body:'短追加输入'},input_delivery:{status:'pending',at:null}},
+  {id:80,type:'message',created_at:'2026-10-08T10:01:00Z',data:{sender:null,body:'短追加输入',input_source:{kind:'user'}},input_delivery:{status:'pending',at:null}},
   {id:81,type:'message',created_at:'2026-10-08T10:02:00Z',data:{sender:100,body:'来自子 Worker 的通信',message_id:81}},
   {id:82,type:'invocation.started',created_at:'2026-10-08T10:03:00Z',data:{call:2}},
   {id:83,type:'merge.failed',created_at:'2026-10-08T10:04:00Z',data:{error:'合并失败诊断',commit:'abcdef',hooks:{credential:'PRIVATE-TIMELINE'}}},
@@ -167,6 +168,7 @@ try {
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
     assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),timeline=document.querySelector('.worker-timeline-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
       if(filters.length!==4||filters.slice(0,3).some(n=>n.getAttribute('aria-pressed')!=='true')||filters[3].getAttribute('aria-pressed')!=='false'||root.querySelector('[data-conversation-filter="lifecycle"]')||root.textContent.includes('来自子 Worker 的通信'))throw new Error('input/output boundaries');
+      if(!filters[0].textContent.includes('输入指令')||root.querySelector('[data-conversation-key="input:message:1"] .conversation-sender')?.textContent!=='管家 V42')throw new Error('input submitter identity');
       const advanced=timeline.querySelector('.lifecycle-advanced');if(advanced.open)throw new Error('advanced open by default');
       if(!timeline.querySelector('.lifecycle-current')||!timeline.querySelector('[data-lifecycle-key="point:83"]')?.textContent.includes('合并失败诊断'))throw new Error('lifecycle default facts');
       const failure=await timeline.revealTimelineReference({kind:'history_event',target:{task_id:7,event_id:83}});

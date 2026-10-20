@@ -619,7 +619,7 @@ export default {
 
   draftHookMount(draftId) { return this.draftHookMountMap().get(draftId) ?? null; },
 
-  deferOrderHook(parent, content, references, profile, start, draft = null) {
+  deferOrderHook(parent, content, references, profile, start, draft = null, source = { kind: 'unknown' }) {
     if (draft) check(!this.draftHookMount(draft.id), 'draft is already mounted on a Hook; remove that mount before editing or sending');
     const value = definition(this, { name: '预约发射 Worker', trigger: 'worker.parent_ready', mode: 'once', enabled: true,
       conditions: {}, actions: [{ type: 'create_worker', content, references, start, ...(profile ? { profile } : {}) }] }, parent);
@@ -632,7 +632,7 @@ export default {
     // Trusted input primitive: registered system functionality with private exact per-input parameters.
     const data = parse(this.store.task(parent.id));
     check(data.mounts.length < HOOK_LIMITS.mounts, 'too many mounted Hooks');
-    const mount = { ...value, ...systemRegistration(this, 'system:deferred-order'), id: randomUUID(), state: 'waiting', created_at: now(), last_execution: null };
+    const mount = { ...value, ...systemRegistration(this, 'system:deferred-order'), input_source: source, id: randomUUID(), state: 'waiting', created_at: now(), last_execution: null };
     data.mounts.push(mount);
     check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
     check(parent.hooks || this.store.get('SELECT count(*) AS n FROM tasks WHERE hooks IS NOT NULL').n < 500, 'too many Workers with mounted Hooks');

@@ -37,6 +37,10 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
     f.store.update(task.id, { status: 'queued' }); f.project.pump();
     await entered.promise; if (failure) throw failure;
     expect(result.self.id).toBe(task.id);
+    expect(result.self.goal_input_source).toEqual({ kind: 'user', worker_id: null, worker_number: null });
+    const workerSource = { kind: 'worker', worker_id: task.id, worker_number: task.worker_number };
+    expect(result.child.goal_input_source).toEqual(workerSource);
+    expect(f.project.inspect(result.child.id).messages[0].input_source).toEqual(workerSource);
     expect(f.store.task(result.child.id).parent_id).toBe(task.id);
     expect(f.store.unread(result.child.id)).toMatchObject([{ sender_id: task.id, body: '--help' }]);
     expect(f.store.get('SELECT task_id,title,kind,status FROM notices WHERE id=?', result.notice.id)).toEqual({ task_id: task.id, title: 'runtime notice', kind: 'info', status: 'sent' });

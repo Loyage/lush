@@ -6,17 +6,37 @@ import { renderConversation } from '../../src/ui/web/assets/render-conversation.
 import { renderWorkerTimeline } from '../../src/ui/web/assets/render-worker-timeline.js';
 import { clear } from '../../src/ui/web/assets/messages.js';
 
-test('real HTTP reading projections locate a user input and search all its stored history', async () => {
+test('real HTTP reading projections preserve submitters, locate an input and search its stored history', async () => {
   const f = await setup(), calls = [];
-  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'integration' });
+  const valet = f.store.create({ role: 'manager', task_kind: 'management', goal: 'submit inputs' });
+  const source = { kind: 'valet', worker_id: valet.id, worker_number: valet.worker_number };
+  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'integration', input_source: source });
   const messageId = f.store.message(task.id, '记录中的 needle 输入');
   const eventId = f.store.event(task.id, 'message', { sender: null, message_id: messageId, append_number: 'A8-1' });
+  const valetMessage = f.store.message(task.id, '管家挂载追加');
+  f.store.event(task.id, 'message', { sender: null, message_id: valetMessage, body: '管家挂载追加', input_source: source, user_append: false });
+  const user = f.store.create({ role: 'agent', goal: 'user goal', input_source: { kind: 'user' } });
+  const legacy = f.store.create({ role: 'agent', goal: 'old goal without source' });
+  const inspect = async id => (await httpFetch(`${f.url}/api/worker/${id}`)).json();
+  const [detail, userDetail, legacyDetail] = await Promise.all([inspect(task.id), inspect(user.id), inspect(legacy.id)]);
   const dom = installDom({ fetch: (url, options) => { calls.push(String(url)); return httpFetch(new URL(String(url), f.url).href, options); } });
   resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
   try {
-    const root = renderConversation(task); expect(calls).toHaveLength(0);
+    const root = renderConversation(detail); expect(calls).toHaveLength(0);
+    expect(root.querySelector('[data-conversation-key="goal"]').querySelector('.conversation-sender').textContent).toBe(`管家 ${valet.worker_number}`);
+    expect(root.querySelector('[data-conversation-key="goal"]').querySelector('.conversation-avatar').textContent).toBe('🤖');
+    expect(renderConversation(userDetail).querySelector('.conversation-sender').textContent).toBe('测试用户');
+    expect(renderConversation(legacyDetail).querySelector('.conversation-sender').textContent).toBe('来源未知');
+    expect(root.querySelector('[data-conversation-filter="input"]').textContent).toContain('输入指令');
+    const mounted = root.querySelector(`[data-conversation-key="input:message:${valetMessage}"]`);
+    expect(mounted.querySelector('.conversation-sender').textContent).toBe(`管家 ${valet.worker_number}`);
+    expect(mounted.querySelector('.conversation-kind').textContent).not.toContain('A');
+    await findByText(root, '加载更早输入输出').onclick();
+    expect(root.querySelectorAll('.conversation-input').find(node => node.entry.messageId === valetMessage)
+      .querySelector('.conversation-sender').textContent).toBe(`管家 ${valet.worker_number}`);
     const input = await root.revealConversationReference({ kind: 'message', target: { task_id: task.id, message_id: messageId } });
     expect(input.dataset.conversationKey).toBe(`input:${eventId}`); expect(deepText(input)).toContain('needle 输入');
+    expect(input.querySelector('.conversation-sender').textContent).toBe('测试用户');
     const sort = root.querySelector('.conversation-order').querySelector('button'), reads = calls.length;
     await sort.onclick(); expect(deepText(sort).trim()).toBe('最早在前'); expect(calls).toHaveLength(reads);
     expect(root.querySelector(`[data-conversation-key="input:${eventId}"]`)).toBe(input);
@@ -29,7 +49,7 @@ test('real HTTP reading projections locate a user input and search all its store
     expect(f.store.get('SELECT consumed FROM messages WHERE id=?', messageId).consumed).toBe(0);
     const timeline = renderWorkerTimeline(task);
     await findByText(timeline, '加载更早时间线').onclick();
-    const record = timeline.querySelector('.lifecycle-evidence-record'), timelineReads = calls.length;
+    const record = timeline.querySelector(`[data-lifecycle-record="event:${eventId}"]`), timelineReads = calls.length;
     expect(record.dataset.lifecycleRecord).toBe(`event:${eventId}`);
     expect(deepText(record)).toContain('A8-1');
     await timeline.querySelector('.lifecycle-order').querySelector('button').onclick();

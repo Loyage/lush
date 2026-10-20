@@ -19,6 +19,7 @@ test('buffer preserves its parent and references through edit, create-only submi
     expect(edited).toMatchObject({ parent_id: d.parent_id, branch: 'main', revision: 2, references: [reference] });
     const sent = await call('order.submit', { draft_id: d.id, expected_revision: 2, start: false });
     expect(sent.task).toMatchObject({ parent_id: d.parent_id, base_commit: next, status: 'paused', calls: 0 });
+    expect((await call('worker.inspect', { id: sent.task.id })).goal_input_source).toEqual({ kind: 'user', worker_id: null, worker_number: null });
     expect(f.project.inputGet('input', sent.id)).toMatchObject({ content: d.content, status: 'created', references: [{ segment: 1, ...reference }] });
     const another = await call('draft.add', { content: 'mounted work', branch: 'main' });
     const mounted = await call('order.submit', { draft_id: another.id, expected_revision: 1 });

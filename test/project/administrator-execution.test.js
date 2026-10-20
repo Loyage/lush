@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test,expect } from 'bun:test';
-import { fixture,repo } from '../helpers.js';
+import { fixture,repo,until } from '../helpers.js';
 import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
@@ -46,6 +46,7 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
   async function pump(plan){cli.plan(plan);f.project.pump();await Promise.all([...f.project.running.values()].map(item=>item.promise));await Promise.all([...f.project.managementControlJobs]);}
   try{
     const target=(await f.project.order('project target','main',[],null,false)).task;
+    const empty=(await dispatcher.dispatch('worker.create',{mode:'spawn'})).task;
     const permission=f.project.managementPermissionGet('worker.rename','device');f.project.managementPermissionSet('worker.rename','confirmation',permission.revision,'device');
     fs.mkdirSync(path.join(f.root,'src'));fs.writeFileSync(path.join(f.root,'src','app.js'),'export const answer = 42;\nconst api_key = "PRIVATE-SOURCE-CANARY";\n');
     // User-owned Shell registrations must not become an elevated execution back door.
@@ -69,19 +70,48 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     expect(await receipt.json()).toMatchObject({found:true,definition,task:{id:manager.id},instruction:definition.instruction});
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='management.elevation_accepted'").n).toBe(1);
     const rename=tool('project.call',{method:'worker.rename',params:{id:target.id,title:'native elevated title'}});
+    const sourcePlan=[
+      tool('project.call',{method:'order.submit',params:{content:'native Valet order source'}}),
+      tool('project.call',{method:'input.emit',params:{content:'native Valet emission source'}}),
+      tool('project.call',{method:'worker.message',params:{id:target.id,body:'native Valet follow-up source'}}),
+      tool('project.call',{method:'worker.spawn',params:{parent:target.id,goal:'native Valet delegated source'}}),
+      tool('project.call',{method:'input.emit',params:{content:'not a first user input',mode:'append',target_id:empty.id}}),
+    ];
     await pump([tool('catalog',{}),rename,rename,tool('source.read',{path:'src/app.js'}),tool('project.call',{method:'worker.inspect',params:{id:target.id}}),
       tool('project.call',{method:'system.configure',params:{settings:{}}}),tool('project.call',{method:'agent.config',params:{}}),
       tool('source.read',{project:'/different/project',path:'src/app.js'}),tool('project.call',{method:'notice.post',params:{title:'new instruction?',body:'must reject',kind:'question'}}),
       tool('project.call',{method:'hooks.register',params:forbiddenRegistration}),
       tool('project.call',{method:'worker.hook_attach',params:{id:target.id,hook:{template_id:registered.template_id,template_version:registered.template_version},expected_revision:mounted.revision}}),
       tool('project.call',{method:'worker.hook_update',params:{id:target.id,hook_id:shellMount.id,enabled:true,expected_revision:mounted.revision}}),
-      tool('project.call',{method:'worker.auto_merge',params:{id:target.id,enabled:false}})]);
+      tool('project.call',{method:'input.emit',params:{content:'spoofed user',input_source:{kind:'user'}}}),
+      tool('project.call',{method:'worker.auto_merge',params:{id:target.id,enabled:false}}),...sourcePlan]);
     const high=JSON.parse(f.store.task(manager.id).result);
     expect(high.registered).toEqual(['administrator']);expect(high.cliActive).toEqual(['administrator']);expect(high.modelActive).toEqual(['administrator']);expect(high.blocked.every(Boolean)).toBe(true);
     expect(high.startup.management.instruction).toBe(definition.instruction);expect(JSON.stringify(high)).not.toContain(password);expect(JSON.stringify(high)).not.toContain(forwarded[0].params.proof.signature);
     expect(JSON.stringify(f.store.all('SELECT data FROM events'))).not.toContain(password);
     expect(high.replies.slice(0,5).every(item=>!item.error)).toBe(true);
-    expect(high.replies.slice(5,-1).every(item=>item.error)).toBe(true);expect(high.replies.at(-1).response.details.status).toBe('succeeded');
+    expect(high.replies.slice(5,-sourcePlan.length-1).every(item=>item.error)).toBe(true);
+    expect(high.replies.at(-sourcePlan.length-1).response.details.status).toBe('succeeded');
+    const sourceReplies=high.replies.slice(-sourcePlan.length);
+    expect(sourceReplies.every(item=>!item.error&&item.response.details.status==='succeeded')).toBe(true);
+    const source={kind:'valet',worker_id:manager.id,worker_number:manager.worker_number};
+    for(const reply of sourceReplies.slice(0,2)){
+      const draftId=reply.response.details.result.draft_id;
+      await until(()=>f.project.inputEmissionResult(draftId).dispatch.state==='succeeded');
+      const created=f.project.inputEmissionResult(draftId).dispatch;
+      expect((await dispatcher.dispatch('worker.inspect',{id:created.worker_id})).goal_input_source).toEqual(source);
+      const reading=await dispatcher.dispatch('worker.reading_page',{id:created.worker_id});
+      expect(reading.events.find(event=>event.type==='input.anchor').input_source).toEqual(source);
+      f.store.update(created.worker_id,{status:'paused'}); // No development model call in this management-only fixture.
+    }
+    const reading=await dispatcher.dispatch('worker.reading_page',{id:target.id});
+    expect(reading.messages.find(message=>message.body==='native Valet follow-up source')).toMatchObject({input_source:source,append_number:null});
+    const spawned=sourceReplies[3].response.details.result.id;
+    expect((await dispatcher.dispatch('worker.inspect',{id:spawned})).goal_input_source).toEqual(source);
+    f.store.update(spawned,{status:'paused'});
+    const emptyDraft=sourceReplies.at(-1).response.details.result.draft_id;
+    await until(()=>f.project.inputEmissionResult(emptyDraft).dispatch.state==='failed');
+    expect(f.store.task(empty.id)).toMatchObject({input_id:null,goal:'',status:'paused'});
     expect(['hooks.register','hooks.save','hooks.command_save','hooks.command_import','hooks.command_remove','worker.hook_attach','worker.hook_update','worker.hook_remove'].some(method=>projectAdministratorMethods().includes(method))).toBe(false);
     expect(f.project.hooksList().registry.revision).toBe(registryRevision);expect(f.project.shortcutCommands().revision).toBe(commandsRevision);
     expect(f.project.taskHooks(target.id).mounts.find(item=>item.id===shellMount.id).enabled).toBe(false);expect(fs.existsSync(marker)).toBe(false);

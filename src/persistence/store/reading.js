@@ -1,5 +1,6 @@
 import { check, id, isPlainObject } from '../../core/types.js';
 import { MESSAGE_SELECT } from './messages.js';
+import { inputSource, messageInputSource } from './input-sources.js';
 import { eventMetadata as metadata, eventTextFields, PRIVATE_EVENT_KEYS, readingSegment, READING_CHARS, EVENT_TEXT_KEYS } from '../../ui/web/assets/reading-projection.js';
 
 const CHARS = READING_CHARS, ROW_BYTES = 16 * 1024 * 1024, CLASS_BYTES = 400000;
@@ -144,9 +145,19 @@ function projection(store, taskId, kind, loaded, context = null) {
       if (typeof value === 'string' && value.length > out[key].length) limitations.push(`message_${key}_bounded`);
     }
     out.body = preview.text; out.answer_source = null;
+    out.input_source = messageInputSource(store, row);
     out.input_event = context ? context.inputEvents.get(row.id) ?? null : inputEvent(store, taskId, row);
   } else {
     out.data = metadata(row.data, limitations);
+    if (row.type === 'message') {
+      const message = linked?.row ?? (Number.isSafeInteger(row.data.message_id)
+        ? store.get('SELECT id,task_id,sender_id,append_number,signal_type FROM messages WHERE task_id=? AND id=?', taskId, row.data.message_id) : null);
+      out.input_source = message ? messageInputSource(store, message) : inputSource(store, null);
+      out.data.input_source = out.input_source;
+    } else if (Object.hasOwn(row.data, 'input_source')) {
+      out.input_source = inputSource(store, row.data.input_source);
+      out.data.input_source = out.input_source;
+    }
     let remaining = preview.text.length;
     for (const [index, field] of texts.entries()) {
       if (index > 0) remaining = Math.max(0, remaining - 1);

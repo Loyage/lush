@@ -15,15 +15,38 @@ import { previewHistoryEvent } from './reading-projection.js';
 import { copyButton } from './clipboard.js';
 
 const CONTENT_CATEGORIES = [
-  ['input', '我的输入', true, 'var(--green)'],
+  ['input', '输入指令', true, 'var(--green)'],
   ['output', 'Agent 回复', true, 'var(--queued)'],
   ['decision', '决策摘要', true, 'var(--accent)'],
   ['unknown', '来源不明内容', false, 'var(--muted)'],
 ];
 
-const followup = event => event.type === 'message' && event.data?.sender === null && typeof event.data.body === 'string'
-  && !event.data.signal_type && !event.message?.signal_type && event.message?.sender_id == null;
 const appendNumber = value => typeof value === 'string' && /^A[1-9]\d*-[1-9]\d*$/.test(value) ? value : null;
+function inputSourceOf(message = {}, event = null) {
+  message ||= {};
+  // An explicit unknown (including malformed metadata) must not be replaced by
+  // legacy A numbering: old mounted Valet appends also used the user route.
+  const evidence = [event, event?.data, message, message.input_event, message.input_event?.data, event?.message]
+    .find(value => value && Object.hasOwn(value, 'input_source'));
+  if (evidence) {
+    const source = evidence.input_source;
+    if (['user', 'system', 'unknown'].includes(source?.kind)) return { kind: source.kind };
+    if (['valet', 'worker'].includes(source?.kind) && Number.isSafeInteger(source.worker_id) && source.worker_id > 0) return source;
+    return { kind: 'unknown' };
+  }
+  if (event?.data?.user_append === false || message.signal_type) return { kind: 'system' };
+  return { kind: message.sender_id == null && (appendNumber(message.append_number) || appendNumber(event?.data?.append_number)
+    || event?.data?.user_append === true) ? 'user' : 'unknown' };
+}
+function inputIdentity(source, username) {
+  if (source?.kind === 'user') return { name: username || '账号名称未知', avatar: usernameInitial(username) };
+  if (['valet', 'worker'].includes(source?.kind)) return {
+    name: `${source.kind === 'valet' ? '管家' : 'Worker'} ${workerLabel(source.worker_id, source.worker_number ?? null)}`, avatar: '🤖' };
+  return { name: source?.kind === 'system' ? '系统' : '来源未知', avatar: source?.kind === 'system' ? '⚙' : '?' };
+}
+const followup = event => event.type === 'message' && event.data?.sender === null && typeof event.data.body === 'string'
+  && !event.data.signal_type && !event.message?.signal_type && event.message?.sender_id == null
+  && ['user', 'valet', 'worker'].includes(inputSourceOf(event.message, event).kind);
 const originalNumber = id => Number.isSafeInteger(id) && id > 0 ? inputNumber(id) : null;
 const time = at => Number.isFinite(Date.parse(at)) ? Date.parse(at) : null;
 const inputTime = delivery => delivery?.status === 'delivered' && time(delivery.at) !== null
@@ -133,7 +156,7 @@ export function renderConversation(task, history = {}, previous = null) {
     const notice = entry.decision && (current.notices || []).find(notice => notice.id === entry.decision.notice_id);
     const decision = entry.decision ? { ...entry.decision, notice_kind: entry.decision.notice_kind ?? notice?.kind ?? noticeKinds.get(entry.decision.notice_id),
       title: entry.decision.title ?? notice?.title } : null;
-    const signature = JSON.stringify([entry.text, entry.side, entry.source, entry.truncated, entry.limitations, entry.unreadable, decision, markdownEnabled()]);
+    const signature = JSON.stringify([entry.text, entry.side, entry.source, entry.inputSource, entry.truncated, entry.limitations, entry.unreadable, decision, markdownEnabled()]);
     if (!node) {
       node = el('article', undefined, `conversation-message conversation-${entry.side}`);
       node.dataset.conversationKey = entry.key;
@@ -219,8 +242,9 @@ export function renderConversation(task, history = {}, previous = null) {
       node.classList.toggle(`conversation-${side}`, entry.side === side);
       node.querySelector('.conversation-avatar').classList.toggle(`avatar-${side}`, entry.side === side);
     }
-    node.querySelector('.conversation-avatar').textContent = entry.side === 'input' ? usernameInitial(username) : entry.side === 'other' ? entry.category === 'decision' ? '决' : '?' : '🤖';
-    node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? username || '账号名称未知'
+    const submitter = inputIdentity(entry.inputSource, username);
+    node.querySelector('.conversation-avatar').textContent = entry.side === 'input' ? submitter.avatar : entry.side === 'other' ? entry.category === 'decision' ? '决' : '?' : '🤖';
+    node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? submitter.name
       : entry.side === 'other' ? entry.source === 'unknown' ? '来源不明' : entry.senderId != null ? `Worker ${workerLabel(entry.senderId, entry.senderNumber)}`
         : entry.source === 'user' ? '用户答复' : entry.source === 'lush' ? 'Lush 自动选择' : entry.source === 'agent' ? `${workTypeLabel(current)} ${workerLabel(current)}` : '来源不明' : `${workTypeLabel(current)} ${workerLabel(current)}`;
     const number = entry.key === 'goal' ? originalNumber(current.input_id) : entry.appendNumber;
@@ -275,6 +299,7 @@ export function renderConversation(task, history = {}, previous = null) {
     const all = [...inputs.values(), ...results, ...others.values()].filter(entry => entry.category !== 'decision'
       || ((current.notices || []).find(notice => notice.id === entry.decision?.notice_id)?.kind ?? noticeKinds.get(entry.decision?.notice_id)) !== 'info');
     if (current.goal) all.push({ key: 'goal', side: 'input', kind: '原始目标', text: current.goal,
+      inputSource: inputSourceOf({ input_source: current.goal_input_source }),
       delivery: current.goal_input_delivery, at: current.created_at, sequence: 0 });
     if (current.result && !matched) all.push({ key: 'latest', side: 'output', kind: '最新结果', text: current.result, at: null, sequence: Infinity });
     return { all, latestKey };
@@ -324,7 +349,8 @@ export function renderConversation(task, history = {}, previous = null) {
       inputs.set(key, { ...previous, key });
     }
     others.delete(`other:message:${message.id}`);
-    return storeEntry(inputs, { ...previous, key, side: 'input', category: 'input', source: 'user', kind: '追加输入', text: message.body,
+    const inputSource = inputSourceOf(message, event);
+    return storeEntry(inputs, { ...previous, key, side: 'input', category: 'input', source: inputSource.kind, inputSource, kind: '追加输入', text: message.body,
       messageId: message.id, eventId: event?.id ?? old?.eventId, appendNumber: appendNumber(message.append_number) || appendNumber(event?.data?.append_number) || old?.appendNumber,
       at: event?.created_at ?? message.created_at ?? old?.at, delivery: event?.input_delivery ?? message.input_delivery ?? old?.delivery,
       sequence: event?.id ?? message.id, truncated: Boolean(message.text_truncated), totalChars: message.total_chars,
@@ -422,9 +448,10 @@ export function renderConversation(task, history = {}, previous = null) {
       }
       if (typeof message.body !== 'string') continue;
       const evidence = message.input_event;
-      if (evidence?.type === 'message' && evidence.data?.sender === null && message.sender_id == null && !message.signal_type) {
-        hits.push(addInput(message, evidence));
-      } else if (appendNumber(message.append_number) && !message.signal_type && message.sender_id == null) hits.push(addInput(message));
+      const source = inputSourceOf(message, evidence);
+      if (['user', 'valet', 'worker'].includes(source.kind) && !message.signal_type && message.sender_id == null) {
+        hits.push(addInput(message, evidence?.type === 'message' && evidence.data?.sender === null ? evidence : null));
+      }
       else hits.push(addOther(message));
     }
     const deliveries = new Map((page.events || []).flatMap(event => event.input_deliveries || []).map(delivery => [delivery.message_id, delivery]));

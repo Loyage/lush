@@ -258,7 +258,7 @@ export const tasks = {
     return this.task(taskId);
   },
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
-  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, task_kind = null }) {
+  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, task_kind = null, input_source = undefined }) {
     check(!parent_id || !this.executionRetired(parent_id), 'Remote execution is retired; this Worker is read-only');
     check(role !== 'showcase' && task_kind !== 'showcase', 'showcase tasks are no longer supported');
     return this.transaction(() => {
@@ -268,7 +268,8 @@ export const tasks = {
       this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,task_kind,worker_number) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
         taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, task_kind, worker_number);
       const task = this.task(taskId);
-      this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, worker_number });
+      this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, worker_number,
+        ...(input_source === undefined ? {} : { input_source }) });
       this.recordWorkerPhase(task.id);
       if (parent_id !== null && ['waiting', 'awaiting'].includes(this.task(parent_id).status)) this.recordWorkerPhase(parent_id);
       return task;

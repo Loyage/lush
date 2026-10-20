@@ -1,4 +1,5 @@
 import { check, id, bounded } from '../../core/types.js';
+import { actorInputSource } from '../../persistence/store/input-sources.js';
 import { validateWorkerQuery } from '../../core/worker-query.js';
 import { managementCalls } from '../../core/project/management-calls.js';
 import { MANAGEMENT_READ_ITEMS } from '../../core/project/management-data.js';
@@ -117,11 +118,11 @@ export const handlers = {
   'progress.plan'(p, params, actor) { return p.reportProgressPlan(actor, params.steps); },
   'progress.complete'(p, params, actor) { return p.completeProgressStep(actor, params.step); },
   'worker.create'(p, params) { return p.createWorker(params); },
-  'worker.spawn'(p, params, actor) {
+  'worker.spawn'(p, params, actor, context) {
     const parent = params.parent ?? actor;
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own worker');
     check(['order','child'].includes(p.store.task(id(parent)).task_kind), 'only order/child Workers can delegate');
-    return p.spawn(parent, params.goal, 'agent', [], params.name ?? null);
+    return p.spawn(parent, params.goal, 'agent', [], params.name ?? null, null, undefined, context?.input_source ?? actorInputSource(p.store, actor));
   },
   'worker.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
   'worker.merge_conditions'(p, params) { return p.taskMergeConditions(params.id); },
@@ -142,7 +143,10 @@ export const handlers = {
   'worker.resolve_child_divergence'(p, params, actor) { return p.resolveChildDivergence(actor, params.id); },
   'worker.unreserve'(p, params) { return p.unreserveTask(params.id); },
   'worker.approve_merge'(p, params) { return p.approveReservedMerge(params.id, params.commit, params.baseline); },
-  'worker.message'(p, params, actor) { return p.message(params.id, params.body, actor); },
+  'worker.message'(p, params, actor, context) {
+    const source = context?.input_source;
+    return p.message(params.id, params.body, actor, source ? source.kind === 'user' : true, null, source);
+  },
   'worker.cancel'(p, params, actor) { return p.cancel(params.id); },
   'worker.interrupt'(p, params, actor) { return p.interrupt(id(params.id)); },
   'worker.resume'(p, params, actor) { return p.resumeTask(id(params.id), params.profile ?? null); },

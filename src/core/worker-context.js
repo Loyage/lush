@@ -96,7 +96,7 @@ export function assertWorkerRead(project, actor, taskId) {
 const DETAIL_FIELDS = ['id','worker_number','parent_id','input_id','role','task_kind','name','goal',
   'display_title','auto_title','status','result','error','calls','agent_wakes','agent_last_seen_at',
   'workspace','branch','base_commit','head_commit','integration','target_branch','integration_error',
-  'created_at','updated_at','interrupt_state','progress','progress_history','model_selection','agent'];
+  'created_at','updated_at','interrupt_state','progress','progress_history','model_selection','agent','goal_input_source'];
 export function contextDetail(project, taskId) {
   const value = project.inspect(taskId);
   let reservation; try { reservation = JSON.parse(value.reservation); } catch { reservation = null; }

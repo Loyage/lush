@@ -170,7 +170,7 @@ export default {
     check(!profile || profile.config_mode === 'pi' || profile.connection_id, 'management Worker requires a configured model source or Pi default mode');
     const task = this.store.transaction(() => {
       const task = this.store.create({ role: 'manager', task_kind: 'management', input_id: null,
-        goal: options.instruction, name: options.name.trim() });
+        goal: options.instruction, name: options.name.trim(), input_source: { kind: 'user', worker_id: null, worker_number: null } });
       this.store.update(task.id, { status: immediate ? 'queued' : 'waiting', retry_profile: profile ? JSON.stringify(profile) : null });
       const occurrence = immediate ? this.store.event(task.id, 'management.input_submitted', { mode: 'once' }) : null;
       saveManagement(this, task.id, { version: 1, config_revision: 1, signal_id: signal?.id ?? null, mode, enabled: true,
@@ -196,7 +196,7 @@ export default {
     this.store.transaction(() => {
       const messageId = this.store.appendMessage(task.id, instruction);
       this.store.event(task.id, 'message', { sender: null, body: instruction, message_id: messageId,
-        append_number: null, user_append: true });
+        append_number: null, user_append: true, input_source: { kind: 'user', worker_id: null, worker_number: null } });
       const occurrenceId = this.store.event(task.id, 'management.input_submitted', { mode: 'append', message_id: messageId });
       state.pending_signal = { id: occurrenceId, signal_id: null, name: '追加管理输入',
         due_at: managementTime(this), submitted_at: managementTime(this), phase: 'pending',

@@ -20,6 +20,14 @@
 
 Message 来源必须由持久 `append_number` 或明确的用户 message Event 证明，不能仅看 `sender_id IS NULL` 或正文 JSON 外观。新 message Event 保存 `user_append` 以区分无原始 Input 的用户追加与运行时消息；Event 证明须同 Worker、整数 `message_id`、显式 `sender:null`，并有持久追加编号或 `user_append:true`；明确 `user_append:false` 优先排除，即使存在冲突的编号或 true 收据。旧 `sender:null` message Event 单独不构成证明，`task.input_routed/input_buffered` 也不构成证明，因为旧 Hook／plan 与 runtime opt-out 同样可能写这些事件。缺少追加编号且没有明确用户标记的历史消息保守排除，包括编号字段缺失或为 null 的记录；新增标记只增强今后记录，不改投递／生命周期，不回填、迁移或猜测。Worker 通信、Notice 答复、系统信号与 runtime opt-out 不进入列表／详情；用户正文即使看似 Notice JSON 也不改变来源。缺失 Worker 的原始 Input 仍保留。
 
+### 原始目标与追加的提交者来源
+
+`worker.inspect.goal_input_source` 与 Message／reading Event 的 `input_source` 共用安全对象 `{kind:'user'|'valet'|'worker'|'system'|'unknown',worker_id:正整数|null,worker_number:真实持久编号|null}`；reading message Event 顶层与 `data.input_source` 一致。仅 `user` 可显示当前登录名；Valet／Worker 优先真实编号，缺号回退 `#内部ID`，不得从 ID 推算编号。来源只说明谁提交了该目标／追加，不改变输入编号、投递时间或权限。
+
+可信 Dispatcher 用户入口与已授权管理 bridge 从真实 actor 派生来源，公共 params 不接收来源字段。密码提权的原生 Valet 业务转发同样通过独立内部上下文保留真实 Valet 来源，不因调用用户级业务处理器而变成 user；该上下文只携带来源，不授予或扩大业务权限。挂载授权在既有 `drafts.emission` 和 `input.emitted` Event 保存来源，runtime 经条件、延迟或重启后原样传到 `input.anchor`／message Event；草稿的创建者不替代授权提交者。child 的目标由既有 `created` Event 保存实际提交者，不从开发父关系猜测；原始 Input 仍可继承，但不代表 child 的 goal 也是用户所写。普通 Valet `worker.message` 保留真实 sender；持久挂载的 Valet 追加不冒充用户追加、不分配 A 编号，空 Worker 的首条输入仍仅真实用户可授权。
+
+旧记录不迁移或批量回填。缺少显式来源时，仅用精确成功管理收据、实际开始／完成 Event 与其间的唯一创建／挂载／发射身份只读恢复 Valet；重试返回旧挂载不能认领原作者。已有显式来源时不扫描管理收据；旧目标按索引 Event 身份先筛出最多100条相关成功调用，再精确读取这些 owner／receipt 的附属 JSON，不加载全项目管理私有状态，候选超预算保守为 `unknown`。收据不再保留、关联冲突或缺少证明时返回 `unknown`，不按正文、时间、空 sender 或父关系猜用户。旧挂载追加即使带 A 编号／`user_append:true`，也必须查原授权来源；普通非挂载追加沿用上文的明确用户证明。公开读面只输出安全来源，不输出管理私有 JSON 或请求参数。
+
 `kind:'message'` 的 id 是真实 Message ID，`kind:'management'` 的 id 是真实 Valet task ID，均不是 O 编号。详情用与列表同一来源准入，只读返回完整 `content`、`references` 及公共状态／身份；两者目前没有引用附件，返回 `references:[]`。已发送追加的真实 Message 可按原身份读取，其来源准入不因草稿收据而放宽。`task_id/task_worker_number` 指向来源 Worker／Valet，Message 另带持久 `append_number`（旧缺号为 null，不造 A 编号）；不暴露 management 私有 JSON、模型运行配置、请求 key 或指纹，不新增写入口、表或权限。
 
 条件发射功能在省略 `view` 时保留可选 `conditional:'configured'|'mounted'` 窄读面；显式 `view` 与 `conditional` 同传一律清晰拒绝（`view and conditional cannot be combined`），不推测优先级：`configured` 查询有条件／独占的草稿及保留的条件发射收据，包含尚未发射条目；`mounted` 仅查询保存过条件信号的发射草稿，包含等待、投递中、成功、失败、未知与撤销。此视图保留已经关联真实 Input 的草稿身份与安全 `dispatch`，不将追加收据变成 Input；普通历史不传此参数，已发送 order／append 仅按实际 Input／Message 展示，管理沿用上述来源范围；`modes` 可进一步筛选这些既有条件草稿，但不将 Message 或管理目标扩入条件视图。过滤在数据库全库分页之前完成，cursor 绑定包括 `conditional` 在内的完整筛选条件，不能跨视图复用。收据是每条保留草稿的最近一次授权状态，不是所有历史修订的执行日志；撤销后再编辑可能改变草稿正文，已保留条件证明仍以 `dispatch.conditions` 为准。读面不提供私有运行参数、请求指纹或信号快照。

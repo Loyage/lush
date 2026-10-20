@@ -166,8 +166,8 @@ export default {
     });
   },
 
-  submitBufferedDraft(draftId, revision, start = true, defer = false, profile = null) {
+  submitBufferedDraft(draftId, revision, start = true, defer = false, profile = null, source = { kind: 'user' }) {
     expectedRevision(revision);
-    return this.order(undefined, null, [], id(draftId), start, revision, profile, defer);
+    return this.order(undefined, null, [], id(draftId), start, revision, profile, defer, undefined, source);
   },
 };

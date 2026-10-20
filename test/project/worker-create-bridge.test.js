@@ -49,6 +49,7 @@ console.log('controlled Pi result');
     await until(() => !f.project.running.size && f.store.task(created.task.id).calls === 1, 10000);
     expect(f.store.task(created.task.id)).toMatchObject({ result: 'controlled Pi result', status: 'waiting' });
     expect(JSON.parse(fs.readFileSync(log, 'utf8').trim()).task).toBe(String(created.task.id));
-    expect(await cli('worker', 'show', created.task.worker_number)).toMatchObject({ goal: 'blank first instruction', creation: { waiting_first_input: false } });
+    expect(await cli('worker', 'show', created.task.worker_number)).toMatchObject({ goal: 'blank first instruction', creation: { waiting_first_input: false },
+      goal_input_source: { kind: 'user', worker_id: null, worker_number: null } });
   } finally { await rpc.close(); await f.close(); }
 });

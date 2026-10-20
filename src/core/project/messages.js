@@ -45,14 +45,17 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
 }
 
 import { waitingFirstInput } from '../worker-creation.js';
+import { actorInputSource, inputSource } from '../../persistence/store/input-sources.js';
 
 /** 收件箱、notice、答复。 */
 export default {
   // Runtime-generated Hook/legacy plan messages explicitly opt out of user append numbering.
-  message(taskId, body, sender = null, userAppend = true, managementReceipt = null) {
+  message(taskId, body, sender = null, userAppend = true, managementReceipt = null, provenance = undefined) {
     const target = this.store.task(taskId); text(body, 'message');
+    const source = inputSource(this.store, provenance ?? (sender !== null || userAppend
+      ? actorInputSource(this.store, sender) : { kind: 'system' }));
     if (target.role === 'manager' || target.task_kind === 'management') {
-      check(sender === null && userAppend && managementReceipt === null, 'only the user may append a management instruction');
+      check(sender === null && userAppend && managementReceipt === null && source.kind === 'user', 'only the user may append a management instruction');
       return this.appendManagementInstruction(target.id, body);
     }
     check(!this.acceptanceBusy?.has(target.id), '验收正在回收开发资源；请等待结果后再处理输入');
@@ -87,7 +90,7 @@ export default {
       } else check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
     if (waitingFirstInput(target)) {
-      check(sender === null && userAppend && managementReceipt === null, 'only a real user input can start an empty Worker');
+      check(sender === null && userAppend && managementReceipt === null && source.kind === 'user', 'only a real user input can start an empty Worker');
       return this.bindWorkerFirstInput(target.id, body);
     }
     // Buffer behind the whole freeze, including source repair and parent-side landings.
@@ -102,11 +105,11 @@ export default {
         if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
         consumeIntegratedReservation(this, target, 'new input');
       }
-      const messageId = sender === null && userAppend
+      const messageId = sender === null && userAppend && source.kind === 'user'
         ? this.store.appendMessage(target.id, body, held ? 'frozen' : null)
         : this.store.message(target.id, body, sender, held ? 'frozen' : null);
       const { append_number } = this.store.get('SELECT append_number FROM messages WHERE id=?', messageId);
-      this.store.event(target.id, 'message', { sender, body, message_id: messageId, append_number, user_append: sender === null && userAppend });
+      this.store.event(target.id, 'message', { sender, body, message_id: messageId, append_number, user_append: sender === null && userAppend && source.kind === 'user', input_source: source });
       if (held) this.store.event(target.id, 'task.input_buffered', { message_id: messageId });
       else if (sender === null) this.store.event(target.id, 'task.input_routed', { message_id: messageId,
         delivery: routing.decision.delivery, source: routing.decision.source, error: routing.error });

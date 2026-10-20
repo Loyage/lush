@@ -7,6 +7,7 @@ import { checkDraftRevision } from './input-history.js';
 import { profileEvent } from './internal.js';
 import { workerLabel } from '../worker-number.js';
 import { emissionLocked } from './input-emission-data.js';
+import { inputSource } from '../../persistence/store/input-sources.js';
 import { assertLocalWorker, RETIRED_EXECUTION } from './execution-retired.js';
 
 /** Input / draft admission and atomic creation of branch-owning orders. */
@@ -17,20 +18,28 @@ export default {
    * `profile` is the optional full run-settings override, validated before creating a Git anchor.
    * Explicit `defer` authorizes a frozen parent to hold a one-shot creation Hook instead.
    */
-  order(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, runnerNodeId = undefined) {
+  order(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, runnerNodeId = undefined, source = { kind: 'user' }) {
     check(typeof defer === 'boolean', 'defer must be boolean');
     return this.write('send this order', () => this.sendOrder(content, branch, references, draftId, start, expectedRevision, profile, defer,
-      ...(runnerNodeId === undefined ? [] : [null, null, null, null, runnerNodeId])));
+      null, null, null, null, runnerNodeId, source));
   },
 
   /** Convenience wrapper for the same creation-time override without the legacy positional options. */
   submitOrder(content, branch = null, references = [], profile = null, start = true, runnerNodeId = undefined) {
     return this.write('send this order', () => this.sendOrder(content, branch, references, null, start, undefined, profile,
-      ...(runnerNodeId === undefined ? [] : [false, null, null, null, null, runnerNodeId])));
+      false, null, null, null, null, runnerNodeId, { kind: 'user' }));
   },
 
   /** The body of order(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null, creationGuard = null, shortcutReceipt = null, emissionReceipt = null, runnerNodeId = undefined) {
+  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null, creationGuard = null, shortcutReceipt = null, emissionReceipt = null, runnerNodeId = undefined, source = null) {
+    // Runtime Hook creation is not a user submission. Only a private deferred
+    // authorization may retain its original submitter across the wait/restart.
+    if (source === null && hookReceipt) {
+      const owner = this.store.task(hookReceipt.task_id);
+      const mount = owner.hooks ? JSON.parse(owner.hooks).mounts.find(item => item.id === hookReceipt.hook_id) : null;
+      source = mount?.input_source ?? { kind: mount?.registry_id === 'system:deferred-order' ? 'unknown' : 'system' };
+    }
+    source = inputSource(this.store, source ?? { kind: 'system' });
     check(runnerNodeId === undefined, RETIRED_EXECUTION);
     // Only explicit deferred draft submission can carry a creation-time run-settings override.
     check(defer || draftId === null || draftId === undefined || profile === null || profile === undefined,
@@ -71,7 +80,7 @@ export default {
     check(!TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} has ended; select an active parent Worker`);
     assertTaskAncestorsOpen(this, parent);
     if (defer && this.branchFreeze(target))
-      return this.deferOrderHook(parent, content, normalized, runProfile, start, draft);
+      return this.deferOrderHook(parent, content, normalized, runProfile, start, draft, source);
     this.assertBranchWritable(target, 'create a new worker on it');
     assertLocalWorker(this, parent.id);
     // Recheck inside the Git writer queue, not only before waiting to acquire it.
@@ -158,7 +167,7 @@ export default {
           shortcutReceipt.worker_id, 'succeeded', null,
           { created_worker_id: task.id, created_worker_number: task.worker_number, input_id: inputId });
         this.store.event(task.id, 'input.anchor', { input_id: inputId, branch: anchor.branch, commit: anchor.commit,
-          target_branch: target, workspace: anchor.workspace, dirty_source: anchor.dirty_source });
+          target_branch: target, workspace: anchor.workspace, dirty_source: anchor.dirty_source, input_source: source });
         if (!start) {
           const eventId = this.store.event(task.id, 'task.start_pending', { input_id: inputId });
           this.notifyTaskLifecycle(task.id, eventId);

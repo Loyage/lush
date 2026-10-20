@@ -6,6 +6,7 @@ import { inputOptions, inputEmission, saveEmission, emissionLocked, normalizeInp
   definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT, INPUT_OPTION_KEYS } from './input-emission-data.js';
 import { roundEvent } from './input-emission-safety.js';
 import { validateInputEmissionRequest } from '../input-emission-protocol.js';
+import { inputSource, emissionInputSource } from '../../persistence/store/input-sources.js';
 
 function wait(reason) { const error = new Error(reason); error.inputEmissionWait = true; throw error; }
 const pending = state => state && ['waiting_conditions','queued'].includes(state.state);
@@ -26,7 +27,7 @@ export default {
       ...(Object.hasOwn(options, 'runner_node_id') ? { runner_node_id: options.runner_node_id } : {}), dispatch: publicDispatch(inputEmission(draft)), revision: draft.revision };
   },
 
-  emitBufferedInput(options) {
+  emitBufferedInput(options, source = { kind: 'user' }) {
     return this.write('mount an input', async () => {
       validateInputEmissionRequest(options);
       const key = requestKey(options.client_request_id), hash = definitionHash(options);
@@ -96,14 +97,14 @@ export default {
         const signals = normalized.conditions.map(condition => ({ ...condition, satisfied: false,
           ...(condition.worker_id ? { snapshot: roundEvent(this, condition.worker_id) } : {}) }));
         const state = { version: 1, revision: draft.revision, state: signals.length ? 'waiting_conditions' : 'queued',
-          signals, profile, definition_hash: hash, created_at: new Date().toISOString(), reason: signals.length ? '等待发射条件全部满足' : '已挂载，等待父 Worker 安全空闲',
+          signals, profile, input_source: inputSource(this.store, source), definition_hash: hash, created_at: new Date().toISOString(), reason: signals.length ? '等待发射条件全部满足' : '已挂载，等待父 Worker 安全空闲',
           exclusive_active: false, exclusive_released: false };
         for (let index = 0; index < signals.length; index++)
           signals[index].mount = attachInputSignal(this, draft.id, index, signals[index], signals[index].snapshot ?? 0,
             signals[index].worker_id ?? this.inputRoot(parent).id);
         saveEmission(this, draft.id, state);
         this.store.event(parent.id, 'input.emitted', { draft_id: draft.id, revision: draft.revision, mode: normalized.mode,
-          ...(key ? { request_key: key, definition_hash: hash } : {}), conditions: normalized.conditions, exclusive: normalized.exclusive });
+          input_source: state.input_source, ...(key ? { request_key: key, definition_hash: hash } : {}), conditions: normalized.conditions, exclusive: normalized.exclusive });
         this.scheduleInputEmissions();
         return this.inputEmissionResult(draft.id);
       });
@@ -247,7 +248,8 @@ export default {
             }
             const before = this.store.get('SELECT max(id) AS id FROM messages')?.id ?? 0;
             const first = this.store.task(options.target_id).input_id === null && Boolean(this.store.task(options.target_id).creation);
-            const delivered = this.message(options.target_id, draft.content);
+            const source = emissionInputSource(this.store, draft);
+            const delivered = this.message(options.target_id, draft.content, null, source.kind === 'user', null, source);
             const message = first ? null : this.store.get('SELECT id,append_number FROM messages WHERE task_id=? AND id>? ORDER BY id DESC LIMIT 1', options.target_id, before);
             check(first ? delivered.input_id : message, 'input append receipt missing');
             this.recordInputDispatch(draft.id, claim.dispatch_id, { ...(first ? { input_id: delivered.input_id }
@@ -258,7 +260,7 @@ export default {
           const parent = this.assertInputParent(draft.parent_id);
           await this.write('dispatch mounted input', () => this.sendOrder(draft.content, parent.branch, this.store.draftReferences(draft.id), null, true, undefined,
             claim.profile ?? null, false, null, () => this.assertInputDispatch(draft.id, claim.dispatch_id, proofs), null,
-            { draft_id: draft.id, dispatch_id: claim.dispatch_id }));
+            { draft_id: draft.id, dispatch_id: claim.dispatch_id }, undefined, emissionInputSource(this.store, draft)));
         }
       } catch (error) {
         const current = inputEmission(this.store.draft(row.id));

@@ -7,6 +7,7 @@ import { userCLIContext } from '../core/worker-cli-context.js';
 import { PARAMS, AGENT_ONLY, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { assertWorkerRead, contextDetail, contextHistory } from '../core/worker-context.js';
 import { publicResult } from './public-result.js';
+import { actorInputSource } from '../persistence/store/input-sources.js';
 import { MANAGEMENT_CODE_METHODS } from './management-code-methods.js';
 import { assertManagementCapabilityExecution, dispatchManagementCode, managementCodeReadResult } from '../core/project/management-code.js';
 import { handlers as systemHandlers } from './handlers/system.js';
@@ -39,7 +40,13 @@ export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandle
     return dispatchAdministrator(project, params, (method, values) => this.dispatch(method, values));
   },
   [PROJECT_ADMINISTRATOR_RPC](project, params, actor) {
-    return callProjectAdministrator(project, actor, { operation: params.operation, params: params.params }, (method, values) => this.dispatch(method, values));
+    return callProjectAdministrator(project, actor, { operation: params.operation, params: params.params }, (method, values) => {
+      // The native execution engine has already checked its project-only method
+      // scope and fixed grant. Preserve authorship separately from the user-level
+      // business admission it intentionally invokes; never synthesize user input.
+      project.projectElevationAssert(actor);
+      return this.dispatch(method, values, { input_source: actorInputSource(project.store, actor) });
+    });
   },
 }]);
 
@@ -61,11 +68,11 @@ export class Dispatcher {
       const result = MANAGEMENT_CODE_METHODS.has(method)
         ? await dispatchManagementCode(project, method, params, actorId, receiptId,
           actor => HANDLERS[method].call(this, project, params, actor))
-        : managementCodeReadResult(method, await HANDLERS[method].call(this, project, params, null, { management: true }), project, params);
+        : managementCodeReadResult(method, await HANDLERS[method].call(this, project, params, null, { management: true, input_source: actorInputSource(project.store, actorId) }), project, params);
       return publicResult(result, method);
     };
   }
-  async dispatch(method, params = {}) {
+  async dispatch(method, params = {}, context = undefined) {
     check(isPlainObject(params), 'params must be an object');
     const { _cli_trial, ...publicParams } = params;
     // The private CLI correlation is stripped before public registry validation; it never grants an Agent identity.
@@ -104,7 +111,7 @@ export class Dispatcher {
         let result;
         try {
           managementPhase('admission', 'not_started', 'trusted_pre_dispatch', 'preflight_rejected');
-          result = await this.execute(method, params, actor, _cli_trial);
+          result = await this.execute(method, params, actor, _cli_trial, context);
         } catch (error) {
           const diagnostic = finishManagementCall(p, actor, info, null, error);
           throw new LushError(managementDiagnosticErrorMessage(diagnostic, error), MANAGEMENT_DIAGNOSTIC_CODE);
@@ -114,7 +121,7 @@ export class Dispatcher {
         return isPlainObject(result) ? { ...result, diagnostic } : { result, diagnostic };
       });
     }
-    return this.execute(method, params, actor, _cli_trial);
+    return this.execute(method, params, actor, _cli_trial, context);
   }
   beginManagementAudit(task, transport, params) {
     const method = transport === 'manager.call'
@@ -122,7 +129,7 @@ export class Dispatcher {
       : transport === 'manager.start' ? 'worker.resume' : transport === 'manager.retry' ? 'worker.retry' : transport;
     return beginManagementCall(this.project, task, transport, method, transport === 'manager.call' ? params.params : params, transport === 'manager.call' ? params.cli_command : null);
   }
-  async execute(method, params, actor, cliTrial) {
+  async execute(method, params, actor, cliTrial, context = undefined) {
     const p = this.project;
     // actor() still returns an invocation-bound integer. Do not grant a manager the
     // ordinary Agent surface (e.g. notice.post/progress/message) merely for having a token.
@@ -160,7 +167,7 @@ export class Dispatcher {
       if (actor !== null && method === 'worker.inspect') return publicResult(contextDetail(p, params.id), method);
       if (directManagerRead)
         managementPhase('execution', 'not_applicable', 'read_only', 'request_failed');
-      const value = await HANDLERS[method].call(this, p, params, actor);
+      const value = await HANDLERS[method].call(this, p, params, actor, context);
       if (actor !== null && method === 'worker.history') return contextHistory(value);
       if (actor !== null && method === 'worker.history_page') return { ...value, events: contextHistory(value.events ?? []) };
       if (actor !== null && ['worker.spawn','worker.message','worker.accept'].includes(method))

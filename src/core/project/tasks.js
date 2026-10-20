@@ -6,6 +6,7 @@ import { workerLabel } from '../worker-number.js';
 import { waitingFirstInput, workerCreation } from '../worker-creation.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { MESSAGE_SELECT } from '../../persistence/store/messages.js';
+import { inputSource, goalInputSource, messageInputSource } from '../../persistence/store/input-sources.js';
 import { agentView, workerModelSelection, inheritedRunProfile, profileEvent } from './internal.js';
 import { managementModel } from './management-data.js';
 import fs from 'node:fs';
@@ -94,11 +95,11 @@ export default {
   },
 
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
-  async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined) {
-    return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId, runnerNodeId));
+  async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined, source = null) {
+    return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId, runnerNodeId, source));
   },
 
-  async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined) {
+  async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined, source = null) {
     this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
     check(!waitingFirstInput(parent), 'an empty Worker cannot delegate before its first user input');
@@ -168,7 +169,8 @@ export default {
           consumeIntegratedReservation(this, liveParent, 'delegated new work');
           this.store.update(liveParent.id, { status: 'waiting' });
         }
-        const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
+        const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind,
+          input_source: inputSource(this.store, source) });
         this.initializeNewWorkerConvergence(created);
         // Freeze the parent's effective run settings (mode/source/model/budget) for the child: the
         // current invocation wins, then its task-local override, then the effective default.
@@ -316,6 +318,7 @@ export default {
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
     return { ...task, creation: workerCreation(storedTask), merge_operation: this.taskMergeOperation(storedTask), delivery_summary: this.taskDeliverySummary(storedTask), input_queue: this.taskInputQueue(storedTask), goal_input_delivery: this.store.goalInputDelivery(taskId),
+      goal_input_source: goalInputSource(this.store, storedTask),
       progress_history: this.progressHistory(taskId, { limit: 10 }, 200000),
       ...(task.role === 'verifier' ? { verifies_task_worker_number: task.verifies_task_id
         ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', task.verifies_task_id)?.worker_number ?? null : null } : {}),
@@ -337,7 +340,8 @@ export default {
         input_id,role,display_title,auto_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
         agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state
         FROM tasks WHERE parent_id=? ORDER BY id`, task.id)), 100000),
-      messages: bounded(this.store.all(`${MESSAGE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),
+      messages: bounded(this.store.all(`${MESSAGE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id)
+        .map(message => ({ ...message, input_source: messageInputSource(this.store, message) })), 200000),
       notices: bounded(this.store.all(`${NOTICE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),
       // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, ...(this.store.executionRetired(row.id) ? { execution_retired: true } : {}), has_report: this.hasReport(row.id) })), 200000) : undefined,

@@ -127,7 +127,8 @@ export default {
       this.store.update(task.id, { status: 'queued' });
       this.store.event(task.id, 'input.anchor', { input_id: inputId, branch: task.branch, commit: task.base_commit,
         workspace: task.workspace, target_branch: task.target_branch, via: 'worker.first_input' });
-      this.store.event(task.id, 'task.first_input', { input_id: inputId, authorized_by: 'user' });
+      this.store.event(task.id, 'task.first_input', { input_id: inputId, authorized_by: 'user',
+        input_source: { kind: 'user', worker_id: null, worker_number: null } });
       this.kick();
       return { ...publicCreatedWorker(this.store.task(task.id)), input_queue: this.taskInputQueue(this.store.task(task.id)) };
     });
