@@ -9,6 +9,7 @@ import { MERGE_CONDITION_CAPABILITIES, validateMergeConditionCall } from '../cor
 import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-query.js';
 import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
 import { MANAGEMENT_CODE_METHODS, MANAGEMENT_CODE_READS } from './management-code-methods.js';
+import { PROJECT_ELEVATION_RPC } from '../administrator/project-protocol.js';
 
 export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install', 'worker.resolve', 'worker.resolve_divergence', 'worker.approve_merge', 'branch.convergence_set', 'branch.convergence_defaults_set']);
 
@@ -33,6 +34,7 @@ export function managementDispatchParams(method, params) {
 }
 const unavailable = new Set([
   'administrator.dispatch', // Independent signed identity, never an ordinary Valet capability.
+  PROJECT_ELEVATION_RPC.submit, PROJECT_ELEVATION_RPC.append, PROJECT_ELEVATION_RPC.receipt, // Password entrances/receipts are never ordinary manager proxies.
   'management.emergency_preview','management.emergency_stop', // User-only emergency; never a delegable capability.
   'worker.management_calls', // User-only audit; not an additional Agent read capability.
   'cli.catalog','worker.cli_preview','worker.cli_execute','worker.cli_history','worker.cli_history_clear', // User learning/trial surfaces, never manager tools.

@@ -223,8 +223,6 @@ function initGlobalNavigation() {
   workspaceLink('global-inbox-open', '#notices', () => openGlobalInbox());
   workspaceLink('automation-open', '#automation', openAutomation);
   workspaceLink('cli-interfaces-open', '#cli-interfaces', openCliInterfaces);
-  workspaceLink('administrator-open', '#administrator', openAdministrator);
-  workspaceLink('administrator-project-open', '#administrator', openAdministrator);
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
   workspaceLink('skills-open', '#skills', openSkills);

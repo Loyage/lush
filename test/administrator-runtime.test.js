@@ -1,182 +1,138 @@
 import { test, expect } from 'bun:test';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { AdministratorService } from '../src/administrator/service.js';
-import { AdministratorClient, AdministratorInvocationClient } from '../src/administrator/client.js';
-import { ADMINISTRATOR_RPC } from '../src/administrator/runtime-protocol.js';
-import { startAdministratorProcess } from '../src/administrator/lifecycle.js';
-import { RPCClient } from '../src/rpc/client.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { fixture, gate } from './helpers.js';
+import { Dispatcher } from '../src/rpc/dispatcher.js';
+import { createSignal } from '../src/signal.js';
+import { managementState, saveManagement } from '../src/core/project/management-data.js';
+import { trackControlJob } from '../src/core/project/management-control.js';
+import { managementPolicy } from '../src/rpc/management-policy.js';
 
-const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
-const definition = (kind, key, rest) => ({ kind, mode: 'administrator', scope: 'device_user', client_request_id: key, ...rest });
+const hash = value => createHash('sha256').update(value).digest('hex');
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+const definition = (kind, key, instruction, rest = {}) => canonical({ kind, mode: 'administrator', scope: 'current_project',
+  client_request_id: key, instruction, ...rest });
 
-test('device administrator confirms exact user inputs, executes an invocation-only audited chain, stops real owners and never replays crash-unknown work', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-administrator-'));
-  const home = path.join(root, 'state'), env = { HOME: root, LUSH_GLOBAL_CONFIG: path.join(root, 'device'), PATH: process.env.PATH };
-  const user = 'trusted-host-session-one', otherUser = 'trusted-host-session-two';
-  let service, restarted, subprocessPid = null, instant = Date.now(), writes = 0, failures = 0;
-  const stoppingStarted = deferred(), releaseTool = deferred(), releaseRunner = deferred();
-  const tokens = [], runnerInputs = [];
-  const executor = {
-    catalog: () => [{ name: 'project.query', readOnly: true }, { name: 'project.submit', readOnly: false },
-      { name: 'project.slow', readOnly: false }, { name: 'project.fail', readOnly: false }],
-    async execute({ operation, params, identity }) {
-      expect(Object.keys(identity).sort()).toEqual(['call_id', 'instruction_id', 'service_id', 'worker_id']);
-      if (operation === 'project.query') return { source: 'isolated project source', target: { status: 'unknown', effect: 'unknown' }, token: 'must-not-escape', credential: { key: 'must-not-escape' } };
-      if (operation === 'project.submit') { writes++; return { submitted: true, action: { status: 'waiting' }, params }; }
-      if (operation === 'project.slow') { stoppingStarted.resolve(); await releaseTool.promise; return { submitted: true }; }
-      if (operation === 'project.fail') {
-        failures++;
-        return { version: 1, status: 'unknown', effect: 'unknown', identity,
-          error: { name: 'Error', code: 'WRITE_UNCONFIRMED', message: 'original execution failure marker' } };
+// Replaces the retired device ADM runtime flow. This native identity has one representative
+// occurrence chain; actual Web password/signature/Provider integration is the parent instruction's responsibility.
+test('native V occurrence accepts one verified elevation, defaults the next input to ordinary, and retains real async/unknown stop ownership', async () => {
+  const grants = new Map(), invocations = [], completion = gate();
+  let f, dispatcher, tracked;
+  const issue = value => {
+    const proof = { fixture_proof: randomUUID(), signature: 'RAW_PROOF_SIGNATURE_CANARY' };
+    grants.set(proof.fixture_proof, { definition: canonical(value), grant_id: randomUUID(),
+      definition_hash: hash(JSON.stringify(canonical(value))), verified_at: new Date().toISOString() });
+    return proof;
+  };
+  const verify = proof => {
+    if (!proof || Object.keys(proof).sort().join(',') !== 'fixture_proof,signature' || !grants.has(proof.fixture_proof)) throw Error('fixture proof rejected');
+    return structuredClone(grants.get(proof.fixture_proof));
+  };
+  f = fixture({ async run(options) {
+    const context = options.context.management;
+    invocations.push({ context, instruction: context.instruction });
+    await expect(dispatcher.dispatch('management.elevation_receipt', { client_request_id: 'first_high', _token: options.token })).rejects.toThrow('user approval');
+    if (context.authorization.mode === 'administrator') {
+      const state = managementState(f.store.task(options.task.id)), elevation = state.pending_signal.elevation;
+      expect(elevation.instruction_hash).toBe(hash(context.instruction));
+      expect(context.management.pending_signal.authority).toEqual({ mode: 'administrator', scope: 'current_project' });
+      expect(() => f.project.notice(options.task.id, 'cannot resume high authority without another password', '', 'question')).toThrow('password');
+      expect(f.store.get("SELECT count(*) AS n FROM notices WHERE task_id=? AND status='open'", options.task.id).n).toBe(0);
+      if (context.instruction === 'high append with independent owner') {
+        const receiptId = f.store.event(options.task.id, 'management.capability_requested', { occurrence_id: state.pending_signal.id, method: 'manager.administrator_call' });
+        state.control_calls.push({ receipt_id: receiptId, occurrence_id: state.pending_signal.id, method: 'manager.administrator_call', status: 'running',
+          reason: 'ORIGINAL_UNKNOWN_FAILURE_CANARY' });
+        saveManagement(f.project, options.task.id, state);
+        tracked = trackControlJob(f.project, options.task.id, completion.promise);
       }
-    },
-  };
-  const runner = async options => {
-    tokens.push(options.token); runnerInputs.push(options.instruction.instruction);
-    const invocation = new AdministratorInvocationClient(options.socket, options.token);
-    expect((await invocation.catalog()).items.map(item => item.name)).toEqual(executor.catalog().map(item => item.name));
-    // The same active model token cannot become a user control identity or inject another input.
-    await expect(new RPCClient(options.socket).request(ADMINISTRATOR_RPC.preview, { token: options.token, definition: {} })).rejects.toThrow();
-    await expect(new RPCClient(options.socket).request(ADMINISTRATOR_RPC.preview, { control: options.token, definition: {}, user_binding: user })).rejects.toThrow();
-    if (options.instruction.instruction === '先读再提交') {
-      const read = await invocation.call('project.query', { id: 1 });
-      expect(read.result).toEqual({ source: 'isolated project source', target: { status: 'unknown', effect: 'unknown' } });
-      const first = await invocation.call('project.submit', { alpha: 1, beta: 2 });
-      const repeated = await invocation.call('project.submit', { beta: 2, alpha: 1 });
-      expect(repeated.call.id).toBe(first.call.id);
-      expect(first.result.action.status).toBe('waiting');
-      expect(first.call.effect).toBe('unknown'); // Callback return is not project business completion.
-      options.onEvent({ type: 'output', data: { text: '已提交，等待原项目安全点' } });
-      return '提交收据已返回，不代表目标工作完成';
+      return 'HIGH_RESULT_CANARY';
     }
-    if (options.instruction.instruction === '请求停止') {
-      const pending = invocation.call('project.slow', {});
-      await releaseRunner.promise;
-      await pending;
-      return '停止后返回也不能抹除已开始的副作用';
+    if (context.instruction === 'ordinary after high') {
+      expect(context.management.last_execution).toBeNull();
+      expect(context.decisions).toEqual([]);
+      expect(JSON.stringify(context)).not.toContain('HIGH_RESULT_CANARY');
+      expect(JSON.stringify(context)).not.toContain('HIGH_ERROR_CANARY');
     }
-    const failed = await invocation.call('project.fail', {});
-    const duplicate = await invocation.call('project.fail', {});
-    expect(failed.call.status).toBe('unknown');
-    expect(duplicate.call.id).toBe(failed.call.id);
-    expect(failed.result.error.message).toBe('original execution failure marker');
-    expect(duplicate.result).toEqual(failed.result);
-    expect(failed.call.original_failure.detail).toMatchObject({ source: 'executor_receipt', error: { message: 'original execution failure marker' } });
-    return '底层请求结果未知';
-  };
+    return 'ordinary result';
+  } });
   try {
-    const offline = new AdministratorClient({ env, home });
-    expect((await offline.readStatus()).online).toBe(false);
-    expect(fs.existsSync(home)).toBe(false);
-    service = await new AdministratorService({ home, env, runner, executor, clock: () => instant }).start();
-    const client = new AdministratorClient({ env, home });
-    expect((await client.readStatus()).online).toBe(true);
-    await expect(new AdministratorClient({ env: { ...env, LUSH_AGENT_TOKEN: 'ordinary-worker-token' }, home }).readStatus()).rejects.toThrow();
-    await expect(new AdministratorClient({ env: { ...env, LUSH_ADMIN_TOKEN: 'administrator-invocation-token' }, home }).readStatus()).rejects.toThrow();
-    await expect(new RPCClient(service.paths.socket).request(ADMINISTRATOR_RPC.commit, { _token: 'ordinary-management-token', body: {}, user_binding: user })).rejects.toThrow();
-    const create = definition('create', 'create_one', { name: '隔离管理员' });
-    const preview = await client.preview(create, user);
-    expect(runnerInputs).toHaveLength(0);
-    await expect(client.commit({ confirmation_id: preview.confirmation_id, definition: create, confirm: true }, otherUser)).rejects.toThrow();
-    await expect(client.commit({ confirmation_id: preview.confirmation_id, definition: { ...create, name: '换了名称' }, confirm: true }, user)).rejects.toThrow();
-    expect((await client.receipt({ client_request_id: create.client_request_id }, user)).found).toBe(false);
-    // Deliberately discard the mutation ACK; recover only by its exact read-only receipt.
-    await client.commit({ confirmation_id: preview.confirmation_id, definition: create, confirm: true }, user);
-    const created = await client.receipt({ client_request_id: create.client_request_id }, user);
-    expect(created).toMatchObject({ found: true, definition: create });
-    // Re-authentication changes the session, not the device-owner read scope. No grant is renewed.
-    expect(await client.receipt({ client_request_id: create.client_request_id }, otherUser)).toMatchObject({ found: true, definition: create, worker: { id: created.worker.id } });
-    const workerId = created.worker.id;
-    expect(created.worker).toMatchObject({ worker_number: 'ADM1', status: 'ready', can_input: true, mode: 'administrator', scope: 'device_user' });
-    expect(runnerInputs).toHaveLength(0);
-    expect((await client.commit({ confirmation_id: preview.confirmation_id, definition: create, confirm: true }, user)).worker.id).toBe(workerId);
-    const input = definition('input', 'input_one', { id: workerId, instruction: '先读再提交' });
-    const inputPreview = await client.preview(input, user);
-    await expect(client.commit({ confirmation_id: inputPreview.confirmation_id, definition: { ...input, instruction: '先读再提交 ' }, confirm: true }, user)).rejects.toThrow();
-    await expect(client.commit({ confirmation_id: inputPreview.confirmation_id, definition: { ...input, mode: 'management' }, confirm: true }, user)).rejects.toThrow();
-    await client.commit({ confirmation_id: inputPreview.confirmation_id, definition: input, confirm: true }, user);
-    await service.idle();
-    const detail = await client.detail({ id: workerId, limit: 100 });
-    expect(detail.worker).toMatchObject({ status: 'ready', can_input: true, result: '提交收据已返回，不代表目标工作完成' });
-    expect(detail.events.some(event => event.type === 'tool.returned')).toBe(true);
-    expect(detail.events.some(event => event.type === 'agent.output')).toBe(true);
-    expect(JSON.stringify(detail)).not.toContain(tokens[0]);
-    expect(writes).toBe(1);
-    expect(await client.receipt({ client_request_id: input.client_request_id }, user)).toMatchObject({
-      found: true, definition: input, worker: { id: workerId, status: 'ready' }, instruction: { instruction: input.instruction, status: 'succeeded' },
-    });
-    await expect(new AdministratorInvocationClient(service.paths.socket, tokens[0]).catalog()).rejects.toThrow();
-    const expired = await client.preview(definition('input', 'expired', { id: workerId, instruction: '过期内容' }), user);
-    instant += 300001;
-    await expect(client.commit({ confirmation_id: expired.confirmation_id, definition: expired.definition, confirm: true }, user)).rejects.toThrow();
-    const stopInput = definition('input', 'input_stop', { id: workerId, instruction: '请求停止' });
-    const stopPreview = await client.preview(stopInput, user);
-    await client.commit({ confirmation_id: stopPreview.confirmation_id, definition: stopInput, confirm: true }, user);
-    await stoppingStarted.promise;
-    expect((await client.stop(workerId, user)).worker).toMatchObject({ status: 'stopping', running: true, can_input: false });
-    await expect(new AdministratorInvocationClient(service.paths.socket, tokens.at(-1)).call('project.query', {})).rejects.toThrow();
-    releaseRunner.resolve(); releaseTool.resolve(); await service.idle();
-    expect((await client.detail({ id: workerId })).worker).toMatchObject({ status: 'stopped', running: false, can_input: false, effect: 'unknown' });
-    expect((await client.commit({ confirmation_id: stopPreview.confirmation_id, definition: stopInput, confirm: true }, user)).worker.status).toBe('stopped');
-    expect((await client.receipt({ client_request_id: stopInput.client_request_id }, user)).worker).toMatchObject({ id: workerId, status: 'stopped', can_input: false });
-    const failureCreate = await client.preview(definition('create', 'create_fault', { name: '故障管理员' }), user);
-    const failureWorker = (await client.commit({ confirmation_id: failureCreate.confirmation_id, definition: failureCreate.definition, confirm: true }, user)).worker;
-    const failureInput = await client.preview(definition('input', 'input_fault', { id: failureWorker.id, instruction: '保留失败' }), user);
-    await client.commit({ confirmation_id: failureInput.confirmation_id, definition: failureInput.definition, confirm: true }, user); await service.idle();
-    expect(failures).toBe(1);
-    const failed = await client.detail({ id: failureWorker.id, limit: 2 });
-    expect(failed.worker).toMatchObject({ status: 'unknown', can_input: false, effect: 'unknown',
-      original_failure: { stage: 'execution', detail: { source: 'executor_receipt', error: { code: 'WRITE_UNCONFIRMED', message: 'original execution failure marker' } } } });
-    await expect(client.preview(definition('input', 'forbidden_after_unknown', { id: failureWorker.id, instruction: '不能静默重放' }), user)).rejects.toThrow();
-    expect(failed.has_more).toBe(true);
-    const older = await client.detail({ id: failureWorker.id, before: failed.next_cursor, limit: 100 });
-    expect(older.events.at(-1).id).toBeLessThan(Number(failed.next_cursor));
-    expect((await client.list({ limit: 1 })).has_more).toBe(true);
-    await service.close(); service = null;
-    restarted = await new AdministratorService({ home, env, runner, executor }).start();
-    const recoveredFailure = await new AdministratorClient({ env, home }).detail({ id: failureWorker.id });
-    expect(recoveredFailure.worker.status).toBe('unknown');
-    expect(recoveredFailure.worker.original_failure).toEqual(failed.worker.original_failure);
-    const stoppedFailure = await new AdministratorClient({ env, home }).stop(failureWorker.id, user);
-    expect(stoppedFailure.worker.original_failure).toEqual(failed.worker.original_failure);
-    expect(failures).toBe(1);
-    await restarted.close(); restarted = null;
-
-    // A real killed isolated process releases the kernel service lock; started input/tools remain unknown.
-    const crashHome = path.join(root, 'crash-state'), entrypoint = path.join(root, 'crash-entry.js');
-    const serviceURL = pathToFileURL(path.resolve('src/administrator/lifecycle.js')).href;
-    const clientURL = pathToFileURL(path.resolve('src/administrator/client.js')).href;
-    fs.writeFileSync(entrypoint, `import {serveAdministrator} from ${JSON.stringify(serviceURL)};\nimport {AdministratorInvocationClient} from ${JSON.stringify(clientURL)};\nconst executor={catalog:()=>[{name:'project.hang',readOnly:false}],execute:()=>new Promise(()=>{})};\nconst {closed}=await serveAdministrator({executor,runner:async ({socket,token})=>{await new AdministratorInvocationClient(socket,token).call('project.hang',{});return 'unreachable';}});\nawait closed;\n`, { mode: 0o600 });
-    const online = await startAdministratorProcess({ env, home: crashHome, entrypoint }); subprocessPid = online.pid;
-    const crashClient = new AdministratorClient({ env, home: crashHome });
-    const cp = await crashClient.preview(definition('create', 'crash_create', { name: '崩溃现场' }), user);
-    const crashWorker = (await crashClient.commit({ confirmation_id: cp.confirmation_id, definition: cp.definition, confirm: true }, user)).worker;
-    const ip = await crashClient.preview(definition('input', 'crash_input', { id: crashWorker.id, instruction: '执行一次未知副作用' }), user);
-    await crashClient.commit({ confirmation_id: ip.confirmation_id, definition: ip.definition, confirm: true }, user);
-    // A read-only invocation barrier observes the durable tool start without sending another instruction.
-    let crashDetail;
-    for (let i = 0; i < 100; i++) {
-      crashDetail = await crashClient.detail({ id: crashWorker.id });
-      if (crashDetail.events.some(event => event.type === 'tool.started')) break;
-      await Bun.sleep(5);
-    }
-    expect(crashDetail.events.some(event => event.type === 'tool.started')).toBe(true);
-    const exited = new Promise(resolve => {
-      const timer = setInterval(() => { try { process.kill(subprocessPid, 0); } catch { clearInterval(timer); resolve(); } }, 5);
-    });
-    process.kill(subprocessPid, 'SIGKILL'); await exited; subprocessPid = null;
-    restarted = await new AdministratorService({ home: crashHome, env, runner, executor }).start();
-    const recovered = await new AdministratorClient({ env, home: crashHome }).detail({ id: crashWorker.id });
-    expect(recovered.worker).toMatchObject({ status: 'unknown', can_input: false, effect: 'unknown' });
-    expect(recovered.events.some(event => event.type === 'tool.recovery_unknown')).toBe(true);
-    expect(runnerInputs).toEqual(['先读再提交', '请求停止', '保留失败']);
-  } finally {
-    releaseRunner.resolve(); releaseTool.resolve();
-    await service?.close(); await restarted?.close();
-    if (subprocessPid) { try { process.kill(subprocessPid, 'SIGKILL'); } catch {} }
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+    f.project.kick = () => {};
+    dispatcher = new Dispatcher(f.project, createSignal(), {});
+    delete f.project.verifyProjectElevationProof; // Explicitly test the native missing-adapter boundary before injecting the fixture verifier.
+    const pump = async () => { f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise)); };
+    const firstDefinition = definition('submit', 'first_high', ' first native high input\nkeep whitespace ');
+    const firstProof = issue(firstDefinition);
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: firstProof })).rejects.toThrow('not configured');
+    f.project.verifyProjectElevationProof = () => true;
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: true })).rejects.toThrow('synchronous');
+    f.project.verifyProjectElevationProof = verify;
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: firstProof, _token: null })).rejects.toThrow('Agent credentials');
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: firstProof, elevated: true })).rejects.toThrow('unknown parameter');
+    for (const method of ['management.elevated_submit', 'management.elevated_append', 'management.elevation_receipt']) expect(managementPolicy(method).access).toBe('unavailable');
+    expect(() => f.project.submitManagementInstruction({ instruction: 'cannot self elevate', elevation: true })).toThrow('fields');
+    const ordinary = f.project.submitManagementInstruction({ instruction: 'ordinary first', client_request_id: 'ordinary_key' }).task;
+    await pump();
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: issue(definition('submit', 'ordinary_key', 'ordinary first')) })).rejects.toThrow('ordinary management');
+    expect(f.project.managementView(ordinary.id).last_execution.authority.mode).toBe('ordinary');
+    const changedHash = issue(definition('submit', 'bad_hash', 'original'));
+    grants.get(changedHash.fixture_proof).definition.instruction = 'changed after verification';
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: changedHash })).rejects.toThrow('definition changed');
+    const made = await dispatcher.dispatch('management.elevated_submit', { proof: firstProof });
+    const task = made.task, state = managementState(f.store.task(task.id)), elevation = state.pending_signal.elevation;
+    expect(task).toMatchObject({ role: 'manager', task_kind: 'management', input_id: null, branch: null, status: 'queued' });
+    expect(task.worker_number).toMatch(/^V[1-9]\d*$/);
+    expect(elevation).toMatchObject({ version: 1, mode: 'administrator', scope: 'current_project', project: f.config.project,
+      occurrence_id: state.pending_signal.id, instruction_hash: hash(firstDefinition.instruction), definition_hash: hash(JSON.stringify(firstDefinition)) });
+    const source = f.store.get('SELECT task_id,data FROM events WHERE id=?', elevation.source_event_id);
+    expect(source.task_id).toBe(task.id);
+    expect(JSON.parse(source.data)).toMatchObject({ grant_id: elevation.grant_id, definition_hash: elevation.definition_hash,
+      instruction_hash: elevation.instruction_hash, occurrence_id: elevation.occurrence_id });
+    const duplicate = await dispatcher.dispatch('management.elevated_submit', { proof: firstProof });
+    expect(duplicate.task.id).toBe(task.id);
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='management.elevation_accepted'", task.id).n).toBe(1);
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: issue({ ...firstDefinition, instruction: 'different body' }) })).rejects.toThrow('different elevation');
+    expect(() => f.project.submitManagementInstruction({ instruction: firstDefinition.instruction, client_request_id: firstDefinition.client_request_id })).toThrow('password-elevated');
+    expect(await dispatcher.dispatch('management.elevation_receipt', { client_request_id: 'first_high' })).toMatchObject({ version: 1, found: true,
+      definition: firstDefinition, task: { id: task.id, status: 'queued' }, instruction: firstDefinition.instruction });
+    expect(JSON.stringify(f.store.all("SELECT data FROM events WHERE task_id=?", task.id))).not.toContain('RAW_PROOF_SIGNATURE_CANARY');
+    expect(JSON.stringify(task.management)).not.toContain('grant_id');
+    await pump();
+    expect(f.project.managementView(task.id)).toMatchObject({ authority: { mode: 'ordinary' }, last_execution: { authority: { mode: 'administrator' }, status: 'succeeded' } });
+    expect(f.store.task(task.id).result).toBe('HIGH_RESULT_CANARY'); // User history remains readable.
+    const highHistory = managementState(f.store.task(task.id)); highHistory.last_execution.reason = 'HIGH_ERROR_CANARY'; saveManagement(f.project, task.id, highHistory);
+    await dispatcher.dispatch('worker.message', { id: task.id, body: 'ordinary after high' });
+    expect(managementState(f.store.task(task.id)).pending_signal.elevation).toBeUndefined();
+    expect(f.project.managementView(task.id)).toMatchObject({ authority: { mode: 'ordinary' }, pending_signal: { authority: { mode: 'ordinary' } }, last_execution: { authority: { mode: 'administrator' } } });
+    await pump();
+    expect(invocations.map(call => call.context.authorization.mode)).toEqual(['ordinary', 'administrator', 'ordinary']);
+    expect(f.store.task(task.id).worker_number).toBe(task.worker_number);
+    const appendDefinition = definition('append', 'second_high', 'high append with independent owner', { id: task.id });
+    const appendProof = issue(appendDefinition);
+    const appended = await dispatcher.dispatch('management.elevated_append', { proof: appendProof });
+    expect(appended.task.id).toBe(task.id);
+    await pump();
+    expect(f.project.running.has(task.id)).toBe(false);
+    expect(f.project.managementOccupant().id).toBe(task.id); // Provider exit does not release the async tool owner.
+    await expect(dispatcher.dispatch('worker.message', { id: task.id, body: 'cannot overtake the original owner' })).rejects.toThrow('收口');
+    const pending = managementState(f.store.task(task.id));
+    expect(pending.pending_signal.elevation.occurrence_id).not.toBe(elevation.occurrence_id);
+    const emergency = f.project.managementEmergencyPreview();
+    expect(f.project.managementEmergencyStop(emergency.revision, true).status).toBe('stopping');
+    expect(f.project.managementOccupant().id).toBe(task.id);
+    pending.control_calls[0].status = 'unknown';
+    const stoppedState = managementState(f.store.task(task.id)); stoppedState.control_calls[0].status = 'unknown'; saveManagement(f.project, task.id, stoppedState);
+    completion.resolve(); await tracked;
+    expect(f.project.managementView(task.id).emergency.status).toBe('isolated');
+    expect(f.project.managementOccupant()).toBeNull();
+    expect(managementState(f.store.task(task.id)).control_calls[0]).toMatchObject({ status: 'unknown', reason: 'ORIGINAL_UNKNOWN_FAILURE_CANARY' });
+    const replay = await dispatcher.dispatch('management.elevated_append', { proof: appendProof });
+    expect(replay.task.status).toBe('cancelled');
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='management.elevation_accepted'", task.id).n).toBe(2);
+    delete f.project.verifyProjectElevationProof;
+    expect(await dispatcher.dispatch('management.elevation_receipt', { client_request_id: 'second_high' })).toMatchObject({ found: true, definition: appendDefinition, task: { id: task.id, status: 'cancelled' } });
+    await expect(dispatcher.dispatch('management.elevated_append', { proof: appendProof })).rejects.toThrow('not configured');
+    f.project.recoverManagementWorkers();
+    expect(managementState(f.store.task(task.id)).control_calls[0].status).toBe('unknown');
+    expect(() => f.project.submitManagementSignal(task.id, { id: 100, elevation: { mode: 'administrator' } })).toThrow('elevation');
+  } finally { completion.resolve(); await tracked; await f.close(); }
 });

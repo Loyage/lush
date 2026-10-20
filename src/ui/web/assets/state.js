@@ -34,8 +34,8 @@ export const ui = {
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
   automationPage: null, disposeProjectAutomation: null,
   valetSettingsPage: null, disposeValetSettings: null,
-  disposeAdministratorPage: null, // 独立管理员页离开时撤销旧弹窗与只读请求；不撤回已提交副作用。
-  composerManagement: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
+  disposeAdministratorPage: null, // 旧全局管理员历史页离开时释放只读请求；不撤回已提交副作用。
+  composerManagement: false, composerElevated: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
   composerWorkspace: null, openComposer: null, collapseComposer: null,
   composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
   transcriptView: null,
@@ -99,7 +99,7 @@ export function resetUiState() {
   ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.automationPage = null;
   ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.valetSettingsPage = null;
   ui.view = null; ui.inputsPage = null; ui.draftsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
-  ui.composerManagement = false; ui.composerManagementProfile = null; ui.composerManagementResult = null; ui.composerConditions = []; ui.composerExclusive = false;
+  ui.composerManagement = false; ui.composerElevated = false; ui.composerManagementProfile = null; ui.composerManagementResult = null; ui.composerConditions = []; ui.composerExclusive = false;
   ui.composerWorkspace = null; ui.openComposer = null; ui.collapseComposer = null;
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;

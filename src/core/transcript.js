@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, bounded } from './types.js';
+import { isManagementSessionFile } from '../administrator/project-session.js';
 
 /** One step body is clipped: a single tool output can be megabytes. */
 const MAX_BODY = 4000;
@@ -95,8 +96,7 @@ export function sessionFiles(config, taskId) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter(name => name.endsWith(`_lush-task-${taskId}.jsonl`)
     || name.endsWith(`_lush-task-${taskId}-pi.jsonl`)
-    || name.endsWith(`_lush-manager-${taskId}.jsonl`)
-    || name.endsWith(`_lush-manager-${taskId}-pi.jsonl`)).sort();
+    || isManagementSessionFile(name, taskId)).sort();
 }
 
 /** Small synchronous reads keep one giant JSONL file from becoming one giant main-thread pause. */

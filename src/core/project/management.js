@@ -12,7 +12,7 @@ import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
 import { safeInvocationMessage } from '../../agent/invocation-error.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
-  managementView, managementWorkers, managementEnableReason, managementUnsettled, managementAppendReason, managementInstruction } from './management-data.js';
+  managementView, managementWorkers, managementEnableReason, managementUnsettled, managementAppendReason, managementInstruction, managementAuthority } from './management-data.js';
 
 const unknownReason = '管理调用或操作曾中断，副作用未知；绑定已停用，不自动重放。';
 const failureAction = '管理授权已停用，不自动重放。请先核对执行记录与受控操作收据，确认安全并修复原因后再另建管理指令。';
@@ -91,6 +91,7 @@ export default {
     const task = this.store.task(taskId), state = managementState(task), run = this.running.get(taskId);
     check(task.task_kind === 'management' && state?.enabled && state.pending_signal?.phase === 'started'
       && state.pending_signal.run_id === run?.recordId, 'management question requires the current invocation');
+    check(!state.pending_signal.elevation, 'a single elevated input cannot suspend for a password-free follow-up question; use a fresh password-confirmed input');
     state.pending_signal.phase = 'question'; state.pending_signal.question_notice_id = noticeId;
     state.state = 'awaiting_question'; state.reason = '等待用户答复当前管家的决策问题。';
     saveManagement(this, taskId, state);
@@ -98,7 +99,7 @@ export default {
 
   resumeManagementQuestion(taskId, noticeId) {
     const task = this.store.task(taskId), state = managementState(task);
-    if (!state?.enabled || state.pending_signal?.phase !== 'question'
+    if (!state?.enabled || state.pending_signal?.elevation || state.pending_signal?.phase !== 'question'
       || state.pending_signal.question_notice_id !== noticeId || ['failed','cancelled','completed'].includes(task.status)) return false;
     check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", taskId), 'management question is still open');
     state.pending_signal.phase = 'pending'; delete state.pending_signal.run_id; delete state.pending_signal.started_at;
@@ -145,6 +146,7 @@ export default {
       'client_request_id must be non-empty, unpadded and free of control characters (max 128 characters)');
     const fingerprint = requestId === undefined ? null : creationFingerprint(options);
     if (requestId !== undefined) {
+      check(!this.managementElevationRequestUsed(requestId), 'client_request_id belongs to a password-elevated input; inspect its receipt instead of replaying ordinary input');
       const existing = this.store.get(`SELECT id,management FROM tasks WHERE task_kind='management'
         AND json_extract(management,'$.client_request_id')=?`, requestId);
       if (existing) {
@@ -288,6 +290,8 @@ export default {
   },
 
   submitManagementSignal(taskId, signal) {
+    check(isPlainObject(signal) && Object.keys(signal).every(key => ['id','signal_id','name','due_at','submitted_at'].includes(key)),
+      'management signals cannot contain elevation or unregistered input fields');
     const task = this.store.task(taskId), state = managementState(task);
     if (!state?.enabled || state.consumed || TERMINAL.has(task.status)) return;
     if (state.pending_signal || this.running.has(task.id)) {
@@ -321,7 +325,12 @@ export default {
   },
 
   managementContext(task) {
-    const state = managementState(task);
+    const state = managementState(task), authority = managementAuthority(state.pending_signal), view = managementView(task, this);
+    // User history retains the prior occurrence; an ordinary model must not inherit its high-authority material.
+    if (authority.mode === 'ordinary') {
+      if (view.last_execution?.authority.mode === 'administrator') view.last_execution = null;
+      delete view.first_failure;
+    }
     const decisions = (state.control_calls ?? []).filter(call => call.method === 'notice.post' && call.status === 'succeeded'
       && call.occurrence_id === state.pending_signal?.id && Number.isSafeInteger(call.result?.id))
       .map(call => this.store.get('SELECT id,kind,status,answer,answer_source FROM notices WHERE id=? AND task_id=?', call.result.id, task.id))
@@ -331,10 +340,12 @@ export default {
         total_chars: String(notice.answer ?? '').length }));
     return { instruction: managementInstruction(this, task, state), decisions, signal: state.pending_signal ? { id: state.pending_signal.id,
       signal_id: state.pending_signal.signal_id, name: state.pending_signal.name, due_at: state.pending_signal.due_at } : null,
-      authorization: { scope: 'current_project', operations: ['query','start','retry','catalog','history','call'],
-        dangerous_operations: 'latest_device_permissions', permission_changes: 'exact_user_confirmation',
-        device_scope: 'explicit_instruction_and_parameter', target_kinds: ['order','child'],
-        start_status: 'paused', retry_status: 'failed' }, management: managementView(task, this) };
+      authorization: authority.mode === 'administrator' ? { ...authority, project: this.config.project, operations: ['administrator'],
+        dangerous_operations: 'this_password_confirmed_input_only', consistency_checks: 'unchanged', device_scope: 'unavailable' }
+        : { ...authority, operations: ['query','start','retry','catalog','history','call'],
+          dangerous_operations: 'latest_device_permissions', permission_changes: 'exact_user_confirmation',
+          device_scope: 'explicit_instruction_and_parameter', target_kinds: ['order','child'],
+          start_status: 'paused', retry_status: 'failed' }, management: view };
   },
 
   managementQuery(actorId, targetId = undefined) {

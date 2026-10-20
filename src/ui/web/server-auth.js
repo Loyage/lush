@@ -123,10 +123,29 @@ function originAllowed(request, url, origins) {
 }
 
 
+/** Re-authentication is distinct from login: no cookie grants, password caching or raw diagnostics. */
+export function createElevationPasswordVerifier(auth, clock = Date.now) {
+  let failed = 0, retryAt = 0;
+  return password => {
+    const now = clock();
+    if (retryAt > now) return { ok: false, status: 429, code: 'elevation_password_rate_limited', execution: 'not_started', error: '提权密码尝试过多，请一分钟后由用户重新验证。' };
+    if (retryAt) { failed = 0; retryAt = 0; }
+    let valid = false;
+    try { valid = typeof password === 'string' && password.length <= 1024 && verifyPassword(password.trim(), auth.password_hash); } catch { /* fail closed without auth material */ }
+    if (!valid) {
+      if (++failed >= 5) retryAt = now + 60000;
+      return { ok: false, status: 403, code: 'elevation_password_rejected', execution: 'not_started', error: '提权密码验证未通过；未提交执行。' };
+    }
+    failed = 0;
+    return { ok: true };
+  };
+}
+
 /** One authentication boundary per listener; routes never see an unauthenticated request. */
 export function createAuthHandler(auth) {
   const sessions = new Map();
   const failures = new Map();
+  const verifyElevationPassword = createElevationPasswordVerifier(auth);
   return async function authenticate(context) {
     const { request, server, url, headers, json } = context;
     const host = request.headers.get('host');
@@ -177,7 +196,9 @@ export function createAuthHandler(auth) {
     }
     if (!authenticated) {
       // 项目 API 也在 /p/<id>/api/ 下：未登录时同样用 401，前端才能跳登录并带回原路径。
-      if (/\/api\//.test(url.pathname)) return json({ error: 'authentication required' }, 401);
+      if (/\/api\//.test(url.pathname)) return json({ error: 'authentication required',
+        ...(request.method === 'POST' && /\/api\/management\/elevate$/.test(url.pathname)
+          ? { code: 'elevation_password_rejected', execution: 'not_started' } : {}) }, 401);
       return new Response(null, { status: 303, headers: { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, ...headers } });
     }
     if (request.method === 'POST' && url.pathname === '/logout') {
@@ -188,6 +209,10 @@ export function createAuthHandler(auth) {
     // this from headers/body or return the session cookie to downstream services or models.
     context.user = Object.freeze({ kind: 'user_session', username: auth.username,
       sessionBinding: createHash('sha256').update(`lush-web-user-session:${token}`).digest('hex') });
+    // Request-local trusted callable, never a body/header supplied approval or password hash.
+    context.verifyElevationPassword = password => sessions.get(token) > Date.now()
+      ? verifyElevationPassword(password)
+      : { ok: false, status: 401, code: 'elevation_password_rejected', execution: 'not_started', error: '登录已失效；未提交提权输入，请重新登录。' };
     return null;
   };
 }

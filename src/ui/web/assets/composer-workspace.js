@@ -27,6 +27,8 @@ export function rememberComposer() {
 function applyEntry(entry) {
   const space = workspace(), changed = space.active !== entry; space.active = entry; space.menu = false; space.read++;
   ui.composerManagement = entry.mode === 'management';
+  // Elevation is an explicit choice for one input, never part of a cached draft or mode restore.
+  ui.composerElevated = false;
   ui.composerAppendTarget = entry.mode === 'append' ? { id: entry.target_id, task: entry.taskFresh === false ? null : entry.task } : null;
   ui.composerProfile = entry.mode === 'order' ? entry.profile : null;
   ui.composerManagementProfile = entry.mode === 'management' ? entry.profile : null;

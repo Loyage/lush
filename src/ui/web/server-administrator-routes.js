@@ -1,5 +1,5 @@
 import { check, isPlainObject } from '../../core/types.js';
-import { ADMINISTRATOR_API, ADMINISTRATOR_ROUTES, ADMINISTRATOR_LIMITS, normalizeAdministratorDefinition } from '../../administrator/protocol.js';
+import { ADMINISTRATOR_API, ADMINISTRATOR_ROUTES, ADMINISTRATOR_LIMITS } from '../../administrator/protocol.js';
 import { userBody, userQuery } from './server-query.js';
 
 function fields(value, keys) {
@@ -48,18 +48,8 @@ export function createAdministratorHostRoutes(call) {
       }
     }
     if (request.method === 'POST') {
-      if (action === ADMINISTRATOR_ROUTES.preview) {
-        const body = await userBody(request, url);
-        fields(body, ['definition']);
-        return json(await invoke('preview', { definition: normalizeAdministratorDefinition(body.definition) }, true));
-      }
-      if (action === ADMINISTRATOR_ROUTES.commit) {
-        const body = await userBody(request, url);
-        fields(body, ['confirmation_id', 'definition', 'confirm']);
-        identifier(body.confirmation_id);
-        check(body.confirm === true, 'explicit user confirmation required');
-        return json(await invoke('commit', { confirmation_id: body.confirmation_id, definition: normalizeAdministratorDefinition(body.definition), confirm: true }));
-      }
+      if ([ADMINISTRATOR_ROUTES.preview, ADMINISTRATOR_ROUTES.commit].includes(action))
+        return json({ error: '全局管理员创建与输入入口已退役；请使用项目管家的单条密码提权。' }, 410);
       if (action === ADMINISTRATOR_ROUTES.stop) {
         const body = await userBody(request, url);
         fields(body, ['id']);

@@ -1,6 +1,7 @@
 import { block, el } from './dom.js';
 import { absolute, noticeNumber } from './format.js';
 import { workerLabel } from './worker-label.js';
+import { PROJECT_ELEVATION_MODE, PROJECT_ELEVATION_SCOPE } from '../../../administrator/project-protocol.js';
 
 const STATES = { idle: '尚未触发', waiting: '等待信号或安全点', queued: '已排队', running: '正在调用',
   waiting_actions: '操作已提交，等待安全点', succeeded: '已处理', submitted: '已提交', skipped: '已跳过／错过',
@@ -15,11 +16,18 @@ export function managementEmergencyLabel(binding) {
   return null;
 }
 
+export function managementAuthorityBadge(authority, prefix = '本轮权限') {
+  const known = authority?.scope === PROJECT_ELEVATION_SCOPE && ['ordinary', PROJECT_ELEVATION_MODE].includes(authority.mode);
+  return el('p', `${prefix}：${known ? authority.mode === PROJECT_ELEVATION_MODE ? '管理员 · 仅当前项目／本条' : '普通管家 · 当前项目' : '未提供可信权限摘要'}`,
+    `management-authority${known && authority.mode === PROJECT_ELEVATION_MODE ? ' management-authority-administrator' : ''}`);
+}
+
 /** Only display safe projection fields; never stringify private receipt parameters. */
 export function managementReceipts(binding) {
   const area = el('div', undefined, 'management-receipts');
   const executions = [binding?.pending_signal, binding?.last_execution].filter(Boolean);
   for (const execution of executions) {
+    area.append(managementAuthorityBadge(execution.authority, execution === binding.pending_signal ? '当前事项权限' : '最近事项权限'));
     const receipts = execution.actions || [], capabilities = execution.control_calls || [];
     for (const receipt of receipts.slice(0, 32)) area.append(el('p', `${receipt.action === 'retry' ? '重试' : receipt.action === 'start' ? '开始／继续' : '受控操作'} ${workerLabel(receipt.target_id, receipt.target_worker_number)}：${stateLabel(receipt.status)}${receipt.reason ? ` · ${receipt.reason}` : ''}`, 'hint'));
     if (execution.actions_truncated || receipts.length > 32) area.append(el('p', `操作摘要：${Number.isSafeInteger(execution.actions_count) ? `显示 ${Math.min(32, receipts.length)} / ${execution.actions_count} 项` : '仅显示部分'}；完整记录请查看调用历史。`, 'hint management-actions-truncated'));
@@ -41,6 +49,9 @@ export function renderManagementFailure(task) {
   section.classList.add('error-panel', 'management-failure');
   const reason = task.error || binding?.last_execution?.reason || binding?.reason;
   if (reason) section.append(el('p', String(reason), 'error management-failure-reason'));
+  if (typeof binding?.first_failure?.detail === 'string') section.append(el('p',
+    `首次安全失败 · 收据 ${binding.first_failure.receipt_id}：${binding.first_failure.detail}${binding.first_failure.truncated ? '（摘要已截断，完整证据见执行记录）' : ''}`,
+    'error management-original-failure'));
   const legacy = !reason || ['管理调用未完成；绑定已停用，请检查执行记录后另建管理指令。',
     'management invocation interrupted; no automatic replay',
     '一次性已消费或管理调用已中断；请另建管理指令，不重放旧授权。'].includes(reason);
@@ -55,6 +66,7 @@ export function renderManagementState(task) {
   if (!binding || binding.version !== 1) {
     section.append(el('p', '绑定状态暂不可用；不会默认启用或重放。', 'hint')); return section;
   }
+  section.append(managementAuthorityBadge(binding.authority || binding.pending_signal?.authority, '本轮权限'));
   const emergency = managementEmergencyLabel(binding);
   if (emergency) section.append(el('p', emergency, 'hint management-emergency-state'));
   section.append(el('p', `${stateLabel(binding.state)} · ${binding.enabled ? '授权启用' : '授权停用'} · ${binding.mode === 'persistent' ? '持续绑定' : '一次性'}`));
@@ -65,6 +77,7 @@ export function renderManagementState(task) {
     : `已提交待处理：${absolute(binding.pending_signal.due_at)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
   const last = binding.last_execution;
   if (last) section.append(el('p', `最近处理：${stateLabel(last.status)} · ${absolute(last.finished_at || last.started_at || last.submitted_at || last.created_at || last.due_at)}`, 'hint'));
-  section.append(managementReceipts(binding));
+  const receipts = el('details', undefined, 'management-audit-details'); receipts.append(el('summary', '授权审计与受控操作收据（按需展开）'), managementReceipts(binding));
+  section.append(receipts);
   return section;
 }

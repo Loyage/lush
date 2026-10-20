@@ -19,6 +19,9 @@ import { handlers as candidateHandlers } from './handlers/candidate.js';
 import { handlers as hookHandlers } from './handlers/hooks.js';
 import { handlers as contextHandlers } from './handlers/context.js';
 import { dispatchAdministrator } from '../administrator/project-dispatch.js';
+import { callProjectAdministrator } from '../administrator/project-execution.js';
+import { PROJECT_ADMINISTRATOR_RPC } from '../administrator/project-tool-protocol.js';
+import { verifyProjectElevation, assertProjectElevatedInvocation } from '../administrator/project-elevation-proof.js';
 
 /** 合并各 handler 表：重名说明两个分区认领了同一个方法，PARAMS 里没有对应 handler 说明拆漏了。 */
 function mergeHandlers(groups) {
@@ -35,12 +38,18 @@ export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandle
   'administrator.dispatch'(project, params) {
     return dispatchAdministrator(project, params, (method, values) => this.dispatch(method, values));
   },
+  [PROJECT_ADMINISTRATOR_RPC](project, params, actor) {
+    return callProjectAdministrator(project, actor, { operation: params.operation, params: params.params }, (method, values) => this.dispatch(method, values));
+  },
 }]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) {
     this.project = project; this.stopping = stopping; this.identity = identity;
     project.rpcDispatcher = this; // central restricted Bridge reuses the actual daemon authorization/stop boundary
+    // Trusted daemon assembly, not a caller/profile-supplied elevation boolean or actor.
+    project.verifyProjectElevationProof = proof => verifyProjectElevation(project.config, proof);
+    project.projectElevationAssert = actor => assertProjectElevatedInvocation(project, actor);
     // This trusted callback is never a public RPC. The management engine records
     // reviewed capabilities / exact user confirmations before reaching it.
     project.managementDispatch = async (method, params, actorId = null, receiptId = null) => {
@@ -120,6 +129,13 @@ export class Dispatcher {
     const actorTask = actor === null || actor === undefined ? null : p.store?.task(actor);
     check(!(actorTask?.role === 'manager' || actorTask?.task_kind === 'management') || MANAGER_METHODS.has(method),
       'management agents can only use their dedicated reviewed management tools');
+    if (actorTask?.task_kind === 'management') {
+      const state = typeof actorTask.management === 'string' ? JSON.parse(actorTask.management) : null;
+      if (method === PROJECT_ADMINISTRATOR_RPC) {
+        check(typeof p.projectElevationAssert === 'function', 'trusted project elevation verifier is not installed');
+        p.projectElevationAssert(actor);
+      } else check(state?.pending_signal?.elevation?.mode !== 'administrator', 'project elevated occurrences may only use their administrator transport');
+    }
     const directManagerRead = actorTask?.task_kind === 'management'
       && ['manager.query','manager.history','manager.catalog','worker.lookup'].includes(method);
     if (directManagerRead) {

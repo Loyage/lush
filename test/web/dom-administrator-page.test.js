@@ -1,119 +1,110 @@
 import { test, expect } from 'bun:test';
-import { installDom, deepText, dialogButton, dialogText } from '../dom-stub.js';
+import { installDom, dialogButton, dialogText, deepText } from '../dom-stub.js';
 import { until } from '../helpers.js';
-import { createAdministratorPage } from '../../src/ui/web/assets/administrator-page.js';
+import { initComposer } from '../../src/ui/web/assets/composer.js';
+import { valetLifecycleControls } from '../../src/ui/web/assets/valet-actions.js';
+import { renderManagementState, renderManagementFailure } from '../../src/ui/web/assets/management-state.js';
 import { closeDialog } from '../../src/ui/web/assets/dialog.js';
-import { ADMINISTRATOR_API, ADMINISTRATOR_MODE, ADMINISTRATOR_SCOPE } from '../../src/administrator/protocol.js';
+import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
+import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 
-const button = (root, title) => root.querySelectorAll('button').find(node => node.textContent === title);
+const find = (root, title) => root.querySelectorAll('button').find(node => node.textContent === title);
+const choice = root => root.querySelector('.project-elevation-label').querySelector('input');
+const storageText = storage => Array.from({ length: storage.length }, (_, index) => storage.getItem(storage.key(index))).join('\n');
 
-// This page has no existing main-flow coverage. One DOM flow verifies the UI contract with
-// an injected API; it does not stand in for the parent's authenticated service/Provider integration.
-test('administrator page: separate creation and first-input confirmations, retained unknown evidence, direct emergency stop', async () => {
-  const dom = installDom(), requests = [];
-  let worker = null, instructions = [], online = false, receiptFound = false;
-  const request = async (url, options = {}) => {
-    expect(url.startsWith(ADMINISTRATOR_API + '/')).toBe(true);
-    const route = new URL(url, 'http://test.invalid').pathname.slice(ADMINISTRATOR_API.length + 1);
-    const body = options.body ? JSON.parse(options.body) : null; requests.push({ route, body, method: options.method || 'GET' });
-    if (route === 'status') return { version: 1, online };
-    if (route === 'workers') return { version: 1, items: worker ? [worker] : [], next_cursor: null, has_more: false };
-    if (route === 'worker') return { version: 1, worker, instructions, events: [{ id: 9, type: 'administrator.tool_failed', created_at: 'now',
-      data: { status: 'unknown', effect: 'unknown', credential: 'PRIVATE_PAYLOAD_CANARY' } }], next_cursor: null, has_more: false, coverage: 'bounded safe events' };
-    if (route === 'receipt') {
-      if (!receiptFound) return { version: 1, found: false };
-      const original = requests.filter(item => item.route === 'commit').at(-1).body.definition;
-      worker = { ...worker, status: 'unknown', can_input: false, error: '原始安全失败证据', original_failure: {
-        stage: 'execution', detail: { source: 'executor_receipt', error: { name: 'Error', message: '最初写后异常采样', credential: 'PRIVATE_PAYLOAD_CANARY' } },
-      } };
-      const instruction = { id: 'unknown-original', instruction: original.instruction, status: 'unknown', effect: 'unknown', error: '原始安全失败证据' };
-      return { version: 1, found: true, definition: structuredClone(original), worker, instruction };
+// Replaces the retired global-ADM main flow. This UI-only injected HTTP contract does not
+// claim real Host password verification or elevated native execution; W363 integrates those.
+test('project Valet input: ordinary default, one-input password elevation, unknown receipt and next-input ordinary', async () => {
+  const passwordCanary = 'isolated-test-password-7A', ordinary = [], elevated = [];
+  let passwordAccepted = false, receiptFound = false, lastUnknown = null;
+  const task = { id: 17, worker_number: 'V9', role: 'manager', task_kind: 'management', status: 'completed',
+    management: { version: 1, can_append: true, state: 'idle', enabled: false, origin: 'input', authority: { mode: 'administrator', scope: 'current_project' } } };
+  const dom = installDom({ fetch: async (url, options = {}) => {
+    const path = new URL(url, 'http://fixture.invalid').pathname;
+    if (path.endsWith('/api/input-parents')) return Response.json({ items: [], next_cursor: null, has_more: false });
+    if (path.endsWith('/api/action')) {
+      const body = JSON.parse(options.body); ordinary.push(body);
+      return Response.json(body.method === 'management.submit' ? { management: true, task } : task);
     }
-    if (route === 'preview') { online = true; return { version: 1, confirmation_id: 'confirmation-' + requests.length,
-      expires_at: new Date(Date.now() + 60000).toISOString(), definition: structuredClone(body.definition) }; }
-    if (route === 'commit') {
-      expect(body.confirm).toBe(true);
-      if (body.definition.kind === 'create') {
-        expect(body.definition.instruction).toBeUndefined();
-        worker = { id: 'admin-one', worker_number: 'ADM1', name: body.definition.name, mode: ADMINISTRATOR_MODE,
-          scope: ADMINISTRATOR_SCOPE, can_input: true, status: 'idle', result: null, error: null };
-        return { version: 1, worker };
-      }
-      if (body.definition.instruction === 'unknown invocation') throw new Error('response lost');
-      worker = { ...worker, status: 'running', can_input: false };
-      const instruction = { id: 'instruction-one', instruction: body.definition.instruction, status: 'running', effect: 'unknown', error: null };
-      instructions = [instruction]; return { version: 1, worker, instruction };
+    if (path.endsWith('/api/management/elevate')) {
+      const body = JSON.parse(options.body);
+      expect(Object.keys(body).sort()).toEqual(['confirm', 'definition', 'password']); expect(body.confirm).toBe(true);
+      expect(body.password).toBe(passwordCanary); elevated.push(structuredClone(body.definition));
+      if (!passwordAccepted) return Response.json({ error: 'authentication rejected', code: 'elevation_password_rejected', execution: 'not_started' }, { status: 403 });
+      if (body.definition.instruction === 'append unknown') { lastUnknown = structuredClone(body.definition); throw new Error(passwordCanary); }
+      return Response.json({ management: true, task, instruction: body.definition.instruction });
     }
-    if (route === 'stop') { worker = { ...worker, status: 'stopping', can_input: false }; return { version: 1, worker }; }
-    throw new Error('unexpected route');
-  };
-  let page;
+    if (path.endsWith('/api/management/elevation-receipt')) return Response.json(receiptFound
+      ? { version: 1, found: true, definition: lastUnknown, task, instruction: lastUnknown.instruction }
+      : { version: 1, found: false });
+    throw new Error('unexpected isolated UI route: ' + path);
+  } });
+  resetUiState(); ui.view = { id: 'overview' }; ui.lastSnapshot = { status: { project: '/isolated/elevation-project' } }; dom.location.pathname = '/p/1234567890abcdef/';
+  const navigation = registerNavigation({ refresh: async () => {} });
   try {
-    page = createAdministratorPage({ container: dom.node('detail'), request }); await page.ready;
-    expect(deepText(page.root)).toContain('不能据此判断没有历史');
-    expect(requests.every(item => item.method === 'GET')).toBe(true);
-    expect(requests.some(item => item.route === 'workers')).toBe(false);
-    const name = page.root.querySelector('.administrator-name'); name.value = '初稿'; name.oninput();
-    const create = button(page.root, '核对权限范围并创建'); expect(create.classList.contains('agent-call')).toBe(false);
-    const stale = create.onclick(); await until(() => dialogButton(dom, '确认高权限范围并创建'));
-    name.value = '跨项目救援'; name.oninput(); await stale;
-    expect(dom.node('modal').hidden).toBe(true);
-    expect(requests.filter(item => item.route === 'commit')).toHaveLength(0);
+    await initComposer(); await dom.node('composer-menu-management').onclick();
+    const shell = dom.node('composer-shell'), input = dom.node('input');
+    expect(choice(shell).checked).toBe(false);
+    input.value = 'ordinary first'; input.oninput(); await dom.node('input-form').onsubmit({ preventDefault() {} });
+    expect(ordinary).toHaveLength(1); expect(ordinary[0].method).toBe('management.submit'); expect(elevated).toHaveLength(0);
+    input.value = '  first elevated\n exact whitespace  '; input.oninput(); choice(shell).checked = true; choice(shell).onchange();
+    expect(deepText(shell)).toContain('不管理其他项目');
+    let opening = dom.node('input-form').onsubmit({ preventDefault() {} });
+    await until(() => dialogButton(dom, '验证密码并执行这一条'));
+    let secret = dom.node('modal').querySelector('.project-elevation-password');
+    expect(secret.type).toBe('password'); expect(secret.getAttribute('autocomplete')).toBe('current-password');
+    secret.value = passwordCanary;
+    input.value = '  amended first\n exact whitespace  '; input.oninput(); await opening;
+    expect(secret.value).toBe(''); expect(elevated).toHaveLength(0); expect(dom.node('modal').hidden).toBe(true);
+    opening = dom.node('input-form').onsubmit({ preventDefault() {} }); await until(() => dialogButton(dom, '验证密码并执行这一条'));
+    expect(dialogText(dom)).toContain('创建管家并执行以下首条指令'); expect(dialogText(dom)).toContain('current_project');
+    expect(dialogText(dom)).toContain('目标项目：/isolated/elevation-project');
+    expect(dialogText(dom)).toContain('  amended first\n exact whitespace  ');
+    secret = dom.node('modal').querySelector('.project-elevation-password'); secret.value = passwordCanary;
+    await dialogButton(dom, '验证密码并执行这一条').onclick();
+    expect(secret.value).toBe(''); expect(dialogText(dom)).toContain('密码验证未通过'); expect(elevated).toHaveLength(1);
+    passwordAccepted = true; secret.value = passwordCanary;
+    expect(dialogButton(dom, '验证密码并执行这一条').classList.contains('agent-call')).toBe(true);
+    await dialogButton(dom, '验证密码并执行这一条').onclick(); await opening;
+    expect(elevated[1]).toMatchObject({ kind: 'submit', mode: 'administrator', scope: 'current_project', instruction: '  amended first\n exact whitespace  ' });
+    expect(choice(shell).checked).toBe(false); expect(ui.composerElevated).toBe(false); expect(input.value).toBe('');
+    expect(storageText(dom.localStorage) + storageText(dom.sessionStorage)).not.toContain(passwordCanary);
 
-    const creating = create.onclick(); await until(() => dialogButton(dom, '确认高权限范围并创建'));
-    expect(dialogText(dom)).toContain('跨项目救援'); expect(dialogText(dom)).toContain('仅建立管理员身份');
-    expect(dialogButton(dom, '确认高权限范围并创建').classList.contains('agent-call')).toBe(false);
-    await dialogButton(dom, '确认高权限范围并创建').onclick(); await creating;
-    expect(worker.status).toBe('idle'); expect(instructions).toHaveLength(0);
-    expect(deepText(page.root)).toContain('尚未调用 Agent');
-    expect(deepText(page.root)).not.toContain('PRIVATE_PAYLOAD_CANARY');
-    const input = page.root.querySelector('.administrator-instruction');
-    input.value = '核对项目 A 与 B\n 保留精确空白 '; input.oninput();
-    const submit = button(page.root, '核对本条指令并确认执行');
-    expect(submit.classList.contains('agent-call')).toBe(true); expect(submit.getAttribute('data-help')).toContain('token');
-    const submitting = submit.onclick(); await until(() => dialogButton(dom, '确认本条指令并执行'));
-    expect(dialogText(dom)).toContain('核对项目 A 与 B\n 保留精确空白 ');
-    expect(dialogText(dom)).toContain('administrator'); expect(dialogText(dom)).toContain('device_user');
-    expect(dialogButton(dom, '确认本条指令并执行').classList.contains('agent-call')).toBe(true);
-    expect(requests.filter(item => item.route === 'commit')).toHaveLength(1);
-    await dialogButton(dom, '确认本条指令并执行').onclick(); await submitting;
-    expect(requests.filter(item => item.route === 'commit')[1].body.definition).toMatchObject({ kind: 'input', id: 'admin-one',
-      instruction: '核对项目 A 与 B\n 保留精确空白 ', mode: ADMINISTRATOR_MODE, scope: ADMINISTRATOR_SCOPE });
-    expect(deepText(page.root)).toContain('副作用未知');
-
-    worker = { ...worker, status: 'idle', can_input: true }; await page.refresh();
-    const later = page.root.querySelector('.administrator-instruction'); later.value = 'unknown invocation'; later.oninput();
-    const unknown = button(page.root, '核对本条指令并确认执行').onclick(); await until(() => dialogButton(dom, '确认本条指令并执行'));
-    await dialogButton(dom, '确认本条指令并执行').onclick();
-    const writes = requests.filter(item => item.route === 'commit'); expect(writes).toHaveLength(3);
-    expect(dialogButton(dom, '确认本条指令并执行').disabled).toBe(true);
-    const originalKey = writes[2].body.definition.client_request_id;
-    expect(deepText(page.root)).toContain(originalKey); expect(deepText(page.root)).toContain('提交结果未确认');
-    closeDialog(); await unknown; await page.refresh();
-    expect(button(page.root, '核对本条指令并确认执行').disabled).toBe(true);
-    expect(JSON.parse(dom.sessionStorage.getItem('lush.administrator.unconfirmed.v1'))[0].definition.client_request_id).toBe(originalKey);
-    expect(requests.filter(item => item.route === 'commit')).toHaveLength(3);
-    expect(requests.some(item => item.route === 'receipt')).toBe(false); // no automatic recovery polling
-    await button(page.root, '只读核对本次提交').onclick();
-    expect(button(page.root, '核对本条指令并确认执行').disabled).toBe(true);
-    expect(deepText(page.root)).toContain('原请求可能仍在并发提交');
-    expect(JSON.parse(dom.sessionStorage.getItem('lush.administrator.unconfirmed.v1'))).toHaveLength(1);
-    receiptFound = true; await button(page.root, '只读核对本次提交').onclick();
-    expect(JSON.parse(dom.sessionStorage.getItem('lush.administrator.unconfirmed.v1'))).toHaveLength(0);
-    expect(deepText(page.root)).toContain('原提交已确认存在 · 不等于执行成功');
-    expect(deepText(page.root)).toContain('原始安全失败证据');
-    expect(deepText(page.root)).toContain('最初写后异常采样');
-    expect(deepText(page.root)).not.toContain('PRIVATE_PAYLOAD_CANARY');
-    expect(deepText(page.root)).toContain(originalKey);
-    expect(button(page.root, '核对本条指令并确认执行').disabled).toBe(true); // actual unknown effects still block execution
-    expect(requests.filter(item => item.route === 'receipt').every(item => item.method === 'GET')).toBe(true);
-    expect(requests.filter(item => item.route === 'commit')).toHaveLength(3);
-    const stop = button(page.root, '紧急停止并撤销未执行授权'); expect(stop.classList.contains('agent-call')).toBe(false);
-    await stop.onclick();
-    expect(requests.filter(item => item.route === 'stop')).toHaveLength(1);
-    expect(dom.node('modal').hidden).toBe(true);
-    expect(deepText(page.root)).toContain('停止中，尚未确认退出');
-    expect(button(page.root, '紧急停止并撤销未执行授权').disabled).toBe(true);
-    expect(requests.every(item => !item.route.includes('notice'))).toBe(true);
-  } finally { page?.dispose(); closeDialog(); dom.restore(); }
+    ui.view = { id: 'task', key: 'task:17' }; ui.selected = task.id;
+    const root = dom.node('detail'); root.replaceChildren(valetLifecycleControls(task));
+    let appending = find(root, '追加输入').onclick();
+    let body = dom.node('modal').querySelector('textarea'); body.value = 'ordinary append'; body.oninput();
+    expect(choice(dom.node('modal')).checked).toBe(false);
+    await dialogButton(dom, '提交追加').onclick(); await appending;
+    expect(ordinary.at(-1)).toEqual({ method: 'worker.message', params: { id: 17, body: 'ordinary append' } });
+    appending = find(root, '追加输入').onclick(); body = dom.node('modal').querySelector('textarea'); body.value = 'append unknown'; body.oninput();
+    const toggle = choice(dom.node('modal')); toggle.checked = true; toggle.onchange();
+    expect(dialogText(dom)).toContain('V9 · ID 17');
+    secret = dom.node('modal').querySelector('.project-elevation-password'); secret.value = passwordCanary;
+    await dialogButton(dom, '验证密码并执行这一条').onclick();
+    expect(secret.value).toBe(''); expect(dialogText(dom)).not.toContain(passwordCanary);
+    expect(dialogButton(dom, '验证密码并执行这一条').disabled).toBe(true);
+    const count = elevated.length;
+    await find(dom.node('modal'), '只读核对提权提交').onclick();
+    expect(dialogText(dom)).toContain('继续保留未知'); expect(elevated).toHaveLength(count);
+    expect(storageText(dom.sessionStorage)).toContain(lastUnknown.client_request_id);
+    expect(storageText(dom.sessionStorage)).not.toContain(passwordCanary);
+    receiptFound = true; await find(dom.node('modal'), '只读核对提权提交').onclick();
+    expect(dialogText(dom)).toContain('不代表执行成功'); expect(elevated).toHaveLength(count);
+    closeDialog(); await appending;
+    appending = find(root, '追加输入').onclick(); expect(choice(dom.node('modal')).checked).toBe(false); closeDialog(); await appending;
+    const state = renderManagementState(task); expect(deepText(state)).toContain('管理员 · 仅当前项目／本条');
+    expect(state.querySelector('.management-audit-details').open).not.toBe(true);
+    const nextRound = renderManagementState({ ...task, management: { ...task.management,
+      authority: { mode: 'ordinary', scope: 'current_project' }, last_execution: { authority: task.management.authority } } });
+    expect(nextRound.querySelector('.management-authority').textContent).toContain('普通管家');
+    expect(deepText(nextRound)).toContain('最近事项权限：管理员');
+    const failure = renderManagementFailure({ ...task, error: 'generic failure', management: { ...task.management, state: 'unknown',
+      first_failure: { receipt_id: 123, detail: 'original safe handler failure' } } });
+    expect(deepText(failure)).toContain('首次安全失败 · 收据 123：original safe handler failure');
+    root.replaceChildren(valetLifecycleControls({ ...task, status: 'running' }));
+    await find(root, '停止管家').onclick();
+    expect(ordinary.at(-1)).toEqual({ method: 'worker.cancel', params: { id: 17 } });
+    expect(dom.node('modal').hidden).toBe(true); // high-permission emergency stop adds no operation confirmation
+  } finally { closeDialog(); navigation(); resetUiState(); dom.restore(); }
 });

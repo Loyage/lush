@@ -8,6 +8,8 @@ import { MERGE_CONDITION_PARAMETERS, validateMergeConditionCall } from '../core/
 import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
 import { MANAGEMENT_RECEIPT_PARAMETERS } from '../core/management-diagnostic.js';
 import { CONTEXT_PARAMETERS, validateContextCall } from '../core/worker-context.js';
+import { PROJECT_ADMINISTRATOR_RPC } from '../administrator/project-tool-protocol.js';
+import { PROJECT_ELEVATION_RPC } from '../administrator/project-protocol.js';
 
 const INPUT_OPTION_KEYS = ALL_INPUT_OPTION_KEYS.filter(key => key !== 'runner_node_id');
 
@@ -18,6 +20,7 @@ export const PARAMS = {
   ...MERGE_CONDITION_PARAMETERS,
   'cli.catalog': [],
   'administrator.dispatch': ['request','signature'],
+  [PROJECT_ADMINISTRATOR_RPC]: ['operation','params'],
   'worker.cli_preview': ['id','command'], 'worker.cli_execute': ['id','command','revision','confirm'],
   'worker.cli_history': ['id','before','limit'], 'worker.cli_history_clear': ['id'],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
@@ -54,6 +57,8 @@ export const PARAMS = {
   'management.create': ['name','instruction','signal_id','mode','profile','client_request_id'],
   'management.binding_update': ['id','enabled','expected_revision'],
   'management.submit': ['instruction','profile','client_request_id'],
+  [PROJECT_ELEVATION_RPC.submit]: ['proof'], [PROJECT_ELEVATION_RPC.append]: ['proof'],
+  [PROJECT_ELEVATION_RPC.receipt]: ['client_request_id'],
   'management.receipt': MANAGEMENT_RECEIPT_PARAMETERS,
   'management.emergency_preview': [],
   'management.emergency_stop': ['revision','confirm'],
@@ -131,6 +136,7 @@ export const USER_ONLY = new Set([
   'management.permissions','management.permissions_update','management.permission_get','management.permission_set',
   'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','management.submit',
   'management.receipt','management.emergency_preview','management.emergency_stop',
+  PROJECT_ELEVATION_RPC.submit, PROJECT_ELEVATION_RPC.append, PROJECT_ELEVATION_RPC.receipt,
   'hooks.list','hooks.save','hooks.remove','hooks.auto_select','hooks.completion_defaults','hooks.automation_settings','worker.acceptance_notice','worker.hooks','worker.completion_page','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove',
   'input.history','input.get','input.parents','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove',
   'order.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
@@ -144,6 +150,7 @@ export const USER_ONLY = new Set([
   'branch.convergence','branch.convergence_list','branch.convergence_set','branch.convergence_defaults','branch.convergence_defaults_set','branch.convergence_runs','branch.convergence_retry',
 ]);
 export const AGENT_ONLY = new Set([
+  PROJECT_ADMINISTRATOR_RPC,
   ...Object.keys(CONTEXT_PARAMETERS),
   'worker.auto_title','worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
   'manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call',

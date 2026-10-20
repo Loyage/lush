@@ -1,12 +1,14 @@
-import { button, el } from './dom.js';
+import { $, button, el } from './dom.js';
 import { action } from './api.js';
-import { confirmDialog, formDialog } from './dialog.js';
+import { confirmDialog, formDialog, syncDialog } from './dialog.js';
+import { elevationChoice, projectElevationDefinition, projectElevationConfirmation, sendProjectElevation, pendingProjectElevation, projectElevationReceipts } from './administrator-project-input.js';
 import { agentHelp } from './help.js';
 import { TERMINAL_STATUS } from './format.js';
 import { isValet } from './work-type.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
 import { workerLabel } from './worker-label.js';
+import { PROJECT_ELEVATION_MODE, PROJECT_ELEVATION_SCOPE } from '../../../administrator/project-protocol.js';
 
 let appendDialog = null;
 const appendHelp = agentHelp('向同一管家提交追加管理指令，明确授权新一轮；保留原始指令和历史，不重放旧操作。项目已有管家占位时拒绝，不会排队保存。');
@@ -37,24 +39,55 @@ function appendControl(task, refresh) {
     const input = el('textarea', undefined, 'valet-append-input'); input.id = 'valet-append-input';
     input.setAttribute('rows', '5'); input.setAttribute('maxlength', '32000'); input.setAttribute('placeholder', '填写本轮新增的管理需求…');
     const status = el('p', undefined, 'hint valet-append-status'); status.setAttribute('role', 'status');
-    content.append(label, input, status);
+    const confirmation = el('div', undefined, 'valet-elevation-confirmation');
+    let fields = null, definition = null, requestId = crypto.randomUUID();
     const session = appendDialog = { task, input, status, current, sent: false, uncertain: false };
+    const choices = elevationChoice(() => updateElevation());
+    const receipts = projectElevationReceipts({ kind: 'append', id: task.id, current,
+      resolved: receipt => { session.sent = true; session.uncertain = false; choices.reset(); fields?.dispose(); fields = null; confirmation.replaceChildren();
+        status.textContent = `原提权提交已确认存在，实际状态：${receipt.task.management?.state || receipt.task.status || '未知'}；不代表执行成功，请核对详情，不重发。`; syncDialog(content); } });
+    function updateElevation() {
+      fields?.dispose(); fields = null; definition = null; confirmation.replaceChildren();
+      if (choices.input.checked && input.value.trim() && input.value.length <= 32000) {
+        definition = projectElevationDefinition({ kind: 'append', id: task.id, instruction: input.value, client_request_id: requestId });
+        const fixed = definition;
+        fields = projectElevationConfirmation(fixed, { task, current: () => current() && choices.input.checked && input.value === fixed.instruction && session.task.id === fixed.id });
+        confirmation.append(fields.node);
+      }
+      const confirm = $('modal')?.querySelector('.modal-confirm');
+      if (confirm && $('modal')?.querySelector('.valet-append-form') === content) {
+        confirm.textContent = choices.input.checked ? '验证密码并执行这一条' : '提交追加';
+        confirm.setAttribute('data-help', choices.input.checked ? agentHelp('验证当前 Web 登录密码后，仅本条以当前项目管理员权限追加；下一条默认普通。') : appendHelp);
+      }
+      syncDialog(content);
+    }
+    input.oninput = () => { if (!pendingProjectElevation('append', task.id).length) requestId = crypto.randomUUID(); updateElevation(); };
+    content.append(label, input, choices.root, confirmation, receipts.root, status);
     try {
       const pending = formDialog({ title: `追加输入 · ${workerLabel(task)}`, content,
-        message: '本轮只执行新增管理需求，不重放旧操作；沿用该管家的模型来源与会话。其他管家占位时拒绝提交，原文保留。',
+        message: '本轮只执行新增管理需求，不重放旧操作；沿用模型来源，每轮会话隔离。其他管家占位时拒绝提交，原文保留。',
         confirmLabel: '提交追加', cancelLabel: '关闭', agent: true, confirmHelp: appendHelp,
-        canConfirm: () => current() && !session.sent && !session.uncertain,
+        canConfirm: () => current() && !session.sent && !session.uncertain && !pendingProjectElevation('append', task.id).length,
         onConfirm: async () => {
-          if (!current()) return false;
+          if (!current()) { fields?.clear(); return false; }
           const reason = appendBlocker(session.task), body = input.value;
-          if (reason) { status.textContent = reason; return false; }
-          if (!body.trim() || body.length > 32000) { status.textContent = '请填写非空的追加指令，最多 32000 个字符。'; return false; }
-          try { await action('worker.message', { id: task.id, body }, { refresh: false }); }
-          catch (error) {
-            session.uncertain = true;
-            if (current()) status.textContent = `追加未确认：${error.message}；原文已保留。请先刷新详情核对结果，不自动重发；核对后可复制原文另行提交。`;
+          if (reason) { fields?.clear(); status.textContent = reason; return false; }
+          if (!body.trim() || body.length > 32000) { fields?.clear(); status.textContent = '请填写非空的追加指令，最多 32000 个字符。'; return false; }
+          const elevated = choices.input.checked;
+          try {
+            if (elevated) {
+              if (!definition || definition.instruction !== body || !fields) { fields?.clear(); status.textContent = '正文或目标已变化，请重新核对本条提权指令。'; return false; }
+              let password = fields.password.value; fields.clear();
+              if (!password) { status.textContent = '请输入当前 Web 登录密码。'; return false; }
+              try { const flight = sendProjectElevation(definition, password); password = ''; await flight; }
+              finally { password = ''; fields?.clear(); }
+            } else await action('worker.message', { id: task.id, body }, { refresh: false });
+          } catch (error) {
+            session.uncertain = elevated ? pendingProjectElevation('append', task.id).length > 0 : true;
+            if (current()) { status.textContent = elevated ? error.message : `追加未确认：${error.message}；原文已保留。请先刷新详情核对结果，不自动重发。`; receipts.refresh(); }
             return false;
           }
+          choices.reset(); fields?.dispose(); fields = null; confirmation.replaceChildren();
           session.sent = true;
           if (!current()) return false;
           show('追加管理输入已提交，等待新一轮运行；旧操作不会重放。');
@@ -66,7 +99,7 @@ function appendControl(task, refresh) {
         } });
       input.focus();
       await pending;
-    } finally { if (appendDialog === session) appendDialog = null; }
+    } finally { fields?.dispose(); if (appendDialog === session) appendDialog = null; }
   };
   return host;
 }
@@ -86,7 +119,9 @@ export function valetLifecycleControls(task, { refresh = () => {} } = {}) {
         && !ui.deletedWorkerIds.has(task.id);
       busy = true; for (const control of controls) control.disabled = true;
       try {
-        const accepted = await confirmDialog({ title: `${label} ${workerLabel(task)}？`, message,
+        const authority = task.management?.authority || task.management?.pending_signal?.authority;
+        const elevatedStop = method === 'worker.cancel' && authority?.mode === PROJECT_ELEVATION_MODE && authority.scope === PROJECT_ELEVATION_SCOPE;
+        const accepted = elevatedStop || await confirmDialog({ title: `${label} ${workerLabel(task)}？`, message,
           confirmLabel: label, cancelLabel: '保留', danger: true, confirmHelp: help });
         if (!accepted || !current()) return;
         sent = true;

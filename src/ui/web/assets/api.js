@@ -31,6 +31,17 @@ function invalidatesNames(url, options) {
   } catch { return false; }
 }
 
+function responseError(response, value, message = value?.error || response.statusText) {
+  const error = new Error(message); error.status = response.status;
+  // Only fixed Host password-gate errors prove this entrance did not dispatch.
+  // Ordinary RPC errors/unknown bodies never acquire a not_started classification.
+  if (value?.execution === 'not_started' && (value.code === 'elevation_password_rejected' && [401, 403].includes(response.status)
+    || value.code === 'elevation_password_rate_limited' && response.status === 429)) {
+    error.code = value.code; error.execution = 'not_started';
+  }
+  return error;
+}
+
 // fetch 与用户动作。项目来源由 route.js 从地址推出，绝不从别处取「当前项目」。
 export async function api(url, options) {
   if (startingReadSignal && ['GET', 'HEAD'].includes((options?.method || 'GET').toUpperCase()) && !options?.signal) {
@@ -41,10 +52,14 @@ export async function api(url, options) {
   checkRead();
   const response = await fetch(projectApi(url), options);
   checkRead();
-  if (response.status === 401 && typeof globalThis.location?.assign === 'function') { location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`); throw new Error('登录已失效'); }
+  if (response.status === 401 && typeof globalThis.location?.assign === 'function') {
+    let value; try { value = await response.json(); } catch { /* no untrusted response body in diagnostics */ }
+    location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
+    throw responseError(response, value, '登录已失效');
+  }
   const value = await response.json();
   checkRead();
-  if (!response.ok) throw new Error(value.error || response.statusText);
+  if (!response.ok) throw responseError(response, value);
   if (invalidatesNames(url, options)) connectionNames.invalidate();
   return value;
 }

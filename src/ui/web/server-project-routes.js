@@ -7,6 +7,7 @@ import { emptyJson, settingQuery } from './server-query.js';
 import { PARAMS, assertAllowed } from '../../rpc/registry.js';
 import { workerRead } from './server-worker-routes.js';
 import { contentRead } from './server-content-routes.js';
+import { projectElevationRoute } from './server-project-elevation.js';
 
 const MUTATIONS = new Set(['worker.cli_preview','worker.cli_execute','worker.cli_history','worker.cli_history_clear','settings.clear_override','settings.migration.apply','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.install','hooks.register','hooks.upgrade','hooks.save','hooks.remove','hooks.command_save','hooks.command_remove','hooks.command_history_remove','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.automation_settings','worker.acceptance_notice','hooks.signal_save','hooks.signal_remove','management.permissions_update','management.create','management.submit','management.binding_update','management.emergency_stop','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove','worker.create','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.accept_preview','worker.accept_force','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive','branch.integrate_start','branch.integrate_cancel','branch.integrate_retry','branch.convergence_set','branch.convergence_defaults_set','branch.convergence_retry']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input|message|management)\/([1-9]\d*)$/;
@@ -37,6 +38,8 @@ export async function projectRoutes(context, projectHost, staticAssets) {
   }
   const binding = projectApi ? (prefix ? await projectHost.openRoute(prefix[1]) : await projectHost.require()) : null;
   const client = binding?.client;
+  const elevated = await projectElevationRoute(context, binding);
+  if (elevated) return elevated;
   if (request.method === 'POST' && url.pathname === '/api/service/restart') {
     await emptyJson(request);
     return json(await restartProjectDaemon(binding.config));

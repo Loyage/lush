@@ -14,6 +14,8 @@ import { createRuntimeConnection, readRuntimeObservations } from './connection-r
 import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
 import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
 import { MANAGEMENT_TOOL_NAMES } from './pi-management.js';
+import { PROJECT_ADMINISTRATOR_TOOL_NAMES, PROJECT_ADMINISTRATOR_PROMPT } from '../administrator/project-tool-protocol.js';
+import { managementSessionIdentity, managementInvocationStem } from '../administrator/project-session.js';
 import { AgentInvocationError, piProcessFailure } from './invocation-error.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
@@ -21,6 +23,12 @@ const GUARD = path.join(BIN, 'lush-agent-guard');
 const MAX_RESULT = 256000;
 const PI_RUNTIME = fileURLToPath(new URL('./pi-runtime.js', import.meta.url));
 const PI_MANAGEMENT = fileURLToPath(new URL('./pi-management.js', import.meta.url));
+const PI_PROJECT_ADMINISTRATOR = fileURLToPath(new URL('../administrator/project-pi-tools.js', import.meta.url));
+function projectAdministratorMode(config, task, context) {
+  const authorization = context?.management?.authorization;
+  return task.role === 'manager' && task.task_kind === 'management' && authorization?.mode === 'administrator'
+    && authorization.scope === 'current_project' && authorization.project === config.project;
+}
 const MANAGEMENT_TOOLS = MANAGEMENT_TOOL_NAMES.join(',');
 const BUILTIN_SKILL_LOCATIONS = new Set(AGENT_CAPABILITIES.flatMap(({ skill }) => [skill, path.dirname(skill)]));
 
@@ -77,10 +85,20 @@ function takePreemptMark(paths) {
 function sessionFiles(config, task, context, messages, agent, messagesPage = null, promptOptions = {}) {
   const sessions = path.join(config.home, 'sessions');
   fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
-  const promptFile = path.join(sessions, `task-${task.id}-input.md`);
-  const systemFile = path.join(sessions, `task-${task.id}-system.md`);
+  const manager = task.role === 'manager';
+  const stem = manager ? managementInvocationStem(task.id, context.management?.signal?.id, projectAdministratorMode(config, task, context), agent.config_mode === 'pi') : `task-${task.id}`;
+  const promptFile = path.join(sessions, `${stem}-input.md`);
+  const systemFile = path.join(sessions, `${stem}-system.md`);
   const { agent_token_hash, retry_profile, ...safeTask } = task;
   if (typeof safeTask.management === 'string') delete safeTask.management;
+  if (manager) {
+    // Keep the user's persistent history for the UI, not in the next model invocation.
+    delete safeTask.result; delete safeTask.error;
+    safeTask.goal = context.management?.instruction ?? '';
+    context = { invocation: context.invocation, management: { instruction: context.management?.instruction,
+      signal: context.management?.signal, authorization: context.management?.authorization, decisions: context.management?.decisions ?? [] } };
+    messages = []; messagesPage = null;
+  }
   if (typeof safeTask.result === 'string' && safeTask.result.length > 2000) {
     safeTask.result = safeTask.result.slice(0, 2000); safeTask.result_truncated = true;
   }
@@ -91,11 +109,11 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   // undelivered originals remain unread in SQLite and arrive on a later invocation.
   fs.writeFileSync(promptFile, JSON.stringify({ task: safeTask, project: config.project, agent: profile, ...context,
     ...(messagesPage ? { messages_page: messagesPage } : {}), messages }, null, 2) + '\n', { mode: 0o600 });
-  const prompt = agentPrompt(config, task.role, agent, task.task_kind ?? null, promptOptions);
+  const prompt = projectAdministratorMode(config, task, context) ? { text: PROJECT_ADMINISTRATOR_PROMPT, builtin_skills: [] }
+    : agentPrompt(config, task.role, agent, task.task_kind ?? null, promptOptions);
   fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
   // Managers never load development env files or profile overrides. Keep the machine runtime,
   // project network policy and managed connection handling; this is not an OS sandbox.
-  const manager = task.role === 'manager';
   const environment = manager || agent.config_mode === 'pi' ? emptyAgentEnvironment(task.role) : agentEnvironment(config, task.role);
   // Development task overrides remain the innermost layer and never enter the input JSON.
   const values = agentNetworkEnvironment(config, environment.values, manager ? {} : agent.env || {});
@@ -183,6 +201,7 @@ export class PiProvider {
     if (piMode && agent.agent !== 'pi') throw new Error('Pi default mode requires the Pi backend');
     if (!piMode && !agent?.connection_id) throw new Error(MISSING_PI_SOURCE_MESSAGE);
     const manager = managementTask(task);
+    const elevated = projectAdministratorMode(config, task, context);
     const integration = integrationTask(config, task, context, cwd);
     if (integration && choiceFork) throw new Error('integration Worker cannot inherit a choice/source session');
     if ((manager || integration) && (typeof token !== 'string' || !token.trim()))
@@ -196,8 +215,8 @@ export class PiProvider {
     // Lush mode owns a private invocation snapshot and pins the managed endpoint. Pi-default mode keeps
     // the machine's own Pi settings, resources and ambient credentials, so only adds the Lush runtime.
     const args = piMode && !manager ? ['--print'] : ['--print', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes'];
-    if (manager) args.push('--no-mcp', '--no-context-files', '--no-approve', '--tools', MANAGEMENT_TOOLS,
-      '--extension', PI_RUNTIME, '--extension', PI_MANAGEMENT);
+    if (manager) args.push('--no-mcp', '--no-context-files', '--no-approve', '--tools', elevated ? PROJECT_ADMINISTRATOR_TOOL_NAMES.join(',') : MANAGEMENT_TOOLS,
+      '--extension', PI_RUNTIME, '--extension', elevated ? PI_PROJECT_ADMINISTRATOR : PI_MANAGEMENT);
     else if (isolated) args.push('--no-tools', '--no-context-files', '--no-approve');
     else if (piMode) args.push('--extension', PI_RUNTIME);
     else {
@@ -214,7 +233,7 @@ export class PiProvider {
     if (!manager && !isolated) for (const skill of files.builtinSkills) args.push('--skill', skill);
     // Never resume another mode's session: Pi-default mode gets its own session id and never forks a
     // checkpoint recorded by a Lush-mode invocation that pinned a different model or system prompt.
-    const sessionId = manager ? `lush-manager-${task.id}${piMode ? '-pi' : ''}`
+    const sessionId = manager ? managementSessionIdentity(task.id, context.management?.signal?.id, elevated, piMode)
       : piMode ? `lush-task-${task.id}-pi` : `lush-task-${task.id}`;
     const existing = fs.readdirSync(files.sessions).some(name => name.endsWith(`_${sessionId}.jsonl`));
     const fork = !manager && !integration && !piMode && !existing && Boolean(choiceFork || forkPointer);
@@ -251,7 +270,8 @@ export class PiProvider {
         extraEnv: { ...values, ...(manager ? { LUSH_MANAGER_RPC_SOCKET: config.socket, LUSH_MANAGER_BUN: process.execPath } : {}),
           LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
             task_id: task.id, role: task.role, task_kind: task.task_kind ?? null,
-            ...(manager ? { management_occurrence_id: context.management?.signal?.id } : {}), config_mode: piMode ? 'pi' : 'lush',
+            ...(manager ? { management_occurrence_id: context.management?.signal?.id,
+              management_authorization: elevated ? { mode: 'administrator', scope: 'current_project', project: config.project } : { mode: 'ordinary', scope: 'current_project', project: config.project } } : {}), config_mode: piMode ? 'pi' : 'lush',
             soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
             sessions_dir: files.sessions, ...(managed ? { connection: { ...managed.binding, observations_file: managed.observations } } : {}) }) },
       });

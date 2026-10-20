@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { check } from './types.js';
+import { isManagementSessionFile, isManagementInvocationFile } from '../administrator/project-session.js';
 
 export const deletionHash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function present(file) { try { return fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } }
@@ -55,7 +56,7 @@ export function workerFiles(config, tasks, contexts, choices = []) {
   for (const task of tasks) {
     const id = task.id;
     for (const name of names) if (name.endsWith(`_lush-task-${id}.jsonl`) || name.endsWith(`_lush-task-${id}-pi.jsonl`) ||
-      (task.task_kind === 'management' && (name.endsWith(`_lush-manager-${id}.jsonl`) || name.endsWith(`_lush-manager-${id}-pi.jsonl`))) ||
+      (task.task_kind === 'management' && (isManagementSessionFile(name, id) || isManagementInvocationFile(name, id))) ||
       new RegExp(`^(?:task-${id}-(?:input|system)\\.md|task-${id}-context\\.json(?:\\.\\d+\\.tmp)?|decision-${id}\\.json|codex-task-${id}(?:-result\\.md|\\.json(?:\\.\\d+\\.tmp)?))$`).test(name)) add(path.join(sessions, name));
     add(path.join(home, 'task-rules', `task-${id}.mjs`));
     add(path.join(home, 'choice-contexts', `task-${id}.jsonl`));

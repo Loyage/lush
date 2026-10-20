@@ -1,6 +1,7 @@
 import { check, id, isPlainObject, text } from '../../core/types.js';
 import { validateHookRegistration } from '../../core/hook-registration.js';
 import { managementReceipt } from '../../core/project/management-receipt.js';
+import { PROJECT_ELEVATION_RPC } from '../../administrator/project-protocol.js';
 
 function revision(value) {
   check(typeof value === 'string' && value.length > 0 && value.length <= 256
@@ -151,6 +152,18 @@ export const handlers = {
   'management.submit'(p, params) {
     const { _token: _privateToken, ...options } = params;
     return p.submitManagementInstruction(options);
+  },
+  [PROJECT_ELEVATION_RPC.submit](p, params) {
+    check(!Object.hasOwn(params, '_token'), 'password elevation is user only; Agent credentials are not accepted');
+    return p.submitElevatedManagementInstruction(params.proof);
+  },
+  [PROJECT_ELEVATION_RPC.append](p, params) {
+    check(!Object.hasOwn(params, '_token'), 'password elevation is user only; Agent credentials are not accepted');
+    return p.appendElevatedManagementInstruction(params.proof);
+  },
+  [PROJECT_ELEVATION_RPC.receipt](p, params) {
+    check(!Object.hasOwn(params, '_token'), 'elevation receipts are user only; Agent credentials are not accepted');
+    return p.managementElevationReceipt(params.client_request_id);
   },
   'manager.catalog'(p, params, actor) { return p.managementCapabilityCatalog(id(actor)); },
   'manager.history'(p, params, actor) {

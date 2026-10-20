@@ -69,7 +69,7 @@ export function administratorSafeText(value) {
   return String(value).replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[redacted private key]')
     .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9_+/=.\-]{8,}/gi, '[redacted authorization]')
     .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,})\b/g, '[redacted credential]')
-    .replace(/((?:["']?)(?:access[_-]?token|refresh[_-]?token|api[_-]?key|password|client[_-]?secret|agent[_-]?token|private[_-]?prompt|system[_-]?prompt)(?:["']?)\s*[:=]\s*)(["'])([\s\S]*?)\2/gi, '$1"[redacted]"');
+    .replace(/((?:["']?)(?:access[_-]?token|refresh[_-]?token|api[_-]?key|password|client[_-]?secret|agent[_-]?token|private[_-]?prompt|system[_-]?prompt|default[_-]?prompt|append[_-]?prompt)(?:["']?)\s*[:=]\s*)(["'])([\s\S]*?)\2/gi, '$1"[redacted]"');
 }
 /** This is deliberately not the ordinary Valet metadata projection. Source/errors remain useful, secrets do not. */
 export function safeAdministratorValue(value, depth = 0) {

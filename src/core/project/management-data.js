@@ -10,6 +10,11 @@ export const MANAGEMENT_LIMITS = Object.freeze({ signals: 64, active: 64, action
 export const MANAGEMENT_READ_ITEMS = 100;
 export const managementState = task => task.management ? JSON.parse(task.management) : null;
 export const managementTime = project => new Date(project.hookClock()).toISOString();
+/** Public occurrence summary only. Execution authority additionally requires its accepted Event. */
+export function managementAuthority(occurrence) {
+  return { mode: occurrence?.elevation?.version === 1 && occurrence.elevation.mode === 'administrator'
+    && occurrence.elevation.scope === 'current_project' ? 'administrator' : 'ordinary', scope: 'current_project' };
+}
 // New user input authorizes only this occurrence, not the original instruction's device scope.
 export function managementInstruction(project, task, state = managementState(task)) {
   if (state?.pending_signal?.origin !== 'append') return task.goal;
@@ -84,7 +89,7 @@ export function managementView(task, project) {
   const noticeKinds = new Map(noticeIds.length ? project.store.all(`SELECT id,kind FROM notices
     WHERE task_id=? AND id IN (${noticeIds.map(() => '?').join(',')})`, task.id, ...noticeIds)
     .map(row => [row.id, ['question','questionnaire','plan','info'].includes(row.kind) ? row.kind : null]) : []);
-  const execution = value => value ? { id: value.id, signal_id: value.signal_id, name: value.name, due_at: value.due_at,
+  const execution = value => value ? { id: value.id, signal_id: value.signal_id, name: value.name, due_at: value.due_at, authority: managementAuthority(value),
     submitted_at: value.submitted_at, started_at: value.started_at ?? null, finished_at: value.finished_at ?? null,
     status: value.status ?? state.state, ...(value.reason ? { reason: value.reason } : {}),
     actions: (value.actions ?? []).map(action => managementActionView(project, task, action)),
@@ -97,7 +102,16 @@ export function managementView(task, project) {
     }) } : null;
   const enableReason = managementEnableReason(project, task, state);
   const appendReason = managementAppendReason(project, task, state);
+  // Native executor redacts failures before persistence. Expose only the first safe
+  // name/message, never private call parameters or an arbitrary result object.
+  const failed = [...(state.last_execution?.control_calls ?? []), ...(state.control_calls ?? [])]
+    .filter(call => call.authorization_mode === 'project_administrator' && ['unknown','failed'].includes(call.status) && call.result?.original_failure)
+    .sort((a, b) => a.receipt_id - b.receipt_id)[0];
+  const original = failed?.result.original_failure;
+  const detail = typeof original === 'string' ? original : [original?.name, original?.message].filter(value => typeof value === 'string').join(': ');
   return { version: 1, revision: managementRevision(task, state), signal_id: state.signal_id, mode: state.mode,
+    ...(detail ? { first_failure: { receipt_id: failed.receipt_id, detail: detail.slice(0, 2000), truncated: detail.length > 2000 } } : {}),
+    authority: managementAuthority(state.pending_signal),
     can_append: appendReason === null, append_reason: appendReason,
     origin: state.origin ?? 'signal',
     enabled: state.enabled, can_enable: enableReason === null, state: state.state,
@@ -127,6 +141,8 @@ function compactWorker(project, task) {
   return { id: task.id, worker_number: task.worker_number ?? null, name: compactText(task.name, 64), goal: compactText(task.goal, 160),
     goal_truncated: task.goal.length > 160, goal_length: task.goal.length, status: task.status,
     management: { ...view, reason: compactText(view.reason, 160),
+      ...(view.first_failure ? { first_failure: { ...view.first_failure, detail: compactText(view.first_failure.detail, 160),
+        truncated: view.first_failure.truncated || view.first_failure.detail.length > 160 } } : {}),
       pending_signal: compactExecution(view.pending_signal), last_execution: compactExecution(view.last_execution) },
     model_selection: model ? { ...model, model: compactText(model.model, 128), thinking: compactText(model.thinking, 64) } : null };
 }

@@ -1,130 +1,147 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { test, expect } from 'bun:test';
-import { fixture, repo, temp } from '../helpers.js';
+import { test,expect } from 'bun:test';
+import { fixture,repo } from '../helpers.js';
+import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
+import { AgentProvider } from '../../src/agent/provider.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { RPCServer } from '../../src/rpc/server.js';
-import { createSignal } from '../../src/signal.js';
-import { createAdministratorExecutor } from '../../src/administrator/execution.js';
-import { createAdministratorRunner } from '../../src/administrator/runner.js';
-import { AdministratorService } from '../../src/administrator/service.js';
-import { AdministratorClient, AdministratorInvocationClient } from '../../src/administrator/client.js';
-import { ADMINISTRATOR_TOOL_NAMES } from '../../src/administrator/tool-protocol.js';
-import { safeAdministratorValue, signAdministratorRequest } from '../../src/administrator/delegation.js';
+import { RPCClient } from '../../src/rpc/client.js';
 import { startTestWeb, fetch } from '../web/auth-fixture.js';
+import { projectRouteId } from '../../src/host/registry.js';
+import { PROJECT_ELEVATION_RPC } from '../../src/administrator/project-protocol.js';
+import { createSignal } from '../../src/signal.js';
+import { managementState } from '../../src/core/project/management-data.js';
+import { projectAdministratorMethods } from '../../src/administrator/project-execution.js';
+import { PROJECT_ADMINISTRATOR_RPC } from '../../src/administrator/project-tool-protocol.js';
+import { sessionFiles } from '../../src/core/transcript.js';
+import { workerFiles } from '../../src/core/deletion-resources.js';
 
-// One real normal chain replaces the initial injected broker. No separate exception matrix.
-test('authenticated user confirmation -> administrator runtime -> Provider/bridge -> signed cross-project business and unknown receipts', async () => {
-  const device = temp(), home = path.join(device, 'shared', 'administrator');
-  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-  const userEnv = { PATH: process.env.PATH, HOME: device, LUSH_GLOBAL_CONFIG: device, LUSH_PROVIDER: 'mock' };
-  const a = fixture(undefined, { LUSH_GLOBAL_CONFIG: device }), b = fixture(undefined, { LUSH_GLOBAL_CONFIG: device });
-  const servers = [];
-  let executor, service, web;
-  try {
-    await repo(a.root); await repo(b.root); a.project.kick = b.project.kick = () => {};
-    const first = (await a.project.order('admin first', 'main', [], null, false)).task;
-    const second = (await b.project.order('admin second', 'main', [], null, false)).task;
-    const da = new Dispatcher(a.project, createSignal(), {}), db = new Dispatcher(b.project, createSignal(), {});
-    for (const [f, d] of [[a, da], [b, db]]) { const server = new RPCServer(f.config.socket, d); await server.start(); servers.push(server); }
-    const permission = a.project.managementPermissionGet('worker.rename', 'device');
-    a.project.managementPermissionSet('worker.rename', 'confirmation', permission.revision, 'device');
-    const noticesBefore = a.store.get('SELECT count(*) AS n FROM notices').n;
-    fs.mkdirSync(path.join(b.root, 'src')); fs.writeFileSync(path.join(b.root, 'src', 'app.js'), 'export const result = 42;\nconst api_key = "CANARY-CREDENTIAL";\n');
-    fs.writeFileSync(path.join(b.root, '.env'), 'TOKEN=PRIVATE-CANARY');
-    executor = createAdministratorExecutor({ env: a.config.env, home });
-    const plan = [
-      { operation: 'catalog', params: {} },
-      { operation: 'project.call', params: { project: a.root, method: 'worker.rename', params: { id: first.id, title: 'admin renamed without another confirmation' } } },
-      { operation: 'project.call', params: { project: b.root, method: 'worker.inspect', params: { id: second.id } } },
-      { operation: 'source.read', params: { project: b.root, path: 'src/app.js' } },
-    ];
-    const provider = path.join(home, 'controlled-provider.mjs');
-    fs.writeFileSync(provider, `#!/usr/bin/env node\nconst args=process.argv.slice(2); const tools=[],events=new Map(),active=[];
-const extension=await import(${JSON.stringify(fileURLToPath(new URL('../../src/administrator/pi-tools.js', import.meta.url)))});
-const pi={registerTool:t=>tools.push(t),setActiveTools:n=>active.push(n),on:(k,v)=>events.set(k,v)};extension.default(pi);
-await events.get('session_start')();await events.get('before_agent_start')({});
-const replies=[]; for(const [i,p] of ${JSON.stringify(plan)}.entries()) replies.push(await tools[0].execute('tool_'+i,p,new AbortController().signal));
-console.log(JSON.stringify({registered:tools.map(t=>t.name),active,blocked:events.get('tool_call')({toolName:'bash'}).block,replies,args,credentialEnv:!!process.env.LUSH_AGENT_TOKEN}));\n`, { mode: 0o700 });
-    const runner = createAdministratorRunner({ env: { ...userEnv, LUSH_PI_COMMAND: provider, LUSH_AGENT_TOKEN: 'DEVELOPER-TOKEN-CANARY' }, home,
-      profile: { agent: 'pi', model: 'test/model', connection_id: 'test_connection' },
-      prepareConnection: async () => ({ dir: fs.mkdtempSync(path.join(home, 'model-runtime-')) }), timeoutMs: 5000 });
-    service = await new AdministratorService({ env: userEnv, home, runner, executor }).start();
-    const client = new AdministratorClient({ env: userEnv, home });
-    web = startTestWeb(null, 0, { env: userEnv, administratorOptions: { client } });
-    const url = `http://127.0.0.1:${web.port}/api/host/administrator/`;
-    const post = async (route, body, expected = 200, headers = {}) => {
-      const response = await fetch(url + route, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
-      expect(response.status).toBe(expected); return response.json();
+const tool=(operation,params)=>({name:'administrator',params:{operation,params}});
+// One real vertical slice: authenticated password -> signed native intake -> Provider/bridge -> handler.
+test('Web password -> native elevated Valet -> isolated Provider/bridge -> handler and next ordinary occurrence',async()=>{
+  const f=fixture();await repo(f.root);f.project.kick=()=>{};
+  const cli=managementToolCLI(f.root,'node');f.config.env.LUSH_PI_COMMAND=cli.command;
+  fs.writeFileSync(cli.command,fs.readFileSync(cli.command,'utf8').replace('console.log(JSON.stringify({ runtime:','console.log(JSON.stringify({ startup: input, argv: args, runtime:'));
+  f.project.provider=new AgentProvider(f.config,f.project.agentSettings);
+  const dispatcher=new Dispatcher(f.project,createSignal(),{}),rpc=new RPCServer(f.config.socket,dispatcher);await rpc.start();
+  const routeId=projectRouteId(f.root),client=new RPCClient(f.config.socket),forwarded=[];
+  const request=client.request.bind(client);
+  client.request=(method,params)=>{forwarded.push({method,params});return request(method,params);};
+  const host={launcher:true,hasRoute:id=>id===routeId,async openRoute(id){if(id!==routeId)throw Error('unknown fixture project');return{config:f.config,client};},async projects(){return[];},async status(){return{mode:'host',projects:[]};}};
+  const web=startTestWeb(null,0,{env:f.config.env,projectHost:host}),base=`http://127.0.0.1:${web.port}/p/${routeId}`;
+  const password='synthetic-test-only-password';
+  const post=(definition,value=password)=>fetch(base+'/api/management/elevate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definition,password:value,confirm:true})});
+  async function elevate(definition){const response=await post(definition);expect(response.status).toBe(200);return response.json();}
+  let ordinaryRejected=false,ordinaryPathBlocked=false;
+  const run=f.project.provider.run.bind(f.project.provider);
+  f.project.provider.run=async options=>{
+    if(options.context.management.authorization.mode==='administrator'){
+      await expect(dispatcher.dispatch('manager.query',{_token:options.token})).rejects.toThrow();ordinaryPathBlocked=true;
+    }else{
+      await expect(dispatcher.dispatch(PROJECT_ADMINISTRATOR_RPC,{operation:'catalog',params:{},_token:options.token})).rejects.toThrow();ordinaryRejected=true;
+    }
+    return run(options);
+  };
+  async function pump(plan){cli.plan(plan);f.project.pump();await Promise.all([...f.project.running.values()].map(item=>item.promise));await Promise.all([...f.project.managementControlJobs]);}
+  try{
+    const target=(await f.project.order('project target','main',[],null,false)).task;
+    const permission=f.project.managementPermissionGet('worker.rename','device');f.project.managementPermissionSet('worker.rename','confirmation',permission.revision,'device');
+    fs.mkdirSync(path.join(f.root,'src'));fs.writeFileSync(path.join(f.root,'src','app.js'),'export const answer = 42;\nconst api_key = "PRIVATE-SOURCE-CANARY";\n');
+    // User-owned Shell registrations must not become an elevated execution back door.
+    const marker=path.join(f.config.home,'forbidden-shell-effect'),directory=f.project.hooksList();
+    const shellDefinition={command:{name:'existing user Shell',command:`printf forbidden > '${marker}'`},
+      hook:{name:'existing user feature',trigger:'worker.merge_received',mode:'persistent',enabled:true},
+      expected_revisions:{commands:directory.commands.revision,registry:directory.registry.revision},client_request_id:'fixture-shell'};
+    const registered=f.project.registerCommandHook(shellDefinition);
+    const mounted=f.project.attachTaskHook(target.id,{template_id:registered.template_id,template_version:registered.template_version,enabled:false},f.project.taskHooks(target.id).revision);
+    const shellMount=mounted.mounts.find(item=>item.registry_id===registered.template_id),registryRevision=f.project.hooksList().registry.revision,commandsRevision=f.project.shortcutCommands().revision;
+    const forbiddenRegistration={...shellDefinition,client_request_id:'must-not-register',expected_revisions:{commands:commandsRevision,registry:registryRevision}};
+    const definition={kind:'submit',mode:'administrator',scope:'current_project',client_request_id:'native-high-1',instruction:' PRIOR-HIGH-GOAL-CANARY\n ',profile:{agent:'pi',config_mode:'pi'}};
+    const before=f.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management'").n;
+    const wrong=await post(definition,'incorrect-password');expect(wrong.status).toBe(403);expect(await wrong.json()).toMatchObject({code:'elevation_password_rejected',execution:'not_started'});
+    expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management'").n).toBe(before);expect(forwarded).toEqual([]);
+    const accepted=await elevate(definition),manager=accepted.task;expect(accepted.instruction).toBe(definition.instruction);
+    expect(forwarded[0].method).toBe(PROJECT_ELEVATION_RPC.submit);expect(JSON.stringify(forwarded)).not.toContain(password);
+    const proof=structuredClone(forwarded[0].params.proof);proof.request.definition.instruction+='edited';
+    await expect(dispatcher.dispatch(PROJECT_ELEVATION_RPC.submit,{proof})).rejects.toThrow();
+    const receipt=await fetch(base+'/api/management/elevation-receipt?client_request_id=native-high-1');
+    expect(await receipt.json()).toMatchObject({found:true,definition,task:{id:manager.id},instruction:definition.instruction});
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='management.elevation_accepted'").n).toBe(1);
+    const rename=tool('project.call',{method:'worker.rename',params:{id:target.id,title:'native elevated title'}});
+    await pump([tool('catalog',{}),rename,rename,tool('source.read',{path:'src/app.js'}),tool('project.call',{method:'worker.inspect',params:{id:target.id}}),
+      tool('project.call',{method:'system.configure',params:{settings:{}}}),tool('project.call',{method:'agent.config',params:{}}),
+      tool('source.read',{project:'/different/project',path:'src/app.js'}),tool('project.call',{method:'notice.post',params:{title:'new instruction?',body:'must reject',kind:'question'}}),
+      tool('project.call',{method:'hooks.register',params:forbiddenRegistration}),
+      tool('project.call',{method:'worker.hook_attach',params:{id:target.id,hook:{template_id:registered.template_id,template_version:registered.template_version},expected_revision:mounted.revision}}),
+      tool('project.call',{method:'worker.hook_update',params:{id:target.id,hook_id:shellMount.id,enabled:true,expected_revision:mounted.revision}}),
+      tool('project.call',{method:'worker.auto_merge',params:{id:target.id,enabled:false}})]);
+    const high=JSON.parse(f.store.task(manager.id).result);
+    expect(high.registered).toEqual(['administrator']);expect(high.cliActive).toEqual(['administrator']);expect(high.modelActive).toEqual(['administrator']);expect(high.blocked.every(Boolean)).toBe(true);
+    expect(high.startup.management.instruction).toBe(definition.instruction);expect(JSON.stringify(high)).not.toContain(password);expect(JSON.stringify(high)).not.toContain(forwarded[0].params.proof.signature);
+    expect(JSON.stringify(f.store.all('SELECT data FROM events'))).not.toContain(password);
+    expect(high.replies.slice(0,5).every(item=>!item.error)).toBe(true);
+    expect(high.replies.slice(5,-1).every(item=>item.error)).toBe(true);expect(high.replies.at(-1).response.details.status).toBe('succeeded');
+    expect(['hooks.register','hooks.save','hooks.command_save','hooks.command_import','hooks.command_remove','worker.hook_attach','worker.hook_update','worker.hook_remove'].some(method=>projectAdministratorMethods().includes(method))).toBe(false);
+    expect(f.project.hooksList().registry.revision).toBe(registryRevision);expect(f.project.shortcutCommands().revision).toBe(commandsRevision);
+    expect(f.project.taskHooks(target.id).mounts.find(item=>item.id===shellMount.id).enabled).toBe(false);expect(fs.existsSync(marker)).toBe(false);
+    expect(high.replies[1].response.details.receipt_id).toBe(high.replies[2].response.details.receipt_id);
+    expect(high.replies[1].response.details).toMatchObject({status:'succeeded',effect:'applied'});
+    expect(high.replies[3].response.details.result.content).toContain('answer = 42');
+    expect(JSON.stringify(high)).not.toContain('PRIVATE-SOURCE-CANARY');
+    expect(high.replies[4].response.details.result.coverage).not.toBe('worker_metadata_only');
+    expect(f.store.task(target.id).display_title).toBe('native elevated title');expect(f.store.get("SELECT count(*) AS n FROM notices WHERE kind IN ('question','questionnaire')").n).toBe(0);
+    const calls=managementState(f.store.task(manager.id)).last_execution.control_calls;
+    expect(calls.every(call=>call.authorization_mode==='project_administrator'&&call.source_event_id>0)).toBe(true);
+    expect(f.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed'",manager.id)).toBeTruthy();
+    const highSession=high.argv[high.argv.indexOf('--session-id')+1];expect(highSession).toContain('-administrator-');
+    f.store.update(manager.id,{result:'HIGH-RESULT-CANARY',error:'HIGH-ERROR-CANARY'});
+    await dispatcher.dispatch('worker.message',{id:manager.id,body:'normal next instruction'});
+    await pump([{name:'lush_cli',params:{argv:['help','worker','show']}}]);
+    const normal=JSON.parse(f.store.task(manager.id).result);
+    expect(normal.registered).toEqual(['lush_cli']);expect(ordinaryRejected&&ordinaryPathBlocked).toBe(true);
+    expect(JSON.stringify(normal.startup)).not.toContain('HIGH-RESULT-CANARY');expect(JSON.stringify(normal.startup)).not.toContain('HIGH-ERROR-CANARY');expect(JSON.stringify(normal.startup)).not.toContain('PRIOR-HIGH-GOAL-CANARY');
+    expect(normal.startup.task.goal).toBe('normal next instruction');expect(normal.startup.management.management).toBeUndefined();expect(normal.startup.messages).toEqual([]);
+    const normalSession=normal.argv[normal.argv.indexOf('--session-id')+1];expect(normalSession).not.toBe(highSession);expect(normalSession).toContain('-ordinary-');
+    const highInput=high.argv.find(arg=>arg.startsWith('@')).slice(1),normalInput=normal.argv.find(arg=>arg.startsWith('@')).slice(1);
+    const highSystem=high.argv[high.argv.indexOf('--system-prompt')+1],normalSystem=normal.argv[normal.argv.indexOf('--system-prompt')+1];
+    expect(normalInput).not.toBe(highInput);expect(normalSystem).not.toBe(highSystem);
+    expect(fs.readFileSync(normalInput,'utf8')).not.toContain('PRIOR-HIGH-GOAL-CANARY');
+    expect(workerFiles(f.config,[f.store.task(manager.id)],[])).toEqual(expect.arrayContaining([highInput,normalInput,highSystem,normalSystem]));
+    const nativeFile=`2026-01-01T00-00-00Z_${highSession}.jsonl`;fs.writeFileSync(path.join(f.config.home,'sessions',nativeFile),'');
+    expect(sessionFiles(f.config,manager.id)).toContain(nativeFile);expect(workerFiles(f.config,[f.store.task(manager.id)],[])).toContain(path.join(f.config.home,'sessions',nativeFile));
+    // Actual async control ownership persists until the handler completes; explicit unknown never becomes ready/success.
+    let effects=0;const renameTask=f.project.renameTask.bind(f.project);
+    f.project.renameTask=(id,title)=>{if(title==='unknown write'){effects++;renameTask(id,title);return Promise.resolve().then(()=>{
+      expect(f.project.managementControlOwners.has(manager.id)).toBe(true);expect(f.project.managementControlBusy.size).toBeGreaterThan(0);
+      return{status:'unknown',effect:'unknown',original_failure:'safe original failure'};
+    });}return renameTask(id,title);};
+    const peer=(await f.project.order('merge dependency peer','main',[],null,false)).task;
+    f.project.scheduleMergeConditions=()=>{};
+    f.project.mergeTaskAfter(peer.id,[{kind:'worker_merged',worker_id:target.id}],f.project.taskMergeConditions(peer.id).revision);
+    const revision=f.project.taskMergeConditions(target.id).revision;
+    const cycle=tool('project.call',{method:'worker.merge_after',params:{id:target.id,conditions:[{kind:'worker_merged',worker_id:peer.id}],expected_revision:revision}});
+    const mergeAfter=f.project.mergeTaskAfter.bind(f.project);
+    f.project.mergeTaskAfter=(id,conditions,revision)=>{
+      if(conditions[0]?.kind==='worker_settled')throw Object.assign(new Error('merge conditions create a cycle or parent/child closure deadlock'),{code:-32602});
+      return mergeAfter(id,conditions,revision);
     };
-    expect((await fetch(url + 'status', { anonymous: true })).status).toBe(401);
-    expect((await fetch(`http://127.0.0.1:${web.port}/p/${'a'.repeat(16)}/api/host/administrator/status`)).status).toBe(404);
-    const creation = { kind: 'create', mode: 'administrator', scope: 'device_user', client_request_id: 'create_test', name: '跨项目管理员' };
-    await post('preview', { definition: creation }, 400, { 'x-lush-agent-token': 'dev-token' });
-    const preview = await post('preview', { definition: creation });
-    await post('commit', { confirmation_id: preview.confirmation_id, definition: { ...creation, name: 'changed' }, confirm: true }, 400);
-    const made = await post('commit', { confirmation_id: preview.confirmation_id, definition: creation, confirm: true });
-    expect(made.worker).toMatchObject({ status: 'ready', mode: 'administrator', scope: 'device_user', can_input: true });
-    expect(service.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
-    const input = { kind: 'input', mode: 'administrator', scope: 'device_user', client_request_id: 'input_test', id: made.worker.id, instruction: '跨项目核对并修改目标名称\n 保留空白 ' };
-    const approved = await post('preview', { definition: input });
-    await post('commit', { confirmation_id: approved.confirmation_id, definition: { ...input, instruction: input.instruction + ' ' }, confirm: true }, 400);
-    const submitted = await post('commit', { confirmation_id: approved.confirmation_id, definition: input, confirm: true });
-    await service.idle();
-    const receipt = await (await fetch(url + 'receipt?client_request_id=input_test')).json();
-    expect(receipt).toMatchObject({ found: true, definition: input, instruction: { id: submitted.instruction.id, status: 'succeeded' } });
-    expect(receipt.worker.status).toBe('ready');
-    const output = receipt.worker.result, result = JSON.parse(output);
-    expect(result.registered).toEqual(ADMINISTRATOR_TOOL_NAMES);
-    expect(result.active.every(active => JSON.stringify(active) === JSON.stringify(ADMINISTRATOR_TOOL_NAMES))).toBe(true);
-    expect(result.blocked).toBe(true); expect(result.credentialEnv).toBe(false);
-    expect(result.replies[0].details.result.map(item => item.name)).toEqual(['catalog', 'project.call', 'source.list', 'source.read', 'device.call', 'service.project', 'service.host']);
-    expect(result.args).toContain('--no-context-files'); expect(result.args).toContain('--no-mcp'); expect(result.args).toContain('--no-approve');
-    expect(result.replies[1].details.result).toMatchObject({ status: 'succeeded', identity: { worker_id: made.worker.id } });
-    expect(a.store.task(first.id).display_title).toBe('admin renamed without another confirmation');
-    expect(a.store.get('SELECT count(*) AS n FROM notices').n).toBe(noticesBefore);
-    expect(result.replies[2].details.result.result).toMatchObject({ id: second.id, goal: 'admin second' });
-    expect(result.replies[2].details.result.result.coverage).not.toBe('worker_metadata_only');
-    expect(result.replies[3].details.result.content).toContain('result = 42');
-    expect(output).not.toContain('CANARY-CREDENTIAL'); expect(output).not.toContain('DEVELOPER-TOKEN-CANARY');
-    expect(JSON.parse(a.store.get("SELECT data FROM events WHERE type='administrator.call_started'").data).identity.worker_id).toBe(made.worker.id);
-    const identity = { service_id: 'service_test', worker_id: 'admin_1', instruction_id: 'instruction_1', call_id: 'initial' };
-    await expect(executor.execute({ operation: 'source.read', params: { project: b.root, path: '.env' }, identity })).rejects.toThrow();
-    const originalActor = a.project.actor.bind(a.project); a.project.actor = value => value === 'dev-token' ? first.id : originalActor(value);
-    const signed = signAdministratorRequest(home, { project: a.root, method: 'worker.inspect', params: { id: first.id }, identity: { ...identity, call_id: 'direct_read' } });
-    await expect(da.dispatch('administrator.dispatch', { ...signed, _token: 'dev-token' })).rejects.toThrow('user approval');
-    await expect(da.dispatch('administrator.dispatch', { ...signed, signature: 'x'.repeat(86) })).rejects.toThrow();
-    let effects = 0;
-    const dispatch = da.dispatch.bind(da);
-    da.dispatch = async (method, values) => { if (method === 'worker.rename' && values.title === 'unknown-write') { effects++; a.project.renameTask(first.id, values.title); throw new Error('original execution failure marker'); } return dispatch(method, values); };
-    const unknownParams = { project: a.root, method: 'worker.rename', params: { id: first.id, title: 'unknown-write' } };
-    // A second precisely confirmed input exercises the real broker's unknown propagation and stable dedupe.
-    let unknownCalls;
-    service.runner = async ({ socket, token, signal }) => {
-      const invocation = new AdministratorInvocationClient(socket, token);
-      const firstCall = await invocation.call('project.call', unknownParams, { signal });
-      const secondCall = await invocation.call('project.call', unknownParams, { signal });
-      unknownCalls = [firstCall, secondCall];
-      return 'Observed unknown; no replay';
-    };
-    const next = { ...input, client_request_id: 'unknown_input', instruction: '执行并核对未知写入证据，不重放' };
-    const nextPreview = await post('preview', { definition: next });
-    await post('commit', { confirmation_id: nextPreview.confirmation_id, definition: next, confirm: true });
-    await service.idle();
-    const unknown = await (await fetch(url + 'receipt?client_request_id=unknown_input')).json();
-    expect(unknownCalls[0].call.status).toBe('unknown'); expect(unknownCalls[1].result).toEqual(unknownCalls[0].result);
-    expect(unknown.worker).toMatchObject({ status: 'unknown', can_input: false });
-    expect(effects).toBe(1);
-    expect(JSON.stringify(service.store.all('SELECT * FROM tool_calls WHERE status=\'unknown\''))).toContain('original execution failure marker');
-    expect(safeAdministratorValue({ privatePrompt: 'PROMPT-CANARY', apiKey: 'KEY-CANARY', OPENAI_API_KEY: 'ENV-KEY-CANARY', result: 'useful' })).toEqual({ result: 'useful' });
-    await post('stop', { id: made.worker.id });
-    expect((await client.detail({ id: made.worker.id })).worker.status).toBe('stopped');
-    await web.stop(true); web = null;
-    expect((await client.readStatus()).online).toBe(true); // Host teardown is not the service lifecycle.
-  } finally {
-    await web?.stop(true); await service?.close(); await executor?.close();
-    for (const server of servers.reverse()) await server.close();
-    await a.close(); await b.close(); fs.rmSync(device, { recursive: true, force: true });
-  }
+    const forgedCycle=tool('project.call',{method:'worker.merge_after',params:{id:target.id,conditions:[{kind:'worker_settled',worker_id:peer.id}],expected_revision:revision}});
+    const append={kind:'append',mode:'administrator',scope:'current_project',client_request_id:'native-high-2',id:manager.id,instruction:'new explicit high instruction'};
+    const wrongAppend=await post(append,'incorrect-again');expect(wrongAppend.status).toBe(403);expect(managementState(f.store.task(manager.id)).pending_signal).toBeNull();
+    expect((await elevate(append)).instruction).toBe(append.instruction);
+    const unknown=tool('project.call',{method:'worker.rename',params:{id:target.id,title:'unknown write'}});
+    await pump([cycle,forgedCycle,unknown,unknown]);
+    const failed=JSON.parse(f.store.task(manager.id).result),rejected=failed.replies[0].response.details;
+    expect(rejected).toMatchObject({status:'failed',effect:'not_started',diagnostic:{code:'merge_dependency_cycle',stage:'execution',
+      evidence:'trusted_pre_effect_rejection',original_failure:{code:'merge_dependency_cycle',effect:'not_started'},retry:'not_automatic'}});
+    expect(f.project.taskMergeConditions(target.id)).toMatchObject({state:'idle',revision});expect(f.store.task(target.id).reservation).toBeNull();
+    expect(f.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed' AND json_extract(data,'$.receipt_id')=?",manager.id,rejected.receipt_id)).toBeNull();
+    expect(failed.replies[1].response.details).toMatchObject({status:'unknown',effect:'unknown',diagnostic:{code:'execution_failed',effect:'unknown'}});
+    expect(failed.replies[2].response.details.status).toBe('unknown');expect(failed.replies[3].response.details.status).toBe('unknown');expect(effects).toBe(1);
+    const failedState=managementState(f.store.task(manager.id)),failedCalls=failedState.last_execution?.control_calls??failedState.control_calls;
+    expect(failedCalls.find(call=>call.method==='worker.rename').result.original_failure).toBe('safe original failure');
+    expect(f.project.inspect(manager.id).management.first_failure.detail).toContain('merge conditions create a cycle');
+    expect(f.project.managementControlJobs.size).toBe(0);expect(f.project.managementControlBusy.size).toBe(0);
+  }finally{await web.stop(true);await rpc.close();await f.close();}
 });

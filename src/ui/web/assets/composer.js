@@ -4,6 +4,7 @@ import { attachComposerResize } from './composer-resize.js';
 import { workerKind } from './worker-kind.js';
 import { waitingFirstInput } from './worker-create.js';
 import { action, api } from './api.js';
+import { elevationChoice, confirmProjectElevation, projectElevationDefinition, projectElevationReceipts, pendingProjectElevation, syncProjectElevationSecrets } from './administrator-project-input.js';
 import { taskTitle, isHistoricalDelivery } from './format.js';
 import { iterationBlocker } from './render-iteration.js';
 import { show } from './messages.js';
@@ -32,8 +33,10 @@ export function runSettingsLabel() {
 
 // 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
 let runSettingsButton = null, managementResultButton = null, textEditor = null, disposeViewport = null, disposeResize = null;
+let elevationControl = null, elevationReceipts = null;
 
 export function paintRunSettings() {
+  syncProjectElevationSecrets();
   if (!runSettingsButton) return;
   runSettingsButton.textContent = runSettingsLabel();
   runSettingsButton.setAttribute('data-help', ui.composerManagement ? '设置独立 Valet 的模型来源与思考深度；不加载开发 Prompt、环境变量或扩展，只打开设置，不调用 Agent。' : RUN_SETTINGS_HELP);
@@ -221,6 +224,11 @@ export function toggleComposerDetails(force) {
 export function syncComposer() {
   renderParentOptions();
   const management = Boolean(ui.composerManagement);
+  if (!management) ui.composerElevated = false;
+  if (!ui.composerElevated) elevationControl?.reset();
+  syncProjectElevationSecrets();
+  if (elevationControl) elevationControl.root.hidden = !management;
+  if (elevationReceipts) { elevationReceipts.root.hidden = !management; if (management) elevationReceipts.refresh(); }
   const target = management ? {} : destination(), followup = target.id != null, firstInput = followup && waitingFirstInput(target.task);
   const input = $('input');
   const touch = usesTouchEnter();
@@ -239,7 +247,8 @@ export function syncComposer() {
     'composer-mode-title': management ? '管理 Lush' : firstInput ? '输入工作指令' : followup ? '追加输入' : '新建工作',
     'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}`,
     'composer-mode-behavior': target.reason || (management
-      ? '由管家处理 · 受控接口默认自动执行，可逐项限制 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
+      ? ui.composerElevated ? '仅本条当前项目管理员 · 重新验证 Web 登录密码 · 执行中不逐项询问 · 下一条默认普通'
+        : '由普通管家处理 · 接口按普通权限执行 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
       : firstInput ? `不创建新 Worker · ${enter} 提交首条工作指令并授权 Agent 执行 · 生成真实原始输入 O · 暂存不执行`
       : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，导航不改变目标${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
         : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
@@ -255,14 +264,16 @@ export function syncComposer() {
       : '描述你希望新 Worker 完成的工作…';
   input.setAttribute('aria-label', management ? '管理指令正文' : followup && !firstInput ? '追加指令正文' : '工作指令正文');
   input.disabled = Boolean(target.reason);
-  const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
+  const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim()
+    || management && pendingProjectElevation('submit').length > 0;
   $('draft-commit').disabled = disabled;
   $('draft-commit').classList.add('agent-call');
   const saved = currentEdit()?.saved, conditions = saved || currentEdit()?.localOptions, conditional = Boolean(conditions?.conditions?.length || conditions?.exclusive);
-  $('draft-commit').textContent = conditional ? '按条件提交' : management ? '提交管理指令' : firstInput ? '提交工作指令' : followup ? '提交追加' : '提交新工作';
+  $('draft-commit').textContent = conditional ? '按条件提交' : management ? ui.composerElevated ? '核对本条提权指令' : '提交管理指令' : firstInput ? '提交工作指令' : followup ? '提交追加' : '提交新工作';
   $('draft-commit').classList.toggle('hook-button', Boolean(!management && target.freeze));
   const description = target.reason || (management
-    ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；受控接口默认自动执行，可在全局 CLI 接口页面限制。管家修改接口权限始终须用户审核，不提供文件或 Shell 工具。'
+    ? ui.composerElevated ? '核对完整首条指令并重新验证 Web 登录密码后，创建项目管家并仅本条以当前项目管理员权限执行；下一条默认普通权限。'
+      : '提交普通管理指令，创建并安排管家（Valet）；受控接口按普通管家权限执行，不因上条提权自动升级。'
     : firstInput ? `向 ${label} 提交首条工作指令，创建真实 Input 并授权 Agent 执行；无需另点开始，不创建新 Worker。`
     : followup ? `提交追加指令给 ${label}，可靠保存后等待安全准入；不代表 Agent 已收到，冻结不打断交付或源侧修复，暂停中仍需显式继续。`
       : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在工作树。`);
@@ -312,6 +323,31 @@ async function updateAfterSubmit({ identity, submission, view, appendTarget, det
   }
 }
 
+async function submitElevatedManagement() {
+  const input = $('input'), identity = ui.composerIdentity, view = ui.view, edit = currentEdit();
+  const value = input.value, revision = ui.composerEditRevision, profile = ui.composerManagementProfile;
+  const profileText = JSON.stringify(profile), referenceRevision = ui.composerReferenceRevision;
+  if (pendingProjectElevation('submit').length) { elevationReceipts?.refresh(); show('原提权提交未知，请先只读核对收据，不重复发送。', 'error'); return; }
+  const current = () => ui.composerIdentity === identity && ui.view === view && currentEdit() === edit && ui.composerManagement && ui.composerElevated
+    && ui.composerEditRevision === revision && input.value === value && ui.composerReferenceRevision === referenceRevision
+    && JSON.stringify(ui.composerManagementProfile) === profileText;
+  ui.composerSubmitting = true; syncComposer();
+  try {
+    if (composerReferences().length) { show('管家提权输入不支持引用附件；请先移除引用，原稿保留。', 'error'); return; }
+    const definition = projectElevationDefinition({ kind: 'submit', instruction: value, client_request_id: emissionRequestId(), ...(profile ? { profile } : {}) });
+    const result = await confirmProjectElevation(definition, { current });
+    if (!result) return;
+    const unchanged = current();
+    if (ui.composerIdentity !== identity) return;
+    ui.composerElevated = false; elevationControl?.reset(); ui.composerManagementResult = result.task;
+    if (unchanged) { input.value = ''; textEditor?.reset(); finishComposerEdit({ consume: true }); ui.composerManagementProfile = null; }
+    rememberComposer(); show(`本条项目管理员指令已提交 ${workerLabel(result.task)}；下一条默认普通权限，提交不代表执行完成。`);
+    try { await refresh(); if (ui.offline) show('提权指令已提交，但页面刷新失败；请只读刷新，不要重发。', 'error'); }
+    catch { show('提权指令已提交，但页面刷新失败；请只读刷新，不要重发。', 'error'); }
+  } catch { if (ui.composerIdentity === identity) show('提权输入未完成；原稿保留，请核对确认状态，不自动重试。', 'error'); }
+  finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; elevationReceipts?.refresh(); syncComposer(); } }
+}
+
 /** One flight across buffering, button submission and all keyboard shortcuts. */
 async function submitInput(mode) {
   const input = $('input'), value = input.value, content = value.trim();
@@ -326,6 +362,8 @@ async function submitInput(mode) {
   const target = management ? {} : destination(), branch = target.branch;
   if (target.reason) { show(target.reason, 'error'); return; }
   if (management && mode === 'buffer') return;
+  if (management && pendingProjectElevation('submit').length) { elevationReceipts?.refresh(); return; }
+  if (management && ui.composerElevated) return submitElevatedManagement();
   const request = editing?.request || identity;
   const localOptions = editing?.localOptions || {};
   const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile, localOptions]);
@@ -406,7 +444,7 @@ export function initComposer() {
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
   editorTools.replaceChildren();
-  ui.composerAppendTarget = null; ui.composerManagement = false; ui.composerManagementProfile = null;
+  ui.composerAppendTarget = null; ui.composerManagement = false; ui.composerElevated = false; ui.composerManagementProfile = null;
   // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
   ui.composerProfile = null;
   runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP });
@@ -421,6 +459,21 @@ export function initComposer() {
   host?.querySelector?.('.composer-management-result')?.remove?.();
   managementResultButton = button('查看最近管理记录', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');
   managementResultButton.hidden = true; host?.append(managementResultButton);
+  host?.querySelector?.('.project-elevation-choice')?.remove?.(); host?.querySelector?.('.project-elevation-receipts')?.remove?.();
+  elevationControl = elevationChoice(checked => { ui.composerElevated = checked; syncComposer(); });
+  elevationReceipts = projectElevationReceipts({ kind: 'submit', current: () => ui.composerIdentity === identity && ui.composerManagement,
+    resolved: receipt => {
+      ui.composerManagementResult = receipt.task; ui.composerElevated = false; elevationControl.reset();
+      try {
+        const definition = projectElevationDefinition({ kind: 'submit', instruction: input.value, client_request_id: receipt.definition.client_request_id,
+          ...(ui.composerManagementProfile ? { profile: ui.composerManagementProfile } : {}) });
+        if (JSON.stringify(definition) === JSON.stringify(projectElevationDefinition(receipt.definition))) {
+          input.value = ''; textEditor?.reset(); finishComposerEdit({ consume: true }); ui.composerManagementProfile = null; rememberComposer();
+        }
+      } catch { /* A newer or empty draft is not the proved original; preserve it. */ }
+      syncComposer();
+    } });
+  host?.append(elevationControl.root, elevationReceipts.root);
   const sendHelp = agentHelp('提交工作指令并可靠保存执行授权，安全准入后创建并开始新 Worker；不保证立即创建。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);

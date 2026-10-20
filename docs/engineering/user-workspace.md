@@ -8,7 +8,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 每项目一个 lushd；`Config.home`、`LUSH_HOME`、Store、Git 和 Worker 身份不改变。设备根沿用 `launcherStateDir(env)/shared`。Host 只管理用户配置、聚合读面与来源转发，不持有 Worker 权威事实、不调度跨项目工作。
 
-W363／D737 的[管理员管家](administrator-valet.md)是明确新增的设备独立执行主体，不依赖来源项目在线；Host 仅会话鉴权与转发，仍不持有／调度 Worker。其全局 `#administrator` 页与普通 Valet 分离，项目页仅新标签导航；管理员创建和每条新输入必须精确用户确认，不沿用设备自动选择或普通管家授权。
+W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入和 V 管家详情中提供：仅本条、仅当前项目，重新验证当前 Web 登录密码，下一条默认普通。Host 验证密码并签发绑定 proof，不持有／调度 Worker，普通管家权限和自动选择不获得提权。旧全局 `#administrator` 只兼容历史与安全停止，不再作为创建／输入入口，也不自动迁移或删除 ADM 记录。
 
 项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#skills`、`#model-sources`、`#runners`、`#automation`、`#cli-interfaces` 和文档；项目页旧全局页面 hash 引导独立根页面，不在项目 shell 编辑设置。
 
