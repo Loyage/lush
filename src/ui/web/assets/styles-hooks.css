@@ -4,6 +4,10 @@
 .registry-automation, .registry-registration, .registry-mount, .registry-facts, .registry-targets, .registry-advanced, .registered-mount-picker { min-width: 0; display: grid; gap: .7rem; }
 .registry-automation [hidden], .registry-registration [hidden] { display: none; }
 .registry-facts h1 { margin: 0; }
+.temporary-usage { display: grid; gap: .7rem; min-width: 0; }
+.temporary-usage li, .temporary-usage p { overflow-wrap: anywhere; }
+.temporary-usage button { justify-self: start; max-width: 100%; }
+.automation-feature-head { flex-wrap: wrap; }
 .registry-facts p, .registry-automation p, .registry-automation button, .registry-targets button { overflow-wrap: anywhere; white-space: normal; }
 .registry-facts .badge { justify-self: start; }
 .registry-definition { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; font-size: .85rem; }

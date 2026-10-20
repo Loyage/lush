@@ -3,7 +3,7 @@ import { normalizeConfigurationScope } from '../core/device-config.js';
 import { INPUT_OPTION_KEYS as ALL_INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { INPUT_EMIT_PARAMS } from '../core/input-emission-protocol.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
-import { HOOK_REGISTER_PARAMETERS } from '../core/hook-registration.js';
+import { HOOK_REGISTER_PARAMETERS, TEMPORARY_AUTOMATION_PARAMETERS } from '../core/hook-registration.js';
 import { MERGE_CONDITION_PARAMETERS, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_PARAMETERS } from '../core/worker-query.js';
 import { MANAGEMENT_RECEIPT_PARAMETERS } from '../core/management-diagnostic.js';
@@ -37,7 +37,8 @@ export const PARAMS = {
   'agent.connections.device.start': ['id','scope'], 'agent.connections.device.poll': ['id','login_id','scope'], 'agent.connections.device.cancel': ['id','login_id','scope'],
   'agent.connections.models': ['id','scope'], 'agent.connections.models.refresh': ['id','scope'],
   'agent.packages.list': ['scope'], 'agent.packages.install': ['source','scope'], 'agent.packages.remove': ['id','scope'], 'agent.packages.update': ['id','scope'],
-  'hooks.list': [], 'hooks.save': ['template','expected_revision'], 'hooks.remove': ['id','expected_revision'],
+  'hooks.list': ['include_reclaimed','after','limit'], ...TEMPORARY_AUTOMATION_PARAMETERS,
+  'hooks.save': ['template','expected_revision'], 'hooks.remove': ['id','expected_revision'],
   'hooks.command_save': ['command','expected_revision'],
   'hooks.install': HOOK_INSTALL_PARAMETERS,
   'hooks.register': HOOK_REGISTER_PARAMETERS, 'hooks.upgrade': ['expected_revision'],
@@ -132,6 +133,7 @@ export const USER_ONLY = new Set([
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',
   'agent.connections.models','agent.connections.models.refresh',
   'agent.packages.list','agent.packages.install','agent.packages.remove','agent.packages.update',
+  ...Object.keys(TEMPORARY_AUTOMATION_PARAMETERS),
   'hooks.install','hooks.register','hooks.upgrade','hooks.command_save','hooks.command_export','hooks.command_remove','hooks.command_history','hooks.command_history_remove','hooks.command_import',
   'management.permissions','management.permissions_update','management.permission_get','management.permission_set',
   'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','management.submit',

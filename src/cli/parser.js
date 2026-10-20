@@ -75,9 +75,17 @@ function matchesCLIValue(schema, raw) {
 export function matchesJSONSchema(schema, value, depth = 0) {
   if (!schema || depth > 32) return false;
   if (Array.isArray(schema.type)) return schema.type.some(type => matchesJSONSchema({ ...schema, type }, value, depth + 1));
-  if (schema.anyOf) return schema.anyOf.some(part => matchesJSONSchema(part, value, depth + 1));
-  if (schema.oneOf) return schema.oneOf.filter(part => matchesJSONSchema(part, value, depth + 1)).length === 1;
-  if (schema.allOf && !schema.allOf.every(part => matchesJSONSchema(part, value, depth + 1))) return false;
+  const matches = part => matchesJSONSchema(part, value, depth + 1);
+  if (schema.anyOf && !schema.anyOf.some(matches)) return false;
+  if (schema.oneOf && schema.oneOf.filter(matches).length !== 1) return false;
+  if (schema.allOf && !schema.allOf.every(matches)) return false;
+  if (schema.not && matches(schema.not)) return false;
+  if (schema.if && !matches(matches(schema.if) ? schema.then ?? {} : schema.else ?? {})) return false;
+  // Applicator branches may omit type (required/properties still constrain objects).
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (!(schema.required ?? []).every(key => Object.hasOwn(value, key))) return false;
+    if (!Object.entries(schema.properties ?? {}).every(([key, part]) => !Object.hasOwn(value, key) || matchesJSONSchema(part, value[key], depth + 1))) return false;
+  }
   if (Object.hasOwn(schema, 'const') && value !== schema.const) return false;
   if (schema.enum && !schema.enum.includes(value)) return false;
   if (schema.type === 'null') return value === null;

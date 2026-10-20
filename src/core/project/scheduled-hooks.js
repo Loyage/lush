@@ -2,6 +2,7 @@ import { check, TERMINAL } from '../types.js';
 import { HOOK_LIMITS, hookConditionsMatch } from '../hooks.js';
 import { nextHookRun } from '../hook-schedule.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
+import { automationHookEvent } from './automation-registry.js';
 
 const read = task => task.hooks ? JSON.parse(task.hooks) : { mounts: [] };
 const save = (project, taskId, data) => project.store.update(taskId, { hooks: JSON.stringify(data) });
@@ -87,7 +88,7 @@ export default {
     this.store.transaction(() => {
       const task = this.store.task(taskId), data = read(task), mount = data.mounts.find(m => m.id === hookId);
       if (!mount || !eligible(mount) || mount.pending_due_at) return;
-      const id = this.store.event(taskId, 'hook.scheduled_submitted', { hook_id: hookId, trigger: 'time.scheduled', due_at: dueAt });
+      const id = automationHookEvent(this, taskId, 'hook.scheduled_submitted', { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version, trigger: 'time.scheduled', due_at: dueAt });
       mount.pending_due_at = dueAt; mount.pending_execution_id = id; mount.last_due_at = dueAt;
       mount.state = 'waiting'; mount.receipts = [];
       mount.reason = '定时动作已提交；在安全点尽早执行，不保证 Agent 准点开始。';
@@ -101,12 +102,13 @@ export default {
     this.store.transaction(() => {
       const task = this.store.task(taskId), data = read(task), mount = data.mounts.find(m => m.id === hookId);
       if (!mount || mount.pending_execution_id !== executionId) return;
+      const effectsUnknown = status !== 'succeeded' && mount.action_started_index !== undefined;
       mount.state = status; mount.reason = reason;
       mount.pending_due_at = null; delete mount.pending_execution_id; delete mount.action_started_index;
       if (stop || mount.mode === 'once' || ['failed','unknown'].includes(status)) { mount.enabled = false; mount.next_run_at = null; }
       Object.assign(mount.last_execution, { status, finished_at: timestamp(this), ...(reason ? { error: reason } : {}) });
       save(this, taskId, data);
-      this.store.event(taskId, `hook.execution_${status}`, { hook_id: hookId, execution_id: executionId, error: reason });
+      automationHookEvent(this, taskId, `hook.execution_${status}`, { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version, execution_id: executionId, error: reason, effects_unknown: effectsUnknown });
       this.removeSucceededTaskHook(taskId, hookId);
     });
   },
@@ -190,7 +192,8 @@ export default {
             const data = read(this.store.task(taskId)), current = data.mounts.find(m => m.id === hookId);
             current.state = 'running'; current.reason = null; current.action_started_index = index;
             current.last_execution.status = 'running'; save(this, taskId, data);
-            this.store.event(taskId, 'hook.execution_started', { hook_id: hookId, execution_id: executionId, trigger: 'time.scheduled', index });
+            automationHookEvent(this, taskId, 'hook.execution_started', { hook_id: hookId, registry_id: current.registry_id,
+              registry_version: current.registry_version, execution_id: executionId, trigger: 'time.scheduled', index });
           };
           if (action.type === 'create_worker' && !gate.skip) {
             this.store.transaction(begin);
@@ -251,7 +254,8 @@ export default {
       if (!eligible(mount)) continue;
       if (mount.schedule.kind === 'once' && !mount.pending_due_at && Date.parse(mount.next_run_at ?? mount.schedule.at) <= clock) {
         // Persist a missed receipt, not a submitted action; reads remain side-effect-free.
-        const id = this.store.event(task.id, 'hook.schedule_missed', { hook_id: mount.id, due_at: mount.schedule.at });
+        const id = automationHookEvent(this, task.id, 'hook.schedule_missed', { hook_id: mount.id, registry_id: mount.registry_id,
+          registry_version: mount.registry_version, due_at: mount.schedule.at });
         mount.pending_execution_id = id;
         mount.last_execution = { id, trigger: 'time.scheduled', status: 'skipped', due_at: mount.schedule.at, created_at: timestamp(this), finished_at: null };
         save(this, task.id, data);

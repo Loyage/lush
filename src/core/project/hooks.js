@@ -6,8 +6,9 @@ import { inheritedRunProfile } from './internal.js';
 import { nextHookRun } from '../hook-schedule.js';
 import { hasCommand } from './command-hooks.js';
 import { builtinAutomationMounted } from '../automation-scopes.js';
-import { HOOK_REGISTER_CAPABILITY } from '../hook-registration.js';
-import { registryData, writeRegistry, registerDefinition, resolveRegisteredMount, automationRegistry, systemRegistration, pinCommands, registryVersion } from './automation-registry.js';
+import { HOOK_REGISTER_CAPABILITY, TEMPORARY_AUTOMATION_CAPABILITIES, validateTemporaryAutomation } from '../hook-registration.js';
+import { registryData, writeRegistry, registerDefinition, resolveRegisteredMount, automationRegistry, systemRegistration, pinCommands, registryVersion, registryPage, temporaryUsage, automationHookEvent } from './automation-registry.js';
+import { temporaryAutomationReceipt, saveTemporaryAutomationReceipt } from './hook-install.js';
 
 const empty = () => ({ version: 1, mounts: [], observed: {} });
 const parse = task => task.hooks ? JSON.parse(task.hooks) : empty();
@@ -102,12 +103,81 @@ function eligible(mount) { return mount.enabled && !mount.maintenance_pending &&
   && !(mount.mode === 'once' && mount.state === 'succeeded'); }
 
 export default {
-  hooksList() {
-    const data = definitions(this);
-    return { version: 1, revision: hookRevision(data), registry: automationRegistry(this), registration: HOOK_REGISTER_CAPABILITY, completion_defaults: this.completionDefaults(), automation_settings: this.automationSettings(),
+  hooksList(options = {}) {
+    const data = definitions(this), page = registryPage(data, options);
+    return { version: 1, revision: hookRevision(data), registry: automationRegistry(this, options), registration: HOOK_REGISTER_CAPABILITY,
+      temporary: { version: 1, capabilities: TEMPORARY_AUTOMATION_CAPABILITIES, default_mode: 'once', reclaim: 'explicit',
+        registry_bytes_limit: 4 * HOOK_LIMITS.bytes, active_limit: HOOK_LIMITS.templates }, completion_defaults: this.completionDefaults(), automation_settings: this.automationSettings(),
       daemon_hooks: this.daemonHooks(), signals: this.hookSignals(),
       management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS.filter(action => action.type !== 'archive_worker'),
-      commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: data.templates.filter(item => item.definition).map(item => ({ id: item.id, version: registryVersion(item), purpose: item.purpose ?? item.definition.name, ...readDefinition(this, item.definition, !item.version) })) };
+      commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: page.items.filter(item => item.definition).map(item => ({ id: item.id, version: registryVersion(item),
+        temporary: Boolean(item.temporary), lifecycle: item.reclaimed_at ? 'reclaimed' : 'active', readonly: Boolean(item.temporary || item.protected),
+        purpose: item.purpose ?? item.definition.name, ...readDefinition(this, item.definition, !item.version) })) };
+  },
+
+  createTemporaryAutomation(options) {
+    this.assertWritable('create temporary automation');
+    validateTemporaryAutomation('hooks.temporary_create', options);
+    return this.store.transaction(() => {
+      const previous = temporaryAutomationReceipt(this, 'hooks.temporary_create', options);
+      if (previous) return previous;
+      checkRevision(hookRevision(definitions(this)), options.expected_revisions.registry);
+      let command = null;
+      if (options.command !== undefined) command = this.saveShortcutCommand(options.command, options.expected_revisions.commands).commands.items.at(-1);
+      const { purpose, ...raw } = options.hook;
+      const normalized = definition(this, { mode: 'once', enabled: false, ...raw,
+        ...(command ? { actions: [{ type: 'command', command_id: command.id, command_version: command.version }] } : {}) });
+      const item = registerDefinition(this, normalized, { purpose, temporary: true });
+      const result = { created: true, temporary: true, template_id: item.id, template_version: item.version,
+        ...(command ? { command_id: command.id } : {}) };
+      saveTemporaryAutomationReceipt(this, 'hooks.temporary_create', options, result);
+      return result;
+    });
+  },
+
+  reclaimTemporaryAutomation(options) {
+    this.assertWritable('reclaim temporary automation');
+    validateTemporaryAutomation('hooks.temporary_reclaim', options);
+    return this.store.transaction(() => {
+      const previous = temporaryAutomationReceipt(this, 'hooks.temporary_reclaim', options);
+      if (previous) return previous;
+      const data = definitions(this); checkRevision(hookRevision(data), options.expected_revision);
+      const item = data.templates.find(item => item.id === options.id);
+      check(item?.temporary && !item.protected, 'only temporary automation can be reclaimed');
+      check(!item.reclaimed_at, 'temporary automation has already been reclaimed');
+      const usage = temporaryUsage(this, item);
+      check(!usage.mount_count, 'temporary automation is still mounted (including disabled mounts); detach all references first');
+      check(!usage.pending_count && !usage.running_count && !usage.unknown_count, 'temporary automation has pending, running or unknown effects; inspect its audit');
+      item.reclaimed_at = now(); writeDefinitions(this, data);
+      const result = { reclaimed: true, temporary: true, template_id: item.id, template_version: item.version,
+        reclaimed_at: item.reclaimed_at, history_preserved: true };
+      saveTemporaryAutomationReceipt(this, 'hooks.temporary_reclaim', options, result);
+      return result;
+    });
+  },
+
+  temporaryAutomationHistory(options) {
+    validateTemporaryAutomation('hooks.temporary_history', options);
+    const item = definitions(this).templates.find(item => item.id === options.id);
+    check(item?.temporary, 'temporary automation not found');
+    const rows = this.store.all(`SELECT id,type,task_id,data,created_at FROM events WHERE json_extract(data,'$.registry_id')=?
+      AND type IN ('hook.temporary_created','hook.temporary_reclaimed','hook.temporary_usage') AND id<? ORDER BY id DESC LIMIT ?`, item.id, options.before ?? Number.MAX_SAFE_INTEGER, (options.limit ?? 30) + 1);
+    const candidates = rows.slice(0, options.limit ?? 30), items = []; let bytes = 0;
+    for (const row of candidates) {
+      const data = JSON.parse(row.data), event = { seq: row.id, type: data.usage_type ?? row.type, created_at: row.created_at,
+        worker_id: data.owner_id ?? null, worker_number: data.owner_worker_number ?? null,
+        produced_worker_id: data.worker_id ?? null, input_id: data.input_id ?? null,
+        hook_id: data.hook_id ?? null, template_version: data.registry_version ?? null,
+        execution_id: data.execution_id ?? (data.usage_type === 'hook.execution_started' ? data.source_event_id : null),
+        automatic: data.automatic === true, effects_unknown: data.effects_unknown === true };
+      const size = Buffer.byteLength(JSON.stringify(event)); if (bytes + size > 60000) break;
+      items.push(event); bytes += size;
+    }
+    return { version: 1, id: item.id, temporary: true, lifecycle: item.reclaimed_at ? 'reclaimed' : 'active',
+      readonly: true, template_version: item.version, purpose: item.purpose, definition: readDefinition(this, item.definition),
+      created_at: item.created_at, reclaimed_at: item.reclaimed_at ?? null, usage: temporaryUsage(this, item),
+      audit: { items, has_more: rows.length > items.length, next_before: items.at(-1)?.seq ?? null,
+        truncated: items.length < candidates.length, coverage: 'temporary_definition_and_hook_usage_events', history_complete: false } };
   },
 
   saveHookTemplate(template, expectedRevision) {
@@ -121,6 +191,7 @@ export default {
       const stored = definitions(this).templates.find(item => item.id === templateId);
       check(stored, 'Hook template not found');
       check(!stored.protected, 'system automation is read-only');
+      check(!stored.temporary, 'temporary automation is immutable; use explicit temporary reclaim');
       if (Array.isArray(raw.actions)) raw.actions = raw.actions.map((action, index) => {
         const old = stored.definition.actions[index];
         return ['create_worker','retry_worker','resume_worker'].includes(action?.type) && action.profile === undefined && old?.type === action.type && old.profile
@@ -132,7 +203,7 @@ export default {
       const data = definitions(this); checkRevision(hookRevision(data), expectedRevision);
       const index = data.templates.findIndex(t => t.id === templateId);
       if (templateId !== undefined) check(index >= 0, 'Hook template not found');
-      else check(data.templates.filter(item => !item.protected).length < HOOK_LIMITS.templates, 'too many Hook templates');
+      else check(data.templates.filter(item => !item.protected && !item.reclaimed_at).length < HOOK_LIMITS.templates, 'too many Hook templates');
       registerDefinition(this, normalized, { id: templateId, purpose });
     });
     return this.hooksList();
@@ -144,6 +215,7 @@ export default {
       const data = definitions(this); checkRevision(hookRevision(data), expectedRevision);
       const index = data.templates.findIndex(t => t.id === templateId); check(index >= 0, 'Hook template not found');
       check(!data.templates[index].protected, 'system automation is read-only');
+      check(!data.templates[index].temporary, 'temporary automation cannot be deleted; use explicit temporary reclaim');
       check(!this.store.all('SELECT hooks FROM tasks WHERE hooks IS NOT NULL').some(task => JSON.parse(task.hooks).mounts
         .some(mount => mount.registry_id === templateId)), 'registered automation is still mounted; remove its mounts before deleting');
       data.templates.splice(index, 1); writeDefinitions(this, data);
@@ -178,7 +250,7 @@ export default {
               actions: actions.map(({ command_version, ...action }) => action), ...(schedule ? { schedule } : {}) });
             const pinned = pinCommands(this, normalized);
             const signature = value => hookRevision({ ...value, enabled: false });
-            const item = definitions(this).templates.find(item => item.definition && item.version
+            const item = definitions(this).templates.find(item => item.definition && item.version && !item.temporary
               && signature(item.definition) === signature(pinned)) ?? registerDefinition(this, normalized);
             mount.actions = structuredClone(item.definition.actions);
             registration = { registry_id: item.id, registry_version: item.version };
@@ -268,7 +340,7 @@ export default {
         ...(value.schedule ? { next_run_at: next, pending_due_at: null } : {}) });
       check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
       save(this, task.id, data);
-      this.store.event(task.id, 'hook.attached', { hook_id: data.mounts.at(-1).id, trigger: value.trigger, name: value.name });
+      automationHookEvent(this, task.id, 'hook.attached', { hook_id: data.mounts.at(-1).id, ...registration, trigger: value.trigger, name: value.name });
     });
     this.armScheduledHookTimer();
     return this.taskHooks(task.id);
@@ -334,7 +406,7 @@ export default {
         mount.command_last_source = this.store.get('SELECT max(id) AS id FROM events')?.id ?? mount.command_last_source ?? 0;
       mount.enabled = enabled;
       check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
-      save(this, task.id, data); this.store.event(task.id, replacement ? 'hook.updated' : 'hook.enabled', { hook_id: hookId, enabled });
+      save(this, task.id, data); automationHookEvent(this, task.id, replacement ? 'hook.updated' : 'hook.enabled', { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version, enabled });
     });
     this.scheduleTaskHooks(); return this.taskHooks(task.id);
   },
@@ -354,9 +426,12 @@ export default {
       check(!data.mounts[index].signal_binding || (!data.mounts[index].enabled && ['unknown','skipped'].includes(data.mounts[index].state)),
         'batch interruption Hook is managed by the runtime');
       check(data.mounts[index].state !== 'running', 'Hook is executing; wait for its result');
+      const mount = data.mounts[index];
+      // Preserve uncertainty even after future authorization has been detached.
+      automationHookEvent(this, task.id, 'hook.removed', { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version,
+        execution_id: mount.last_execution?.id ?? null, effects_unknown: mount.state === 'unknown' || mount.action_started_index !== undefined || mount.command_started_index !== undefined });
       data.mounts.splice(index, 1);
       if (data.mounts.length) save(this, task.id, data); else this.store.update(task.id, { hooks: null });
-      this.store.event(task.id, 'hook.removed', { hook_id: hookId });
     });
     this.scheduleTaskHooks();
     return this.taskHooks(task.id);
@@ -393,7 +468,7 @@ export default {
       if (hasCommand(mount)) { this.submitCommandTaskHook(task.id, mount.id, eventId); continue; }
       if (mount.last_source === `${trigger}:${eventId}`) continue;
       const executionId = this.store.transaction(() => {
-        const executionId = this.store.event(task.id, 'hook.execution_started', { hook_id: mount.id, trigger, source_id: eventId });
+        const executionId = automationHookEvent(this, task.id, 'hook.execution_started', { hook_id: mount.id, registry_id: mount.registry_id, registry_version: mount.registry_version, trigger, source_id: eventId });
         mount.state = 'running'; mount.last_source = `${trigger}:${eventId}`;
         mount.last_execution = { id: executionId, trigger, status: 'running', created_at: now(), finished_at: null };
         mount.receipts = []; mount.maintenance_pending = true;
@@ -493,7 +568,8 @@ export default {
     if (!mount.receipts.some(r => r.index === index)) mount.receipts.push({ index, ...outcome });
     delete mount.action_started_index;
     Object.assign(mount.last_execution, outcome); save(this, taskId, data);
-    this.store.event(taskId, 'hook.action_completed', { hook_id: hookId, execution_id: executionId, index, ...outcome });
+    automationHookEvent(this, taskId, 'hook.action_completed', { hook_id: hookId, registry_id: mount.registry_id,
+      registry_version: mount.registry_version, execution_id: executionId, index, ...outcome });
   },
 
   finishTaskHook(taskId, hookId, executionId, status, error = null) {
@@ -508,7 +584,8 @@ export default {
       mount.state = status; mount.reason = error;
       if (mount.mode === 'once' && status === 'succeeded') mount.enabled = false;
       Object.assign(mount.last_execution, { status, finished_at: now(), ...(error ? { error } : {}) });
-      save(this, taskId, data); this.store.event(taskId, `hook.execution_${status}`, { hook_id: hookId, execution_id: executionId, error });
+      save(this, taskId, data); automationHookEvent(this, taskId, `hook.execution_${status}`, { hook_id: hookId, registry_id: mount.registry_id,
+        registry_version: mount.registry_version, execution_id: executionId, error, effects_unknown: status !== 'succeeded' && mount.action_started_index !== undefined });
       this.removeSucceededTaskHook(taskId, hookId);
     });
   },
@@ -523,7 +600,8 @@ export default {
       if (mount?.mode !== 'once' || mount.state !== 'succeeded') return;
       data.mounts.splice(index, 1);
       this.store.update(taskId, { hooks: data.mounts.length ? JSON.stringify(data) : null });
-      this.store.event(taskId, 'hook.removed', { hook_id: hookId, execution_id: mount.last_execution?.id ?? null, automatic: true });
+      automationHookEvent(this, taskId, 'hook.removed', { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version,
+        execution_id: mount.last_execution?.id ?? null, automatic: true });
     });
   },
 

@@ -24,5 +24,18 @@ test('a successful queue landing executes the configured git push Hook', async (
     expect(await git(remote, 'show', 'main:feature.txt')).toBe('feature');
     expect(f.project.taskHooks(main.id).mounts.find(item => item.id === example.hook_id).state).toBe('succeeded');
     expect(f.store.task(main.id).calls).toBe(0);
+
+    const directory = f.project.hooksList();
+    const temporary = f.project.createTemporaryAutomation({ command: { name: '临时 Shell', command: 'printf temporary' },
+      hook: { name: '仅运行一次', trigger: 'agent.returned', enabled: true },
+      expected_revisions: { commands: directory.commands.revision, registry: directory.registry.revision }, client_request_id: 'temporary-shell' });
+    const attached = f.project.attachTaskHook(main.id, { template_id: temporary.template_id, template_version: 1 }, f.project.taskHooks(main.id).revision);
+    const hookId = attached.mounts.at(-1).id;
+    f.project.emitTaskHook(main.id, 'agent.returned'); await f.project.hookQueue;
+    expect(f.project.taskHooks(main.id).mounts.some(mount => mount.id === hookId)).toBe(false);
+    expect(f.project.shortcutCommandHistory().items.find(item => item.command_id === temporary.command_id)).toMatchObject({ status: 'succeeded', command_version: 1 });
+    expect(f.project.temporaryAutomationHistory({ id: temporary.template_id }).usage).toMatchObject({ succeeded_total: 1, reclaimable: true });
+    f.project.reclaimTemporaryAutomation({ id: temporary.template_id, expected_revision: f.project.hooksList().registry.revision, client_request_id: 'reclaim-shell' });
+    expect(() => f.project.removeShortcutCommand(temporary.command_id, f.project.shortcutCommands().revision)).toThrow('retained');
   } finally { await f.close(); }
 });

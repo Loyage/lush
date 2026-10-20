@@ -40,6 +40,27 @@ export function hookRegistrationOutcome(project, call) {
   } catch { return { status: 'unknown', reason: '无法核验自动化注册收据；不自动重放。' }; }
 }
 
+export const TEMPORARY_RECEIPT_EVENTS = Object.freeze({ 'hooks.temporary_create': 'hook.temporary_created', 'hooks.temporary_reclaim': 'hook.temporary_reclaimed' });
+export function temporaryAutomationReceipt(project, method, options) {
+  const previous = project.store.get(`SELECT data FROM events WHERE type=? AND json_extract(data,'$.request_key')=? ORDER BY id LIMIT 1`,
+    TEMPORARY_RECEIPT_EVENTS[method], hookRevision(options.client_request_id));
+  if (!previous) return null;
+  const receipt = JSON.parse(previous.data);
+  check(receipt.definition_hash === hookRevision(canonical(options)), 'client_request_id was used for a different temporary automation request');
+  return receipt.result;
+}
+export function saveTemporaryAutomationReceipt(project, method, options, result) {
+  project.store.event(null, TEMPORARY_RECEIPT_EVENTS[method], { registry_id: result.template_id,
+    request_key: hookRevision(options.client_request_id), definition_hash: hookRevision(canonical(options)), result });
+}
+export function temporaryAutomationOutcome(project, call) {
+  try {
+    const result = temporaryAutomationReceipt(project, call.method, call.params);
+    return result ? { status: 'succeeded', result: { submitted: true, ...result }, reason: null }
+      : { status: 'failed', reason: '临时功能事务未提交；不自动重放。' };
+  } catch { return { status: 'unknown', reason: '无法核验临时功能事务收据；不自动重放。' }; }
+}
+
 export default {
   registerCommandHook(options) {
     this.assertWritable('register command automation');

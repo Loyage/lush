@@ -5,6 +5,7 @@ import { installDom, dialogButton, deepText } from '../dom-stub.js';
 import { mountCard, workerHooks } from '../../src/ui/web/assets/render-hooks.js';
 import { openProjectAutomation } from '../../src/ui/web/assets/render-project-automation.js';
 import { ui } from '../../src/ui/web/assets/state.js';
+import { registeredMountPicker } from '../../src/ui/web/assets/automation-registry.js';
 
 test('real automation DOM saves project defaults through HTTP/RPC and applies them to future Workers', async () => {
   const f = await setup(); let dom;
@@ -36,10 +37,16 @@ for (const registrationKind of ['rule', 'shell']) test(`real page DOM → HTTP/R
   try {
     await repo(f.root); f.project.kick = () => {}; const main = await f.project.bootstrapMain();
     const task = (await f.project.order('Registry target', 'main', [], null, false)).task;
-    const writes = [];
+    const writes = [], reads = []; let smallPages = false, failNextDirectory = false, holdNextHistory = false, releaseHistory;
     dom = installDom({ fetch: (url, options = {}) => {
-      if (options.body) writes.push(JSON.parse(options.body));
-      return fetch(f.url + url, { ...options, headers: { ...options.headers, Origin: f.url } });
+      if (options.body) { const write = JSON.parse(options.body); writes.push(write); if (write.method === 'hooks.temporary_reclaim') failNextDirectory = true; }
+      if (failNextDirectory && url.startsWith('/api/hooks?')) { failNextDirectory = false; throw Error('injected read failure after committed reclaim'); }
+      if (smallPages && url.startsWith('/api/hooks?')) url += '&limit=2';
+      if (smallPages && url.startsWith('/api/hooks/temporary/history?')) url += '&limit=2';
+      reads.push(url);
+      const response = fetch(f.url + url, { ...options, headers: { ...options.headers, Origin: f.url } });
+      if (holdNextHistory && url.startsWith('/api/hooks/temporary/history?')) { holdNextHistory = false; return new Promise(resolve => { releaseHistory = async () => resolve(await response); }); }
+      return response;
     } });
     await openProjectAutomation({ feature: 'register' }); const root = dom.node('detail');
     if (registrationKind === 'shell') {
@@ -74,5 +81,56 @@ for (const registrationKind of ['rule', 'shell']) test(`real page DOM → HTTP/R
     expect(f.project.taskHooks(task.id).mounts.find(item => item.id === mount.id).name).toBe('独立登记通知 v2');
     expect(writes.map(write => write.method)).toEqual([registrationKind === 'shell' ? 'hooks.register' : 'hooks.save', 'worker.hook_attach', 'hooks.save', 'worker.hook_update']);
     if (registrationKind === 'shell') expect(f.project.hooksList().commands.items.find(item => item.name === '安全空命令').last_execution).toBeNull();
+    if (registrationKind === 'rule') {
+      smallPages = true;
+      // A user/Valet-created temporary definition enters the same real UI/HTTP chain.
+      const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { Origin: f.url, 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'hooks.temporary_create', params: {
+        hook: { name: '本次临时告知', trigger: 'agent.returned', actions: [{ type: 'notify', title: 'temporary-ui', body: '本次使用' }] },
+        expected_revisions: { registry: f.project.hooksList().registry.revision }, client_request_id: 'ui-temporary',
+      } }) });
+      expect(response.status).toBe(200); const temporary = await response.json();
+      await press(root, '← 返回自动化功能列表'); await press(root, '刷新目录');
+      expect(deepText(root)).toContain('目录未列全');
+      while (!root.querySelectorAll('button').find(item => item.textContent === '继续读取功能').hidden) await press(root, '继续读取功能');
+      const row = root.querySelector(`[data-feature="${temporary.template_id}"]`); expect(deepText(row)).toContain('临时'); expect(deepText(row)).toContain('0 个挂载');
+      catalogue = f.project.hooksList();
+      const firstPage = await (await fetch(f.url + '/api/hooks?limit=2')).json();
+      const picker = registeredMountPicker({ catalogue: firstPage, workerId: task.id, model: f.project.taskHooks(task.id) });
+      expect(deepText(picker)).toContain('可选目录未列全');
+      while (!picker.querySelectorAll('button').find(item => item.textContent === '继续读取可挂载功能').hidden) await press(picker, '继续读取可挂载功能');
+      expect(deepText(picker.querySelector('[aria-label="已登记功能"]'))).toContain('本次临时告知 · 临时');
+      await openProjectAutomation({ feature: temporary.template_id });
+      expect(deepText(root)).toContain('实际挂载 0'); expect(deepText(root)).not.toContain('系统登记只读');
+      holdNextHistory = true; const reading = press(root, '只读刷新使用状态');
+      await openProjectAutomation(); await openProjectAutomation({ feature: temporary.template_id });
+      await releaseHistory(); await reading;
+      expect(deepText(root)).toContain('旧响应不作为新核验');
+      expect(root.querySelectorAll('button').find(item => item.textContent === '安全回收临时功能').disabled).toBe(true);
+      await press(root, '只读刷新使用状态');
+      await press(root, '读取 Worker 列表'); const target = root.querySelector('[aria-label="选择目标 Worker"]'); target.value = String(task.id); await target.onchange(); set(root, '授权版本', '1');
+      saving = press(root, '确认挂载'); await dialogButton(dom, '授权挂载').onclick(); await saving;
+      expect(root.querySelectorAll('button').find(item => item.textContent === '安全回收临时功能').disabled).toBe(true);
+      expect(deepText(root)).toContain('残留挂载（含停用）');
+      let tempModel = f.project.taskHooks(task.id), tempMount = tempModel.mounts.find(item => item.registry_id === temporary.template_id);
+      // The existing Worker UI enables the mount, then a real lifecycle event runs it once.
+      const tempCard = mountCard(task, tempMount, tempModel, () => {}, () => true, { catalogue });
+      await press(tempCard, '启用 Hook');
+      f.project.emitTaskHook(task.id, 'agent.returned'); await f.project.hookQueue;
+      await press(root, '只读刷新使用状态'); expect(deepText(root)).toContain('累计挂载 1 · 成功 1');
+      expect(deepText(root)).toContain('仍有更早记录'); await press(root, '读取更早使用审计');
+      expect(reads.some(url => url.includes('/temporary/history?') && url.includes('&before='))).toBe(true);
+      expect(f.project.taskHooks(task.id).mounts.some(item => item.registry_id === temporary.template_id)).toBe(false);
+      saving = press(root, '安全回收临时功能'); await dialogButton(dom, '确认安全回收').onclick(); await saving;
+      expect(deepText(root)).toContain('安全回收成功'); expect(deepText(root)).toContain('刷新失败'); expect(root.querySelector('.registry-mount').hidden).toBe(true);
+      await press(root, '安全回收临时功能'); expect(writes.filter(write => write.method === 'hooks.temporary_reclaim')).toHaveLength(1);
+      await openProjectAutomation(); await press(root, '刷新目录'); expect(root.querySelector(`[data-feature="${temporary.template_id}"]`)).toBeNull();
+      const include = root.querySelector('[aria-label="包含已回收临时项"]'); include.checked = true; await include.onchange();
+      while (!root.querySelectorAll('button').find(item => item.textContent === '继续读取功能').hidden) await press(root, '继续读取功能');
+      expect(deepText(root.querySelector(`[data-feature="${temporary.template_id}"]`))).toContain('已回收 · 只读');
+      await openProjectAutomation({ feature: temporary.template_id }); await press(root, '只读刷新使用状态');
+      await press(root, '读取更早使用审计');
+      expect(deepText(root)).toContain('hook.execution_succeeded'); expect(root.querySelector('.registry-mount')?.hidden ?? true).toBe(true);
+      expect(f.project.hooksList().registry.items.find(item => item.id === registered.id).temporary).toBe(false);
+    }
   } finally { ui.disposeProjectAutomation?.(); dom?.restore(); await f.close(); }
 });

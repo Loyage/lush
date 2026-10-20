@@ -1,7 +1,6 @@
 import { defineCommands } from '../command-spec.js';
-import { HOOK_REGISTER_SCHEMA } from '../../core/hook-registration.js';
+import { HOOK_REGISTER_SCHEMA, HOOK_ACTIONS_SCHEMA, HOOK_SCHEDULE_SCHEMA, TEMPORARY_AUTOMATION_CAPABILITIES } from '../../core/hook-registration.js';
 import { HOOK_TRIGGERS } from '../../core/hooks.js';
-import { INPUT_EMIT_SCHEMA } from '../../core/input-emission-protocol.js';
 
 const string = (maxLength = 256, minLength = 1) => ({ type: 'string', minLength, maxLength });
 const object = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required });
@@ -9,31 +8,17 @@ const positive = { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', description: '真实整数或 W/V 编号；V 仅限操作本来支持的目标。' };
 const revision = { ...string(), required: true, description: '从本命令列出的前置读取取得，不可互换 revision。' };
-const scheduleSchema = { oneOf: [
-  object({ kind: { const: 'once' }, at: { type: 'string', format: 'date-time', description: '带 Z 或显式偏移的未来瞬间。' }, timezone: string(128) }, ['kind','at','timezone']),
-  object({ kind: { const: 'daily' }, time: { type: 'string', pattern: '^(?:[01]\\d|2[0-3]):[0-5]\\d$' }, timezone: string(128) }, ['kind','time','timezone']),
-] };
-// These existing canonical input protocols also govern Hook creation profiles/references.
-const profileSchema = INPUT_EMIT_SCHEMA.properties.profile.anyOf[0];
+const scheduleSchema = HOOK_SCHEDULE_SCHEMA;
 const commandSchema = object({ id: uuid, name: string(120), kind: { enum: ['shell','prompt'] }, command: string(16000), prompt: string(16000),
   default_worker_id: { type: ['integer','null'], minimum: 1 }, description: string(2000, 0), when_to_use: string(4000, 0),
   tags: { type: 'array', maxItems: 32, items: string(80, 0) }, examples: string(8000, 0), warnings: string(4000, 0),
 }, ['name']);
 commandSchema.description = 'kind 缺省沿原定义或 shell；shell 必须且只能有 command，prompt 必须且只能有 prompt；不能传 authorized、version 或路径。';
-const referenceSchema = INPUT_EMIT_SCHEMA.properties.references.anyOf[0];
-const actionSchema = { oneOf: [
-  object({ type: { enum: ['command','prompt_command'] }, command_id: uuid, command_version: positive }, ['type','command_id']),
-  object({ type: { const: 'request_merge' } }, ['type']),
-  object({ type: { const: 'notify' }, title: string(32000), body: string(32000, 0) }, ['type','title','body']),
-  object({ type: { const: 'message' }, target_id: positive, body: string(32000) }, ['type','target_id','body']),
-  object({ type: { enum: ['retry_worker','resume_worker'] }, target_id: positive, profile: profileSchema }, ['type','target_id']),
-  object({ type: { const: 'create_worker' }, content: string(32000), references: referenceSchema, start: { type: 'boolean' }, profile: profileSchema }, ['type','content']),
-] };
 const templateSchema = object({ id: uuid, purpose: string(2000, 0), name: string(120),
   trigger: { enum: HOOK_TRIGGERS.map(item => item.id) }, mode: { enum: ['once','persistent'] }, enabled: { type: 'boolean' },
   conditions: object({ statuses: { type: 'array', items: { enum: ['queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled'] } },
     integrations: { type: 'array', items: { enum: ['none','pending','review','merging','merged','conflict','superseded'] } } }),
-  actions: { type: 'array', minItems: 1, maxItems: 4, items: actionSchema }, schedule: scheduleSchema,
+  actions: HOOK_ACTIONS_SCHEMA, schedule: scheduleSchema,
 }, ['name','trigger','mode','enabled','actions']);
 templateSchema.description = '触发点／动作／模式组合遵守 automation list 的同源 actions 目录；内置专属动作不可自定义。time.scheduled 必须提供 schedule，其他节点禁止 schedule。最多一个创建动作，Shell 与提示词动作不可混合；生命周期追加仅 once。';
 const signalSchema = object({ id: uuid, name: string(200), enabled: { type: 'boolean' }, schedule: scheduleSchema }, ['name','schedule']);
@@ -55,7 +40,25 @@ function payloadDetails(rpc, schema, source, effects, extra = {}) {
 }
 
 export const COMMANDS = defineCommands(add => {
-  add('automation list', '', '读取项目注册目录、定义、信号及各自真实 revision。', '', ['hooks.list'], 'read', '', details(['hooks.list']));
+  add('automation list', '[--include-reclaimed] [--after ID] [--limit N]', '查找可复用的固定版本功能、临时使用情况及真实 revision；默认隐藏已回收项。', '--limit 30', ['hooks.list'], 'read', '',
+    details(['hooks.list'], { options: { '--include-reclaimed': { type: 'boolean', flag: true }, '--after': string(128), '--limit': { ...positive, maximum: 100, default: 100 } },
+      source: '先查已有适用功能，按 registry.has_more/next_cursor 续读；after 是最后实际返回的功能 ID，不是偏移。',
+      effects: '只读；registry.total/complete/has_more 表明实际覆盖，usage 是安全使用摘要而非完整执行记录。' }));
+  const temporaryCreate = TEMPORARY_AUTOMATION_CAPABILITIES['hooks.temporary_create'];
+  add('automation temporary create', '--data JSON', temporaryCreate.description, '--data JSON', ['hooks.temporary_create'], 'write', temporaryCreate.limitations.join('；'),
+    payloadDetails(['hooks.temporary_create'], temporaryCreate.schema,
+      '先 automation list 查找已有适用功能，确无适用项才创建；expected_revisions.registry 来自 registry.revision，新 Shell 还需 commands.revision；client_request_id 固定本份完整请求。',
+      '创建临时固定 v1，不挂载、不执行；默认 once、停用，临时与频率独立，persistent 须明确授权。成功收据后独立授权目标挂载；定义不可改写，用完显式回收。'));
+  const temporaryReclaim = TEMPORARY_AUTOMATION_CAPABILITIES['hooks.temporary_reclaim'];
+  add('automation temporary reclaim', '--data JSON', temporaryReclaim.description, '--data JSON', ['hooks.temporary_reclaim'], 'write', '',
+    payloadDetails(['hooks.temporary_reclaim'], temporaryReclaim.schema,
+      'automation list.registry.revision 与临时项真实 ID、usage；先独立 detach 所有残留挂载（停用也算引用），client_request_id 固定本份回收请求。',
+      '事务重检所有引用／待执行／真实执行／unknown；拒绝时不回收。成功只标记回收，默认目录隐藏，保留只读定义与审计，不可再次挂载；不删除共享命令。'));
+  const historyProperties = TEMPORARY_AUTOMATION_CAPABILITIES['hooks.temporary_history'].schema.properties;
+  add('automation temporary history', 'ID [--before N] [--limit N]', TEMPORARY_AUTOMATION_CAPABILITIES['hooks.temporary_history'].description, 'ID --limit 30', ['hooks.temporary_history'], 'read', '',
+    details(['hooks.temporary_history'], { positionals: [pos('ID', historyProperties.id)], options: { '--before': historyProperties.before, '--limit': historyProperties.limit },
+      source: '真实临时功能 ID；before 使用 audit.next_before 的实际排他 Event 游标，has_more 时按需续读。',
+      effects: '活动／已回收均可查；保留 usage、字节截断与 history_complete:false，不恢复或重放执行。' }));
   add('automation register', '--data JSON', '仅注册新 Shell 指令及功能；不挂载或执行。', '--data JSON', ['hooks.register'], 'write',
     '先确认 registered:true 及固定 template_id/template_version，再独立挂载。Shell 非沙箱。',
     payloadDetails(['hooks.register'], HOOK_REGISTER_SCHEMA, 'automation list：commands.revision、registry.revision；client_request_id 为调用方本份定义的稳定身份。',

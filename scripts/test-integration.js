@@ -17,6 +17,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
     'test/web/dom-worker-cli-api.test.js', // CLI keyboard -> preview -> real CLI and history
     'test/web/valet-settings-page-integration.test.js', // same CLI schemas -> learning and live permissions
+    'test/web/project-automation-ui-integration.test.js', // actual automation DOM -> HTTP/RPC mounts, usage and lifecycle
     'test/web/dom-valet-emergency-api.test.js', // user confirmation -> only occupied Valets -> isolation and fresh input
     'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
   ]),
@@ -29,7 +30,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/input-emission-protocol.test.js', // Dispatcher -> runtime -> Input/Message
     'test/project/merge-queue.test.js', // child delivery -> parent Squash -> acceptance
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git tree/content/diff
-    'test/web/automation-registry-api.test.js', // HTTP -> fixed-version register/mount
+    'test/web/automation-registry-api.test.js', // HTTP -> permanent/temporary definitions, pinned mounts and safe reclamation
   ]),
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // list -> detail -> back

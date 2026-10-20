@@ -58,7 +58,10 @@ function commandImportSource(value) {
 
 /** User-only Hook configuration; the runtime owns definition validation and execution. */
 export const handlers = {
-  'hooks.list'(p) { return p.hooksList(); },
+  'hooks.list'(p, { _token, ...options }) { return p.hooksList(options); },
+  'hooks.temporary_create'(p, { _token, ...options }) { return p.createTemporaryAutomation(options); },
+  'hooks.temporary_reclaim'(p, { _token, ...options }) { return p.reclaimTemporaryAutomation(options); },
+  'hooks.temporary_history'(p, { _token, ...options }) { return p.temporaryAutomationHistory(options); },
   'hooks.install'(p) { return p.installCommandHook(); },
   'hooks.register'(p, { _token, ...params }) { return p.registerCommandHook(validateHookRegistration(params)); },
   'hooks.upgrade'(p, params) { return p.upgradeHookRegistry(revision(params.expected_revision)); },

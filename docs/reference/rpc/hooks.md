@@ -6,7 +6,10 @@
 
 | RPC | 参数 | CLI（加 `bun run lush` 前缀） |
 |---|---|---|
-| `hooks.list` | `{}` | `automation list` / `automation command list` |
+| `hooks.list` | `{include_reclaimed?,after?,limit?}` | `automation list [--include-reclaimed] [--after ID] [--limit N]` / `automation command list` |
+| `hooks.temporary_create` | `{hook,command?,expected_revisions,client_request_id}` | `automation temporary create --data JSON` |
+| `hooks.temporary_reclaim` | `{id,expected_revision,client_request_id}` | `automation temporary reclaim --data JSON` |
+| `hooks.temporary_history` | `{id,before?,limit?}` | `automation temporary history ID [--before EVENT] [--limit N]` |
 | `hooks.register` | `{command,hook,expected_revisions,client_request_id}` | `automation register --data JSON`（只注册） |
 | `hooks.upgrade` | `{expected_revision}` | 无 CLI；保留旧迁移 RPC |
 | `hooks.install` | 已退役，所有调用拒绝并指向先注册、再单独挂载 | 旧 `hooks install` 拒绝 |
@@ -39,13 +42,13 @@
 | `worker.hook_update` | `{id,hook_id,enabled?,hook?,expected_revision}`（enabled/hook 二选一） | `worker automation enable\|disable ID HOOK_ID --revision REV`；完整编辑由 Web/RPC 提供 |
 | `worker.hook_remove` | `{id,hook_id,expected_revision}` | `worker automation detach ID HOOK_ID --revision REV` |
 
-读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。一般写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理；单项权限接口仅 RPC／CLI，页面的完整映射读取／保存走 Host 根权限接口。
+读取 HTTP：`GET /api/hooks` 接受 `include_reclaimed=true|false`、`after`、`limit`；`GET /api/hooks/temporary/history?id=UUID&before=EVENT&limit=N` 读取单项临时审计。两者拒绝未知、重复查询项，数字只接受正十进制整数。`GET /api/worker/ID/hooks` 不接受查询参数。一般写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理；单项权限接口仅 RPC／CLI，页面的完整映射读取／保存走 Host 根权限接口。
 
 目录返回 `{version:1,revision,registry,registration,triggers,actions,templates,commands,daemon_hooks,completion_defaults,automation_settings,signals,management_workers,command_example}`；`daemon_hooks` 是设备全局自动选择的兼容读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,mounted_features,completion,convergence,push,acceptance_notice,automation_settings,can_attach,mounts}`；`mounted_features:{completion,push,convergence,acceptance_notice}` 四个布尔值是实际挂载的权威投影，不由显示原则推算。Worker 的 automation_settings 仅提供 version 与兼容 display_principles，不泄漏项目默认授权身份。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
-`hooks.list.registry={version:1,revision,upgrade_revision,complete:true,total,legacy_mount_count,target_limit:100,items}` 是项目统一注册目录。items 含 `{id,name,origin:'builtin'|'custom'|'system',version,versions,purpose,mount_count,targets,targets_complete,mountable,readonly,reason}`；targets 最多 100 项 `{worker_id,worker_number,hook_id,version}`，mount_count 是完整真实挂载数，targets_complete=false 不代表零挂载。目录不含私有 profile/env/Prompt；完整注册配置仍按原用户配置权限从 templates 取得安全定义。设备全局自动选择不加入项目注册目录。
+`hooks.list.registry={version:1,revision,upgrade_revision,complete,total,retained_total,reclaimed_total,has_more,next_cursor,include_reclaimed,legacy_mount_count,target_limit:100,items}` 是项目统一注册目录。items 含 `{id,name,origin:'builtin'|'custom'|'system',version,versions,purpose,mount_count,targets,targets_complete,mountable,readonly,reason}`；targets 最多 100 项 `{worker_id,worker_number,hook_id,version}`，mount_count 是完整真实挂载数，targets_complete=false 不代表零挂载。目录不含私有 profile/env/Prompt；完整注册配置仍按原用户配置权限从 templates 取得安全定义。设备全局自动选择不加入项目注册目录。默认隐藏已回收项，`include_reclaimed:true` 显式包含；`limit` 默认 100、范围 1..100，`after` 为上一页最后实际返回的功能 ID，按持久登记顺序前进，不是偏移量。游标不再可见时拒绝并要求重读。`total` 为当前筛选总数，`retained_total` 含全部保留定义，`reclaimed_total` 为已回收数；`complete` 只在首个未截断页面为 true，`has_more/next_cursor` 表示续读事实。`templates` 与同页 registry.items 对齐，revision 始终针对完整权威库，不受分页和使用状态变化影响。
 
 `hooks.save` 注册或修订自定义功能（可选 purpose≤2000 字符），使用 registry.revision（与顶层 revision 同源），返回 templates 的明确 version；修订保留旧版本。仍有挂载的功能不得删除，先移除挂载，避免活动授权从目录消失。`hook` **只能**为 `{template_id:'UUID',template_version:1,enabled?:true}`。后台复制该登记版本的完整私有覆盖及固定命令版本，不接受内联动作、隐式 latest、目标覆盖或运行参数。完整 hook_update 也使用这一引用；enabled 仅调整实例开关。创建动作读取只有安全 model_selection 摘要；注册定义同位置创建动作省略 profile 表示编辑时保留原私有覆盖。挂载不调用执行器；定时仅安排未来到期，生命周期须实际触发并通过安全门。
 
@@ -82,6 +85,35 @@ W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks co
 Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `type:'prompt_command'`，仅 `worker.parent_ready`＋once，以挂载 Worker 为父，标明 Agent 代价；同 Hook 不混合两类指令，最多一个 create_worker／prompt_command。注册时固定 command_version 正安全整数，执行真实使用对应历史定义；未升级历史挂载暂保留原 latest 兼容。执行前仍核验当前指令存在与类型匹配，执行开始固定实际定义，编辑竞态不得混用正文与收据。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
 
 旧已停用规则不自动启用，不改写历史或重放；删除／类型不匹配仍阻止执行，不承诺撤回已经开始的副作用。完整安全契约见[快捷指令与 Hook](../../engineering/shortcut-commands.md)。
+
+## 临时功能：创建、挂载与回收
+
+CLI 发现从 `bun run lush help workflow temporary-automation` 开始；创建／回收的 `--data JSON` 与下述 RPC 请求同形，完整 schema 可用 `help automation temporary create --json`／`help automation temporary reclaim --json` 取得。只读目录的 `--after` 使用 registry.next_cursor，单项审计的 `--before` 使用 audit.next_before；`--include-reclaimed` 是无值旗标，不加载本地文件。
+
+D743：先查目录中是否已有合适功能；没有时可创建临时定义，**无需先创建长期注册项**。仍经统一可审计目录冻结授权版本，创建不包含目标、不挂载、不执行。临时是定义生命周期，与 `mode:'once'|'persistent'` 独立；缺省 once、enabled=false，持续使用须明确传 persistent。成功一次性挂载继续自动移除，功能定义保留，由用户／受控 Valet 显式安全回收；不自动迁移已有长期项。
+
+同源参数、schema 和管理能力目录在 `src/core/hook-registration.js`，公开于 `hooks.list.temporary={version:1,capabilities,default_mode:'once',reclaim:'explicit',registry_bytes_limit:524288,active_limit:50}`。三个入口均拒绝普通开发 Agent；普通 Valet 经 manager.call，create/reclaim 默认 automatic、history 默认 read，可逐项收紧为 confirmation/unavailable；确认固定完整请求及 revision、执行前重查最新权限。项目密码管理员不因此获得通用目录、命令或挂载写权限。
+
+`hooks.temporary_create` 的 hook 接受 hooks.save 的受控定义（含可选 purpose，但不能带 id），复用动作／触发点／模式／目标适用性校验，支持 notify、create_worker、message、request_merge、已有固定版本命令及定时受控动作。`actions` 与可选新 Shell `command` 二选一：无 command 时必须给 actions；有 command 时禁止 actions，command 字段与 hooks.register 的 Shell 子集相同，由事务新建命令并生成固定版本引用。`expected_revisions.registry` 必填；新建 command 时还须 `expected_revisions.commands`。任一步失败整体回滚，返回 `{created:true,temporary:true,template_id,template_version:1,command_id?}`。例如：
+
+```json
+{
+  "hook": { "name": "本次结束提醒", "trigger": "agent.returned", "enabled": true,
+    "actions": [{ "type": "notify", "title": "本次已返回", "body": "请核对实际工作结果。" }] },
+  "expected_revisions": { "registry": "hooks.list.registry.revision" },
+  "client_request_id": "本次临时创建固定身份"
+}
+```
+
+拿到创建成功收据后，另行用 `worker.hook_attach` 的登记 ID 和明确版本授权真实目标；原目标、child、冻结、生命周期与执行门不变。临时定义 v1 不可变，hooks.save/remove、旧导入／升级不能改写、转为长期、删除或复用已回收定义。需要不同内容时创建新定义并重新授权，不改变旧挂载。
+
+registry.items 和 templates 增加 `temporary:boolean`、`lifecycle:'active'|'reclaimed'`；临时项 readonly=true（定义不可改写，不等于活动项不可挂载）。registry 项还给 created_at/reclaimed_at，临时项含 `usage={mount_count,pending_count,running_count,unknown_count,attached_total,succeeded_total,failed_total,skipped_total,reclaimable,coverage,history_complete:false}`。计数覆盖全部现存挂载，包含停用／终态 Worker 项；usage 独立于 registry revision。running_count 保守包含真实未收尾 Hook owner／队列。unknown_count 是未确认副作用的独立执行数，失败后仍有已开始未结算动作也计未知；已知结束失败不单独阻塞回收。
+
+`hooks.temporary_reclaim {id,expected_revision:registry.revision,client_request_id}` 在同一短 SQLite 事务重检**全部**引用、待执行、真实执行／收尾和持久未知证据。任何挂载（即使停用）都拒绝，须先显式 detach；detach 只撤销未来授权，不把 unknown 变成功。无引用且无在途／未知后标记 reclaimed_at，释放 50 项活动功能额度，但保留必要定义、固定命令版本和使用审计；不删除共享／长期命令，不释放或扩大原 registry 512 KiB 与命令库既有 100 项／512 KiB 硬预算。临时定义引用的命令不能经 command_remove 删除，编辑仍保留不可变旧版本。活动临时项在同一预算内预留回收标记空间，满库仍可安全回收；预算耗尽明确拒绝新建，不循环回收来无限追加定义。回收返回 `{reclaimed:true,temporary:true,template_id,template_version,reclaimed_at,history_preserved:true}`，之后不可再挂载或启用。
+
+两个写入口 client_request_id 必填、1..128 字符、无首尾空白／控制字符；按方法和固定 key 去重，同 key 同完整原参数（含 revision）返回原收据，不改变已回收状态或重复产生定义；不同参数拒绝。精确完成证明与定义变更同事务保存，管理恢复查原证明，不能根据当前目录猜成功，也不自动重发失败／unknown。校验、revision 过期、预算、残留引用或未知副作用沿 `-32602`（HTTP 400）返回；鉴权仍走既有权限错误／HTTP 401、403。
+
+`hooks.temporary_history` 对活动／回收项均只读，返回 `{version:1,id,temporary:true,lifecycle,readonly:true,template_version,purpose,definition,created_at,reclaimed_at,usage,audit}`。definition 为现有安全定义，裁去私有 profile，只有 model_selection；审计不含命令正文、原始错误、输出、配置或凭证。audit.items 含 `{seq,type,created_at,worker_id,worker_number,produced_worker_id,input_id,hook_id,template_version,execution_id,automatic,effects_unknown}`，按真实 Event ID 倒序，before 为排他正事件游标，limit 默认 30、范围 1..100；每页 60,000 字节。`next_before` 为最后实际返回项，has_more 包含条数或字节裁剪，truncated 只指本层字节裁剪，history_complete:false 不把安全事件摘要冒充完整执行记录。必要使用事实另存项目所有的紧凑 Event 审计，移除挂载、自动一次性清理、命令历史隐藏乃至显式 Worker 历史删除均不抹掉 unknown 或已有使用证据；读取不恢复、清理或重放动作。
 
 ## 先注册，再单独挂载
 

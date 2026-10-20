@@ -4,7 +4,7 @@ import { INPUT_EMIT_CAPABILITY, validateInputEmissionRequest } from '../core/inp
 import { managementPhase } from '../core/project/management-diagnostic.js';
 import { check, isPlainObject } from '../core/types.js';
 import { managementScopeError, managementScopeAuthorization, MANAGEMENT_RECOVERY_GUIDANCE, DEVICE_SCOPE_GUIDANCE } from '../core/management-guidance.js';
-import { AUTOMATION_CAPABILITIES, validateHookRegistration } from '../core/hook-registration.js';
+import { AUTOMATION_CAPABILITIES, validateHookRegistration, TEMPORARY_AUTOMATION_PARAMETERS, validateTemporaryAutomation } from '../core/hook-registration.js';
 import { MERGE_CONDITION_CAPABILITIES, validateMergeConditionCall } from '../core/merge-conditions.js';
 import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-query.js';
 import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
@@ -16,7 +16,7 @@ export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install', 'worker.reso
 const reads = new Set([
   'management.receipt','manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
   'worker.graph','worker.relations','worker.progress_history','branch.tree','branch.show','graph.get',
-  'worker.merge_conditions','hooks.list','worker.hooks','hooks.command_history','input.history','input.get','input.parents',
+  'worker.merge_conditions','hooks.list','hooks.temporary_history','worker.hooks','hooks.command_history','input.history','input.get','input.parents',
   'notice.list','notice.page','branch.convergence','branch.convergence_list','branch.convergence_runs',
   'branch.convergence_defaults','branch.history','branch.version_graph','worker.delete_preview',
   'agent.connections.list','agent.connections.history','agent.connections.models','agent.usage.config','agent.usage.history',
@@ -97,7 +97,7 @@ const groupFor = method => method.startsWith('hooks.') ? 'automation'
   : /^(input|draft)\./.test(method) ? 'inputs' : /^(branch|graph)\./.test(method) ? 'branches'
   : method.startsWith('notice.') ? 'notices' : method.startsWith('agent.') ? 'agents'
   : /^(worker|order|manager|management|progress)\./.test(method) ? 'workers' : 'system';
-const names = { 'hooks.install': '已退役的原子安装', 'hooks.register': '注册 Shell 自动化功能', 'hooks.upgrade': '显式升级旧自动化登记', 'manager.query': '安全工作查询', 'manager.history': '安全调用历史', 'worker.lookup': '解析工作编号',
+const names = { 'hooks.temporary_create': '创建临时自动化功能', 'hooks.temporary_reclaim': '安全回收临时自动化功能', 'hooks.temporary_history': '查看临时功能定义与审计', 'hooks.install': '已退役的原子安装', 'hooks.register': '注册 Shell 自动化功能', 'hooks.upgrade': '显式升级旧自动化登记', 'manager.query': '安全工作查询', 'manager.history': '安全调用历史', 'worker.lookup': '解析工作编号',
   'worker.resume': '开始／继续工作', 'worker.retry': '重试失败工作', 'draft.add': '新增草稿',
   'draft.update': '修改草稿', 'draft.remove': '移除草稿', 'order.submit': '提交开发指令',
   'worker.inspect': '查看工作详情', 'system.diagnostics': '项目运行诊断', 'worker.message': '追加工作消息' };
@@ -220,6 +220,7 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   }
   // Validate registration before asking for authorization; mounting is a separate exact request.
   if (method === 'hooks.register') validateHookRegistration(params);
+  if (Object.hasOwn(TEMPORARY_AUTOMATION_PARAMETERS, method)) validateTemporaryAutomation(method, params);
   // Strict registry validation still runs at the trusted dispatch boundary; never accept a replacement actor.
   managementPhase('preflight', 'not_started', 'trusted_pre_dispatch', 'preflight_rejected');
   return policy;

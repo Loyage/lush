@@ -4,7 +4,17 @@
 
 ## 快捷指令引用
 
-D676：所有项目自动化先进入统一注册目录，复用 hook_templates 附属配置，不新增实体。新挂载只接受 `{template_id,template_version,enabled?}`，完整更新同样拒绝内联动作；注册定义和命令正文均有不可变版本，挂载复制明确授权版本及 `{type:'command',command_id,command_version}`。定义修改不改变旧挂载，显式选择新版才升级。固定历史版的真实执行、删除／类型失配门禁及旧内联显式导入见[快捷指令契约](shortcut-commands.md)。旧内联只保留展示和历史，不能执行或启用。项目自动化按功能列表进入设置页，具体授权与记录从对应 Worker 查看，通用指令与模板的 Web 编辑入口已退休，定义管理仍经既有 CLI／API，页面入口见[使用指南](../hooks.md#页面入口)。
+D676／D743：所有项目自动化通过统一可审计目录固定授权版本，复用 hook_templates 附属配置，不新增实体。长期复用定义仍先登记；临时需求可直接创建临时定义，无需先长期注册，创建与挂载／执行仍独立。新挂载只接受 `{template_id,template_version,enabled?}`，完整更新同样拒绝内联动作；注册定义和命令正文均有不可变版本，挂载复制明确授权版本及 `{type:'command',command_id,command_version}`。定义修改不改变旧挂载，显式选择新版才升级。固定历史版的真实执行、删除／类型失配门禁及旧内联显式导入见[快捷指令契约](shortcut-commands.md)。旧内联只保留展示和历史，不能执行或启用。项目自动化按功能列表进入设置页，具体授权与记录从对应 Worker 查看，通用指令与模板的 Web 编辑入口已退休，定义管理仍经既有 CLI／API，页面入口见[使用指南](../hooks.md#页面入口)。
+
+## 临时定义与显式安全回收（D743）
+
+临时项在同一注册库保存 `temporary:true,created_at,reclaimed_at?`，不迁移旧长期项、不改变 once/persistent 含义。`hooks.temporary_create` 复用通用受控定义校验与固定命令版本，可选原子新建 Shell 命令；默认 once、停用，不能带目标。成功返回身份后另行固定版本挂载，不恢复旧 install 或 raw 内联入口。临时 v1 定义不可变，旧 save/remove/import/upgrade 无法转换或抹去；升级旧未登记挂载也不会选择临时定义作迁移归宿。
+
+回收是显式事务，不是执行成功自动清理。一次性挂载成功仅移除挂载；定义继续供审计查看。`hooks.temporary_reclaim` 对完整权威库 revision 做 CAS，并在同事务检查所有挂载（包含停用／终态项）、待执行、真实 Hook owner／队列和持久未知事实；残留挂载须先独立 detach，未知结果不能借 detach、重新启用或清历史消除。已确认结束失败可以在解除引用后回收，已开始未结算动作则保守计未知。通过后只标记 reclaimed_at，不删除定义、版本、共享命令或审计；活动 50 项计数排除已回收项，但整个库仍共用原 512 KiB（活动临时项各在其中预留 64 字节回收标记空间，满库也能回收），命令库仍为原 100 项／512 KiB，预算不足不裁历史或扩容。
+
+`automationHookEvent` 保留原任务事件身份，另把临时使用的必要非秘密字段保存为项目所有 `hook.temporary_usage` Event（source_event_id／owner_id、原动作类型、固定定义／挂载／执行身份、结果类型及未知标记）。原 Worker 显式删除或命令历史隐藏不删除这份证据。事务领取／结算、成功一次性移除和必要审计一起落库；未知不重放。命令已开始后异常与明确失败区分，后者不冒充未知，前者不能被 failed 或后续新触发覆盖。回收不会把命令的新旧定义、共享引用或未知使用一并删除，临时定义保留的命令不可经旧 command_remove 擦除。
+
+创建／回收 schema、验证和能力参数来自 `src/core/hook-registration.js`；请求 key＋完整参数指纹及结果在变更同事务的项目 Event 留精确证明。管理控制层复用最新逐项权限、固定请求／确认与真实完成证明恢复，普通开发 Agent 仍 USER_ONLY 拒绝；项目密码管理员未开放这些通用写入口。列表、分页／字节截断、审计与错误字段唯一权威见[临时接口](../reference/rpc/hooks.md#临时功能创建挂载与回收)。默认目录隐藏已回收项，按需显式包含或读取单项只读历史，不把 safe projection 冒充完整模型执行记录。
 
 ## 通用命令与 main 推送示例（W133 / 用户决定 #319）
 
@@ -128,7 +138,10 @@ Worker 详情展示为「自动化」。来源结束规则与目标内部处理�
 
 | RPC | 参数 | Project 方法 | HTTP 读面 |
 |---|---|---|---|
-| `hooks.list` | 无 | `hooksList()` | `GET /api/hooks` |
+| `hooks.list` | `include_reclaimed?`, `after?`, `limit?` | `hooksList(options)` | `GET /api/hooks` |
+| `hooks.temporary_create` | `hook`, `command?`, `expected_revisions`, `client_request_id` | `createTemporaryAutomation(options)` | POST action |
+| `hooks.temporary_reclaim` | `id`, `expected_revision`, `client_request_id` | `reclaimTemporaryAutomation(options)` | POST action |
+| `hooks.temporary_history` | `id`, `before?`, `limit?` | `temporaryAutomationHistory(options)` | `GET /api/hooks/temporary/history` |
 | `hooks.save` | `template`（可带 id）, `expected_revision` | `saveHookTemplate(template,expectedRevision)` | POST action |
 | `hooks.remove` | `id`, `expected_revision` | `removeHookTemplate(id,expectedRevision)` | POST action |
 | `worker.hooks` | `id` | `taskHooks(id)` | `GET /api/worker/ID/hooks` |

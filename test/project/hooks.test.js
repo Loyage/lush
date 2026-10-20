@@ -77,5 +77,19 @@ test('persistent notification Hook mounts, evaluates its condition and deduplica
     await expect(runValet(['self','title','冒充管家'])).rejects.toThrow();
     await expect(automation('automation',['register','--file','must-not-open'],ctx)).rejects.toThrow();
     expect(calls.length).toBe(requested);
+
+    const temporary = await dispatcher.dispatch('hooks.temporary_create', { hook: { name: '临时创建独立工作', trigger: 'worker.parent_ready', enabled: true,
+      actions: [{ type: 'create_worker', content: '只创建、不启动', start: false }] },
+      expected_revisions: { registry: f.project.hooksList().registry.revision }, client_request_id: 'temporary-create-worker' });
+    const main = await f.project.bootstrapMain();
+    f.project.attachTaskHook(main.id, { template_id: temporary.template_id, template_version: 1 }, f.project.taskHooks(main.id).revision);
+    f.project.emitTaskHook(main.id, 'worker.parent_ready'); await f.project.hookQueue;
+    const history = f.project.temporaryAutomationHistory({ id: temporary.template_id });
+    expect(history.usage).toMatchObject({ succeeded_total: 1, mount_count: 0, reclaimable: true });
+    expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE goal='只创建、不启动'").n).toBe(1);
+    const created = f.store.get("SELECT id FROM tasks WHERE goal='只创建、不启动'");
+    // Temporary runtime execution is a system submission, not a new user input.
+    expect(f.project.inspect(created.id).goal_input_source).toEqual({ kind: 'system', worker_id: null, worker_number: null });
+    expect(f.project.inspect(order.task.id).goal_input_source.kind).toBe('user');
   } finally { await f.close(); }
 });

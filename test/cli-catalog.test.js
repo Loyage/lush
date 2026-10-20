@@ -1,5 +1,8 @@
 import { test, expect } from 'bun:test';
-import { CLI_EXECUTABLES, cliCommands, cliHelp, managementCLICommandPolicy } from '../src/cli/catalog.js';
+import { CLI_EXECUTABLES, cliCommands, cliHelp, cliHelpDocument, managementCLICommandPolicy } from '../src/cli/catalog.js';
+import { TEMPORARY_AUTOMATION_CAPABILITIES, HOOK_ACTIONS_SCHEMA } from '../src/core/hook-registration.js';
+import { INPUT_EMIT_SCHEMA } from '../src/core/input-emission-protocol.js';
+import { matchesJSONSchema } from '../src/cli/parser.js';
 import { CLI_WORKFLOWS } from '../src/cli/discovery.js';
 import { cliCatalog } from '../src/rpc/cli-catalog.js';
 import { HANDLERS } from '../src/rpc/dispatcher.js';
@@ -22,6 +25,15 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
     expect(Object.keys(item.parameters.options).some(flag => /-file$/.test(flag))).toBe(false);
     expect(item.rpc).not.toContain('worker.accept_force');
   }
+  const createSchema = cliHelpDocument('lush', ['automation','temporary','create'], { view: 'valet' }).data.parameters.options['--data'].schema;
+  expect(createSchema).toEqual(TEMPORARY_AUTOMATION_CAPABILITIES['hooks.temporary_create'].schema);
+  const createAction = HOOK_ACTIONS_SCHEMA.items.oneOf.find(item => item.properties.type.const === 'create_worker');
+  expect(createAction.properties.profile).toBe(INPUT_EMIT_SCHEMA.properties.profile.anyOf[0]);
+  expect(createAction.properties.references).toBe(INPUT_EMIT_SCHEMA.properties.references.anyOf[0]);
+  const notification = { hook: { name: 'one-off', trigger: 'agent.returned', actions: [{ type: 'notify', title: 'done', body: '' }] },
+    expected_revisions: { registry: 'REV' }, client_request_id: 'notification' };
+  expect(matchesJSONSchema(createSchema, notification)).toBe(true);
+  expect(matchesJSONSchema(createSchema, { ...notification, expected_revisions: {} })).toBe(false);
   const allLeaves = CLI_EXECUTABLES.flatMap(executable => cliCommands(executable)).filter(item => !item.directory);
   for (const flow of CLI_WORKFLOWS) for (const steps of [flow.steps, flow.workerSteps, flow.valetSteps].filter(Boolean))
     for (const [id] of steps) expect(allLeaves.some(item => item.id === id)).toBe(true);

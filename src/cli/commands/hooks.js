@@ -2,7 +2,7 @@ import { check } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { exact, option } from '../args.js';
 import { takeJsonInput } from '../private-json.js';
-import { validateHookRegistration } from '../../core/hook-registration.js';
+import { validateHookRegistration, validateTemporaryAutomation } from '../../core/hook-registration.js';
 
 function readRevision(args) {
   const revision = option(args, '--revision');
@@ -17,7 +17,14 @@ export async function run(command, args, { client }) {
   check(command === 'automation', 'use lush automation; hooks is no longer executable');
   check(!client.token || client.management, 'Automation configuration requires user or trusted management identity');
   const verb = args.shift();
-  if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
+  if (verb === 'list') {
+    const index = args.indexOf('--include-reclaimed'), include_reclaimed = index >= 0;
+    if (include_reclaimed) args.splice(index, 1);
+    const after = option(args, '--after'), limit = option(args, '--limit'); exact(args, 0);
+    return client.request('hooks.list', { ...(include_reclaimed ? { include_reclaimed: true } : {}),
+      ...(after !== null ? { after } : {}), ...(limit !== null ? { limit: Number(limit) } : {}) });
+  }
+  if (verb === 'temporary') return runTemporary(args, client);
   if (verb === 'register') {
     const value = takeJsonInput(args, client, 'Hook registration'); exact(args, 0);
     return client.request('hooks.register', validateHookRegistration(value));
@@ -32,7 +39,7 @@ export async function run(command, args, { client }) {
   }
   if (verb === 'command') return runCommand(args, client);
   if (verb === 'signal') return runSignal(args, client);
-  check(['save','remove'].includes(verb), 'automation requires list|register|save|remove|completion-defaults|command|signal; run lush help automation');
+  check(['save','remove'].includes(verb), 'automation requires list|temporary|register|save|remove|completion-defaults|command|signal; run lush help automation');
   const expected_revision = readRevision(args);
   if (verb === 'save') {
     const template = takeJsonInput(args, client); exact(args, 0);
@@ -40,6 +47,19 @@ export async function run(command, args, { client }) {
   }
   exact(args, 1);
   return client.request('hooks.remove', { id: args[0], expected_revision });
+}
+
+async function runTemporary(args, client) {
+  const verb = args.shift();
+  check(['create','reclaim','history'].includes(verb), 'automation temporary requires create|reclaim|history');
+  const method = `hooks.temporary_${verb}`;
+  if (verb === 'history') {
+    const before = option(args, '--before'), limit = option(args, '--limit'); exact(args, 1);
+    return client.request(method, validateTemporaryAutomation(method, { id: args[0],
+      ...(before !== null ? { before: Number(before) } : {}), ...(limit !== null ? { limit: Number(limit) } : {}) }));
+  }
+  const value = takeJsonInput(args, client, 'Temporary automation'); exact(args, 0);
+  return client.request(method, validateTemporaryAutomation(method, value));
 }
 
 // Keep the original read model and its actual revision; absence is not an empty catalogue.

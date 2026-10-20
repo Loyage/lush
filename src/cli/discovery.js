@@ -10,7 +10,18 @@ export const CLI_WORKFLOWS = Object.freeze([
     ['input.draft.show', '读取保存的真实版本，revision 不从示例或旧状态复制。'],
     ['input.draft.submit', '提交该版本；只在新建模式通过 --data 显式覆盖运行配置，追加不覆盖配置。'],
   ], stop: '报告 saved/scheduled/delivered/unknown 的真实收据并结束；未知不换去重身份重发。直接追加可用 worker message，但不声称等价于可靠条件发射。' },
-  { id: 'register-and-attach', title: '先登记，再单独挂载', keywords: '自动化 注册 挂载 hook automation register attach', views: ['user','valet'], steps: [
+  { id: 'temporary-automation', title: '先复用，没有再建临时功能', keywords: '临时 一次性 自动化 查找 复用 回收 temporary automation reuse reclaim history', views: ['user','valet'], steps: [
+    ['automation.list', '先查询并按名称、purpose 与动作寻找适用功能；按真实游标补足必要范围。已有适用项直接复用其固定版本，不创建重复临时项。'],
+    ['automation.temporary.create', '仅无适用项时创建；默认 once、停用，临时与触发频率独立。创建不挂载、不执行；必须取得 created:true 和真实固定版本。'],
+    ['worker.automation.show', '读取明确目标的真实挂载 revision；复用已有项也须独立目标授权。'],
+    ['worker.automation.attach', '只传 template_id/template_version 与明确 enabled；不内联定义、运行参数，不视作已经执行。'],
+    ['automation.temporary.history', '触发后按真实使用审计及 usage 检查；成功一次性仅清挂载，不自动回收定义。'],
+    ['worker.automation.detach', '仍有任何挂载（含停用项）须独立撤销未来授权；不消除历史 unknown。'],
+    ['automation.list', '回收前读取最新 registry.revision 和 usage；有引用、待执行、执行或 unknown 时停止。'],
+    ['automation.temporary.reclaim', '用固定完整请求显式安全回收；不删除定义与审计，不自动迁移旧长期项。'],
+    ['automation.temporary.history', '已回收仍可只读查询，或 list --include-reclaimed 按需查看。'],
+  ], stop: '待确认／waiting 后结束本轮，unknown 不重放；创建／挂载不证明执行。长期 register/save 仍保留但不作为临时需求前提；回收不可重新挂载。' },
+  { id: 'register-and-attach', title: '长期功能：先登记，再单独挂载', keywords: '自动化 注册 挂载 hook automation register attach', views: ['user','valet'], steps: [
     ['automation.list', '取得 registry 与 commands 的真实 revision。'], ['automation.register', '只登记定义；等待真实登记完成及固定版本。'],
     ['worker.automation.show', '取得目标挂载 revision。'], ['worker.automation.attach', '独立请求固定登记版本挂载，不内联执行参数。'],
   ], stop: '登记失败、待确认或 unknown 时停止，不继续挂载；挂载不是执行，失败或未知一次性动作不自动重放。' },

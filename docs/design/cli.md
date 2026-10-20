@@ -17,7 +17,7 @@ CLI 不是 RPC 的完整镜像，也不以“后台存在接口”作为保留�
 
 - worker 是持久工作记录，不等于调用进程。W／V 通用查询与追加共用入口，Git、合并、开发验收仍按真实类型拒绝 V。
 - input 管原话与未发送意图，worker message 管直接追加。draft 保存不授权；submit 授权可靠挂载，不承诺立即投递。
-- automation 管定义，worker automation 管实际挂载。注册完成后独立挂载固定版本，不恢复“一步注册并安装”。
+- automation 管定义，worker automation 管实际挂载。先查找并复用已有适用功能，无适用项才建临时能力；长期 register/save 仍保留但不是临时需求的前提。创建／登记完成后独立挂载固定版本，不恢复“一步创建并安装”。
 - config 管必要设备策略，agent 管安全模型来源与缓存。完整配置仅接受明确给出的数据，不从安全摘要补造未知私有设置。
 - valet 仅保留安全上下文、收据与自身标题／进度／Notice；创建和急救由现有用户 Web／RPC 处理，不给管家自复制入口。
 
@@ -47,7 +47,7 @@ bun run lush input draft submit 17 --revision 3
 
 merge request 只提交本轮合并；条件 revision 来自 merge show，不与 automation show 的挂载 revision 混用。持久自动合并开关不等于本轮请求；启用 auto-merge 不得降低既有 accept 最高授权。branch merge-all 仍逐项走普通交付队列，不调用整合 Agent。
 
-自定义自动化先登记，再以固定 template_id／template_version 独立挂载。登记、挂载、触发执行是三件不同的事。旧迁移、历史清理与持续归并不因保留自动化而恢复 CLI。
+自动化先 `automation list` 查找适用功能并按真实游标续读，复用固定版本；仅无适用项时用 `automation temporary create --data JSON`。临时与频率独立，默认 once／停用，持续须明确授权。创建／登记、固定 template_id／template_version 的独立目标挂载、触发执行是三件不同的事。用完读 `automation temporary history ID` 与目录 usage，显式 `automation temporary reclaim --data JSON`；全部引用／在途／unknown 都拒绝回收，残留挂载先独立 detach。成功回收后默认隐藏，但可 `automation list --include-reclaimed` 或单项只读历史查看。长期 register/save 保留，不迁移旧长期项。旧迁移、历史清理与持续归并不因保留自动化而恢复 CLI。
 
 accept 必须核验真实交付、干净现场、消息、后代、冻结与资源回收；失败不报告成功。child 默认保留供追加需求，成果检查不等于立即验收。
 

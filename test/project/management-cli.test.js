@@ -69,6 +69,10 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
       command(['branch','integrate','preview','main']), command(['agent','package','list']),
       command(['valet','submit','must not create']), command(['automation','upgrade','--revision','REV']),
       command(['automation','register','--file','must-not-open']),
+      command(['automation','temporary','create','--file','must-not-open']),
+      command(['automation','temporary','create','--data',JSON.stringify({ hook: { name: 'invalid', trigger: 'agent.returned',
+        actions: [{ type: 'notify', title: 'no', body: '' }] }, command: { name: 'conflict', command: 'true' },
+        expected_revisions: { registry: 'unused', commands: 'unused' }, client_request_id: 'must-not-create' })]),
     ]);
     expect(rejected.replies.every(reply => Boolean(reply.error))).toBe(true);
     for (const reply of rejected.replies) expect(JSON.parse(reply.error)).toMatchObject({ kind: 'invalid_parameters', execution: 'not_started' });
@@ -179,17 +183,21 @@ test('conditional merge cycle keeps its safe business reason through CLI, receip
     // Matching text/code is NOT proof of no side effects. Unclassified handler
     // errors must stay unknown, retain privacy and never become replayable.
     const dispatch = f.project.managementDispatch.bind(f.project);
+    let dispatches = 0;
     f.project.managementDispatch = (method, ...args) => {
-      if (method === 'worker.merge_after') throw Object.assign(new Error('merge conditions create a cycle or parent/child closure deadlock PRIVATE'), { code: -32602 });
+      if (method === 'worker.merge_after') { dispatches++; throw Object.assign(new Error('merge conditions create a cycle or parent/child closure deadlock PRIVATE'), { code: -32602 }); }
       return dispatch(method, ...args);
     };
-    const unknown = (await f.invoke([request])).values[0];
+    const unknownReplies = (await f.invoke([request, request])).values;
+    const unknown = unknownReplies[0];
+    expect(dispatches).toBe(1);
+    expect(unknownReplies[1]).toMatchObject({ status: 'unknown', receipt_id: unknown.receipt_id });
     expect(unknown).toMatchObject({ status: 'unknown', diagnostic: { code: 'execution_failed', effect: 'unknown', retry: 'not_automatic' } });
     expect(JSON.stringify(unknown)).not.toContain('PRIVATE');
   } finally { await f.close(); }
 });
 
-test('real CLI registration then separate fixed-version mount executes the pinned hook', async () => {
+test('real CLI reuses permanent functions then creates, executes and safely reclaims temporary fixed versions', async () => {
   const f = await harness();
   try {
     const main = await f.project.bootstrapMain(), output = path.join(f.root, '.lush', 'cli-pinned-hook');
@@ -204,12 +212,76 @@ test('real CLI registration then separate fixed-version mount executes the pinne
     const first = await f.invoke([command(['automation','register','--data',JSON.stringify(registration)])]);
     const registered = first.values[0];
     expect(registered).toMatchObject({ method: 'hooks.register', status: 'succeeded' });
-    const identity = { template_id: registered.result.template_id, template_version: registered.result.template_version };
-    expect(f.project.hooksList().registry.items.find(item => item.id === identity.template_id).mount_count).toBe(0);
+    // Discover/reuse the existing feature instead of creating a duplicate temporary definition.
+    const reuse = await f.invoke([command(['automation','list']), command(['help','--search','临时','--json'])]);
+    const existing = reuse.values[0].registry.items.find(item => item.id === registered.result.template_id);
+    const identity = { template_id: existing.id, template_version: existing.version };
+    expect(existing.mount_count).toBe(0);
+    expect(reuse.values[1].items.some(item => item.id === 'temporary-automation')).toBe(true);
     const second = await f.invoke([command(['worker','automation','attach',String(main.id),'--data',JSON.stringify(identity),'--revision',mountRevision])]);
     expect(second.values[0]).toMatchObject({ method: 'worker.hook_attach', status: 'succeeded', result: { worker_id: main.id } });
     expect(fs.existsSync(output)).toBe(false);
     f.project.emitTaskHook(main.id, 'worker.merge_received', f.store.event(main.id, 'test.cli_merge', {})); await f.project.hookQueue;
     expect(fs.readFileSync(output,'utf8')).toBe('pinned');
+    expect(f.project.hooksList().registry.items.filter(item => item.temporary)).toHaveLength(0);
+    const audit = await f.dispatcher.dispatch('worker.management_calls', { id: second.task.id, after: 0 });
+    expect(audit.items.some(item => item.method === 'hooks.temporary_create')).toBe(false);
+
+    // No suitable feature for this distinct effect: create an inert, default-once
+    // temporary Shell definition through the actual Provider/CLI/parser/manager chain.
+    const temporaryOutput = output + '-temporary', directoryNow = f.project.hooksList();
+    const create = { command: { name: 'one-off CLI effect', command: `printf temporary >> '${temporaryOutput}'` },
+      hook: { name: 'one-off CLI function', trigger: 'worker.merge_received' },
+      expected_revisions: { registry: directoryNow.registry.revision, commands: directoryNow.commands.revision }, client_request_id: 'cli-temporary' };
+    const created = await f.invoke([command(['help','workflow','temporary-automation']),
+      command(['automation','temporary','create','--data',JSON.stringify(create)]),
+      command(['automation','temporary','create','--data',JSON.stringify(create)])]);
+    expect(created.replies.every(reply => !reply.error)).toBe(true);
+    expect(created.values[0].help).toContain('复用');
+    const temporary = created.values[1];
+    expect(temporary).toMatchObject({ method: 'hooks.temporary_create', status: 'succeeded', result: { created: true, temporary: true, template_version: 1 } });
+    expect(created.values[2].receipt_id).toBe(temporary.receipt_id);
+    const tempId = temporary.result.template_id, tempReference = { template_id: tempId, template_version: temporary.result.template_version, enabled: true };
+    expect(fs.existsSync(temporaryOutput)).toBe(false);
+    expect(f.project.hooksList().templates.find(item => item.id === tempId)).toMatchObject({ mode: 'once', enabled: false });
+    const mounted = await f.invoke([command(['worker','automation','attach',String(main.id),'--data',JSON.stringify(tempReference),
+      '--revision',f.project.taskHooks(main.id).revision]), command(['automation','temporary','history',tempId,'--limit','1'])]);
+    expect(mounted.values[0]).toMatchObject({ status: 'succeeded', method: 'worker.hook_attach' });
+    expect(mounted.values[1]).toMatchObject({ lifecycle: 'active', usage: { attached_total: 1, mount_count: 1, reclaimable: false } });
+    const reclaim = { id: tempId, expected_revision: f.project.hooksList().registry.revision, client_request_id: 'cli-reclaim' };
+    const refused = await f.invoke([command(['automation','temporary','reclaim','--data',JSON.stringify(reclaim)])]);
+    expect(refused.values[0]).toMatchObject({ method: 'hooks.temporary_reclaim', status: 'failed' });
+    expect(f.project.hooksList().registry.items.find(item => item.id === tempId).lifecycle).toBe('active');
+    f.project.emitTaskHook(main.id, 'worker.merge_received', f.store.event(main.id, 'test.cli_temporary_merge', {})); await f.project.hookQueue;
+    expect(fs.readFileSync(temporaryOutput,'utf8')).toBe('temporary');
+    const used = await f.invoke([command(['automation','temporary','history',tempId,'--limit','2']), command(['automation','list','--limit','1'])]);
+    expect(used.values[0].usage).toMatchObject({ succeeded_total: 1, mount_count: 0, reclaimable: true });
+    expect(used.values[0].audit).toMatchObject({ has_more: true, history_complete: false });
+    expect(used.values[1].registry).toMatchObject({ complete: false, has_more: true });
+
+    // Exact user confirmation still gates reclaim; no implicit approval from the model.
+    let permission = f.project.managementPermissionGet('hooks.temporary_reclaim','device');
+    f.project.managementPermissionSet(permission.method,'confirmation',permission.revision,'device');
+    reclaim.client_request_id = 'cli-reclaim-confirmed';
+    const pending = await f.invoke([command(['automation','temporary','reclaim','--data',JSON.stringify(reclaim)])]);
+    expect(pending.values[0]).toMatchObject({ method: 'hooks.temporary_reclaim', status: 'pending_confirmation' });
+    expect(f.project.hooksList().registry.items.some(item => item.id === tempId)).toBe(true);
+    f.project.answer(pending.values[0].notice_id, { answers: [{ selected: [1], custom: '' }] });
+    await Promise.all([...f.project.managementControlJobs]);
+    expect(f.project.hooksList().registry.items.some(item => item.id === tempId)).toBe(false);
+    const retained = await f.invoke([command(['automation','list','--include-reclaimed']),
+      command(['automation','temporary','history',tempId,'--before',String(used.values[0].audit.next_before),'--limit','100']),
+      command(['automation','list','--after',used.values[1].registry.next_cursor,'--limit','100'])]);
+    expect(retained.replies.every(reply => !reply.error)).toBe(true);
+    expect(retained.values[0].registry.items.find(item => item.id === tempId)).toMatchObject({ lifecycle: 'reclaimed', mountable: false });
+    expect(retained.values[1]).toMatchObject({ lifecycle: 'reclaimed', readonly: true, usage: { succeeded_total: 1 } });
+    expect(retained.values[1].audit.items.every(item => item.seq < used.values[0].audit.next_before)).toBe(true);
+    expect(retained.values[2].registry.items.every(item => item.id !== used.values[1].registry.next_cursor)).toBe(true);
+    expect(fs.readFileSync(temporaryOutput,'utf8')).toBe('temporary');
+    permission = f.project.managementPermissionGet('hooks.temporary_create','device');
+    f.project.managementPermissionSet(permission.method,'unavailable',permission.revision,'device');
+    const denied = await f.invoke([command(['automation','temporary','create','--data',JSON.stringify({ ...create, client_request_id: 'must-deny' })])]);
+    expect(JSON.parse(denied.replies[0].error).diagnostic).toMatchObject({ code: 'permission_denied', effect: 'not_started' });
+    expect(f.project.hooksList({ include_reclaimed: true }).registry.items.filter(item => item.temporary)).toHaveLength(1);
   } finally { await f.close(); }
 });

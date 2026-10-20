@@ -21,16 +21,16 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     ui.disposeProjectAutomation?.(); return openInputs({ push });
   }
   if (feature === 'convergence') { feature = null; window.history.replaceState(null, '', '#hooks'); show('持续归并设置已退役；普通自动合并与已有历史保留。'); }
-  const view = activateDetailView({ view: 'hooks', title: '项目自动化', hint: '先登记，再选择 Worker 挂载；登记不执行', hash: automationHash(feature), push });
+  const view = activateDetailView({ view: 'hooks', title: '项目自动化', hint: '先查可用功能；临时定义与长期登记均须单独挂载', hash: automationHash(feature), push });
   const project = projectApi('/api/hooks'), owner = globalThis.document, existing = ui.automationPage;
   if (existing?.view === view && existing.project === project && existing.owner === owner && !existing.disposed) return existing.select(feature, subpage);
   ui.disposeProjectAutomation?.();
-  const state = { view, project, owner, feature: null, nodes: new Map(), request: 0, readRequest: 0, disposed: false, catalogue: null };
+  const state = { view, project, owner, feature: null, nodes: new Map(), request: 0, readRequest: 0, disposed: false, catalogue: null, includeReclaimed: false, nextCursor: null };
   ui.automationPage = state;
   const owns = () => !state.disposed && owner === globalThis.document && ui.view === view && ui.automationPage === state && projectApi('/api/hooks') === project;
   const root = el('div', undefined, 'hooks-page project-automation resource-page'), browse = el('section', undefined, 'automation-browse');
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('span', 'AUTOMATION', 'resource-kicker'), el('h1', '项目自动化'), el('p', '先登记功能，再选择 Worker 和固定版本确认挂载。登记不挂载、不执行；修改定义不改变已有授权。'));
+  hero.append(el('span', 'AUTOMATION', 'resource-kicker'), el('h1', '项目自动化'), el('p', '先查找可用功能；临时需求无需先建立长期项。选择 Worker 和固定版本另行确认挂载，创建或挂载不等于执行成功。'));
   let entries = [], keyword = '';
   const empty = el('p', '', 'hint'); empty.hidden = true;
   const filter = () => { let count = 0; for (const entry of entries) { entry.node.hidden = !entry.text.includes(keyword); if (!entry.node.hidden) count++; } empty.hidden = count !== 0; empty.textContent = keyword ? '没有匹配的自动化功能。' : '项目尚无登记功能。'; };
@@ -40,8 +40,11 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
   const list = el('ol', undefined, 'automation-feature-list'); list.setAttribute('aria-label', '自动化功能');
   const status = el('p', '', 'hint'); status.setAttribute('role', 'status');
   const controls = el('div', undefined, 'actions hook-actions');
-  controls.append(button('登记新功能', () => openProjectAutomation({ feature: 'register' }), 'nav-link'), button('刷新目录', () => state.reload(), 'ghost'));
-  card.append(heading, status, list, empty); browse.append(hero, search.root, controls, card);
+  const reclaimed = el('label', '包含已回收临时项', 'hook-field'), reclaimedInput = el('input'); reclaimedInput.type = 'checkbox'; reclaimedInput.setAttribute('aria-label', '包含已回收临时项'); reclaimed.append(reclaimedInput);
+  reclaimedInput.onchange = () => { state.includeReclaimed = reclaimedInput.checked; return state.reload(); };
+  const more = button('继续读取功能', () => state.reload(true), 'ghost'); more.hidden = true;
+  controls.append(reclaimed, button('登记新功能', () => openProjectAutomation({ feature: 'register' }), 'nav-link'), button('刷新目录', () => state.reload(), 'ghost'));
+  card.append(heading, status, list, empty, more); browse.append(hero, search.root, controls, card);
   listSurface({ root: browse, tools: search.root, card, heading, body: list });
   const panel = el('section', undefined, 'automation-feature-page'); panel.hidden = true;
   root.append(browse, panel); $('detail').replaceChildren(root);
@@ -50,26 +53,35 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
   const paintDirectory = () => {
     const registry = state.catalogue.registry; entries = []; list.replaceChildren();
     count.textContent = `${registry.items.length} / ${registry.total}`;
-    status.textContent = `${registry.complete ? '登记目录已完整读取。' : '目录未列全，以下仅为已读取项。'}${registry.legacy_mount_count ? ` 另有 ${registry.legacy_mount_count} 个未登记挂载，须显式升级；读取不会迁移。` : ''}`;
+    status.textContent = `${registry.has_more ? '目录未列全，以下仅为已读取项；请显式继续读取。' : '当前筛选目录已完整读取。'}${registry.legacy_mount_count ? ` 另有 ${registry.legacy_mount_count} 个未登记挂载，须显式升级；读取不会迁移。` : ''}`;
+    more.hidden = !registry.has_more; more.disabled = false;
     if (registry.legacy_mount_count || registry.items.some(item => !item.readonly && !item.mountable)) status.append(button('检查并升级旧规则', () => openProjectAutomation({ feature: 'upgrade' }), 'nav-link'));
     for (const item of registry.items) {
       const row = el('li', undefined, 'automation-feature'); row.dataset.feature = builtinFeature(item.id, state.catalogue) || item.id;
       const link = el('a', undefined, 'automation-feature-link'); link.href = automationHash(builtinFeature(item.id, state.catalogue) || item.id);
-      const head = el('span', undefined, 'automation-feature-head'); head.append(el('strong', item.name), badge(automationOrigin(item.origin)), badge(`${item.mount_count} 个挂载`));
+      const head = el('span', undefined, 'automation-feature-head'); head.append(el('strong', item.name), ...(item.temporary ? [badge('临时'), ...(item.lifecycle === 'reclaimed' ? [badge('已回收 · 只读')] : [])] : []), badge(automationOrigin(item.origin)), badge(`${item.mount_count} 个挂载`));
       link.append(head, el('span', item.purpose, 'automation-feature-description'), el('span', '查看详情 →', 'automation-feature-open'));
       if (item.reason && !item.readonly) link.append(el('span', item.reason, 'error'));
       link.onclick = event => { if (event?.button > 0 || event?.metaKey || event?.ctrlKey || event?.shiftKey || event?.altKey) return; event?.preventDefault?.(); return openProjectAutomation({ feature: builtinFeature(item.id, state.catalogue) || item.id }); };
-      row.append(listEntry(link)); list.append(row); entries.push({ node: row, text: `${item.name} ${item.purpose} ${automationOrigin(item.origin)}`.toLowerCase() });
+      row.append(listEntry(link)); list.append(row); entries.push({ node: row, text: `${item.name} ${item.purpose} ${automationOrigin(item.origin)} ${item.temporary ? '临时' : ''} ${item.lifecycle === 'reclaimed' ? '已回收' : ''}`.toLowerCase() });
     }
     filter();
   };
-  state.reload = async () => {
-    const request = ++state.readRequest; status.textContent = '正在读取登记目录…';
+  state.reload = async (append = false) => {
+    const cursor = append ? state.nextCursor : null, previous = state.catalogue;
+    if (append && !cursor) return;
+    const request = ++state.readRequest; status.textContent = '正在读取登记目录…'; more.disabled = true;
     try {
-      const catalogue = await api('/api/hooks'); if (!owns() || request !== state.readRequest) return;
+      const catalogue = await api(`/api/hooks?include_reclaimed=${state.includeReclaimed}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`); if (!owns() || request !== state.readRequest) return;
       if (!Array.isArray(catalogue?.registry?.items)) throw Error('登记目录不可用，请更新服务。');
+      if (append) {
+        if (previous.registry.revision !== catalogue.registry.revision) throw Error('目录版本已变化，请刷新后重新续读。');
+        catalogue.registry.items = [...previous.registry.items, ...catalogue.registry.items];
+        catalogue.templates = [...previous.templates, ...catalogue.templates];
+      }
+      state.nextCursor = catalogue.registry.next_cursor;
       state.catalogue = catalogue; ui.hookCatalogue = catalogue; paintDirectory(); return catalogue;
-    } catch (error) { if (owns() && request === state.readRequest) { status.replaceChildren(el('span', `登记目录读取失败：${error.message}`, 'error'), button('重新读取目录', () => state.reload(), 'ghost')); } }
+    } catch (error) { if (owns() && request === state.readRequest) { more.disabled = false; status.replaceChildren(el('span', `登记目录读取失败：${error.message}；已读取内容不代表全部。`, 'error'), button('重新读取目录', () => state.reload(), 'ghost')); } }
   };
   state.select = async id => {
     if (!owns()) return;
@@ -91,9 +103,15 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     try {
       const catalogue = state.catalogue || await state.loading; if (!current()) return;
       if (!catalogue) throw Error('请返回目录重新读取。');
-      const item = catalogue.registry.items.find(item => item.id === builtinId(id, catalogue)), builtin = item && builtinFeature(item.id, catalogue);
-      if (!item && !['register', 'upgrade'].includes(id)) throw Error('功能未登记或不在已读取目录中。');
-      const options = { catalogue, item, ownsPage: () => owns() && state.feature === id, onSaved: state.reload };
+      let item = catalogue.registry.items.find(item => item.id === builtinId(id, catalogue));
+      // A retained temporary bookmark remains readable even when reclaimed or outside this page.
+      if (!item && /^[0-9a-f-]{36}$/i.test(id)) {
+        const history = await api(`/api/hooks/temporary/history?id=${encodeURIComponent(id)}`); if (!current()) return;
+        item = { ...history.definition, id, temporary: true, lifecycle: history.lifecycle, readonly: true, mountable: history.lifecycle === 'active', origin: 'custom', version: history.template_version, versions: [history.template_version], purpose: history.purpose, usage: history.usage, mount_count: history.usage.mount_count, targets: [], targets_complete: history.usage.mount_count === 0 };
+      }
+      const builtin = item && builtinFeature(item.id, catalogue);
+      if (!item && !['register', 'upgrade'].includes(id)) throw Error('功能未登记或不在已读取目录中；请返回列表继续读取。');
+      const options = { catalogue, item, ownsPage: () => owns() && state.feature === id, onSaved: () => state.reload() };
       if (builtin) {
         const render = await automationFeature(builtin).load(); if (!current()) return;
         node = render(options);

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { check, isPlainObject, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { hookConditionsMatch, hookCommandReference } from '../hooks.js';
-import { ensureSystemRegistry, registerDefinition } from './automation-registry.js';
+import { ensureSystemRegistry, registerDefinition, automationHookEvent } from './automation-registry.js';
 
 const read = task => JSON.parse(task.hooks ?? '{"version":1,"mounts":[],"observed":{}}');
 const save = (project, taskId, data) => project.store.update(taskId, { hooks: JSON.stringify(data) });
@@ -83,7 +83,7 @@ export default {
       const data = read(this.store.task(taskId)), mount = data.mounts.find(m => m.id === hookId);
       if (!mount?.enabled || this.shortcutHookIssue(mount) || ['failed','unknown'].includes(mount.state) || sourceId <= (mount.command_last_source ?? 0)) return;
       if (mount.mode === 'once' && (mount.command_pending > 0 || mount.state === 'succeeded')) return;
-      this.store.event(taskId, 'hook.command_submitted', { hook_id: hookId, trigger: mount.trigger, source_id: sourceId });
+      automationHookEvent(this, taskId, 'hook.command_submitted', { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version, trigger: mount.trigger, source_id: sourceId });
       mount.command_last_source = sourceId; mount.command_pending = (mount.command_pending ?? 0) + 1;
       if (mount.state !== 'running') { mount.state = 'waiting'; mount.reason = '命令已提交，等待安全点。'; }
       save(this, taskId, data);
@@ -121,7 +121,7 @@ export default {
         mount.last_execution = { id: executionId, trigger: mount.trigger, status: 'waiting', created_at: timestamp(), finished_at: null };
         mount.receipts = []; save(this, taskId, data);
       }
-      let waiting = false;
+      let waiting = false, effectsUnknown = false;
       try {
         await this.write('execute a command Hook', async () => {
           for (let index = 0; ; index++) {
@@ -150,7 +150,7 @@ export default {
               const snapshot = read(this.store.task(taskId)), rule = snapshot.mounts.find(m => m.id === hookId);
               rule.state = 'running'; rule.reason = null; rule.command_started_index = index; rule.last_execution.status = 'running';
               save(this, taskId, snapshot);
-              this.store.event(taskId, 'hook.execution_started', { hook_id: hookId, execution_id: executionId, trigger: rule.trigger, index });
+              automationHookEvent(this, taskId, 'hook.execution_started', { hook_id: hookId, registry_id: rule.registry_id, registry_version: rule.registry_version, execution_id: executionId, trigger: rule.trigger, index });
             };
             let outcome = {};
             if (action.type === 'command') {
@@ -171,7 +171,7 @@ export default {
                 } });
                 if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, result.status, result);
               } catch (error) {
-                if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, 'unknown');
+                if (started) { effectsUnknown = true; this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, 'unknown'); }
                 throw error;
               } finally { if (started) this.releaseShortcutCommand(taskId); }
               if (result.status === 'waiting') { waiting = true; return; }
@@ -180,6 +180,7 @@ export default {
                 this.recordHookAction(taskId, hookId, executionId, index, outcome);
                 const snapshot = read(this.store.task(taskId)); delete snapshot.mounts.find(m => m.id === hookId).command_started_index; save(this, taskId, snapshot);
               });
+              if (result.status === 'unknown') effectsUnknown = true;
               check(result.status === 'succeeded', 'command failed');
               continue;
             }
@@ -213,7 +214,7 @@ export default {
           }
           this.finishCommandTaskHook(taskId, hookId, executionId, 'succeeded');
         });
-      } catch { this.finishCommandTaskHook(taskId, hookId, executionId, 'failed', FAILURE); }
+      } catch { this.finishCommandTaskHook(taskId, hookId, executionId, effectsUnknown ? 'unknown' : 'failed', effectsUnknown ? UNKNOWN : FAILURE); }
       if (waiting) return;
       if (++count % 16 === 0) await new Promise(resolve => setImmediate(resolve));
     }
@@ -224,12 +225,13 @@ export default {
       const data = read(this.store.task(taskId)), mount = data.mounts.find(m => m.id === hookId);
       if (mount?.last_execution?.id !== executionId) return;
       mount.command_cursor = executionId; mount.command_pending = Math.max(0, (mount.command_pending ?? 1) - 1);
+      const effectsUnknown = status === 'unknown' || status !== 'succeeded' && mount.command_started_index !== undefined;
       delete mount.command_started_index;
       mount.state = status; mount.reason = error;
       Object.assign(mount.last_execution, { status, finished_at: timestamp(), ...(error ? { error } : {}) });
       if (status !== 'succeeded' || mount.mode === 'once') mount.enabled = false;
       save(this, taskId, data);
-      this.store.event(taskId, `hook.execution_${status}`, { hook_id: hookId, execution_id: executionId, error });
+      automationHookEvent(this, taskId, `hook.execution_${status}`, { hook_id: hookId, registry_id: mount.registry_id, registry_version: mount.registry_version, execution_id: executionId, error, effects_unknown: effectsUnknown });
       this.removeSucceededTaskHook(taskId, hookId);
       if (error) this.notify(taskId, '命令 Hook 已停用', error);
     });

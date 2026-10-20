@@ -29,12 +29,15 @@ async function click(selector) {
   await execute(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({block:'center',behavior:'instant'});`);
   const node = await element(selector); await rpc(`/session/${session}/element/${node['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
-const press = label => execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(label)}).click()`);
+const press = async label => {
+  assert(await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled&&b.getClientRects().length)`), `button not ready: ${label}`);
+  return execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled&&b.getClientRects().length).click()`);
+};
 async function frame() { await rpc(`/session/${session}/frame`, { id: await element('#viewport') }); }
 async function route(hash, feature) {
   await execute(`location.hash=${JSON.stringify(hash)}`);
   const selector = feature ? `.automation-settings[data-feature-settings="${feature}"]` : '.automation-feature-list';
-  assert(await wait(`document.querySelector(${JSON.stringify(selector)})&&!document.querySelector(${JSON.stringify(selector)}).hidden`), `route missing ${hash}`);
+  assert(await wait(`document.querySelector(${JSON.stringify(selector)})?.getClientRects().length`), `route missing ${hash}`);
 }
 const scope = value => execute(`const s=document.querySelector('.automation-settings [aria-label="挂载范围"]');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event('change',{bubbles:true}));`);
 const state = value => click(`.automation-settings [data-level="${value}"]`);
@@ -181,8 +184,41 @@ try {
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth`), `expanded registry overflow ${theme}/${width}`); await screenshot(`registry-expanded-${theme}-${width}`);
     await execute(`document.querySelector('.registry-advanced').open=false;document.querySelector('.registry-targets').open=false`);
   }
+  // Temporary definitions created by a user/Valet must remain mountable despite readonly definitions.
+  const temporary = await execute(`return fetch('api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'hooks.temporary_create',params:{hook:{name:'Browser temporary notice',trigger:'agent.returned',actions:[{type:'notify',title:'browser-temporary',body:'Use once'}]},expected_revisions:{registry:${JSON.stringify(f.project.hooksList().registry.revision)}},client_request_id:'browser-temporary'}})}).then(r=>r.json())`);
+  assert(temporary.created && temporary.temporary, 'temporary creation receipt missing');
+  await route('#hooks'); await press('刷新目录'); assert(await wait(`document.querySelector('[data-feature="${temporary.template_id}"]')`), 'temporary directory entry missing');
+  assert(await execute(`return document.querySelector('[data-feature="${temporary.template_id}"]').textContent.includes('临时')`), 'temporary text label missing');
+  await execute(`location.hash='#hooks-feature-${temporary.template_id}'`); assert(await wait(`document.querySelector('.temporary-usage')?.textContent.includes('实际挂载 0')`), 'temporary usage missing');
+  await press('读取 Worker 列表'); assert(await wait(`document.querySelector('[aria-label="选择目标 Worker"]').options.length>1`), 'temporary target list missing');
+  await fill('选择目标 Worker', String(old.id)); assert(await wait(`document.querySelector('.registered-mount-picker')`), 'temporary picker missing');
+  assert(await execute(`return document.querySelector('[aria-label="已登记功能"]').textContent.includes('Browser temporary notice · 临时')`), 'readonly temporary filtered out');
+  await fill('授权版本', '1'); await press('确认挂载'); await press('授权挂载');
+  assert(await wait(`document.querySelector('.temporary-reclaim-reason')?.textContent.includes('残留挂载')`), 'disabled mount did not block reclaim');
+  for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}'`);
+    assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.registry-advanced').open`), `temporary hierarchy/overflow ${theme}/${width}`);
+    await screenshot(`temporary-${theme}-${width}`);
+    await execute(`document.querySelector('.registry-advanced').open=true;document.querySelector('.temporary-usage details').open=true`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth`), `temporary expanded overflow ${theme}/${width}`); await screenshot(`temporary-expanded-${theme}-${width}`);
+    await execute(`document.querySelector('.registry-advanced').open=false;document.querySelector('.temporary-usage details').open=false`);
+  }
+  await workerRoute(old); await press('高级与记录');
+  const tempMount = f.project.taskHooks(old.id).mounts.find(m => m.registry_id === temporary.template_id);
+  await execute(`document.querySelector('[data-hook-id="${tempMount.id}"]').querySelector('button').click()`);
+  assert(await wait(`document.querySelector('[data-hook-id="${tempMount.id}"]').textContent.includes('停用 Hook')`), 'temporary enable ACK missing');
+  f.project.emitTaskHook(old.id, 'agent.returned'); await f.project.hookQueue;
+  await execute(`location.hash='#hooks-feature-${temporary.template_id}'`); assert(await wait(`document.querySelector('.temporary-usage')`), 'temporary return missing');
+  await press('只读刷新使用状态'); assert(await wait(`document.querySelector('.temporary-usage').textContent.includes('累计挂载 1 · 成功 1')`), 'temporary success count missing');
+  await press('安全回收临时功能'); await press('确认安全回收'); assert(await wait(`document.querySelector('.temporary-usage [role="status"]').textContent.includes('安全回收成功')`), 'reclaim ACK missing');
+  await route('#hooks'); assert(await execute(`return !document.querySelector('[data-feature="${temporary.template_id}"]')`), 'reclaimed entry still default-visible');
+  await click('[aria-label="包含已回收临时项"]'); assert(await wait(`document.querySelector('[data-feature="${temporary.template_id}"]')?.textContent.includes('已回收')`), 'reclaimed audit entry missing');
+  await execute(`location.hash='#hooks-feature-${temporary.template_id}'`); assert(await wait(`document.querySelector('.temporary-usage')`), 'reclaimed detail missing'); await press('只读刷新使用状态');
+  assert(await wait(`document.querySelector('.temporary-usage').textContent.includes('已回收 · 只读')`), 'reclaimed readonly state missing');
+  assert(await execute(`return [...document.querySelectorAll('.registry-mount')].every(n=>n.hidden)&&document.querySelector('.temporary-usage').textContent.includes('hook.execution_succeeded')`), 'reclaimed remained mountable or audit lost');
+  assert(!f.project.hooksList().registry.items.find(item => item.id === registered.id).temporary, 'permanent item migrated');
   assert(!reads.some(url => url.includes('/api/automation/completion/workers') || url.includes('/branch-convergence/runs')), 'project settings loaded execution records');
-  assert(mutations.every(item => ['hooks.automation_settings', 'worker.acceptance_notice', 'hooks.save', 'worker.hook_attach', 'worker.hook_update'].includes(item.method)), 'unexpected mutation');
+  assert(mutations.every(item => ['hooks.automation_settings', 'worker.acceptance_notice', 'hooks.save', 'worker.hook_attach', 'worker.hook_update', 'hooks.temporary_create', 'hooks.temporary_reclaim'].includes(item.method)), 'unexpected mutation');
   assert(errors.length === 1 && errors[0].includes('/api/action'), `unexpected failures: ${errors}`);
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify({ mutations, errors, reads, layouts, helpChecks, help: ['hover 1200ms', 'keyboard Tab 1200ms', 'mouse long-press 650ms'] }, null, 2));
   success = true; console.log('PASS real defaults/scope saves, frozen future creation, hidden non-mounts, retained draft/stale revision, compact dual-theme layout and title hover/keyboard/long-press help');

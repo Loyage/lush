@@ -7,6 +7,7 @@ import { commandHistory, commandHistoryRemoved, removeCommandHistory, executionS
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { normalizeShortcut, shortcutKind, shortcutMetadata, exportShortcut } from '../shortcut-command-definition.js';
 import promptShortcutMethods from './prompt-shortcut-commands.js';
+import { registryData, writeRegistry } from './automation-registry.js';
 
 const KEY = 'shortcut_commands';
 const empty = () => ({ version: 1, generation: 0, items: [] });
@@ -194,7 +195,10 @@ export default {
     this.assertWritable('remove a shortcut command'); check(uuid(commandId), 'invalid shortcut command id');
     this.store.transaction(() => {
       const data = read(this); expected(data, expectedRevision); const index = data.items.findIndex(item => item.id === commandId);
-      check(index >= 0, 'shortcut command not found'); invalidate(this, commandId); data.items.splice(index, 1); save(this, data);
+      check(index >= 0, 'shortcut command not found');
+      check(!registryData(this).templates.some(item => item.temporary && [item.definition, ...(item.versions ?? []).map(entry => entry.definition)]
+        .some(definition => definition?.actions.some(action => action.command_id === commandId))), 'shortcut command is retained by temporary automation audit');
+      invalidate(this, commandId); data.items.splice(index, 1); save(this, data);
       this.store.event(null, 'shortcut.command_removed', { command_id: commandId });
     });
     return this.hooksList();
@@ -283,11 +287,11 @@ export default {
       } else {
         const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
         expected(templates, expectedRevision); const item = templates.templates.find(item => item.id === source.template_id);
-        check(item, 'Hook template not found'); original = item.definition;
+        check(item, 'Hook template not found');
+        check(!item.temporary, 'temporary automation is immutable; use explicit temporary reclaim'); original = item.definition;
         saveSource = replacement => {
           item.definition = replacement;
-          check(Buffer.byteLength(JSON.stringify(templates)) <= 4 * HOOK_LIMITS.bytes, 'Hook template library exceeds size limit');
-          this.store.run("UPDATE meta SET value=? WHERE key='hook_templates'", JSON.stringify(templates));
+          writeRegistry(this, templates);
         };
       }
       check(original.actions.some(a => a.type === 'command' && a.command !== undefined), 'source has no legacy inline commands');

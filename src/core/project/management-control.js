@@ -6,12 +6,15 @@ import { assertManager } from './management-auth.js';
 import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime, managementInstruction } from './management-data.js';
 import { managementCatalog, effectiveManagementPolicy, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
 import { hasManagementConfirmation } from './management-code.js';
-import { hookInstallationOutcome, hookRegistrationOutcome } from './hook-install.js';
+import { hookInstallationOutcome, hookRegistrationOutcome, temporaryAutomationOutcome, TEMPORARY_RECEIPT_EVENTS } from './hook-install.js';
 import { resolveRegisteredMount } from './automation-registry.js';
 import { managementAudit, managementPhase, capabilityDiagnostic } from './management-diagnostic.js';
 import { safeManagementDiagnostic } from '../management-diagnostic.js';
 import { MergeConditionCycleError } from '../merge-conditions.js';
 
+const transactionalOutcome = (project, call) => (TEMPORARY_RECEIPT_EVENTS[call.method] ? temporaryAutomationOutcome
+  : call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(project, call);
+const transactionalAutomation = method => ['hooks.install','hooks.register', ...Object.keys(TEMPORARY_RECEIPT_EVENTS)].includes(method);
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
 const safeFailure = '管理操作未确认完成；检查现场，不自动重放。';
@@ -417,7 +420,10 @@ export default {
       // Mutations return only a narrow receipt, not user-only config or destructive result payloads.
       call.result = { submitted: true,
         ...(call.method === 'management.permission_set' ? { method: result.method, access: result.access, revision: result.revision } : {}),
-        ...(call.method === 'hooks.register' ? { registered: result.registered, command_id: result.command_id,
+        ...(['hooks.register','hooks.temporary_create','hooks.temporary_reclaim'].includes(call.method) ? {
+          ...(result.created === true ? { created: true, temporary: true } : {}),
+          ...(result.reclaimed === true ? { reclaimed: true, temporary: true, reclaimed_at: result.reclaimed_at, history_preserved: true } : {}),
+          ...(result.registered === true ? { registered: true } : {}), command_id: result.command_id,
           template_id: result.template_id, template_version: result.template_version } : {}),
         ...(call.method === 'worker.merge_after' ? { worker_id: result.worker_id, revision: result.revision, state: result.state } : {}),
         ...(call.method === 'worker.hook_attach' ? { worker_id: result.worker_id,
@@ -440,8 +446,8 @@ export default {
         // This typed rejection is emitted only by merge_after's synchronous graph
         // validation, before any business mutation. Never classify by error text/code.
         const cycleRejected = stage === 'execution' && call.method === 'worker.merge_after' && error instanceof MergeConditionCycleError;
-        if (call.status === 'running' && ['hooks.install','hooks.register'].includes(call.method))
-          Object.assign(call, (call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(this, call), { finished_at: managementTime(this) });
+        if (call.status === 'running' && transactionalAutomation(call.method))
+          Object.assign(call, transactionalOutcome(this, call), { finished_at: managementTime(this) });
         else {
           call.status = call.status === 'running' && !cycleRejected ? 'unknown' : 'failed';
           call.reason = cycleRejected ? safeManagementDiagnostic({ code: 'merge_dependency_cycle' }).reason
@@ -489,8 +495,8 @@ export default {
     const state = managementState(this.store.task(taskId));
     for (const call of state?.control_calls ?? []) if (call.status === 'running') {
       const proof = this.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed' AND json_extract(data,'$.receipt_id')=? LIMIT 1", taskId, call.receipt_id);
-      if (['hooks.install','hooks.register'].includes(call.method)) Object.assign(call,
-        (call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(this, call), { finished_at: call.finished_at ?? managementTime(this) });
+      if (transactionalAutomation(call.method)) Object.assign(call,
+        transactionalOutcome(this, call), { finished_at: call.finished_at ?? managementTime(this) });
       else {
         call.status = proof ? 'succeeded' : 'unknown';
         if (!proof) call.reason = safeFailure;
