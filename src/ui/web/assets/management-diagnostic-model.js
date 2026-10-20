@@ -9,6 +9,7 @@ const effects = { not_started: '未开始（有可信证据）', applied: '该�
 const reasons = {
   invalid_parameters: '可信执行前参数校验拒绝；请核对公开目录。', authorization_required: '本轮用户授权不足，须询问用户。',
   permission_denied: '最新权限拒绝，未进入执行。', preflight_rejected: '固定参数、目标、资源或授权的执行前核验未通过。',
+  merge_dependency_cycle: '条件合并形成阶段依赖环或父子收口死锁；配置未保存，请核对等待条件。',
   execution_failed: '执行回调异常；底层原因未安全分类，副作用可能已发生。', completion_failed: '执行返回后的完成处理失败，结果未确认。',
   persistence_failed: '完成证据保存未确认，不能认定未生效。', request_failed: '请求未确认完成，底层原因未知。',
   completion_not_observed: '未观察到可信完成证据；底层原因未知，不自动重放。', in_progress: '已进入执行，尚无完成证据，不重复执行。',
@@ -17,7 +18,7 @@ const reasons = {
   request_returned: '管理请求已返回，但缺少独立完成证明；不能推定未开始或目标业务完成。',
   legacy_unknown: '旧收据未采集结构化诊断，无法还原最初失败阶段或原因。',
 };
-const evidence = ['trusted_pre_dispatch','confirmation_pending','approval_pending','dispatch_entered','completion_saved','read_only','completion_not_observed','legacy_missing'];
+const evidence = ['trusted_pre_dispatch','trusted_pre_effect_rejection','confirmation_pending','approval_pending','dispatch_entered','completion_saved','read_only','completion_not_observed','legacy_missing'];
 const recovery = { read_catalog: '读取公开能力目录，修正参数后提交新请求。', ask_user: '请用户决定所需授权；不要自行补写授权。', inspect_receipt: '只读核对精确持久收据与关联事实；未知副作用不得自动重放。', none: '无需重试；后续异步工作按其独立收据核查。' };
 const retries = { corrected_request_only: '仅允许修正后的新请求；不是重放旧操作。', read_only: '只读查询可重新读取，不重做业务操作。', not_automatic: '不能自动重试或重放。', not_needed: '无需重试。' };
 const workerStatuses = { queued: '排队', running: '运行', waiting: '等待', awaiting: '待答', paused: '暂停', completed: '正常返回', failed: '失败', cancelled: '已取消' };
@@ -75,7 +76,7 @@ export function callDiagnosticReport(row, task, receipt = null) {
   }
   const action = directAction ? null : selectedAction;
   const failed = !!d.original_failure || ['failed','rejected','unknown','cancelled'].includes(row.status)
-    || ['completion_not_observed','execution_failed','completion_failed','persistence_failed','request_failed','request_returned','invalid_parameters','permission_denied','authorization_required','preflight_rejected'].includes(d.code)
+    || ['completion_not_observed','merge_dependency_cycle','execution_failed','completion_failed','persistence_failed','request_failed','request_returned','invalid_parameters','permission_denied','authorization_required','preflight_rejected'].includes(d.code)
     || !!action?.diagnostic.original_failure || ['failed','rejected','unknown','cancelled'].includes(action?.status);
   return { method: method(receipt?.method ?? row.method), call_id: positive(row.call_id) ? row.call_id : null,
     receipt_id: positive(row.receipt_id) ? row.receipt_id : null,

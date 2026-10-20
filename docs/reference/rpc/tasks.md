@@ -186,7 +186,7 @@ D691：可提前安排“A 在 B 本轮工作安全交付就绪／合入直接�
 
 - `worker.merge_conditions {id}` 读取状态及专用 `revision`；配置必须用该 revision，不能使用 `worker.hooks` 的 revision。
 - `worker.merge_after {id,conditions,expected_revision}` 配置条件并提交本轮合并意图。`conditions` 为 1–16 项 `{kind:'worker_settled'|'worker_merged',worker_id:整数}`，全部满足才放行；条件来源必须是当前项目合法开发 Worker，禁止自依赖、循环及父子收口死锁。
-- `worker_settled` 要求依赖 Worker 本轮安全交付就绪，不以一次 Agent 返回、失败或取消当成功。`worker_merged` 要求该轮成果的精确收据证明已合入它的**直接父 Worker**；这与输入条件发射中“成果到 main”的同名条件不同。
+- `worker_settled` 要求依赖 Worker 本轮安全交付就绪，不以一次 Agent 返回、失败或取消当成功。`worker_merged` 要求该轮成果的精确收据证明已合入它的**直接父 Worker**；这与输入条件发射中“成果到 main”的同名条件不同。环检测区分这两个阶段：A 等 B 就绪、B 等 A 合并可以成立（先各自完成开发，再合并 A、B）；双方互等合并仍拒绝。父本轮就绪还依赖活动子 Worker 交付，因此子等待父就绪／合并的收口死锁仍拒绝。
 - 用户可经 CLI 配置；Valet 经 `manager.call` 使用同一接口，遵守最新接口权限及需要时的精确用户确认。普通开发 Agent 不获得配置或请求合并权限。
 - 条件约束自动、显式及批量合并等入口；满足条件后仍复核 A 自身交付就绪、Git、父分支和冻结安全门。等待不占父合并执行位、不冻结 A 的普通开发，也不要求管家循环调用。
 - 规则绑定 A/B 本轮身份，不能用历史轮次成功放行新成果。尚未交付时的新输入等轮次变化会使规则过期并保守阻塞，须重新读取 revision 和配置；A 本轮成功合并后不把规则沿用给后续开发。

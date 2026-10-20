@@ -8,8 +8,13 @@ import { createSignal } from '../../src/signal.js';
 
 const bin = path.resolve(import.meta.dir, '../../bin/lush');
 
-test('real user CLI W-number lookup configures conditional intent and lands through the parent queue', async () => {
+test('real user CLI distinguishes settled/merged dependencies and lands both in dependency order', async () => {
   const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd }) {
+    const booking = task.reservation;
+    if (booking?.status === 'resolving') {
+      await git(cwd, 'merge', '--no-ff', booking.parent_commit, '-m', 'absorb fixed parent');
+      return 'safe source repair';
+    }
     fs.writeFileSync(path.join(cwd, `worker-${task.id}.txt`), `code ${task.id}\n`);
     await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', `work ${task.id}`); return 'safe result';
   } });
@@ -28,11 +33,19 @@ test('real user CLI W-number lookup configures conditional intent and lands thro
     };
     const before = await cli('worker', 'merge', 'show', a.worker_number);
     expect(before).toMatchObject({ worker_id: a.id, state: 'idle' });
+    const bBefore = await cli('worker', 'merge', 'show', b.worker_number);
+    await cli('worker', 'merge', 'request', b.worker_number, '--after-merged', a.worker_number, '--revision', bBefore.revision);
+    // A true merge/merge cycle is still rejected without saving any intent.
+    expect(() => p.mergeTaskAfter(a.id, [{ kind: 'worker_merged', worker_id: b.id }], before.revision)).toThrow('cycle');
+    expect(p.taskMergeConditions(a.id)).toMatchObject({ state: 'idle', revision: before.revision });
     const configured = await cli('worker', 'merge', 'request', a.worker_number, '--after-settled', b.worker_number, '--revision', before.revision);
     expect(configured).toMatchObject({ worker_id: a.id, state: 'waiting', conditions: [{ worker_id: b.id, kind: 'worker_settled' }] });
     f.store.update(b.id, { status: 'waiting' }); p.scheduleTaskHooks();
-    await until(() => f.store.task(a.id).integration === 'merged', 12000);
-    expect((await cli('worker', 'merge', 'show', a.worker_number)).state).toBe('consumed');
-    expect(await git(f.root, 'show', `main:worker-${a.id}.txt`)).toBe(`code ${a.id}`);
+    await until(() => { p.pump(); return [a,b].every(task => f.store.task(task.id).integration === 'merged'); }, 12000);
+    for (const task of [a,b]) {
+      expect((await cli('worker', 'merge', 'show', task.worker_number)).state).toBe('consumed');
+      expect(await git(f.root, 'show', `main:worker-${task.id}.txt`)).toBe(`code ${task.id}`);
+    }
+    expect(f.store.all("SELECT task_id FROM events WHERE type='task.merge_integrated' ORDER BY id").map(row => row.task_id)).toEqual([a.id,b.id]);
   } finally { await rpc?.close(); await f.close(); }
 });

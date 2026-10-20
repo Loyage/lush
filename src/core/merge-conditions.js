@@ -1,4 +1,9 @@
-import { check, id, isPlainObject } from './types.js';
+import { check, id, isPlainObject, LushError } from './types.js';
+
+/** Only thrown by the synchronous graph gate, before conditional intent is saved. */
+export class MergeConditionCycleError extends LushError {
+  constructor() { super('merge conditions create a cycle or parent/child closure deadlock', -32602); }
+}
 
 export const MERGE_CONDITION_KINDS = Object.freeze(['worker_settled', 'worker_merged']);
 export const MERGE_CONDITION_LIMIT = 16;

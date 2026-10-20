@@ -5,7 +5,7 @@ export const MANAGEMENT_DIAGNOSTIC_CODE = -32032;
 export const MANAGEMENT_DIAGNOSTIC_ENUMS = Object.freeze({
   stage: ['admission','parameters','authorization','preflight','execution','completion','persistence','return','recovery','legacy'],
   effect: ['not_started','applied','unknown','not_applicable'],
-  evidence: ['trusted_pre_dispatch','confirmation_pending','approval_pending','dispatch_entered','completion_saved','read_only','completion_not_observed','legacy_missing'],
+  evidence: ['trusted_pre_dispatch','trusted_pre_effect_rejection','confirmation_pending','approval_pending','dispatch_entered','completion_saved','read_only','completion_not_observed','legacy_missing'],
   recovery: ['read_catalog','ask_user','inspect_receipt','none'],
   retry: ['corrected_request_only','read_only','not_automatic','not_needed'],
 });
@@ -14,6 +14,7 @@ const reasons = Object.freeze({
   authorization_required: '本轮用户授权不足；须询问用户，不得自行补写授权。',
   permission_denied: '最新权限禁止本次能力；未进入执行。',
   preflight_rejected: '固定参数、目标、资源或授权的执行前核验未通过。',
+  merge_dependency_cycle: '条件合并形成阶段依赖环或父子收口死锁；配置未保存，请核对等待条件。',
   execution_failed: '执行回调抛出异常；具体底层原因未被安全分类，副作用可能已发生。',
   completion_failed: '执行返回后的完成处理失败；结果尚未确认，不能自动重放。',
   persistence_failed: '完成证据保存未确认；不能据此认定操作未生效。',
@@ -32,7 +33,7 @@ const member = (name, value, fallback) => MANAGEMENT_DIAGNOSTIC_ENUMS[name].incl
 const worker = value => typeof value === 'string' && value.length <= 128 && /^(?:W[1-9][0-9]*(?:-[1-9][0-9]*)*|V[1-9][0-9]*)$/.test(value) ? value : null;
 export const MANAGEMENT_DIAGNOSTIC_CODES = Object.freeze(Object.keys(reasons));
 const codes = new Set(MANAGEMENT_DIAGNOSTIC_CODES);
-const failures = new Set(['invalid_parameters','authorization_required','permission_denied','preflight_rejected','execution_failed',
+const failures = new Set(['invalid_parameters','authorization_required','permission_denied','preflight_rejected','merge_dependency_cycle','execution_failed',
   'completion_failed','persistence_failed','request_failed']);
 function outcome(value = {}) {
   value = value && typeof value === 'object' ? value : {};

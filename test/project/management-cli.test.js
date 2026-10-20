@@ -7,6 +7,7 @@ import { AgentProvider } from '../../src/agent/provider.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { createSignal } from '../../src/signal.js';
+import { callDiagnosticReport, diagnosticSummaryLines } from '../../src/ui/web/assets/management-diagnostic-model.js';
 
 const command = argv => ({ name: 'lush_cli', params: { argv } });
 async function harness() {
@@ -91,6 +92,43 @@ test('worker rename reaches automatic, exact-confirmation and denied backend pat
     const denied = await f.invoke([command(['worker','rename',target.worker_number,'must not apply'])]);
     expect(JSON.parse(denied.replies[0].error).diagnostic).toMatchObject({ code:'permission_denied',effect:'not_started' });
     expect(f.store.task(target.id).display_title).toBe('CLI confirmed title');
+  } finally { await f.close(); }
+});
+
+// Existing permission/rename tests never enter conditional graph validation. This
+// representative chain covers its typed rejection through the real model bridge.
+test('conditional merge cycle keeps its safe business reason through CLI, receipt and browser projection', async () => {
+  const f = await harness();
+  try {
+    const a = (await f.project.order('A','main',[],null,false)).task;
+    const b = (await f.project.order('B','main',[],null,false)).task;
+    f.project.scheduleMergeConditions = () => {};
+    f.project.mergeTaskAfter(b.id, [{ kind: 'worker_merged', worker_id: a.id }], f.project.taskMergeConditions(b.id).revision);
+    const revision = f.project.taskMergeConditions(a.id).revision;
+    const request = command(['worker','merge','request',a.worker_number,'--after-merged',b.worker_number,'--revision',revision]);
+    const result = await f.invoke([request]);
+    const call = result.values[0];
+    expect(call).toMatchObject({ method: 'worker.merge_after', status: 'failed', diagnostic: {
+      code: 'merge_dependency_cycle', stage: 'execution', effect: 'not_started', evidence: 'trusted_pre_effect_rejection',
+      original_failure: { code: 'merge_dependency_cycle', effect: 'not_started' }, retry: 'not_automatic',
+    } });
+    expect(f.project.taskMergeConditions(a.id)).toMatchObject({ state: 'idle', revision });
+    expect(f.store.task(a.id).reservation).toBeNull();
+    const receipt = await f.dispatcher.dispatch('management.receipt', { receipt_id: call.receipt_id });
+    expect(receipt.diagnostic.original_failure).toEqual(call.diagnostic.original_failure);
+    const lines = diagnosticSummaryLines(callDiagnosticReport({ ...call, call_id: call.diagnostic.correlation.call_id }, result.task, receipt)).join('\n');
+    expect(lines).toContain('阶段依赖环或父子收口死锁'); expect(lines).toContain('配置未保存');
+    expect(lines).not.toContain('底层原因未知');
+    // Matching text/code is NOT proof of no side effects. Unclassified handler
+    // errors must stay unknown, retain privacy and never become replayable.
+    const dispatch = f.project.managementDispatch.bind(f.project);
+    f.project.managementDispatch = (method, ...args) => {
+      if (method === 'worker.merge_after') throw Object.assign(new Error('merge conditions create a cycle or parent/child closure deadlock PRIVATE'), { code: -32602 });
+      return dispatch(method, ...args);
+    };
+    const unknown = (await f.invoke([request])).values[0];
+    expect(unknown).toMatchObject({ status: 'unknown', diagnostic: { code: 'execution_failed', effect: 'unknown', retry: 'not_automatic' } });
+    expect(JSON.stringify(unknown)).not.toContain('PRIVATE');
   } finally { await f.close(); }
 });
 

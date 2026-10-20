@@ -10,6 +10,7 @@ import { hookInstallationOutcome, hookRegistrationOutcome } from './hook-install
 import { resolveRegisteredMount } from './automation-registry.js';
 import { managementAudit, managementPhase, capabilityDiagnostic } from './management-diagnostic.js';
 import { safeManagementDiagnostic } from '../management-diagnostic.js';
+import { MergeConditionCycleError } from '../merge-conditions.js';
 
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
@@ -436,18 +437,23 @@ export default {
     } catch (error) {
       state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
       if (call && call.status !== 'rejected') {
+        // This typed rejection is emitted only by merge_after's synchronous graph
+        // validation, before any business mutation. Never classify by error text/code.
+        const cycleRejected = stage === 'execution' && call.method === 'worker.merge_after' && error instanceof MergeConditionCycleError;
         if (call.status === 'running' && ['hooks.install','hooks.register'].includes(call.method))
           Object.assign(call, (call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(this, call), { finished_at: managementTime(this) });
         else {
-          call.status = call.status === 'running' ? 'unknown' : 'failed';
-          call.reason = call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
-            : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
+          call.status = call.status === 'running' && !cycleRejected ? 'unknown' : 'failed';
+          call.reason = cycleRejected ? safeManagementDiagnostic({ code: 'merge_dependency_cycle' }).reason
+            : call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
+              : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
         }
-        const code = stage === 'preflight' ? error instanceof ManagementPermissionError ? 'permission_denied' : 'preflight_rejected'
-          : stage === 'execution' ? 'execution_failed' : stage === 'completion' ? 'completion_failed' : 'persistence_failed';
-        capabilityDiagnostic(this, taskId, call, code, stage, stage === 'preflight' ? 'not_started'
-          : call.status === 'succeeded' ? 'applied' : 'unknown', stage === 'preflight' ? 'trusted_pre_dispatch'
-          : call.status === 'succeeded' ? 'completion_saved' : 'dispatch_entered');
+        const code = cycleRejected ? 'merge_dependency_cycle'
+          : stage === 'preflight' ? error instanceof ManagementPermissionError ? 'permission_denied' : 'preflight_rejected'
+            : stage === 'execution' ? 'execution_failed' : stage === 'completion' ? 'completion_failed' : 'persistence_failed';
+        capabilityDiagnostic(this, taskId, call, code, stage, stage === 'preflight' || cycleRejected ? 'not_started'
+          : call.status === 'succeeded' ? 'applied' : 'unknown', cycleRejected ? 'trusted_pre_effect_rejection'
+          : stage === 'preflight' ? 'trusted_pre_dispatch' : call.status === 'succeeded' ? 'completion_saved' : 'dispatch_entered');
         this.store.transaction(() => {
           saveManagement(this, taskId, state);
           this.store.event(taskId, call.status === 'succeeded' ? 'management.capability_completed' : 'management.capability_failed',

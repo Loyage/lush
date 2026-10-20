@@ -1,6 +1,6 @@
 import { check, id, TERMINAL } from '../types.js';
 import { hookRevision } from '../hooks.js';
-import { normalizeMergeConditions } from '../merge-conditions.js';
+import { normalizeMergeConditions, MergeConditionCycleError } from '../merge-conditions.js';
 import { workerLabel } from '../worker-number.js';
 import { systemRegistration } from './automation-registry.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, assertTaskNoCommand } from './iteration.js';
@@ -57,24 +57,28 @@ async function workspaceProof(project, task) {
 function validateGraph(project, sourceId, conditions) {
   const rows = project.store.all("SELECT * FROM tasks WHERE task_kind IN ('order','child','main','owner') ORDER BY id");
   check(rows.length <= 10000, 'merge dependency graph exceeds safety limit');
-  const edges = new Map(rows.map(task => [task.id, new Set()]));
+  const settled = taskId => `${taskId}:settled`, merged = taskId => `${taskId}:merged`;
+  const edges = new Map(rows.flatMap(task => [[settled(task.id), new Set()], [merged(task.id), new Set([settled(task.id)])]]));
   for (const task of rows) {
-    // Parent closure inherently waits for its active descendants. A descendant must
-    // never wait for that closure, including through a different condition chain.
-    if (task.parent_id && !TERMINAL.has(task.status)) edges.get(task.parent_id)?.add(task.id);
-    for (const dep of project.store.deps(task.id).filter(edge => edge.kind === 'code')) edges.get(task.id)?.add(dep.depends_on);
+    // Readiness is independent of this Worker's own conditional merge. Parent
+    // closure, however, waits for active children to deliver, not just return.
+    if (task.parent_id && !TERMINAL.has(task.status)) edges.get(settled(task.parent_id))?.add(merged(task.id));
+    for (const dep of project.store.deps(task.id).filter(edge => edge.kind === 'code')) edges.get(merged(task.id)).add(merged(dep.depends_on));
     const state = stateOf(task);
     const configured = task.id === sourceId ? conditions : active(state) ? state.conditions : [];
-    for (const condition of configured) edges.get(task.id)?.add(condition.worker_id);
+    for (const condition of configured) edges.get(merged(task.id)).add(
+      condition.kind === 'worker_settled' ? settled(condition.worker_id) : merged(condition.worker_id));
   }
-  const visiting = new Set(), visited = new Set();
-  function visit(node) {
-    check(!visiting.has(node), 'merge conditions create a cycle or parent/child closure deadlock');
-    if (visited.has(node)) return;
-    visiting.add(node); for (const next of edges.get(node) ?? []) visit(next);
-    visiting.delete(node); visited.add(node);
+  // Iterative DFS keeps the bounded graph safe even for long dependency chains.
+  const visiting = new Set(), visited = new Set(), stack = [[merged(sourceId), false]];
+  while (stack.length) {
+    const [node, leaving] = stack.pop();
+    if (leaving) { visiting.delete(node); visited.add(node); continue; }
+    if (visiting.has(node)) throw new MergeConditionCycleError();
+    if (visited.has(node)) continue;
+    visiting.add(node); stack.push([node, true]);
+    for (const next of edges.get(node) ?? []) stack.push([next, false]);
   }
-  visit(sourceId);
 }
 
 export default {
