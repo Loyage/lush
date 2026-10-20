@@ -58,8 +58,8 @@ export function parseWorkerCLI(command) {
   if (!help && !directory) validateCLIParameters(parsed.args, entry);
   check(help || directory || !entry.rpc.some(method => method.startsWith('context.')) || entry.user_context_rpc,
     'command is Agent invocation only; no user-equivalent operation');
-  check(help || !['worker watch','worker wait'].includes(entry.path) && !/^agent (?:source|sources) login(?: |$)/.test(entry.path)
-    && !/^(daemon|host) (start|stop|restart)$/.test(entry.path), 'command requires an interactive or persistent terminal and is not supported here');
+  check(help || !/^(daemon|host) (start|stop|restart)$/.test(entry.path),
+    'command requires an interactive or persistent terminal and is not supported here');
   // Never permit an argument to select a second executable; the fixed bin parses every remaining value.
   return { command, executable, argv: words, path: entry.path, kind: entry.kind,
     requires_confirmation: !['read','local-read'].includes(entry.kind), rpc: help ? [] : [...entry.rpc, ...(entry.user_context_rpc ? [entry.user_context_rpc] : [])],

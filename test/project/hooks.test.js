@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
@@ -34,10 +33,8 @@ test('persistent notification Hook mounts, evaluates its condition and deduplica
     expect(registered.registered).toBe(true);
     expect((await run(['list'])).registry.items.find(item => item.id === registered.template_id).mount_count).toBe(0);
     expect(await run(['register', '--data', JSON.stringify(registration)])).toEqual(registered);
-    const templateFile = `${f.root}/automation-template.json`;
-    fs.writeFileSync(templateFile, JSON.stringify({ name: '告知', trigger: 'agent.returned', mode: 'persistent', enabled: true,
-      conditions: { statuses: ['paused'] }, actions: [{ type: 'notify', title: 'hook-test', body: 'done' }] }), { mode: 0o600 });
-    const saved = await run(['save', '--file', templateFile, '--revision', (await run(['list'])).registry.revision]);
+    const saved = await run(['save', '--data', JSON.stringify({ name: '告知', trigger: 'agent.returned', mode: 'persistent', enabled: true,
+      conditions: { statuses: ['paused'] }, actions: [{ type: 'notify', title: 'hook-test', body: 'done' }] }), '--revision', (await run(['list'])).registry.revision]);
     const template = saved.templates.find(item => item.name === '告知');
     await runWorkerHook(['attach', order.task.worker_number, '--data', JSON.stringify({ template_id: template.id, template_version: template.version }),
       '--revision', f.project.taskHooks(order.task.id).revision], client);
@@ -57,18 +54,14 @@ test('persistent notification Hook mounts, evaluates its condition and deduplica
     const afterSignal = await run(['signal','save','--data',JSON.stringify({ name: '未来信号', schedule: {
       kind: 'once', at: new Date(Date.now() + 86400000).toISOString(), timezone: 'UTC' } }), '--revision',signals.revision]);
     expect((await run(['signal','list'])).revision).toBe(afterSignal.signals.revision);
-    const definition = { name: '未来管家', instruction: '核对当前项目', signal_id: afterSignal.signals.items[0].id, client_request_id: 'automation-cli-valet' };
-    const scheduled = await runValet(['schedule','create','--data',JSON.stringify(definition)]);
-    expect(scheduled.task.task_kind).toBe('management');
-    expect(f.project.running.has(scheduled.task.id)).toBe(false);
-    expect((await runValet(['schedule','create','--data',JSON.stringify(definition)])).task.id).toBe(scheduled.task.id);
-    const disabled = await runValet(['schedule','disable',scheduled.task.worker_number,'--revision',scheduled.task.management.revision]);
-    expect(disabled.management.enabled).toBe(false);
-    const submitted = await runValet(['submit','核对暂停工作']);
-    expect(submitted).toMatchObject({ management: true, task: { task_kind: 'management', status: 'queued' } });
-    const preview = await runValet(['emergency','preview']);
-    const stopped = await runValet(['emergency','stop','--confirm','--revision',preview.revision]);
-    expect(stopped.status).toBe('isolated');
+    for (const args of [['submit','核对暂停工作'], ['schedule','create','--data','{}'], ['emergency','preview']]) {
+      await expect(runValet(args)).rejects.toThrow();
+      await expect(valet('valet', [...args], ctx)).rejects.toThrow();
+    }
+    for (const args of [['upgrade','--revision','REV'], ['command','import','--data','{}','--revision','REV'], ['command','history-remove','--all']]) {
+      await expect(run(args)).rejects.toThrow();
+      await expect(automation('automation', [...args], ctx)).rejects.toThrow();
+    }
 
     const calls = [], management = { client: { management: true, token: 'test-only-not-a-real-invocation',
       request(method, params) { calls.push({ method, params }); return Promise.resolve(params); } }, json: true };
@@ -82,7 +75,7 @@ test('persistent notification Hook mounts, evaluates its condition and deduplica
     await expect(runValet(['self','notice','notify','结果','--questions-json',JSON.stringify(questions)],management)).rejects.toThrow();
     await expect(runValet(['receipt','show','12','--limit','1.5'],management)).rejects.toThrow();
     await expect(runValet(['self','title','冒充管家'])).rejects.toThrow();
-    await expect(automation('hooks',['register','--file','must-not-open'],ctx)).rejects.toThrow();
+    await expect(automation('automation',['register','--file','must-not-open'],ctx)).rejects.toThrow();
     expect(calls.length).toBe(requested);
   } finally { await f.close(); }
 });

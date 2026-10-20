@@ -46,12 +46,7 @@
 
 ## Pi 可选软预算
 
-项目默认和角色 profile 可配置 `soft_budget: { responses?, tokens? }`。默认未设置；空对象等同关闭。CLI 示例：
-
-```bash
-bun run lush config agent set worker --budget-responses 30 --budget-tokens 200000
-bun run lush config agent set worker --budget-responses off --budget-tokens off
-```
+项目默认和角色 profile 可配置 `soft_budget: { responses?, tokens? }`。默认未设置；空对象等同关闭。使用现有用户 Web 设置编辑；细项配置 CLI 已移除，完整显式配置仍可用 `config agent replace --data JSON`，不得从摘要补造其它私有字段。
 
 `responses` 为 1..10000 的整数，`tokens` 为 1..1000000000 的整数。角色 profile 沿用已有的整份覆盖语义；Web 设置中也可填写或清空这两项。配置只影响之后的 invocation。
 

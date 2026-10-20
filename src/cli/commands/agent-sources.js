@@ -1,15 +1,9 @@
 // `lush agent source ...` / `lush agent model choices`: managed model-source listing,
-// quota visibility, cached model catalog and private file-based credential entry.
-// All actions are user-only; secrets never travel through argv or CLI output.
-import fs from 'node:fs';
+// quota visibility and cached model catalog. No local credential or login workflow.
 import { check } from '../../core/types.js';
-import { exact, option } from '../args.js';
-import { takeOptions } from '../command-options.js';
-import { takeJsonInput } from '../private-json.js';
+import { exact } from '../args.js';
 import { safeConfigurationScope } from '../settings-scope.js';
 
-const MAX_INPUT_BYTES = 65536;
-const MAX_URL_BYTES = 10000;
 const CATALOG_STATUSES = ['fresh', 'cached', 'unknown', 'error', 'unsupported'];
 
 /** Accept both the documented `(args, client)` shape and a `{client, json}` context. */
@@ -51,14 +45,6 @@ function consumerView(row) {
   return { task_id: integer(value.task_id), model: text(value.model, 300) };
 }
 
-function deviceView(value) {
-  check(record(value), 'invalid device login response');
-  return { id: text(value.id, 80), login_id: text(value.login_id, 80), status: text(value.status, 32),
-    ...(Number.isSafeInteger(value.interval_seconds) ? { interval_seconds: value.interval_seconds } : {}),
-    ...(text(value.expires_at, 40) ? { expires_at: text(value.expires_at, 40) } : {}),
-    ...(record(value.connection) ? { connection: sourceView(value.connection) } : {}) };
-}
-
 function samplingView(value) {
   const row = record(value); if (!row) return null;
   return { enabled: row.enabled === true, interval_minutes: integer(row.interval_minutes),
@@ -96,39 +82,6 @@ function catalogView(value) {
     warning: text(value.warning, 600), error_code: text(value.error_code, 64) };
 }
 
-/**
- * Owner-only regular file with no symlink following and a bounded read. Any failure
- * returns one fixed message so a path, permission or content problem never echoes data.
- */
-function readPrivateFile(file, max, message) {
-  let fd;
-  try {
-    check(typeof file === 'string' && file.length > 0 && file.length <= 4096 && typeof process.getuid === 'function', message);
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
-    const stat = fs.fstatSync(fd);
-    check(stat.isFile() && stat.nlink === 1 && stat.uid === process.getuid() && (stat.mode & 0o077) === 0
-      && stat.size <= max, message);
-    const source = fs.readFileSync(fd, 'utf8');
-    check(Buffer.byteLength(source) <= max, message);
-    return source;
-  } catch { throw new Error(message); }
-  finally { if (fd !== undefined) fs.closeSync(fd); }
-}
-
-function readPrivateJson(file) {
-  const source = readPrivateFile(file, MAX_INPUT_BYTES, 'cannot safely read the input file: owner-only regular file required');
-  let value;
-  try { value = JSON.parse(source); } catch { check(false, 'input file must be valid JSON'); }
-  check(value && typeof value === 'object' && !Array.isArray(value), 'input must be a JSON object');
-  return value;
-}
-
-function readPrivateText(file) {
-  const value = readPrivateFile(file, MAX_URL_BYTES, 'cannot safely read the callback file: owner-only regular file required').trim();
-  check(value.length > 0 && !/[\x00-\x1f\x7f]/.test(value), 'callback file must contain one plain callback URL');
-  return value;
-}
-
 async function listSources(client) {
   const value = await client.request('agent.connections.list', {});
   check(value && typeof value === 'object', 'invalid connection list response');
@@ -154,47 +107,11 @@ async function modelsFor(client, args, refresh) {
   return value?.receipt_id ? value : catalogView(value);
 }
 
-async function login(client, args) {
-  check(!client.management, 'source authentication requires a local user');
-  const action = args.shift();
-  check(['start', 'poll', 'cancel', 'finish'].includes(action), 'agent source login requires start, poll, cancel or finish');
-  const method = option(args, '--method'), urlFile = option(args, '--url-file');
-  exact(args, action === 'start' ? 1 : 2);
-  const [id, login_id] = args;
-  check(typeof id === 'string' && id.length > 0 && id.length <= 80 && !id.startsWith('-'), 'a connection id is required for login');
-  if (action !== 'start') check(typeof login_id === 'string' && login_id.length > 0 && login_id.length <= 80 && !login_id.startsWith('-'), 'a login id is required');
-  check(action === 'start' ? method === null || ['device', 'callback'].includes(method) : method === null, '--method is only valid for login start and expects device|callback');
-  check(action === 'finish' ? urlFile !== null : urlFile === null, '--url-file is required only for login finish');
-  if (action === 'cancel' || action === 'poll') return deviceView(await client.request(`agent.connections.device.${action}`, { id, login_id }));
-  if (action === 'finish') {
-    return sourceView(await client.request('agent.connections.login.finish',
-      { id, login_id, redirect_url: readPrivateText(urlFile) }));
-  }
-  if (method === 'callback') {
-    const started = await client.request('agent.connections.login.start', { id });
-    return { id, login_id: text(started.login_id, 80), url: text(started.url, 4096), expires_at: text(started.expires_at, 40),
-      redirect_uri: text(started.redirect_uri, 2048), instructions: text(started.instructions, 600) };
-  }
-  const started = await client.request('agent.connections.device.start', { id });
-  return { id, login_id: text(started.login_id, 80), verification_uri: text(started.verification_uri, 512),
-    user_code: text(started.user_code, 64), expires_at: text(started.expires_at, 40),
-    interval_seconds: Number.isSafeInteger(started.interval_seconds) ? started.interval_seconds : null };
-}
-
 export async function runSources(args, clientRef, options = {}) {
   const { client } = context(clientRef, options);
   const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return await listSources(client); }
   if (verb === 'show') { exact(args, 1); return await showSource(client, args[0]); }
-  if (verb === 'history') {
-    const params = takeOptions(args, { days: 'number' }); exact(args, 1);
-    return client.request('agent.connections.history', { id: args[0], ...params });
-  }
-  if (verb === 'sampling') {
-    check(args.shift() === 'set', 'agent source sampling requires set');
-    const sampling = takeJsonInput(args, client, 'connection sampling'); exact(args, 0);
-    return client.request('agent.connections.sampling', { sampling });
-  }
   if (verb === 'refresh') {
     const id = args.shift() ?? null;
     check(id === null || id.length <= 80, 'invalid connection id');
@@ -208,22 +125,11 @@ export async function runSources(args, clientRef, options = {}) {
     check(['list', 'refresh'].includes(action), 'agent source models requires list or refresh');
     return await modelsFor(client, args, action === 'refresh');
   }
-  if (verb === 'save') {
-    check(!client.management, 'management CLI cannot read local source credentials');
-    const file = option(args, '--file'); exact(args, 0);
-    check(file, 'agent source save requires --file PATH');
-    const input = readPrivateJson(file);
-    check(Object.keys(input).every(key => ['connection', 'credential'].includes(key)), 'save input accepts only connection and credential');
-    check(input.connection && typeof input.connection === 'object' && !Array.isArray(input.connection), 'connection is required');
-    return sourceView(await client.request('agent.connections.save',
-      { connection: input.connection, ...(input.credential ? { credential: input.credential } : {}) }));
-  }
   if (verb === 'remove') {
     exact(args, 1); const value = await client.request('agent.connections.remove', { id: args[0] });
     return value?.receipt_id ? value : { removed: text(value?.removed, 80) };
   }
-  if (verb === 'login') return await login(client, args);
-  check(false, 'agent source expects list, show, models, refresh, save, remove, history, sampling or login');
+  check(false, 'agent source expects list, show, models, refresh or remove');
 }
 
 export async function runResources(args, clientRef, options = {}) {

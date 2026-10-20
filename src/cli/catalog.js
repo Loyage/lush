@@ -33,12 +33,11 @@ const directoryHints = {
   'worker sync': '用户显式父同步与冲突修复。',
   input: '已发送原话与未发送意图。', 'input draft': '保存、授权和撤销可靠条件发射，保存不授权。',
   notice: '决策与非阻塞告知，明确区分发布、答复和已读。',
-  branch: '分支、版本与代码关系。', 'branch integrate': '固定完整来源并调用整合 Agent。',
-  'branch legacy-convergence': '只读历史与原旧在途重试，不恢复持续策略写入。',
+  branch: '分支谱系、详情与普通批量合并请求。',
   automation: '项目自动化定义、注册与固定版本；不隐式挂载或运行。',
-  valet: '管家专属创建、调度、收据与真实自身事务；通用 W/V 查询仍用 worker。',
-  agent: '执行软件、模型来源与安装资源，不是设备策略。',
-  config: '设备策略与显式迁移，设备作用域不等于执行授权。',
+  valet: '受控收据、管家上下文与真实自身事务；通用 W/V 查询仍用 worker。',
+  agent: '执行软件、模型候选与托管来源，不是设备策略。',
+  config: '设备策略；设备作用域不等于执行授权。',
   project: '当前项目维护与用量诊断，不跨项目。', daemon: '项目后台本地生命周期与受控停止请求。',
   host: '本地 Web 工作台生命周期，不等于项目后台。',
   self: 'invocation 绑定自身，不接受自身 ID。', parent: '服务端确定的直接父 Worker。',
@@ -83,9 +82,7 @@ export function managementCLICommandPolicy(entry) {
   const local = !commandExecutables(entry).includes('lush') || entry.kind?.startsWith('local-')
     || Array.isArray(entry.identities) && !entry.identities.includes('valet')
     || Array.isArray(entry.applicability) && !entry.applicability.includes('valet')
-    || entry.rpc?.some(method => ['agent.config', 'worker.run_settings'].includes(method))
-    || /^config network(?: |$)/.test(entry.path) || /^agent (?:prompt|env)(?: |$)/.test(entry.path)
-    || /^agent source (?:save|login)(?: |$)/.test(entry.path) || !entry.rpc?.length;
+    || !entry.rpc?.length;
   return { available: !local, reason: local ? '需真实用户、本地资源或有效开发 invocation；不向管家开放私有材料、文件、认证与本地进程控制。'
     : '固定当前项目与 management 身份；仍需最新逐项权限、明确范围及原安全门。' };
 }

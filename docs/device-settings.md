@@ -23,20 +23,15 @@
 
 ## 本机 Prompt 补充与项目约定
 
-设备私有补充为设备根 `agent/common.md` 和受支持角色 `.md`。缺文件不创建目录，也不回退旧项目 `.lush/agent/*.md`。`agent prompt init --local` 由用户执行，使用共享写锁、只创建缺失文件；公开权限、外来所有者、链接和超限文件会被拒绝，不自动修复或覆盖。
+设备私有补充为设备根 `agent/common.md` 和受支持角色 `.md`。缺文件不创建目录，也不回退旧项目 `.lush/agent/*.md`。Prompt 初始化／查看和 env 检查的本地 CLI 已移除，不自动创建、修复或覆盖私有文件；已有文件仍按原安全读取规则参与后续调用。
 
-```bash
-bun run lush agent prompt init --local worker  # 设备私有补充，可能影响所有项目
-bun run lush agent prompt init worker          # 项目可提交 .lush-agent/ 约定
-```
-
-`AGENTS.md` 与可提交 `.lush-agent/` 仍属代码库上下文，不传播到设备。管理角色与 Pi 默认模式的 Prompt 隔离不变。用户可通过 `agent prompt show ROLE`、`agent env show ROLE` 检查角色 Prompt 组合／脱敏环境来源，不代表某个 Worker 已冻结的调用快照；这些设备读取不向 Agent token 开放。
+`AGENTS.md` 与可提交 `.lush-agent/` 仍属代码库上下文，不传播到设备。管理角色与 Pi 默认模式的 Prompt 隔离不变。用户在既有设置中管理工作指令和环境变量；当前设置不代表某个 Worker 已冻结的调用快照，这些私有读取不向 Agent token 开放。
 
 ## 迁移旧项目
 
 旧技术文件仅作显式迁移来源，不再活跃。未迁移的其它项目也不会继续形成覆盖。升级不会自动导入、删除或扩散旧配置；尤其不能未经确认把仓库专属 Prompt 传播到所有项目。
 
-在设备设置的迁移入口选择已登记来源项目，先预检；来源后台必须在线。确认前结束该项目在途 Agent、解释、登录、网络查询、安装和 Git／合并操作。CLI 固定当前项目为来源，可用 `--project PATH` 显式选择，不接受任意来源文件路径。
+在设备设置的迁移入口选择已登记来源项目，先预检；来源后台必须在线。确认前结束该项目在途 Agent、解释、登录、网络查询、安装和 Git／合并操作。迁移仅保留既有用户 Web／RPC，不再提供 CLI，也不接受任意来源文件路径。
 
 迁移涵盖运行参数、Agent、网络、环境变量、托管来源及受支持的私有 Markdown 补充。保留 connection ID 和项目历史；不迁移数据库、Worker、会话、Git、AGENTS.md、`.lush-agent/`、其它项目或外部 Pi/Codex 凭证。安装库不物理搬迁，已配置资源路径归一到原项目绝对路径，原库保留。
 
@@ -47,15 +42,10 @@ CLI 设置命令省略 scope 也选择设备；可选 `--scope device`，显式 
 ```bash
 bun run lush config runtime show
 bun run lush config runtime set call-timeout 3600
-bun run lush config agent show
 bun run lush agent source list
-bun run lush agent package list
-bun run lush config migration preview --json
-# 核对项目、条目、所有项目影响、冲突与备份后，原样填入预检 revision：
-bun run lush config migration apply --confirm --revision REV --json
 ```
 
-预检不会回显 Markdown 正文或凭证。revision 过期或 daemon 重启后必须重新预检。不要在命令行输入密钥，沿用私有来源文件／显式登录流程。
+预检不会回显 Markdown 正文或凭证。revision 过期或 daemon 重启后必须重新预检。不要在命令行输入密钥；账号录入和显式登录使用现有模型来源页面。
 
 ## 备份与中断
 

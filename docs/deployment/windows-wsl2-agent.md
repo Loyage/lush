@@ -72,20 +72,17 @@ bun run lush daemon start --project /home/alice/projects/demo
 bun run lush host start 4318 --project /home/alice/projects/demo
 bun run lush doctor --project /home/alice/projects/demo
 bun run lush host status --project /home/alice/projects/demo
-bun run lush --project /home/alice/projects/demo config agent show
 ```
 
 显式单项目 Host 不替用户启动 daemon，所以必须先 `start`。已有 daemon 的 `start` 不会自动更换运行代码；身份不匹配时先检查活动 invocation，经用户同意后用 `bun run lush daemon restart`，Host 单独用 `bun run lush host restart`。不要因为状态检查失败就强杀进程。
 
-默认后端为 Pi。如果用户选择 Codex，或需要指定 Pi 模型，先读取可用模型目录，再按明确选择配置；不要照抄占位模型：
+默认后端为 Pi。如果用户选择 Codex，或需要指定 Pi 模型，先读取可用模型目录，再按明确选择在设备设置页面配置；不要照抄占位模型：
 
 ```bash
 bun run lush --project /home/alice/projects/demo agent model list --backend pi
-# 仅在用户选定 backend 和 model 后执行；backend 可以是 pi 或 codex。
-bun run lush --project /home/alice/projects/demo config agent set default --agent <backend> --model <model>
 ```
 
-读取模型目录不证明真实调用成功。已有角色覆盖可能不跟随 default；必须复查 `config agent show`，仅按用户选择调整。Agent 专属代理等变量可通过项目环境配置热加载，见[Agent 环境与权限](../reference/agent-environment.md)；不得覆盖 runtime 保留变量。
+读取模型目录不证明真实调用成功。已有角色覆盖可能不跟随 default；必须在现有设备配置页面复查，仅按用户选择调整。私有配置查看／细项编辑 CLI 已移除，完整显式配置可用 `config agent replace --data JSON`。Agent 专属环境变量通过设备设置管理，见[Agent 环境与权限](../reference/agent-environment.md)；不得覆盖 runtime 保留变量。
 
 ## 5. 验证 Windows 连通与排错
 

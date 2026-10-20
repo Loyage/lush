@@ -14,7 +14,7 @@
 
 Lush Pi 必须选择托管来源，使用设备独立基础配置与项目私有调用快照，只携本次凭证，不复制机器默认 Pi 的设置／全局 Prompt／凭证；OAuth refresh 由设备连接管理器协调。`--no-approve` 保持项目信任边界，项目 .pi 不能重定向托管端点，项目 AGENTS.md 与显式资源仍按 Lush 上下文规则保留。Pi 模式不读连接、不参与托管来源策略/被动观测。隔离的 explainer/butler 仍要求 Lush 模式，不能绕过无工具边界。模式切换必须避免从既有 session/fork 恢复另一模式旧模型，启动参数/会话恢复应实际测试。Pi 默认模式会话使用 `_lush-task-ID-pi.jsonl`；执行记录、项目/Worker 用量统计及明确确认删除的资源归属均识别此后缀和原 `_lush-task-ID.jsonl`，两种会话仍属于同一 Worker，不因运行隔离而遗漏历史/消耗。
 
-`order.submit` 增加可选 `profile`；CLI `order --profile-file PATH` 传完整覆盖，Worker configure/retry/resume 保持既有准入。Agent CLI `config agent set ... --config-mode lush|pi`。安全 next-call 摘要添加 config_mode，不泄漏完整 profile。
+`order.submit` 支持可选 `profile`，由现有用户 Web／RPC 提交；CLI order／input draft submit 使用 `--data JSON` 承载同一 profile，不再提供本地文件参数，Worker configure/retry/resume 保持既有准入。设备 CLI 仅保留 `config agent replace --data JSON` 完整显式配置，细项编辑使用既有设置页面。安全 next-call 摘要添加 config_mode，不泄漏完整 profile。
 
 ## 模型目录
 
@@ -32,11 +32,11 @@ USER_ONLY `agent.connections.models {id}` / `agent.connections.models.refresh {i
 
 ## CLI
 
-`config agent replace --data JSON --scope device` 提交明确的完整设备配置，不先读取私有 `agent.config`；`config agent set/reset` 仍是先读后改的便利流程。`worker config set ID --data JSON` 保存完整下一次覆盖，与 `--connection/--model` 窄更新互斥。管家只可经固定 CLI bridge 按已审核权限提交，不能借这些命令读取私有配置或提供 env／私有 Prompt；不得从安全摘要重建未知完整配置。
+`config agent replace --data JSON --scope device` 提交明确的完整设备配置，不先读取私有 `agent.config`；先读后改的 config agent set/reset 便利流程已删除，用户细项编辑使用现有 Web 设置。`worker config set ID --data JSON` 保存完整下一次覆盖，与 `--connection/--model` 窄更新互斥。管家只可经固定 CLI bridge 按已审核权限提交，不能借这些命令读取私有配置或提供 env／私有 Prompt；不得从安全摘要重建未知完整配置。
 
 agent source 的精确参数以同源 help 为准；list/show/models list 只读缓存，models refresh 是独立联网写入口，不接受旧 --refresh 变体。login start/poll/cancel/finish 分开；start 显式选择 device/callback，poll 可能写入认证，不是只读查询。登录可提供设备流和回调备用，凭证通过私有输入文件（不放命令行明文），所有输出安全且支持全局 --json。`agent model choices` 返回共享模型选择的连接/额度/模型读面（不是已安装资源列表），只读本地。
 
-`agent package list|install SOURCE|remove ID|update ID` 管理设备私有 Lush Pi 安装库，不是 Worker 启用操作。来源、准入、私有读面与精确接口统一见[安装契约](#项目扩展与-skills-安装管理实现契约)。
+现有用户设置／RPC 管理设备私有 Lush Pi 安装库（无 CLI），不是 Worker 启用操作。来源、准入、私有读面与精确接口统一见[安装契约](#项目扩展与-skills-安装管理实现契约)。
 
 ## Web
 
@@ -102,4 +102,4 @@ Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先
 
 USER_ONLY：`agent.packages.list {scope?}`／`agent.packages.install {source,scope?}`／`agent.packages.remove {id,scope?}`／`agent.packages.update {id,scope?}`，默认 device、显式 project 拒绝，无 scope 不是 Agent 旁路。Host GET `/api/host/settings/agent/packages` 和设置 action 为设备页面入口；受检项目 GET `/api/agent/packages`／POST `/api/action` 保留转发，不改变根。
 
-CLI：`lush agent package list|install SOURCE|remove ID|update ID`，全局 `--json` 输出上述读模型。`update` 只对带显式 ref/精确版本的来源生效；固定的 npm 精确版本不会移动，git 的 tag/commit 通常不移动，但 **branch ref 可能跟随远端移动**。未写 ref 的远端来源直接拒绝，避免隐式升级。CLI 通过受检用户 RPC 转发，或由固定 management bridge 经已审核权限、显式设备范围及必要的真实用户精确确认代理；普通开发 Agent 仍拒绝。不直接选择任意安装根，管理安装库不等于加载插件到当前管家 invocation。
+安装库由现有用户设置／RPC 管理，不再提供 agent package CLI。`update` 只对带显式 ref/精确版本的来源生效；固定的 npm 精确版本不会移动，git 的 tag/commit 通常不移动，但 **branch ref 可能跟随远端移动**。未写 ref 的远端来源直接拒绝，避免隐式升级。后台 RPC 权限与管理策略不随 CLI 删除而更改，用户设置仍经原受检入口操作；普通开发 Agent 仍拒绝。不直接选择任意安装根，管理安装库不等于加载插件到当前管家 invocation。

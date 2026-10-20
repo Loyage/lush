@@ -58,6 +58,19 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
     ]);
     expect(audit.items.every(item => item.cli_command && !item.cli_command.includes('PRIVATE'))).toBe(true);
     expect(JSON.stringify(audit)).not.toContain('PRIVATE-CLI-MESSAGE');
+    const rejected = await f.invoke([
+      command(['worker','watch',target.worker_number]), command(['worker','accept',target.worker_number,'--force']),
+      command(['branch','integrate','preview','main']), command(['agent','package','list']),
+      command(['valet','submit','must not create']), command(['automation','upgrade','--revision','REV']),
+      command(['automation','register','--file','must-not-open']),
+    ]);
+    expect(rejected.replies.every(reply => Boolean(reply.error))).toBe(true);
+    for (const reply of rejected.replies) expect(JSON.parse(reply.error)).toMatchObject({ kind: 'invalid_parameters', execution: 'not_started' });
+    expect((await f.dispatcher.dispatch('worker.management_calls', { id: rejected.task.id, after: 0 })).items).toHaveLength(0);
+    const inline = await f.invoke([command(['order','conditional inline profile','--after-merged',target.worker_number,
+      '--data','{"agent":"pi","config_mode":"pi"}'])]);
+    expect(inline.replies[0].error).toBeUndefined();
+    expect(inline.values[0]).toMatchObject({ method: 'input.emit', status: 'succeeded' });
   } finally { await f.close(); }
 });
 

@@ -11,12 +11,12 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 | `notice list --view history` | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
 | `notice events`／Host 来源增量同步（用户专属） | `notice.sync` | `{cursor?: 不透明游标, limit?: 100}` |
 | `notice ask 'title' --worker ID --body 'body'`／`notice notify 'title' --worker ID --body 'body'` | `notice.post` | 动作分别固定 question／info；notify 不接受问卷，原 RPC 参数不更名 |
-| `lush notice ask 'title' --worker ID --questions-file FILE` | `notice.post` | 用户指定目标，文件为 `{questions:[…]}`；Valet 用 `valet self notice ask --questions-json JSON` 受控发布自身问题，不读文件 |
+| `lush notice ask 'title' --worker ID --questions-json JSON` | `notice.post` | 用户指定目标，JSON 为 `{questions:[…]}`；Valet 用 `valet self notice ask --questions-json JSON` 受控发布自身问题，不读文件 |
 | `lushw question example` | 无（本地） | 输出可编辑的 `{questions:[…]}` 题目模板 |
 | `lushw question create 'title' --questions-file FILE [--body 'body']` | 无（本地） | 校验题目，stdout 输出完整 `{version:1,title,body,questions}` 问题 JSON，不发送 |
 | `lushw question check --question-file FILE` | 无（本地） | 校验完整问题文件，返回 `{valid:true,question_count}` |
 | `notice answer ID 'answer'` | `notice.answer` | `{id, answer:字符串, expected_identity?:记录身份}`（旧式文字问题） |
-| `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}, expected_identity?:记录身份}`（结构化问卷） |
+| `notice answer ID --data JSON`（或用户 Web） | `notice.answer` | `{id, answer:{answers:[…]}, expected_identity?:记录身份}`（结构化问卷） |
 | `notice dismiss ID` | `notice.dismiss` | `{id, expected_identity?:记录身份}` |
 | `notice mark-read ID` | `notice.read` | `{id, expected_identity?:记录身份}`（用户专属，只将 `info/sent` 标记已读） |
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { AGENT_CAPABILITIES } from '../src/agent/capabilities.js';
 import { main } from '../src/cli/main.js';
 import { cliHelpDocument } from '../src/cli/catalog.js';
+import { CLI_MIGRATIONS } from '../src/cli/migrations.js';
 import { env, temp } from './helpers.js';
 
 const root = path.resolve(import.meta.dir, '..');
@@ -53,6 +54,21 @@ test('published bins and source scripts expose executable lushw', async () => {
     await expect(main(['worker', '--', 'message', '7', 'literal'], context)).rejects.toThrow('unknown command');
     await expect(main(['--', 'worker', 'message', '7', 'literal'], context)).rejects.toThrow('unknown command');
     await expect(main(['help', '--', '--all'], context)).rejects.toThrow('unknown help topic');
+    for (const retired of CLI_MIGRATIONS.filter(item => item.replacement.startsWith('此 CLI 已删除'))) {
+      await expect(main(retired.path.split(' '), context)).rejects.toThrow('已移除');
+    }
+    for (const argv of [
+      ['order','goal','--profile-file','must-not-open'], ['input','draft','submit','5','--revision','1','--profile-file','must-not-open'],
+      ['notice','ask','title','--worker','7','--questions-file','must-not-open'], ['notice','answer','12','--answers-file','must-not-open'],
+      ['config','runtime','set','--file','must-not-open'], ['config','agent','replace','--file','must-not-open'],
+      ['automation','register','--file','must-not-open'], ['worker','accept','7','--force'],
+    ]) await expect(main(argv, context)).rejects.toThrow('unknown option');
     expect(requests).toHaveLength(0);
+    await main(['order','goal','--data','{"agent":"pi","config_mode":"pi"}'], context);
+    expect(requests.at(-1)).toEqual({ method: 'order.submit', params: { content: 'goal', profile: { agent: 'pi', config_mode: 'pi' } } });
+    await main(['input','draft','submit','5','--revision','1','--data','{"agent":"pi","config_mode":"pi"}'], context);
+    expect(requests.at(-1)).toEqual({ method: 'input.emit', params: { draft_id: 5, expected_revision: 1, profile: { agent: 'pi', config_mode: 'pi' } } });
+    await main(['notice','answer','12','--data','{"answers":[{"selected":[0]}]}'], context);
+    expect(requests.at(-1)).toEqual({ method: 'notice.answer', params: { id: 12, answer: { answers: [{ selected: [0] }] } } });
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });

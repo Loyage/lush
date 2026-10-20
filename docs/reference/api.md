@@ -16,7 +16,7 @@ W348／D723：登录用户在 Worker CLI 页面执行 `lushw` 时另走用户上
 
 旧 `lushc` 可执行文件与源码脚本直接移除，不保留兼容入口，外部脚本须改用 `lushw`。已有进程不会热更新；用户须在安全空闲点更新安装入口，并分别更新 daemon 与 Host，不能只刷新页面。历史会话、用户自定义 Prompt 和外部脚本不批量改写；旧指令引用须由维护者按新入口更新。
 
-帮助可离线读取：`lush help agent model choices`、`lush agent source list --help`、`lushw help self show` 只打印指定命令／子目录的用法，不发现项目、不调用 RPC，也不会因存在待执行正文而执行命令。普通 CLI 处理器报错附带对应的只读帮助入口；未知结果不可通过重试来验证。Valet 没有 Shell，唯一模型工具 `lush_cli {argv:string[]}` 通过固定可信 bridge 运行同一个 `lush` parser 与命令处理器；例如 `{"argv":["help","worker","show"]}`，再提交 `{"argv":["worker","show","W5"]}`。模型不再暴露 `manager_*` 工具，内部管理 RPC 只作受控传输与历史兼容。`valet` 命令处理当前管家的安全查询、调用历史和自身 Notice／进度，不代理开发 `context.*`。help、命令、schema 与 CLI 学习目录同源；结构化输入使用正式命令的 `--data JSON`／`--questions-json JSON`，不读本地文件。真实命令共用但身份不共用：项目、token、可执行文件固定，不开放 `--project`、Shell、交互认证、扩展加载或本地服务工作流；已审核的插件安装库管理仍经原权限及显式设备授权，不代表向管家运行环境加载插件。静态本地边界在帮助与目录的 `management_cli` 中明示，最新接口权限和原安全门仍逐次检查。补齐仍有效能力，不恢复已明确退役的 CLI；完整安全与兼容边界见管家契约。设备接口权限与范围授权的区别见[管家权限契约](../engineering/hook-signals-management.md#设备全局管家权限)。
+帮助可离线读取：`lush help agent model choices`、`lush agent source list --help`、`lushw help self show` 只打印指定命令／子目录的用法，不发现项目、不调用 RPC，也不会因存在待执行正文而执行命令。普通 CLI 处理器报错附带对应的只读帮助入口；未知结果不可通过重试来验证。Valet 没有 Shell，唯一模型工具 `lush_cli {argv:string[]}` 通过固定可信 bridge 运行同一个 `lush` parser 与命令处理器；例如 `{"argv":["help","worker","show"]}`，再提交 `{"argv":["worker","show","W5"]}`。模型不再暴露 `manager_*` 工具，内部管理 RPC 只作受控传输与历史兼容。`valet` 命令处理当前管家的安全查询、调用历史和自身 Notice／进度，不代理开发 `context.*`。help、命令、schema 与 CLI 学习目录同源；结构化输入使用正式命令的 `--data JSON`／`--questions-json JSON`，不读本地文件。真实命令共用但身份不共用：项目、token、可执行文件固定，不开放 `--project`、Shell、交互认证、扩展加载或本地服务工作流；插件安装库、交互认证和私有配置等用户专属业务 CLI 已删除，现有 Web／RPC 仍按原权限工作。静态本地边界在帮助与目录的 `management_cli` 中明示，最新接口权限和原安全门仍逐次检查。仅保留日常核心与自定义自动化，不以后台存在 RPC 作为保留 CLI 的理由；完整安全与兼容边界见管家契约。设备接口权限与范围授权的区别见[管家权限契约](../engineering/hook-signals-management.md#设备全局管家权限)。
 
 入口不授予权限：带 Agent token 的 `lush` 管理入口不能绕过开发限制。Valet 的项目能力独立于 `LUSHW_METHODS`，由 `MANAGEMENT_CODE_METHODS` 和管理策略审核；保留已审核的当前项目跨树代理，不代理 invocation 绑定的 `context.*`。Valet 仅使用可信管理工具，不获得 Shell 或 Git 分支；已支持的受控写操作默认自动执行，可逐项收紧，权限修改本身始终须用户审核。既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
 
@@ -32,13 +32,15 @@ CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使�
 
 ## CLI 原子切换与迁移（W356／D727）
 
-旧拼写只返回本地迁移提示，不读取文件、不调用替代命令，不保留可执行别名；完整旧路径去向见[冻结迁移依据](../design/cli-migration.md)，当前语法以 help 为准。历史会话、旧收据、自定义 Prompt 与外部脚本不自动改写或重放。
+W358／D731 进一步精简：删除 Valet 不用的用户专属业务命令，仅保留 daemon／Host 生命周期、日志、doctor／help 等启动诊断例外；业务面保留日常核心与自定义自动化。高级图、版本浏览、插件／用量历史、私有配置读取、认证、迁移及旧兼容 CLI 删除，底层 RPC、Web 和历史数据不变。lushw 开发协作不在此次删除范围。
+
+旧拼写只本地拒绝或返回迁移提示，不读取文件、不调用替代命令，不保留可执行别名；类别与去向见[精简迁移依据](../design/cli-migration.md)，当前语法以 help 为准。历史会话、旧收据、自定义 Prompt 与外部脚本不自动改写或重放。管理业务只接受内联 JSON／文本，不再提供本地文件参数；lushw 本地问卷准备仍使用显式文件。
 
 - `worker list` 默认 **recent**（活动项＋有界历史尾部）；旧完整枚举范围须显式 `--view all`，终态历史用 `--view history`。不是三个等价查询；各 view 的 scope、brief、RPC 权限及游标分别校验，续读 recent 不重复插入活动项。
-- `order` 只新建开发指令。旧 `--buffer` 迁到 `input draft create`；旧 `--append` 的可靠条件发射迁到 draft create `--append-to` → show → submit，不能用直接 `worker message` 冒充完全等价。保存不授权，submit 不保证立即投递；`--quiet` 改为 `--when-idle`，管理输入改 `valet submit`。
+- `order` 只新建开发指令。旧 `--buffer` 迁到 `input draft create`；旧 `--append` 的可靠条件发射迁到 draft create `--append-to` → show → submit，不能用直接 `worker message` 冒充完全等价。保存不授权，submit 不保证立即投递；`--quiet` 改为 `--when-idle`，管理输入改用现有用户 Web／RPC，不再提供 CLI 创建管家。
 - 自动合并开关迁为 `worker automation enable/disable ID auto-merge --revision REV`，revision 来自 automation show；不能一律改写为 completion merge 而降低 accept 授权。所需方法从 `worker.auto_merge` 变为 `worker.hook_update` 及实际前置读取，**不自动复制用户自定义权限**。`config runtime show` 只调用 `system.settings`，不继承旧 `system.status` 授权；权限不足由用户明确决定。
-- `worker merge request` 只请求本轮合并；带条件使用 merge show 的专用 revision，不与 automation revision 混用。`branch merge-all` 是普通逐项请求，`branch integrate start` 则调用整合 Agent。
-- Notice 明确区分 ask 与 notify；决策发布后结束本轮。验收、删除、迁移的独立预检、精确确认、revision 及资源安全门保持，不恢复旧原子 Hook 安装或持续归并写入口。
+- `worker merge request` 只请求本轮合并；带条件使用 merge show 的专用 revision，不与 automation revision 混用。`branch merge-all` 是普通逐项请求；一次性整合留在 Web／RPC，不再提供 CLI。
+- Notice 明确区分 ask 与 notify；决策发布后结束本轮。普通验收仍受全部安全门约束；强制验收和设备迁移仅保留用户 Web／RPC，删除 CLI 的独立预检、精确确认、revision 及资源安全门保持，不恢复旧原子 Hook 安装或持续归并写入口。
 
 同一发布包更新 bins、目录、Prompt、Skills 与调用方。用户须在安全空闲点分别更新 daemon 和 Host，不自动重启；目录可见不证明旧后台支持新语法。
 
@@ -89,14 +91,13 @@ Notice 按明确 kind 展示：question／questionnaire／历史 plan 为 `D<Not
 |---|---|
 | `lush order`（指令；旧 say 无别名） | [一条指令输入如何交付](../task-flow.md) |
 | `lushw self/parent/children …`（自身与直接父子）；`lush worker …`（项目查询与管理） | [Worker、Run 与 Artifact](rpc/tasks.md) |
-| `lush worker show` / `events` / `transcript` / `watch`（[终端内观看](../native-viewer.md)） / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
-| `lush worker cleanup [--keep-branch]` / `worker delete-preview ID` / `worker delete ID --confirm --revision REV` | [磁盘回收与彻底删除](rpc/maintenance.md) |
-| `lush branch tree` / `show` / `bind` / `archive` | [分支谱系](rpc/branches.md) |
-| `lush branch integrate preview/start/show/cancel/retry` | [一次性整合](rpc/convergence.md#一次性整合)（仅用户，非空操作调用 Agent） |
-| `lush branch legacy-convergence list/show/history/retry` | [历史归并兼容](rpc/convergence.md#单分支策略)（策略／默认写入口退休） |
+| `lush worker show` / `events` / `transcript`（持续终端观看已[移除](../native-viewer.md)） | [审阅与过程读模型](rpc/inspect.md) |
+| `lush worker delete-preview ID` / `worker delete ID --confirm --revision REV` | [磁盘回收与彻底删除](rpc/maintenance.md) |
+| `lush branch tree` / `show` / `merge-all` | [分支谱系](rpc/branches.md) |
+| Web／RPC（无 CLI） | [一次性整合与历史归并兼容](rpc/convergence.md) |
 | `lushw self notice list/ask/notify`、本地 `lushw question create/check/example`；`lush notice …` 管理 | [待决问题](rpc/notices.md) |
-| `lush status` / `lush config runtime show` / `lush config runtime set|reset` / `lush config agent show|set|replace|reset`／`lush agent prompt show|init`／`lush agent env show` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
-| `lush config network show` / `set --file PATH` / `reset` | [项目出站网络代理](../engineering/outbound-network.md) |
+| `lush status` / `lush config runtime show` / `lush config runtime set|reset` / `lush config agent replace --data JSON` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
+| 用户 Web／RPC（无 CLI） | [出站网络代理](../engineering/outbound-network.md) |
 | Web 读取路由与 `POST /api/action` | [Web 路由](web-routes.md) |
 | HTTP 监听与安全约束 | [HTTP](http.md) |
 

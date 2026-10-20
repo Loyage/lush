@@ -8,12 +8,12 @@
 
 ## 分支归档
 
-`lush branch archive BRANCH [--discard] [--continue]`（RPC `branch.archive {branch, discard?, continue?}`，用户专属）是**显式放弃一条分支的代码**的路径，与上面的安全回收是两件不同的事。**归档一条＝归档它整棵子树**：Worker分支是从父分支长出来的，只删一半会留下一批「父分支已不在」的后代，所以传进来的那条是子树根，它的全部后代一起归档（已经归档 / 回收过的后代跳过）。Web 上 Worker 图与 Worker 详情两个入口共用同一个动作（`branch-archive.js`）：界面先按与 `archiveBranch` 对齐的只读判据（`branches.branchArchivability`）决定按钮出不出现，真正的安全门仍在 runtime。
+用户专属 Web／RPC `branch.archive {branch, discard?, continue?}`（无 CLI）是**显式放弃一条分支的代码**的路径，与上面的安全回收是两件不同的事。**归档一条＝归档它整棵子树**：Worker分支是从父分支长出来的，只删一半会留下一批「父分支已不在」的后代，所以传进来的那条是子树根，它的全部后代一起归档（已经归档 / 回收过的后代跳过）。Web 上 Worker 图与 Worker 详情两个入口共用同一个动作（`branch-archive.js`）：界面先按与 `archiveBranch` 对齐的只读判据（`branches.branchArchivability`）决定按钮出不出现，真正的安全门仍在 runtime。
 
-- cleanup / `worker cleanup` 是**安全回收**：必须先证明分支的成果已经进入目标分支（tip 仍含审阅过的 `head_commit`，且 tip 是目标分支的祖先），证明不了就保留并说明 reason。
+- RPC `worker.cleanup` 是**安全回收**（无 CLI）：必须先证明分支的成果已经进入目标分支（tip 仍含审阅过的 `head_commit`，且 tip 是目标分支的祖先），证明不了就保留并说明 reason。
 - 归档是**明知可能未合并也允许删**：用户明确表示不再要这棵子树的代码，runtime 不再做祖先检查——因此 `archiveBranch` 不做祖先检查、仍用 compare-and-delete；明确确认的 `worker.delete` 也允许丢弃未交付代码，但另有资源预检与历史清除契约。
 
-新式 version 2 Squash 合并落地后不再自动走归档：当前父自有交付队列不改变请求 Worker 的父子关系，分支与 worktree 保留，直到用户显式 `worker cleanup` / `branch archive` 才按上面同一套安全门删除。Squash 只保证树相同，源 ref 并不在目标分支的祖先链上，所以 `archiveSquashedTaskUnsafe` 用「源树等于已落地树 + 落地提交仍在目标分支」替代祖先检查；在归档前，`branchState` 通过 `Workspaces#squashedLanded` 就把这条分支按已收拢报告，既不冒充分歧，也不挡住父分支。
+新式 version 2 Squash 合并落地后不再自动走归档：当前父自有交付队列不改变请求 Worker 的父子关系，分支与 worktree 保留，直到普通验收或用户通过既有 Web／RPC 显式回收才按上面同一套安全门删除。Squash 只保证树相同，源 ref 并不在目标分支的祖先链上，所以 `archiveSquashedTaskUnsafe` 用「源树等于已落地树 + 落地提交仍在目标分支」替代祖先检查；在归档前，`branchState` 通过 `Workspaces#squashedLanded` 就把这条分支按已收拢报告，既不冒充分歧，也不挡住父分支。
 
 历史 version 2 merge 队列身份随其明确的父 Worker 归档，可在 Worker 图中切换查看历史；当前交付不新建该身份。旧在途重挂只凭预约／审计记录恢复原父，不猜身份或删除旧记录。
 

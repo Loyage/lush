@@ -1,10 +1,7 @@
-import { $, block, button, el, kv } from './dom.js';
+import { $, block, el, kv } from './dom.js';
 import { lastView, money, relative, tokens } from './format.js';
 import { tokensChip } from './render-transcript.js';
 import { ui } from './state.js';
-import { show } from './messages.js';
-
-import { copyText } from './clipboard.js';
 
 /** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title；有 tokens 时并排一个同口径 chip。 */
 function lastStepRow(last) {
@@ -63,17 +60,6 @@ export function renderAgent(task, usage) {
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
   const process = block('执行过程');
-  // 只复制终端内观看命令；项目来自本页固定来源，单引号避免路径成为 Shell 代码。
-  const project = ui.lastSnapshot?.status?.project;
-  const projectArg = typeof project === 'string' && project ? ` --project '${project.replaceAll("'", "'\\''")}'` : '';
-  const command = `lush worker watch ${task.id}${projectArg}`;
-  const commandRow = el('div', undefined, 'terminal-command');
-  commandRow.append(el('span', '终端内观看', 'hint'), el('code', command, 'mono'),
-    button('复制命令', async () => {
-      const ok = await copyText(command);
-      show(ok ? '已复制；请在项目所在机器的终端运行' : '复制失败，请手动选中命令复制', ok ? 'info' : 'error');
-    }, 'ghost', { help: '只复制命令；需在项目所在机器运行，不在页面执行，不调用 Agent，也不停止 Worker' }));
-  process.append(commandRow);
   if (usage?.last) process.append(lastStepRow(usage.last));
   section.classList.add('agent-panel');
   section.append(process);

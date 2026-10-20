@@ -7,10 +7,11 @@ import { configurePiFixture } from './pi-runtime-fixture.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { createSignal } from '../../src/signal.js';
+import { UIClient } from '../../src/ui/client.js';
 
 const bin = path.resolve(import.meta.dir, '../../bin/lush');
 
-test('real CLI/RPC self-copy creates a manual child and runs its first Input from the inherited Pi checkpoint', async () => {
+test('retired create CLI rejects; user RPC self-copy runs its CLI first Input from the inherited Pi checkpoint', async () => {
   const f = fixture(undefined, { LUSH_PROVIDER: 'pi' });
   f.project.kick = () => {}; f.project.scheduleInputEmissions = () => {};
   await repo(f.root); const { agent } = configurePiFixture(f);
@@ -39,9 +40,13 @@ console.log('controlled child result');
       const proc = Bun.spawn([process.execPath, bin, '--project', f.root, '--json', ...args], { cwd: f.root,
         env: env(f.config.env), stdout: 'pipe', stderr: 'pipe' });
       const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      expect(code, `${err} ${out}`).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); envelopes.push(value); return value.data;
+      if (code !== 0) throw new Error(`${err} ${out}`);
+      expect(code).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); envelopes.push(value); return value.data;
     };
-    const child = (await cli('worker', 'create', '--parent', current.worker_number, '--from', current.worker_number)).task;
+    const before = f.store.all('SELECT id FROM tasks ORDER BY id');
+    await expect(cli('worker', 'create', '--parent', current.worker_number, '--from', current.worker_number)).rejects.toThrow('已移除');
+    expect(f.store.all('SELECT id FROM tasks ORDER BY id')).toEqual(before);
+    const child = (await new UIClient(f.config).request('worker.create', { mode: 'fork', parent: current.id, source: current.id })).task;
     expect(child).toMatchObject({ parent_id: current.id, task_kind: 'order', status: 'paused', input_id: null, base_commit: commit,
       target_branch: current.branch, creation: { source_id: current.id, session_inherited: true } });
     expect(f.project.autoMergeView(f.store.task(child.id))).toMatchObject({ enabled: false, locked: false });

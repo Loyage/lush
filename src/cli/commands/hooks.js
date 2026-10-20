@@ -30,13 +30,9 @@ export async function run(command, args, { client }) {
     check(['on','off'].includes(args[0]) && ['merge','accept'].includes(args[1]), 'completion-defaults set expects on|off merge|accept --revision REV');
     return client.request('hooks.completion_defaults', { enabled: args[0] === 'on', level: args[1], expected_revision });
   }
-  if (verb === 'upgrade') {
-    const expected_revision = readRevision(args); exact(args, 0);
-    return client.request('hooks.upgrade', { expected_revision });
-  }
   if (verb === 'command') return runCommand(args, client);
   if (verb === 'signal') return runSignal(args, client);
-  check(['save','remove'].includes(verb), 'automation requires list|register|upgrade|save|remove|completion-defaults|command|signal; run lush help automation');
+  check(['save','remove'].includes(verb), 'automation requires list|register|save|remove|completion-defaults|command|signal; run lush help automation');
   const expected_revision = readRevision(args);
   if (verb === 'save') {
     const template = takeJsonInput(args, client); exact(args, 0);
@@ -56,12 +52,8 @@ function projectPart(value, key) {
 
 async function runCommand(args, client) {
   const verb = args.shift();
-  if (verb === 'history-remove') {
-    const clear = args.includes('--all'); if (clear) args.splice(args.indexOf('--all'), 1); exact(args, clear ? 0 : 1);
-    return client.request('hooks.command_history_remove', clear ? { clear: true } : { execution_id: args[0] });
-  }
-  check(['list','save','remove','history','import','export'].includes(verb),
-    'automation command requires list|save|remove|history|import|export; run lush help automation command');
+  check(['list','save','remove','history','export'].includes(verb),
+    'automation command requires list|save|remove|history|export; run lush help automation command');
   if (verb === 'list') { exact(args, 0); return projectPart(await client.request('hooks.list'), 'commands'); }
   if (verb === 'history') {
     const before = option(args, '--before'), limit = option(args, '--limit'), execution_id = option(args, '--execution');
@@ -87,15 +79,11 @@ async function runCommand(args, client) {
     return client.request('hooks.command_export', { id: args[0], version: Number(rawVersion) });
   }
   const expected_revision = readRevision(args);
-  if (verb === 'save' || verb === 'import') {
-    const value = takeJsonInput(args, client, 'shortcut command'); exact(args, 0);
-    const keys = verb === 'save' ? ['id','name','kind','command','prompt','default_worker_id','description','when_to_use','tags','examples','warnings'] : ['template_id','worker_id','hook_id'];
-    check(Object.keys(value).every(key => keys.includes(key)), 'unknown shortcut command parameter');
-    if (verb === 'import' && Object.hasOwn(value, 'worker_id')) {
-      check(!Object.hasOwn(value, 'template_id') && Object.hasOwn(value, 'hook_id'), 'invalid import source');
-      value.worker_id = await resolveWorkerId(client, value.worker_id);
-    }
-    return client.request(`hooks.command_${verb}`, { [verb === 'save' ? 'command' : 'source']: value, expected_revision });
+  if (verb === 'save') {
+    const command = takeJsonInput(args); exact(args, 0);
+    const keys = ['id','name','kind','command','prompt','default_worker_id','description','when_to_use','tags','examples','warnings'];
+    check(Object.keys(command).every(key => keys.includes(key)), 'unknown shortcut command parameter');
+    return client.request('hooks.command_save', { command, expected_revision });
   }
   exact(args, 1);
   check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args[0]), 'invalid command id');

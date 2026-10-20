@@ -6,10 +6,11 @@ import { acceptanceFixture } from '../acceptance-fixture.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { createSignal } from '../../src/signal.js';
+import { UIClient } from '../../src/ui/client.js';
 
 const bin = path.resolve(import.meta.dir, '../../bin/lush');
 
-test('real user CLI preflight and explicit forced acceptance reclaim resources while preserving terminal receipts', async () => {
+test('retired force CLI rejects while compatible user RPC reclaims resources and preserves receipts', async () => {
   let calls = 0;
   const f = fixture({ async run() { calls++; throw Error('must not run Agent'); } });
   let rpc;
@@ -20,12 +21,16 @@ test('real user CLI preflight and explicit forced acceptance reclaim resources w
       const proc = Bun.spawn([process.execPath, bin, 'worker', ...args, '--json'], { cwd: f.root,
         env: env({ ...f.config.env, LUSH_PROJECT: f.root, LUSH_HOME: f.config.home }), stdout: 'pipe', stderr: 'pipe' });
       const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      expect(code, `${err} ${out}`).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); return value.data;
+      expect(code).not.toBe(0); expect(`${err} ${out}`).toMatch(/已移除|unknown option/);
     };
-    const plan = await cli('accept-preview', parent.worker_number);
+    await cli('accept-preview', parent.worker_number);
+    await cli('accept', String(parent.id), '--force', '--confirm', '--revision', 'must-not-execute');
+    expect(fs.existsSync(parent.workspace)).toBe(true);
+    const client = new UIClient(f.config);
+    const plan = await client.request('worker.accept_preview', { id: parent.id });
     expect(plan).toMatchObject({ id: parent.id, can_force: true, notifications: [{ message_id: signal.id, worker_id: child.id, signal_type: 'child.cancelled' }] });
     expect(plan.resources.worktrees).toHaveLength(3);
-    expect(await cli('accept', String(parent.id), '--force', '--confirm', '--revision', plan.revision)).toMatchObject({ id: parent.id, status: 'completed', workspace: null });
+    expect(await client.request('worker.accept_force', { id: parent.id, confirm: true, revision: plan.revision })).toMatchObject({ id: parent.id, status: 'completed', workspace: null });
     for (const row of [parent, child, leaf]) {
       expect(fs.existsSync(row.workspace)).toBe(false); expect(f.store.branch(row.branch).status).toBe('archived');
     }

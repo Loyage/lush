@@ -36,9 +36,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
   cli: Object.freeze([
     'test/cli-entrypoints.test.js', // published bins and offline help
     'test/cli-catalog.test.js', // CommandSpec/help/parser projection and removed spellings
-    'test/project/worker-create-bridge.test.js', // create -> first Input, no old mode operand
-    'test/project/worker-child-create.test.js', // --from -> reliable draft append -> inherited checkpoint
-    'test/project/force-acceptance.test.js', // versioned preflight -> exact force confirmation
+    'test/project/worker-create-bridge.test.js', // retired create rejects -> user RPC -> CLI first Input
+    'test/project/worker-child-create.test.js', // compatible user copy RPC -> CLI reliable append/checkpoint
+    'test/project/force-acceptance.test.js', // retired force rejects -> compatible user RPC preflight/confirmation
     'test/notice-cli.test.js', // offline question construction and validation
     'test/integration/questionnaire.test.js', // created question -> real CLI -> park and answer
     'test/integration/result-notice.test.js', // default info -> real CLI -> no parking

@@ -271,7 +271,7 @@ export async function run(command, args, ctx) {
       daemonStatus = await client.request('system.status');
       value.daemon = verbose ? daemonStatus : { project: daemonStatus.project, pid: daemonStatus.pid,
         code_dir: daemonStatus.code_dir, fingerprint: daemonStatus.fingerprint, started_at: daemonStatus.started_at,
-        note: '完整配置使用 doctor --verbose 或 config agent show。' };
+        note: '完整本地诊断使用 doctor --verbose。' };
       value.code_match = daemonStatus.fingerprint === current.fingerprint && daemonStatus.code_dir === current.code_dir;
       value.daemon_code_match = value.code_match;
     } catch (error) { value.daemon = error.message; value.daemon_code_match = null; }

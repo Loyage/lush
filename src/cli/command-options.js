@@ -1,6 +1,5 @@
 import { check } from '../core/types.js';
 import { option } from './args.js';
-import { WORKER_QUERY_CAPABILITIES } from '../core/worker-query.js';
 
 /** Typed argv options shared by real CLI handlers; no method names come from argv. */
 export function takeOptions(args, fields) {
@@ -19,12 +18,4 @@ export function takeOptions(args, fields) {
     } else result[field] = value;
   }
   return result;
-}
-export function takeQueryOptions(args, method) {
-  const schema = WORKER_QUERY_CAPABILITIES[method]?.schema;
-  check(schema, 'unknown typed CLI query');
-  const fields = Object.fromEntries(Object.entries(schema.properties).map(([key, spec]) => [key,
-    spec.type === 'integer' || spec.anyOf?.some(item => item.type === 'integer') ? 'number'
-      : spec.type === 'boolean' ? 'boolean' : spec.type === 'array' ? 'json' : 'string']));
-  return takeOptions(args, fields);
 }

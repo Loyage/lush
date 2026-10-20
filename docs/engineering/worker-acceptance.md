@@ -33,7 +33,7 @@ inspect／graph 同源增加 `acceptance_recovery:boolean`：仅据当前轮未�
 
 ## 用户显式强制验收（W318／D682）
 
-普通验收默认保持全部未读检查。用户可在未读阻塞后选择次级「强制验收…」，先预检列出终态 Worker 的系统通知、失败／取消状态及资源回收范围，再二次确认；不调用 Agent。CLI 使用 `bun run lush worker accept-preview ID`，随后 `bun run lush worker accept ID --force --confirm --revision REV`；开发 `children accept` 不提供 force。RPC 为 `worker.accept_preview {id}` 与 `worker.accept_force {id,revision,confirm:true}`；两者均用户专属，不开放给开发 Agent、Valet 或自动 Hook。
+普通验收默认保持全部未读检查。用户可在未读阻塞后选择次级「强制验收…」，先预检列出终态 Worker 的系统通知、失败／取消状态及资源回收范围，再二次确认；不调用 Agent。强制验收只保留用户 Web／RPC；CLI `worker accept` 仅普通模式，开发 `children accept` 也不提供 force。RPC 为 `worker.accept_preview {id}` 与 `worker.accept_force {id,revision,confirm:true}`；两者均用户专属，不开放给开发 Agent、Valet 或自动 Hook。
 
 仅允许跳过有精确同收件箱 `task.signal` 来源证据的已结算通知，且接收 Worker 必须是 completed／failed／cancelled。未知类型、修复／合并请求、普通消息、用户追加、暂存输入和待决问题不放行；运行退出、脏现场、未交付改动、在途预约／冻结和共享资源检查全部保留；[已退役远端 Worker](execution-model.md#单机执行与执行节点退役) 即使显式强制验收也必须拒绝。具体可跳过类型由 `project/acceptance-force.js` 单点定义。
 

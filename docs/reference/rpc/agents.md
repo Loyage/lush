@@ -32,11 +32,7 @@ Lush 在项目 `.lush/pi/` 管理独立基础配置，每次调用生成私有�
 
 快照仅携带选定来源的认证；OAuth 只携带 access token，不复制 refresh token。长调用中 access token 过期可能失败，下一次由 Lush 连接管理器协调刷新，不承诺无损持续登录。会话仍保存在 Lush 的 Worker 会话目录，切换来源不删除既有执行记录或 fork 上下文。
 
-在 Agent 配置页选来源与模型并保存，影响未独立覆盖的后续调用。也可使用 CLI：
-
-```bash
-bun run lush config agent set default --agent pi --model deepseek/deepseek-chat --connection CONNECTION_UUID
-```
+在 Agent 配置页选来源与模型并保存，影响未独立覆盖的后续调用。细项配置 CLI 已移除；仅在明确掌握完整配置时使用 `config agent replace --data JSON`，不能从安全摘要重建私有设置。
 
 关闭连接绑定不会恢复外部 Pi 认证，而是使后续 Pi 调用缺少必需来源。模型必须匹配来源的 provider 和配置范围；保存/切换不悄悄选择第一个模型，不自动更换账号、付费资源或执行后端。
 

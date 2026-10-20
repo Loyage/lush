@@ -6,7 +6,7 @@
 
 Valet 是管理 Lush 的受限管家，与开发 Worker 共享持久执行底座，权限按真实身份授权，Git 开发与交付流程仍独立。项目「工作列表」仅查看开发 Worker，「管家列表」仅查看持久 Valet，复用同源有界分页、状态筛选和显式文本搜索，检索只针对已读取范围；通用详情共享指令、结果、Agent 信息、调用历史和执行阅读器，Valet 另展示绑定与受控操作收据。工作树只表达开发委派，管理操作目标不伪造成父子关系。
 
-W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入口，不迁到其他页面；旧 `#management`／`#management-history` 跳「管家列表」并说明入口已移除。管家列表读取持久 Worker 记录及有界历史，不使用 `hooks.list` 的最多 100 个绑定摘要冒充完整记录。项目自动化首页不混入 Valet 配置；已有时间信号、绑定、授权、API／CLI 与历史保留。用户通过既有管理接口保存具名时间信号（例如「Codex 额度更新时间已到」），创建 Valet，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个 Valet。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框显式「管理 Lush」通过 `management.submit` 即时新建 Valet，不要求时间信号；正常结束后可由用户追加开启新一轮，边界见下文。开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
+W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入口，不迁到其他页面；旧 `#management`／`#management-history` 跳「管家列表」并说明入口已移除。管家列表读取持久 Worker 记录及有界历史，不使用 `hooks.list` 的最多 100 个绑定摘要冒充完整记录。项目自动化首页不混入 Valet 配置；已有时间信号、绑定、授权、API 与历史保留；CLI 仅保留信号定义，不再提供管家创建／绑定管理。用户通过既有管理接口保存具名时间信号（例如「Codex 额度更新时间已到」），创建 Valet，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个 Valet。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框显式「管理 Lush」通过 `management.submit` 即时新建 Valet，不要求时间信号；正常结束后可由用户追加开启新一轮，边界见下文。开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
@@ -64,9 +64,9 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 管家 Pi 扩展只导入 Node 可加载的纯协议定义，不从 daemon 总注册表间接引入 Bun 实现；RPC 传输只在固定 Bun bridge 中按需加载。失败时 `Run.error`、`Worker.error` 与管理执行原因保留固定白名单诊断及处理建议（扩展加载、模型／来源、进程启动、输出上限、超时／中断、未分类失败），不持久化原始 stderr、凭证或异常正文。UI 在详情顶部完整显示安全原因，旧记录缺少诊断时明确不可还原，不从通用“调用中断”倒推根因；失败后不提供自动重试，不改变 unknown 收据与禁止重放规则。
 
-D721：仍有效但原先缺少命令的输入、图查询、诊断与统计等能力补入真实 CLI；明确退役的 `worker.resolve/resolve_divergence/approve_merge` 、持续归并写入口及旧原子 Hook 安装不恢复管家入口，后台与历史只保留兼容，不改写旧授权或重放操作。命令和参数以 `lush help`／`src/cli/catalog.js` 为单一来源，不开放 raw RPC 命令。有效能力覆盖必须实际穿过固定 CLI 的静态准入和处理器，并核对前置读取的权限，不能仅用 method 在目录出现证明可达；`config agent replace --data JSON --scope device` 可提交显式完整配置而不依赖不可用的私有 `agent.config` 读取，Worker 完整覆盖使用 `worker config set ID --data JSON`，私有字段仍由后台拒绝。
+W358／D731：CLI 只保留日常核心与自定义自动化；高级图、统计、插件、私有配置及用户专属业务入口删除，底层 RPC／Web／历史不变，不再要求全部有效能力都有 CLI。明确退役的 `worker.resolve/resolve_divergence/approve_merge` 、持续归并写入口及旧原子 Hook 安装不恢复管家入口，后台与历史只保留兼容，不改写旧授权或重放操作。命令和参数以 `lush help`／`src/cli/catalog.js` 为单一来源，不开放 raw RPC 命令。保留能力必须实际穿过固定 CLI 的静态准入和处理器，并核对前置读取的权限，不能仅用 method 在目录出现证明可达；`config agent replace --data JSON --scope device` 可提交显式完整配置而不依赖不可用的私有 `agent.config` 读取，Worker 完整覆盖使用 `worker config set ID --data JSON`，私有字段仍由后台拒绝。
 
-固定 Node 扩展只接收有界 argv 数组，在可信 Bun 子进程中执行同一个 CLI main。CLI 在发现项目、构造普通 UIClient 或进入任何处理器前注入并复核管理边界；client 始终携带本次 management token，只经受控管理传输，不回落到用户身份。拒绝项目覆盖和所有本地文件参数；结构化负载使用通用 CLI 内联 JSON，后端仍校验注册 schema、私有字段、作用域、revision、目标与精确确认。`management_cli` 是同源静态本地边界，不是实时权限；交互认证、本地文件、向管家加载用户扩展／Skill、本地服务与等待类命令不可用。已审核的 `agent package` 安装库管理只在 daemon 经原权限和显式设备授权执行，不等于向当前管家加载插件；CLI 处理器仍只发送窄 RPC。帮助保持离线只读，不发现项目、不连接 RPC。Provider 将真实 occurrence 身份交给固定 bridge，bridge 按该身份与规范化 method/params 派生稳定去重 key；同轮改换 tool-call ID 或重排 CLI 选项也不会重放相同请求，不接受模型替换 transport/request_id。输入发射的客户端身份同样固定于该 occurrence 与定义；用户明确追加的新 occurrence 不复用旧输入身份。unknown 不换身份重放。
+固定 Node 扩展只接收有界 argv 数组，在可信 Bun 子进程中执行同一个 CLI main。CLI 在发现项目、构造普通 UIClient 或进入任何处理器前注入并复核管理边界；client 始终携带本次 management token，只经受控管理传输，不回落到用户身份。拒绝项目覆盖和所有本地文件参数；结构化负载使用通用 CLI 内联 JSON，后端仍校验注册 schema、私有字段、作用域、revision、目标与精确确认。`management_cli` 是同源静态本地边界，不是实时权限；交互认证、本地文件、向管家加载用户扩展／Skill、本地服务与等待类命令不可用。安装库管理不再提供 CLI，既有用户设置和后台权限不变；不能借底层代理恢复已删命令，或向当前管家加载插件。CLI 处理器仍只发送声明的窄 RPC。帮助保持离线只读，不发现项目、不连接 RPC。Provider 将真实 occurrence 身份交给固定 bridge，bridge 按该身份与规范化 method/params 派生稳定去重 key；同轮改换 tool-call ID 或重排 CLI 选项也不会重放相同请求，不接受模型替换 transport/request_id。输入发射的客户端身份同样固定于该 occurrence 与定义；用户明确追加的新 occurrence 不复用旧输入身份。unknown 不换身份重放。
 
 bridge 不使用 shell，不接收 executable/cwd/env 参数，不给子进程模型凭证或用户配置环境；30 秒超时、256 KiB 输出预算、取消与正常退出均杀止并回收自身子进程，stderr 一律丢弃。只有 code-owned 安全诊断可跨边界；CLI 在任何 RPC 前拒绝参数时使用固定 not_started 提示，已请求或缺少完成证明的失败不据异常文本推断未执行。返回 `{exit_code:0,result}` 仅证明 CLI 已返回；可选的安全 `diagnostic` 保留后台关联身份，`truncated/coverage` 保留管理出口裁剪事实，不因适配普通 CLI 处理器而丢失。普通命令 result 是版本化 CLI 外壳，精确收据／动作状态在 result.data 中才是业务事实；默认 help 返回 result.help 文本，只有显式 --json 才返回同源机器描述，不因工具外壳为 JSON 而膨胀默认帮助。
 
@@ -99,8 +99,8 @@ W342／D716：用户可精确确认“终结当前项目全部管家并解除历
 
 管家列表顶部提供用户专属「强制终结全部管家」危险按钮，空列表及历史筛选不隐藏入口。点击先只读预检，默认展示当前项目全部影响总数、授权／在途／未开始／待答／未知汇总，最多 100 项明细按需展开并明示截断；用户明确确认后才执行。按钮及确认均不调用 Agent。结果区分 stopping 的真实阻塞与 isolated 的历史占位解除，旧详情／列表保留未知结果并标明急救状态，不把旧事项展示为待重跑。用户可只读「核对当前急救状态」，无需重发终结请求；未知写结果先核对再重新预检确认，成功后列表刷新失败不重发。离页、换项目及重启前端后，迟到结果不得打开确认、覆盖新页面或关闭替代弹窗；窄屏单列换行且触控目标至少 44px。完成后仍由用户通过原管理输入框明确提交救援管家，不自动调用模型。\n\n接口及前端接线（均复用用户鉴权、Origin、JSON、no-store）：
 
-- 用户只读 RPC `management.emergency_preview {}`；HTTP `GET /api/management/emergency-preview`，不接受 query；CLI `lush valet emergency preview`。
-- 用户写 RPC `management.emergency_stop {revision,confirm:true}`；HTTP `POST /api/action`，正文仅 `{method:'management.emergency_stop',params:{revision,confirm:true}}`，不接受 query、额外字段、Agent token 或 CLI 私有凭据；CLI `lush valet emergency stop --revision REV --confirm`。
+- 用户只读 RPC `management.emergency_preview {}`；HTTP `GET /api/management/emergency-preview`，不接受 query；无 CLI。
+- 用户写 RPC `management.emergency_stop {revision,confirm:true}`；HTTP `POST /api/action`，正文仅 `{method:'management.emergency_stop',params:{revision,confirm:true}}`，不接受 query、额外字段、Agent token 或 CLI 私有凭据；无 CLI。
 - 预检返回 `{version:1,scope:'current_project',revision,total,affected_total,already_isolated_total,stopping_total,items,items_truncated,totals,history_preserved:true}`。total 为项目全部 Valet 数；affected_total 为未 isolated 数（含 stopping）；items 仅前 100 项 `{id,worker_number,enabled,pending_occurrences,unstarted_actions,unstarted_calls,started_receipts,unknown_receipts,open_decisions,live_workers,blockers}`。这些计数为当前附属状态的事实，不从旧 last_execution 复制重复计算；未知历史仍完整保留。totals 对**全部受影响项**汇总相同计数；live_workers 表示至少一种真实 owner，blockers 为 `provider_cleanup|control_owner|control_busy` 数组。没有指令、名称、参数、私有 JSON、路径或凭证；超长编号返回 null，不截成另一个合法编号。
 - 执行返回 `{version:1,scope:'current_project',request_revision,status:'stopping'|'isolated',affected_total,isolated_total,stopping_total,blockers,blockers_total,blockers_truncated,history_preserved:true}`。blockers 最多 100 项 `{id,worker_number,kinds:[上述 blocker 枚举]}`，blockers_total 覆盖本次全部实际阻塞身份。status 只表示本次确认集合，不承诺之后没有新输入。`worker.inspect.management.emergency` 另给 `{status,requested_at,isolated_at}`（未急救为 null）；前端不能将 cancelled 或无 PID 当退出证明。
 
@@ -131,7 +131,7 @@ revision 对全部私有附属状态、状态／调用、真实 owner／busy 和
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
-普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；Valet 自身仅支持上述受控用户追加，不提供开发暂存／条件发射、运行配置编辑、合并、开发验收或 Git 分支，不假装有分支可合并；代理开发目标的能力遵循上文受控契约。删除复用用户专属 `worker.delete_preview`／`worker.delete` 的精确 revision、confirm 与原安全门。启用绑定、模型未实际退出、未收口 occurrence、危险确认、受控动作 waiting／running／unknown 都阻止删除；用户可先停用或停止，安全撤销尚未开始授权，实际退出且无未知在途副作用后再预检删除。已停用且安全收口的 waiting Valet 无须开发验收即可删除。只清理该身份专属非 Git management 目录、会话／日志及历史，不删除其管理操作创建的独立开发 Worker 或项目时间信号库；共享、符号链接、未知归属及资源变化仍拒绝。Web 时间信号与绑定设置入口已移除；管家列表和详情不提供旧操作重放入口；用户追加明确授权新一轮。保留 API／CLI 的 revision、去重与失败语义：成功 mutation 不依赖概览刷新，不因刷新失败重做创建，配置 revision 不因时钟 tick 变化而变更。列表分页和执行阅读器继续以页面、项目与 document 身份守卫迟到响应；仍可见的延迟安排 Agent 按钮使用 agent-call 与 agentHelp。
+普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；Valet 自身仅支持上述受控用户追加，不提供开发暂存／条件发射、运行配置编辑、合并、开发验收或 Git 分支，不假装有分支可合并；代理开发目标的能力遵循上文受控契约。删除复用用户专属 `worker.delete_preview`／`worker.delete` 的精确 revision、confirm 与原安全门。启用绑定、模型未实际退出、未收口 occurrence、危险确认、受控动作 waiting／running／unknown 都阻止删除；用户可先停用或停止，安全撤销尚未开始授权，实际退出且无未知在途副作用后再预检删除。已停用且安全收口的 waiting Valet 无须开发验收即可删除。只清理该身份专属非 Git management 目录、会话／日志及历史，不删除其管理操作创建的独立开发 Worker 或项目时间信号库；共享、符号链接、未知归属及资源变化仍拒绝。Web 时间信号与绑定设置入口已移除；管家列表和详情不提供旧操作重放入口；用户追加明确授权新一轮。保留现有 API 的 revision、去重与失败语义：成功 mutation 不依赖概览刷新，不因刷新失败重做创建，配置 revision 不因时钟 tick 变化而变更。列表分页和执行阅读器继续以页面、项目与 document 身份守卫迟到响应；仍可见的延迟安排 Agent 按钮使用 agent-call 与 agentHelp。
 
 ### 管家接口调用事件流
 

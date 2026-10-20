@@ -47,17 +47,13 @@ bun run lush host start 4318 --project /absolute/path/to/my-project # 绑定单�
 默认 Agent 是 `pi`，也支持 `codex`；对应 CLI 必须在 PATH 中可用且已完成认证。
 
 ```bash
-bun run lush --project /absolute/path/to/my-project config agent show
 bun run lush --project /absolute/path/to/my-project agent model list --backend pi
-# 仅按用户选择配置；后端可选 pi / codex，角色覆盖需复查 show。
-bun run lush --project /absolute/path/to/my-project config agent set default --agent pi --model <MODEL>
-bun run lush --project /absolute/path/to/my-project agent prompt show worker
+bun run lush --project /absolute/path/to/my-project agent model choices
 ```
 
-- 项目级配置写在 `<project>/.lush/agent.json`：一个 `default` 加 planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖。写入原子替换，运行中的调用不打断，下一次调用生效。
-- 角色 Prompt 由内置片段依次叠加 `.lush-agent/common.md`、`.lush-agent/<role>.md`、`.lush/agent/common.md`、`.lush/agent/<role>.md` 与 `append_prompt`。不要用非空 `default_prompt` 覆盖内置协议，除非你完整保留了Worker API、权限与交付流程。
-- 账号登录/刷新/查询与后续 Agent 的默认网络通过项目[出站网络设置](../engineering/outbound-network.md)配置；只在 Agent env 设置代理不会改变 daemon 的登录网络。不要替用户改整机代理、重启活动服务或把客户端回环地址当作远端地址。
-- Agent 子进程环境在 daemon 环境之上热加载 `<project>/.lush/agent/agent.env` 与 `<project>/.lush/agent/<role>.env`，用于代理等个人设置；`LUSH_*` 保留给 runtime，不能覆盖。细节见 [Agent 环境与权限](../reference/agent-environment.md)。
+默认／角色配置、私有 Prompt、环境变量、模型来源录入和登录使用现有设备设置页面；这些用户专属 CLI 已移除。仅在用户明确提供完整配置时使用 `config agent replace --data JSON`，不能从安全摘要重建私有字段或照抄占位模型。设备唯一配置、角色覆盖和 Pi 双模式见[配置参考](../reference/agent-configuration.md)；环境继承与运行时保留变量见[Agent 环境与权限](../reference/agent-environment.md)。
+
+账号登录／查询和后续 Agent 共用设备[出站网络设置](../engineering/outbound-network.md)。不要替用户改整机代理、重启活动服务或把客户端回环地址当作远端地址。
 
 ## 4. 远程 / 公网访问
 

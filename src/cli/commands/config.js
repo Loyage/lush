@@ -3,7 +3,6 @@ import { RUNTIME_SETTINGS_LIMITS } from '../../core/settings.js';
 import { exact, option } from '../args.js';
 import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.js';
 import { takeJsonInput } from '../private-json.js';
-import { runAgentConfiguration, runNetworkConfiguration } from './agent.js';
 
 // Configuration grouping changes the CLI only. Scope, revisions and authorization
 // still belong to the original narrow RPCs; reads never fall back to system.status.
@@ -60,12 +59,14 @@ export async function run(command, args, ctx) {
   check(!args.includes('--scope'), 'duplicate CLI option --scope');
   client = scopedSettingsClient(client, scope);
   const group = args.shift();
-  if (group === 'agent') return runAgentConfiguration(args, { ...ctx, client });
-  if (group === 'network') return runNetworkConfiguration(args, { ...ctx, client });
+  if (group === 'agent') {
+    check(args.shift() === 'replace', 'config agent requires replace --data JSON');
+    const config = takeJsonInput(args); exact(args, 0);
+    return client.request('agent.configure', { config });
+  }
   if (group === 'auto-answer') return autoAnswer(args, client, scope);
   if (group === 'valet-permission') return valetPermission(args, client, scope);
-  if (group === 'migration') return migration(args, client, json, scope);
-  check(group === 'runtime', 'config requires runtime, agent, network, auto-answer, valet-permission or migration');
+  check(group === 'runtime', 'config requires runtime, agent, auto-answer or valet-permission');
   const verb = args.shift();
   if (verb === 'show') {
     exact(args, 0);
@@ -73,8 +74,8 @@ export async function run(command, args, ctx) {
   }
   if (verb === 'set') {
     let settings;
-    if (args.includes('--data') || args.includes('--file')) {
-      settings = takeJsonInput(args, client, 'runtime settings');
+    if (args.includes('--data')) {
+      settings = takeJsonInput(args);
       exact(args, 0); // Reject mixed KEY VALUE and structured-input modes before RPC.
     } else {
       const flag = args.shift();
@@ -121,25 +122,4 @@ async function valetPermission(args, client, scope) {
   return client.request(verb === 'set' ? 'management.permission_set' : 'management.permission_get', {
     method: args[0], scope, ...(verb === 'set' ? { access: args[1], expected_revision } : {}),
   });
-}
-
-async function migration(args, client, json, scope) {
-  check(scope === null, 'migration reads the current project; omit --scope');
-  const verb = args.shift();
-  check(['preview', 'apply'].includes(verb), 'config migration requires preview or apply');
-  const index = args.indexOf('--confirm'), confirm = index !== -1;
-  if (confirm) args.splice(index, 1);
-  const expected = option(args, '--revision'); exact(args, 0);
-  check(verb === 'apply' ? confirm && typeof expected === 'string' && expected.length > 0 : !confirm && expected === null,
-    'first run config migration preview; apply requires --confirm --revision REV');
-  const result = await client.request(verb === 'apply' ? 'settings.migration.apply' : 'settings.migration.preview',
-    confirm ? { revision: expected, confirm: true } : undefined);
-  if (json) return result;
-  console.log(result.already_migrated ? '项目设置已迁移；无需重复导入。' : confirm ? '迁移执行结果：' : '当前项目 → 设备共享设置迁移预检：');
-  for (const item of result.items ?? []) console.log(`${item.kind}\t${item.action}\t${item.source} → ${item.destination}`);
-  for (const blocker of result.blockers ?? []) console.log(`阻止：${blocker}`);
-  for (const warning of result.warnings ?? []) console.log(`提示：${warning}`);
-  if (result.backup) console.log(`私有备份：${result.backup}`);
-  if (!confirm && result.can_migrate && !result.already_migrated)
-    console.log(`确认执行：lush config migration apply --confirm --revision ${result.revision}`);
 }

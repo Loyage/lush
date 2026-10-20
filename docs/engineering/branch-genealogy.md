@@ -63,11 +63,9 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 ```bash
 lush branch tree [--verbose]        # 谱系树；--verbose 每节点给出 Worker / worktree / fork / parent
 lush branch show BRANCH|WORKER_ID     # 一条分支的 parent、fork commit、Worker、worktree、祖先链、子分支
-lush branch bind BRANCH COMMIT      # 确认一条非 main 本地分支及固定 HEAD，为它新建静息 owner Worker
-lush branch archive BRANCH [--discard]  # 归档整棵子树：删每条的 worktree 与本地 ref，保留Worker、事件与会话；--discard 才会丢弃未提交改动
 ```
 
-`branch show` 接受分支短名，也接受纯数字 Worker ID。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；归档的 Web 入口是 Worker 图与 Worker 详情（共用同一动作）；未绑定本地分支的绑定只保留 CLI / RPC。代码落地不经过旧分支命令，而由运行中的直接父 Agent `worker.integrate` 或用户 `worker.approve_merge` 按固定提交推进。
+`branch show` 接受分支短名，也接受纯数字 Worker ID。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；归档的 Web 入口是 Worker 图与 Worker 详情（共用同一动作）；未绑定本地分支的绑定只保留用户 RPC，不再提供 CLI。代码落地交给父 runtime 的固定交付队列；旧 `worker.integrate`／`worker.approve_merge` 仅后端兼容，不恢复 CLI。
 
 ### 已有分支怎么办
 

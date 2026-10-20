@@ -48,10 +48,14 @@ test('Worker CLI preserves single reads and explicit views, requests and service
   expect(requests.at(-1)).toEqual({ method: 'worker.hook_update', params: { id: 5, hook_id: 'auto-merge', enabled: true, expected_revision: 'HOOK_REV' } });
   await invoke(['config', 'set', '5', '--connection', 'UUID', '--model', 'provider/model']);
   expect(requests.at(-1)).toEqual({ method: 'worker.configure', params: { id: 5, model_selection: { connection_id: 'UUID', model: 'provider/model' } } });
-  await invoke(['create', '--from', '5']); expect(requests.at(-1)).toEqual({ method: 'worker.create', params: { mode: 'fork', source: 5 } });
+  await invoke(['accept', '5']); expect(requests.at(-1)).toEqual({ method: 'worker.accept', params: { id: 5 } });
   await branch('branch', ['merge-all', 'main'], { client, json: true }); expect(requests.at(-1).method).toBe('worker.reserve_all');
-  await branch('branch', ['integrate', 'preview', 'main'], { client, json: true }); expect(requests.at(-1).method).toBe('branch.integrate_plan');
-  await expect(branch('branch', ['legacy-convergence', 'on', 'main', '--revision', 'REV'], { client, json: true })).rejects.toThrow('retired');
+  const beforeRemoved = requests.length;
+  for (const args of [['create','--from','5'], ['watch','5'], ['wait','5'], ['graph'], ['merge','graph'], ['automation','list'], ['config','show','5'], ['accept-preview','5'], ['accept','5','--force','--confirm','--revision','REV'], ['cleanup','5']])
+    await expect(invoke(args)).rejects.toThrow();
+  for (const args of [['history'], ['versions'], ['graph'], ['integrate','preview','main'], ['legacy-convergence','list'], ['bind','feature','HEAD'], ['archive','feature']])
+    await expect(branch('branch', args, { client, json: true })).rejects.toThrow('unknown branch');
+  expect(requests).toHaveLength(beforeRemoved);
   await system('status', [], { client }); expect(requests.at(-1).method).toBe('system.summary');
   await system('status', ['--detail'], { client }); expect(requests.at(-1).method).toBe('system.status');
   await expect(system('status', ['--detail', '--development', 'true'], { client })).rejects.toThrow('cannot');
@@ -60,8 +64,8 @@ test('Worker CLI preserves single reads and explicit views, requests and service
   const parse = argv => { const value = parseCLI(argv, COMMANDS); return validateCLIParameters(value.args, value.entry); };
   expect(() => parse(['worker','automation','attach','5','--data','{"template_id":"definition","template_version":1}','--revision','REV'])).not.toThrow();
   expect(() => parse(['worker','automation','attach','5','--data','{}','--revision','REV'])).toThrow('payload schema');
-  expect(() => parse(['worker','graph','--hidden-statuses','["completed"]'])).not.toThrow();
-  expect(() => parse(['worker','graph','--hidden-statuses','["invented"]'])).toThrow('payload schema');
+  expect(() => parse(['worker','automation','attach','5','--file','must-not-open','--revision','REV'])).toThrow('unknown option');
+  expect(() => parse(['worker','accept','5','--force'])).toThrow('unknown option');
   expect(new Set(COMMANDS.map(entry => entry.path)).size).toBe(COMMANDS.length);
   for (const command of COMMANDS) { expect(command.parameters).toBeDefined(); expect(command.recovery).toContain('未知'); }
 });

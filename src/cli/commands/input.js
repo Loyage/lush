@@ -1,6 +1,7 @@
 import { check } from '../../core/types.js';
 import { validateInputEmissionRequest } from '../../core/input-emission-protocol.js';
-import { inputOptions, resolveInputOptions, readProfile, positionalArguments, cliOption, cliInteger } from './intent.js';
+import { inputOptions, resolveInputOptions, positionalArguments, cliOption, cliInteger } from './intent.js';
+import { takeJsonInput } from '../private-json.js';
 
 function draftRevision(value) {
   return value === 'null' ? null : cliInteger(value, 'draft revision');
@@ -82,13 +83,12 @@ export async function run(command, args, { client }) {
   }
   check(['remove','submit','cancel','release'].includes(action), 'unknown input draft command');
   const revision = draftRevision(cliOption(args, '--revision'));
-  const profileFile = action === 'submit' ? cliOption(args, '--profile-file') : null;
+  const profile = action === 'submit' && args.includes('--data') ? takeJsonInput(args) : null;
   positionalArguments(args, 1);
   const recordId = cliInteger(args[0], 'draft ID');
-  check(!client.management || profileFile === null, 'the management bridge cannot read local profile files');
   if (action === 'remove') return client.request('draft.remove', { id: recordId, expected_revision: revision });
   const params = { draft_id: recordId, expected_revision: revision,
-    ...(profileFile === null ? {} : { profile: readProfile(profileFile) }) };
+    ...(profile === null ? {} : { profile }) };
   if (action === 'submit') validateInputEmissionRequest(params);
   return client.request({ submit: 'input.emit', cancel: 'input.emission_cancel', release: 'input.exclusive_release' }[action], params);
 }

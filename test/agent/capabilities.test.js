@@ -24,6 +24,9 @@ test('built-in capabilities share their registry, guides and invocation policy',
     const disabled = agentPrompt(config, 'agent', {}, 'order');
     expect(disabled.builtin_skills).toEqual([]);
     expect(disabled.text).toContain('没有已开启且适用的可选模块');
-    expect(agentPrompt(config, 'manager').builtin_skills).toEqual([]);
+    const manager = agentPrompt(config, 'manager');
+    expect(manager.builtin_skills).toEqual([]);
+    expect(manager.text).toContain('CLI 仅提供日常核心与自定义自动化');
+    expect(manager.text).not.toContain('已审核的 agent package');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

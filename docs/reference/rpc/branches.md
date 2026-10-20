@@ -13,14 +13,14 @@
 | 无 CLI；历程节点详情 | `worker.version_lineage_commit` | `{id,snapshot,commit}`（完整 SHA） | 用户专属，只读 |
 | `lush branch tree [--verbose]` | `branch.tree` | `{}` | 用户专属，只读；Valet 经已审核 bridge |
 | `lush branch show BRANCH` | `branch.show` | `{branch}` | 用户专属，只读；Valet 经已审核 bridge |
-| `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
-| `branch archive BRANCH [--discard] [--continue]` | `branch.archive` | `{branch, discard?, continue?}` | 用户专属 |
-| `branch legacy-convergence list` | `branch.convergence_list` | `{}` | 用户专属，只读 |
-| `branch legacy-convergence show BRANCH` | `branch.convergence` | `{branch}` | 用户专属，只读 |
-| `branch integrate preview/start/show/cancel/retry` | 见[整合接口](convergence.md#一次性整合) | 参数仅在专篇维护 | 用户专属 |
+| 无 CLI | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
+| 无 CLI；用户 Web | `branch.archive` | `{branch, discard?, continue?}` | 用户专属 |
+| 无 CLI；历史 RPC | `branch.convergence_list` | `{}` | 用户专属，只读 |
+| 无 CLI；历史 RPC | `branch.convergence` | `{branch}` | 用户专属，只读 |
+| 无 CLI；用户 Web／RPC | 见[整合接口](convergence.md#一次性整合) | 参数仅在专篇维护 | 用户专属 |
 | —（无可执行 CLI；旧路径只返回迁移提示） | `branch.convergence_set` | 仅识别历史参数 | 用户专属，明确退休错误 |
-| `branch legacy-convergence history BRANCH ...` | `branch.convergence_runs` | `{branch,before?,limit?}` | 用户专属，只读 |
-| `branch legacy-convergence retry RUN_ID --revision REV` | `branch.convergence_retry` | `{id,expected_revision}` | 用户专属 |
+| 无 CLI；历史 RPC | `branch.convergence_runs` | `{branch,before?,limit?}` | 用户专属，只读 |
+| 无 CLI；历史 RPC | `branch.convergence_retry` | `{id,expected_revision}` | 用户专属 |
 
 谱系是创建时显式写下的 `parent → child`，不是 commit graph 或Worker树。`branch.bind` 确认一条非 main 的本地分支及当前固定 HEAD，为它新建静息 `owner` 根 Worker；重复绑定、错误 HEAD、缺失 ref、相关旧Worker仍活动或已归档/删除的历史记录均拒绝。已有旧 Worker 与 `branches.task_id` 均不改写；`branch.tree/show` 当前所有者投影显示新 owner，但旧 Worker 仍可按 id 查看。只有绑定后，新指令才能挂到那条分支；owner 不接受任意消息或运行不受限 Agent。daemon 启动时已有本地 main ref 则自动确保同一个静息根；无 ref 时不会凭空造 main。
 
@@ -169,7 +169,7 @@ graph 的签名 cursor 固定 Worker、请求 delivery、实际选择轮次、ti
 }
 ```
 
-顶层的 `worktree` / `ref` / `tip` / `discarded` 描述的是**子树根**（调用方问的那一条），整棵子树逐条看 `branches`；`count` 是这次归档了几条，`failed` 逐条给出 `{branch, reason, worktree, ref, tip}`，`remaining` 是没轮到处理的分支名。CLI 的 `lush branch archive BRANCH [--discard] [--continue]` 非 JSON 输出由 `printBranchArchive` 打印，每条分支一行，并在尾部列出 `failed` / `remaining`。
+顶层的 `worktree` / `ref` / `tip` / `discarded` 描述的是**子树根**（调用方问的那一条），整棵子树逐条看 `branches`；`count` 是这次归档了几条，`failed` 逐条给出 `{branch, reason, worktree, ref, tip}`，`remaining` 是没轮到处理的分支名。归档仅保留用户 Web／RPC，不再提供 CLI；调用方必须如实展示 `failed` / `remaining`，不能把部分回收报成完成。
 
 **显式续办 `continue:true`（`--continue`）**：上一次在子树中途失败后，根可能已经是 `archived`，但还有几条后代仍在磁盘上。此时传 `continue:true` 从 `branches.parent` 谱系重算剩余的活动后代并只归档这些；根已归档不是错误，不会重复删除，也不要求先重新归档根。没有剩余后代时明确返回 `no_remainder:true` 与 `count:0`，不报 `already archived`。根仍是 `active` 时 `continue:true` 被拒（正常归档即可）；重复调用幂等。
 

@@ -8,7 +8,7 @@ import { cli, idle, emittedTask } from './harness.js';
 import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 // A real process that intentionally never exits after posting: runtime, not model compliance, must stop it.
-test('pi CLI questionnaire stops process group and resumes via answers-file', async () => {
+test('pi CLI questionnaire stops process group and resumes via inline answers', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
   fs.writeFileSync(fake, `#!/usr/bin/env bun
 import fs from 'node:fs';
@@ -51,9 +51,7 @@ if (context.task.calls === 1) {
     const notice = waiting.notices[0]; expect(notice.kind).toBe('questionnaire');
     expect(notice.title).toBe('Layout decision');
     expect(JSON.parse(notice.body).body).toBe('Choose the navigation');
-    const answers = path.join(root, 'answers.json');
-    fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
-    await cli(root, ['notice', 'answer', String(notice.id), '--answers-file', answers]);
+    await cli(root, ['notice', 'answer', String(notice.id), '--data', JSON.stringify({ answers: [{ selected: [1] }] })]);
     const result = await idle(client, task.id, 2);
     expect(result.status).toBe('waiting'); expect(result.calls).toBe(2);
     const seen = fs.readFileSync(seenFile, 'utf8').trim().split('\n').map(JSON.parse);

@@ -37,21 +37,15 @@ Web 在全局“系统设置 → 系统 → 出站网络”按需读取设备值
 
 如果代理运行在项目后台机器的 `127.0.0.1:7897`，在“系统设置 → 系统 → 出站网络”点击“读取网络设置”，选择 HTTP(S) 代理，填 `http://127.0.0.1:7897` 后保存，再重新发起 Codex 登录。保存不等于代理已联网验证，不自动启动代理或发测试请求。
 
-CLI 可从用户创建的私有 JSON 文件录入，不提交 Git、认证输入保持 owner-only。下例 --project 只选择转发的项目 daemon，不是设备设置的项目存储覆盖：
+网络配置仅保留现有用户 Web／RPC，不再提供 CLI。配置形状示例（不含认证）：
 
 ```json
 {"version":1,"mode":"proxy","proxy_url":"http://127.0.0.1:7897","no_proxy":[]}
 ```
 
-```bash
-bun run lush --project /absolute/project config network set --file /private/network-input.json
-bun run lush --project /absolute/project config network show
-bun run lush --project /absolute/project config network reset
-```
-
 运行旧代码的 daemon／Host 须在安全空闲边界分别更新；当前代码保存设备代理后，后续请求热读，无需为保存重启。不要在活动调用期间强制重启。若登录仍返回 unauthorized，只能说明上游拒绝，不能仅凭分类判断账号权限或网络原因。
 
-CLI 沿用 `agent` 入口：`config network show` / `config network set --file PATH` / `config network reset`。show 和保存输出脱敏；set 从用户显式选择的 JSON 文件读取，避免把密码放命令行。reset 写 inherit 配置。全部用户专属，不允许 Agent token 配置代理。
+用户读取和保存输出脱敏，认证只经现有安全设置入口提交，不把密码放命令行；恢复继承写 inherit 配置。全部用户专属，不允许 Agent token 配置代理。
 
 ## 请求和执行路径
 

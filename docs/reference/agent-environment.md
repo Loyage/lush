@@ -5,15 +5,12 @@
 | CLI | RPC | 参数 |
 |---|---|---|
 | `lush status`／`lush status --detail` | `system.summary`／`system.status` | 默认有界项目概览；detail 保留安全详情，不与 development 筛选混用 |
-| `lush config agent show` | `agent.config` | `{}` |
+| 用户设置（无 CLI） | `agent.config` | `{}` |
 | `lushw skills list/show ID` | 本地只读命令 | 读取内置公开指南，不读设备私密设置，不需 daemon |
 | `lush agent model list --backend pi|codex` | `agent.models` | `{agent}` |
-| `lush config agent set/reset …` | `agent.configure` | `{config}`（用户专属） |
-| `lush agent prompt show ROLE` | 本地命令 | 按片段查看最终 Prompt 与来源 |
-| `lush config network show/set --file PATH/reset` | `agent.network` / `agent.network.configure` | `{}` / `{config}`（用户专属，代理认证只写；[网络契约](../engineering/outbound-network.md)） |
-| `lush agent env show ROLE` | 本地命令 | 查看 env 文件与变量名（值隐藏） |
+| `lush config agent replace --data JSON` | `agent.configure` | `{config}`（完整显式配置，私有字段仍受后台校验） |
+| 用户网络设置（无 CLI） | `agent.network` / `agent.network.configure` | `{}` / `{config}`（用户专属，代理认证只写；[网络契约](../engineering/outbound-network.md)） |
 | Web「Agent 配置 → 高级项 → 环境变量」 | `agent.environment` / `agent.environment.configure` | `{target}` / `{target,values}`（读写都限用户） |
-| `lush agent prompt init [ROLE] [--local]` | 本地命令 | 创建共享或本机 Prompt 补充文件 |
 | `lush config runtime show` | `system.settings` | 设备策略只读面；不以 status 旁路，不转移旧权限 |
 | `lush config runtime set call-timeout|worker-call-limit|max-depth N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
 | `lush config runtime reset [call-timeout|worker-call-limit|max-depth|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
@@ -37,7 +34,7 @@ Pi / Codex 每次 invocation 都从 daemon 获得：
 
 Lush 模式环境按 daemon → 设备[网络设置](../engineering/outbound-network.md) → 设备 common env → 角色 env → Worker profile env 叠加；自定义 PATH 仍前置固定 Lush bin。env 为字面量 NAME=value，支持引号／export，不展开 Shell，所有 LUSH_* 拒绝覆盖。Lush Pi 去掉 ambient 模型认证、固定私有快照 PI_CODING_AGENT_DIR；Pi 默认模式与隔离角色不混入 Lush 工作配置，见[双模式](../engineering/agent-configuration-v2.md)。Codex CLI 自身认证不变。
 
-CLI agent env show 只显示变量名，Web 授权编辑默认遮罩；保存排序并规范化双引号，不保留注释／顺序，空表删除文件。owner-only 原子写入，下一次调用生效，不热改当前调用。设备归属见[工作台配置](../engineering/user-workspace.md#设备配置分区)。
+环境变量仅由既有用户 Web／RPC 管理，本地检查 CLI 已移除。Web 授权编辑默认遮罩；保存排序并规范化双引号，不保留注释／顺序，空表删除文件。owner-only 原子写入，下一次调用生效，不热改当前调用。设备归属见[工作台配置](../engineering/user-workspace.md#设备配置分区)。
 
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 Worker，并要求该 Worker 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。开发 CLI 的 `context.*` 从真实 token 定位自身，不能靠 `LUSH_TASK_ID`、cwd 或伪造目标选择其他 Worker；派工和 Notice 不接受父／目标 ID，消息只能沿直接父子边。后端同样拒绝普通 Worker 的项目枚举与无关目标查询，精确范围和分页投影见[双入口契约](api.md#开发与管理双入口)。Valet 的已审核跨树操作须经可信管理代理，不把其身份或目录作为开发父分支，见[Valet 契约](../engineering/hook-signals-management.md)。CLI `self progress` 默认只输出短确认，`--json` 保留完整进度对象；底层进度写入语义不变。进度接口不接受 Worker ID，始终写 token 所属 Worker：`self progress plan` 同一次工作整表替换时保留同 key 的完成态与既有计时，`self progress complete` 只完成当前计划中已存在的 key。runtime 自动记录当前步骤的 `started_at`，顺序完成时写入 `completed_at` / `duration_ms`，并开始下一条待办的计时。
 
@@ -51,7 +48,7 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 W
 
 profile、角色兼容、资源安装／启用与双模式统一见[配置契约](../engineering/agent-configuration-v2.md)。Lush 配置和私有补充只从设备读取，项目 AGENTS.md／`.lush-agent/` 保留项目上下文；旧项目私有文件不回退。Prompt 组合、覆盖内置提示的风险与显式资源见[配置参考](agent-configuration.md)，软预算见[Token 效率](../engineering/token-efficiency.md#pi-可选软预算)。下一次 invocation 重读，Run 固化实际 backend／model／thinking，不改历史。
 
-Lush Prompt 顺序为内置组合（非空 default_prompt 则替换）→ 项目 `.lush-agent/common.md`／角色 .md → 设备 `agent/common.md`／角色 .md → append_prompt；旧 prompt 字段只按 append_prompt 读取。`agent prompt show ROLE` 展示最终链及来源。替换内置 Prompt 可能失去协作和交付指引，Web 必须警告并确认；这不取消 RPC／runtime 安全门。退休无工具角色保留历史隔离，不用有开发权限的 Codex 降级运行；管理角色另见[隔离契约](../engineering/hook-signals-management.md)。
+Lush Prompt 顺序为内置组合（非空 default_prompt 则替换）→ 项目 `.lush-agent/common.md`／角色 .md → 设备 `agent/common.md`／角色 .md → append_prompt；旧 prompt 字段只按 append_prompt 读取。本地 Prompt 查看／初始化 CLI 已移除，已有组合与安全读取规则不变。替换内置 Prompt 可能失去协作和交付指引，Web 必须警告并确认；这不取消 RPC／runtime 安全门。退休无工具角色保留历史隔离，不用有开发权限的 Codex 降级运行；管理角色另见[隔离契约](../engineering/hook-signals-management.md)。
 
 Worker 待开始或暂停时的「调整运行设置」与失败/取消后的「检查后重试」共用Worker级参数面板。打开时先通过用户专属 `worker.run_settings` 读取已有 Worker Profile（读取失败不回退默认），未修改项保留；配置模式、后端、来源、模型和思考深度直接展示，Prompt、扩展、Skills、预算和环境变量放在默认折叠的高级设置。自动读取现有模型来源及已选来源的本地模型目录缓存，无需先点「读取项目连接」；不联网查询、不自动替换所选来源或模型，读取失败仍可编辑并手动重读。面板同时自动加载角色当前生效的默认 Profile，以及公共和角色环境文件（同名变量依次由公共、角色、Profile 覆盖；不读取 daemon 的整份进程环境）。「加载默认参数」会丢弃表单改动，恢复打开面板时读到的全部默认值，包括模型、思考深度、Prompt、扩展、Skills、软预算和环境变量；该按钮本身不保存也不启动 Agent。环境变量编辑器按 `NAME=value` 分行，含换行、首尾空白或开头双引号的值用 JSON 字符串保留原值。确认后仅保存Worker级 Profile，不写项目配置或环境文件；暂停Worker还需点「开始/继续」才启动 Agent。
 

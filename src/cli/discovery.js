@@ -8,14 +8,14 @@ export const CLI_WORKFLOWS = Object.freeze([
     ['input.targets', '读取合法目标；从真实 Worker 查询取得依赖，合并后不等于本轮结束。'],
     ['input.draft.create', '新建或 --append-to 保存草稿；保存不授权执行。'],
     ['input.draft.show', '读取保存的真实版本，revision 不从示例或旧状态复制。'],
-    ['input.draft.submit', '提交该版本；只在新建模式通过安全 profile 文件覆盖，追加不覆盖配置。'],
+    ['input.draft.submit', '提交该版本；只在新建模式通过 --data 显式覆盖运行配置，追加不覆盖配置。'],
   ], stop: '报告 saved/scheduled/delivered/unknown 的真实收据并结束；未知不换去重身份重发。直接追加可用 worker message，但不声称等价于可靠条件发射。' },
   { id: 'register-and-attach', title: '先登记，再单独挂载', keywords: '自动化 注册 挂载 hook automation register attach', views: ['user','valet'], steps: [
     ['automation.list', '取得 registry 与 commands 的真实 revision。'], ['automation.register', '只登记定义；等待真实登记完成及固定版本。'],
     ['worker.automation.show', '取得目标挂载 revision。'], ['worker.automation.attach', '独立请求固定登记版本挂载，不内联执行参数。'],
   ], stop: '登记失败、待确认或 unknown 时停止，不继续挂载；挂载不是执行，失败或未知一次性动作不自动重放。' },
-  { id: 'review-and-accept', title: '审查交付后安全验收', keywords: '验收 回收 接受 成果 accept review cleanup', views: ['user','valet','worker','worker-user'], steps: [
-    ['worker.show', '读取真实成果、integration 与交付事实；终态不等于已合入。'], ['worker.accept-preview', '用户按需预检范围，强制模式只跳过明确允许的终态系统通知。'],
+  { id: 'review-and-accept', title: '审查交付后安全验收', keywords: '验收 回收 接受 成果 accept review', views: ['user','valet','worker','worker-user'], steps: [
+    ['worker.show', '读取真实成果、integration 与交付事实；终态不等于已合入。'],
     ['worker.accept', '合法验收并核对资源回收结果；失败不报成功。'],
   ], workerSteps: [['children.show', '检查直接 child 成果与测试、真实交付事实。'], ['children.accept', '默认保留 awaiting_acceptance 现场；只有目标稳定结束且确有回收必要或用户要求提前回收时才验收。']],
     stop: '脏现场、未交付、待决、暂存输入或资源回收失败均不是验收成功；流程不能代替质量判断或授权。' },
@@ -157,6 +157,6 @@ export function renderHelp(document, executable) {
     for (const flow of value.workflows ?? []) lines.push(`  流程 ${flow.id} — ${flow.title}\n    ${flow.help}`);
   }
   if (document.page) lines.push(`分页：${document.page.items ?? document.page.limit} / total ${document.page.total}；has_more=${document.page.has_more}${document.page.next_cursor ? `\n续读：--cursor ${document.page.next_cursor}` : ''}`);
-  lines.push('', 'Worker 用真实 W/V 编号或整数；O/D/N 仅展示，Input/Notice/游标仍用原整数。', 'JSON 配置文件须安全权限；等待或待确认时结束本轮，未知副作用不重放。');
+  lines.push('', 'Worker 用真实 W/V 编号或整数；O/D/N 仅展示，Input/Notice/游标仍用原整数。', '业务结构化参数仅用内联 JSON；lushw 问卷文件须安全权限。等待或待确认时结束本轮，未知副作用不重放。');
   return lines.join('\n');
 }

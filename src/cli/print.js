@@ -228,42 +228,6 @@ export function printBranchShow(node) {
   if (node.children.length) { console.log('\nchildren:'); for (const [index, child] of node.children.entries()) console.log(`${index === node.children.length - 1 ? '└── ' : '├── '}${child}`); }
   if (node.descendants.length > node.children.length) console.log(`\ndescendants: ${node.descendants.length}`);
 }
-/** 摘要结果：分支名 + 刚落下的那句话。 */
-export function printBranchSummary(branch) {
-  console.log(`${branch.branch}\t${branch.summary}`);
-}
-export function printBranchImport(result) {
-  if (!result.imported) { console.log(`没有需要登记的分支：${result.local} 条本地分支都已有记录。`); return; }
-  console.log(`登记 ${result.imported} 条分支记录（只记存在与 worktree，不推断 parent）：`);
-  for (const branch of result.branches) console.log(`  ${branch}`);
-  console.log(`本地分支 ${result.local} 条，原有记录 ${result.recorded} 条。`);
-}
-/** 归档结果：一条分支一行（归档的是整棵子树，所以可能不止一行），后面是保留下来的东西。 */
-export function printBranchArchive(result) {
-  if (result.no_remainder) {
-    console.log(`${result.branch} 没有剩余的未归档后代分支，无需继续。`);
-    return;
-  }
-  const branches = Array.isArray(result.branches) && result.branches.length ? result.branches : [result];
-  console.log(`已归档 ${result.branch}${branches.length > 1 ? `（连同 ${branches.length - 1} 条后代分支，共 ${branches.length} 条）` : ''}`);
-  for (const entry of branches) {
-    const worktree = entry.worktree === 'removed' ? '已删除' : '本来就不在';
-    const ref = entry.ref === 'deleted' ? '已删除' : '本来就不在';
-    const name = entry.branch === result.branch ? '' : `  ${entry.branch}  `;
-    console.log(`${name}worktree\t${worktree}${entry.discarded ? '（丢弃了未提交改动）' : ''} · 本地分支\t${ref}${entry.tip ? `（tip ${shortSha(entry.tip)}）` : ''}`);
-  }
-  console.log(`保留 Worker\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `${workerLabel(task)} ${task.status}`).join('、')}` : ''}`);
-  console.log(`会话文件\t${result.sessions.length} 个`);
-  for (const file of result.sessions) console.log(`  ${file}`);
-  // G-04：未知失败不会丢掉已完成的逐条结果；剩余部分可用 `--continue` 显式续办。
-  if (result.failed?.length) {
-    console.log(`未归档\t${result.failed.length} 条`);
-    for (const entry of result.failed) console.log(`  ${entry.branch}\t${entry.reason}`);
-  }
-  if (result.remaining?.length) {
-    console.log(`未处理\t${result.remaining.length} 条：${result.remaining.join('、')}（可重试 branch archive ${result.branch} --continue）`);
-  }
-}
 export function printTimeline(page) {
   const start = Date.parse(page.start), end = Date.parse(page.end), span = Math.max(end - start, 1);
   const width = Math.max(24, Math.min((process.stdout.columns || 100) - 34, 96));

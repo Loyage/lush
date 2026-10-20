@@ -67,11 +67,10 @@ HTTP：`GET /api/agent/connections/models?id=...` 只读且 `no-store`，缺少 
 - `list` / `show ID` / `remove ID`：来源清单与单项；只投影安全字段。
 - `refresh [ID]`：显式刷新额度观测（沿用 `agent.connections.query`），随后重读来源列表。
 - `models list ID`：只读缓存模型目录，不联网；独立写入口 `models refresh ID` 显式刷新并保存目录，不接受旧 --refresh 变体。
-- `save --file PATH`：从 owner-only 输入文件读取 `{connection, credential?}`；凭证不经过 argv，也不出现在输出。输入文件按 `O_NOFOLLOW|O_NONBLOCK` 打开并对文件描述符校验 owner、`0600`、链接数、类型与大小，拒绝 symlink、目录、FIFO、越权与超限，失败只返回固定错误，不回显路径或内容。
-- `login start/poll/cancel/finish` 拆成明确叶命令，start 的 --method 选择 device/callback；精确来源与登录身份参数从各叶 help 取得。finish 只从同规格 owner-only 回调文件读取 URL，不回显 code；poll 可能写入认证，不是只读查询。CLI 输出的嵌套观测、额度资源、历史成功与消费者均按白名单重建，未知字段不会进入 stdout。
+- 来源保存、设备码／回调登录和私有文件输入 CLI 已移除，使用现有用户模型来源页面／RPC；凭证不经过 argv，也不出现在输出。CLI 输出的嵌套观测、额度资源、历史成功与消费者仍按白名单重建，未知字段不会进入 stdout。
 
 `lush agent model choices` 只读返回共享模型选择资源读面（连接、额度观测、缓存目录），不列出已安装扩展或 Skills；后者属于资源管理面。CLI 与 RPC 都拒绝 agent token。
 
 ## 验证
 
-自动测试使用临时项目与注入的 mock fetch/Pi 元数据，不触碰真实凭证，不发真实模型请求。覆盖：列表解析与限定名、手动/本地/不支持回退、账号/端点/限制隔离、OAuth 刷新不失效、迟到结果丢弃、停止取消、后台同步调度与关闭、单连接/全量刷新、CLI 投影与私有文件凭证、RPC/HTTP 用户专属与查询参数校验。
+自动测试使用临时项目与注入的 mock fetch/Pi 元数据，不触碰真实凭证，不发真实模型请求。覆盖：列表解析与限定名、手动/本地/不支持回退、账号/端点/限制隔离、OAuth 刷新不失效、迟到结果丢弃、停止取消、后台同步调度与关闭、单连接/全量刷新、核心 CLI 安全投影、RPC/HTTP 用户专属与查询参数校验。

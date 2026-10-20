@@ -8,10 +8,11 @@ import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { createSignal } from '../../src/signal.js';
 import { tokenHash } from '../../src/core/project/internal.js';
+import { UIClient } from '../../src/ui/client.js';
 
 const bin = path.resolve(import.meta.dir, '../../bin/lush');
 
-test('real user CLI -> user-only RPC -> paused creation -> first Input -> controlled Pi result', async () => {
+test('retired create CLI rejects; user RPC -> paused creation -> CLI first Input -> controlled Pi result', async () => {
   const f = fixture(undefined, { LUSH_PROVIDER: 'pi' }); f.project.kick = () => {};
   await repo(f.root); configurePiFixture(f);
   const log = path.join(f.config.home, 'controlled-pi.jsonl'), program = path.join(f.config.home, 'controlled-pi');
@@ -27,10 +28,14 @@ console.log('controlled Pi result');
     const proc = Bun.spawn([process.execPath, bin, '--project', f.root, '--json', ...args], { cwd: f.root,
       env: env(f.config.env), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    expect(code, `${err} ${out}`).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); return value.data;
+    if (code !== 0) throw new Error(`${err} ${out}`);
+    expect(code).toBe(0); const value = JSON.parse(out); expect(value.version).toBe(1); return value.data;
   };
   try {
-    const created = await cli('worker', 'create', '--title', 'blank');
+    const before = f.store.all('SELECT id FROM tasks ORDER BY id');
+    await expect(cli('worker', 'create', '--title', 'blank')).rejects.toThrow('已移除');
+    expect(f.store.all('SELECT id FROM tasks ORDER BY id')).toEqual(before);
+    const created = await new UIClient(f.config).request('worker.create', { mode: 'spawn', title: 'blank' });
     expect(created.task).toMatchObject({ status: 'paused', input_id: null, calls: 0 });
     expect(fs.existsSync(log)).toBe(false);
     const actor = (await f.project.order('actor', 'main', [], null, false)).task;

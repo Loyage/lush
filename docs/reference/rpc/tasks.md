@@ -2,7 +2,7 @@
 
 ## 手动创建与首条输入（W337／D698）
 
-用户专属 `worker.create {mode:"spawn"|"fork",parent?:整数ID,source?:整数ID,title?:string,profile?:object}`，HTTP 为 `POST /api/action` 同名 action；CLI 为 `lush worker create [--from ID|Wn] [--parent ID|Wn] [--title TITLE] [--profile-file PATH]`（--from 对应原 fork 来源；省略则创建空容器）（profile 文件须 owner-only）。返回 `{task,warning?:string}`，创建专属分支/worktree，但不创建 Input、不调用 Agent；Worker 为独立 `task_kind='order'`、`paused`、空 goal，默认关闭自动合并，不复制来源的消息、Hook 或预约授权。现有 `worker.spawn`／`context.spawn` 仍是有目标的 Agent 委派，不改语义。
+用户专属 `worker.create {mode:"spawn"|"fork",parent?:整数ID,source?:整数ID,title?:string,profile?:object}`，HTTP 为 `POST /api/action` 同名 action；不再提供 CLI，用户使用既有 Web／RPC 创建；私有 profile 不经 argv。返回 `{task,warning?:string}`，创建专属分支/worktree，但不创建 Input、不调用 Agent；Worker 为独立 `task_kind='order'`、`paused`、空 goal，默认关闭自动合并，不复制来源的消息、Hook 或预约授权。现有 `worker.spawn`／`context.spawn` 仍是有目标的 Agent 委派，不改语义。
 
 - spawn 缺省 parent=main，从父的已提交 tip 创建，**不继承任何会话**，即使该 base_commit 有全局检查点。
 - fork 必须有 order/child source。省略 parent 保留项目级默认 parent=source.parent_id；**A337-1／D704：显式 parent 只允许 source.id 或 source.parent_id**，分别表示复制来源自身为它的手动子级，或复制已有直接子为同父的新手动子级，不允许任意跨树或祖孙错位。Worker 内入口固定传当前 Worker 为 parent，选来源自己或其已有直接子；默认选 spawn，创建后仍是用户独立 order，而非锁定自动合并的 Agent 派工 child。复制 source 本地分支当时的已提交 tip、该提交对应的 Pi 检查点与有效运行参数（显式 profile 可覆盖），不复制未提交文件。**D703：无法实际导入会话则在创建前明确拒绝**：继承／显式参数为 Pi 默认模式或 Codex、检查点缺失或无效，均不创建 Worker/Input/分支/worktree，不降级成仅复制代码，不自动切换后端／模式；提示改用空白 spawn，或显式选择支持继承的托管 Pi 参数／有效来源。成功 fork 的 `session_inherited:true`；绑定的检查点不随之后全局 commit_context 映射变化。
@@ -95,8 +95,8 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
 | `worker sync start ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
 | `worker sync resolve ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
-| `worker accept-preview ID` | `worker.accept_preview` | `{id}`；用户专属只读预检，返回 `{id,revision,can_force,workers,notifications,resources,warnings}`；安全门不满足时拒绝，范围与续办语义见[强制验收](../../engineering/worker-acceptance.md#用户显式强制验收w318d682) |
-| `worker accept ID --force --confirm --revision REV` | `worker.accept_force` | `{id,revision,confirm:true}`；用户显式确认本次预检，仅跳过所列终态系统通知；返回 Worker；不调用 Agent，不放弃用户输入或放宽其他安全门 |
+| 无 CLI；用户 Web／RPC | `worker.accept_preview` | `{id}`；用户专属只读预检，返回 `{id,revision,can_force,workers,notifications,resources,warnings}`；安全门不满足时拒绝，范围与续办语义见[强制验收](../../engineering/worker-acceptance.md#用户显式强制验收w318d682) |
+| 无 CLI；用户 Web／RPC | `worker.accept_force` | `{id,revision,confirm:true}`；用户显式确认本次预检，仅跳过所列终态系统通知；返回 Worker；不调用 Agent，不放弃用户输入或放宽其他安全门 |
 | —（后端兼容，CLI 统一 accept） | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，含安全归档回收 |
 | —（旧协议后端兼容，CLI 已删除） | `worker.resolve_divergence` | `{id}`；用户专属 |
 | —（旧协议后端兼容，CLI 已删除） | `worker.resolve_child_divergence` | `{id}`；agent-only |
@@ -105,9 +105,9 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker config reset ID` | `worker.clear_override` | `{id}`；用户专属；清除本 Worker 的 task-local 运行覆盖（配置模式、来源、模型、Prompt、扩展、预算、环境变量），下一次调用回到项目/角色默认；不启动 Agent |
 | `worker pause ID` | `worker.interrupt` | `{id}`；用户专属，请求安全点暂停（静息时直接 `paused`） |
 | `worker resume ID` | `worker.resume` | `{id, profile?}`；用户专属，撤销尚未触发的暂停，或立即接受排队继续 |
-| `worker config show ID`（用户专属） | `worker.run_settings` | `{id}`，用户专属，仅 order/child，返回 `{profile,explicit}`；有效完整 Profile 只在此设置读面提供，不包含连接凭证、不联网 |
+| 无 CLI；用户运行设置 | `worker.run_settings` | `{id}`，用户专属，仅 order/child，返回 `{profile,explicit}`；有效完整 Profile 只在此设置读面提供，不包含连接凭证、不联网 |
 | `worker config set ID --data JSON` 或 `--connection UUID --model PROVIDER/MODEL` | `worker.configure` | `{id, profile}` 或 `{id, model_selection:{connection_id,model}}`，两者互斥；用户专属，`paused` 或暂停请求期间保存下一次配置，窄更新保留其他覆盖 |
-| `worker cleanup ID [--keep-branch]` | `worker.cleanup` | `{id, keep_branch?}`；见[维护](maintenance.md) |
+| 无 CLI；用户 RPC | `worker.cleanup` | `{id, keep_branch?}`；见[维护](maintenance.md) |
 
 标题读面带可空 `display_title` / `auto_title`，展示按用户手动标题 → Agent 自动标题 → 原目标首行。清空手动标题恢复自动标题；追加输入不重命名。自动标题只由当前 Agent 理解目标后调用接口产生，不另起模型请求、不批量回填旧记录；不改变 goal、输入原文、编号或 Git 身份。完整权限和存储边界见[自动标题](../../engineering/core-api.md#agent-自动标题w202决定-d471)。
 
@@ -229,7 +229,7 @@ bun run lush worker merge request W5 --after-settled W6 --revision REV
 
 ## 历史 version 1 源侧解分歧
 
-指令的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），旧后端 `worker.resolve_divergence {id}`（CLI 已删除）可派一个源侧解分歧子 Worker：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子Worker返回 `needs_review`（包含原 Worker 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源指令 Agent 重新运行。若产物不合格或失败，先检查原子 Worker/工作区；显式 `branch archive BRANCH`（Web Worker 图「归档」）旧分支后，原指令静息且已处理子信号时才能通过旧后端 `worker.resolve_divergence {id}` 派新子Worker。归档删掉旧 ref/worktree、保留 Worker/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Worker 不支持 `worker retry` 重放未知文件副作用。没有创建分支的失败Worker无需归档，重派仍需通过静息检查。若 Worker 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `worker retry ID`。
+指令的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），旧后端 `worker.resolve_divergence {id}`（CLI 已删除）可派一个源侧解分歧子 Worker：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子Worker返回 `needs_review`（包含原 Worker 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源指令 Agent 重新运行。若产物不合格或失败，先检查原子 Worker/工作区；显式通过 Web Worker 图「归档」（RPC branch.archive，无 CLI）旧分支后，原指令静息且已处理子信号时才能通过旧后端 `worker.resolve_divergence {id}` 派新子Worker。归档删掉旧 ref/worktree、保留 Worker/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `discard:true` 才丢弃未提交文件。该类子 Worker 不支持 `worker retry` 重放未知文件副作用。没有创建分支的失败Worker无需归档，重派仍需通过静息检查。若 Worker 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `worker retry ID`。
 
 ## 无改动回答也走验收
 

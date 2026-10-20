@@ -6,15 +6,15 @@
 
 ## 设备设置与迁移接缝
 
-技术配置默认 device，显式 project 拒绝；无 scope 不构成 Agent 旁路。当前契约见[用户工作台](user-workspace.md)，旧根预检、confirm／revision 与私有备份见[设备迁移](device-settings.md)。CLI 直接读 Prompt／env 也须核验用户权限，不能因本地文件操作绕过 RPC 限制。
+技术配置默认 device，显式 project 拒绝；无 scope 不构成 Agent 旁路。当前契约见[用户工作台](user-workspace.md)，旧根预检、confirm／revision 与私有备份见[设备迁移](device-settings.md)。私有 Prompt／env、认证和迁移不再提供业务 CLI；原用户 RPC／Web 权限不变。
 
 ## CLI：`src/cli/main.js` + `src/cli/`
 
 `main.js` 注册当前命令，`commands/` 按主题分派；`help.js` 是命令说明，`args.js`／`print.js` 管理参数和人类／JSON 输出。处理器统一为 `run(command,args,{client,json})`，返回 undefined 表示已打印，主流程不重复输出。
 
 - Worker 身份在 `worker-number.js` 经只读 lookup 解析，底层 RPC 仍传整数，见[编号与 CLI](../reference/api.md#用户编号与-cli-身份)。
-- `private-json.js` 集中有界、owner-only、no-follow 文件输入；配置、秘密与完整 Profile 不放进 argv／错误／公开摘要。
-- `native-watch.js`／`native-pi.js` 仅用户显式终端观看时加载 Pi TUI，不创建 AgentSession、不执行工具、不写会话，见[观看器](../native-viewer.md)。
+- `private-json.js` 只解析管理业务的有界内联 JSON，不读取本地文件；lushw 本地问卷由 question 处理器读取显式文件。秘密不得经 argv／错误／公开摘要。
+- 用户专属终端观看及其 Pi TUI 适配已[移除](../native-viewer.md)，执行记录的 Web 与单次 CLI 查询仍保留。
 - `skills` 是无需 daemon 的固定公开指南读取，不接受任意路径，不查询设备开启状态，见[能力契约](agent-capabilities.md)。
 
 `bin/lush` 固定项目管理入口，`bin/lushw` 固定 invocation 自身与直接父子事务入口；同源命令目录派生两入口的分发、帮助与学习页面，业务叶命令唯一归属，入口名称不能替代后端身份授权。命令与 RPC 的对应关系及迁移见[API 参考](../reference/api.md#开发与管理双入口)，不在地图复制注册表；历史命令与快捷入口不恢复别名。
@@ -36,7 +36,7 @@
 
 ## 开发与构建脚本：`scripts/`
 
-`package.json` 保留工程脚本及固定 bins；源码业务命令统一 `bun run lush …`／`bun run lushw …`。`scripts/ops.js` 与原业务快捷包装已删除，不保留同义入口。性能测量见[读取性能报告](../contributing/read-performance.md)，原生观看专项见[观看器验证](../native-viewer.md)。Lush 不提供客户端安装包或远端部署产物；代码身份覆盖路径的 LF 检出由根 `.gitattributes` 保证。
+`package.json` 保留工程脚本及固定 bins；源码业务命令统一 `bun run lush …`／`bun run lushw …`。`scripts/ops.js` 与原业务快捷包装已删除，不保留同义入口。性能测量见[读取性能报告](../contributing/read-performance.md)。Lush 不提供客户端安装包或远端部署产物；代码身份覆盖路径的 LF 检出由根 `.gitattributes` 保证。
 
 ## 测试：`test/`
 

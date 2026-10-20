@@ -1,6 +1,6 @@
 # 审阅与过程读模型
 
-本节管读模型：`worker.inspect` / `worker.history` / `worker.diff` / `worker.transcript` / `worker.usage`，以及客户端轮询用的 `worker wait`；分页与字节预算都在这里。下表 CLI 为用户的 `lush …` 项目读面；开发 Agent 使用关系绑定的 `lushw self/parent/children …`，普通 raw RPC 也受相同目标准入约束，inspect／history 是精简投影，差异与 coverage 见[双入口契约](../api.md#开发与管理双入口)，不能把下文用户详情字段当作开发接口保证。
+本节管读模型：`worker.inspect` / `worker.history` / `worker.diff` / `worker.transcript` / `worker.usage`；分页与字节预算都在这里。下表 CLI 为用户的 `lush …` 项目读面；开发 Agent 使用关系绑定的 `lushw self/parent/children …`，普通 raw RPC 也受相同目标准入约束，inspect／history 是精简投影，差异与 coverage 见[双入口契约](../api.md#开发与管理双入口)，不能把下文用户详情字段当作开发接口保证。
 
 | CLI | RPC | 参数 |
 |---|---|---|
@@ -10,7 +10,7 @@
 | —（Web 详情页使用） | `worker.usage` | `{id}` |
 | —（只读，Web UI 使用） | `worker.diff` | `{id}` |
 
-`worker wait ID` 在客户端轮询 inspect；只阻塞当前客户端，终态返回。failed/cancelled 设置非零退出码。Agent 不允许使用 wait，应结束 invocation 由调度器唤醒。
+worker wait／watch 已从 CLI 移除，不保留阻塞等待或持续轮询入口。用户持续阅读使用 Web 工作台；Agent 等待时应结束 invocation，由调度器唤醒。
 
 `worker.list` 和 tree 返回摘要，不复制每个 Worker 的结果与收件箱。完整 result 在 inspect 中；inspect 的子Worker、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。摘要与 inspect 都带 agent 字段：摘要含 `agent_wakes` / `agent_last_seen_at`，inspect 额外给出 `agent.id`（`<role>#<worker-id>`）、`agent.active` 与 `agent.pid`；inspect 另带 `resolutions`（解分歧 / 收尾记录：`{id, status, integration, branch, head_commit, ...}`），解分歧Worker自身带 `resolves_task_id`。带分支的 Worker 另附 `branch_archive` 投影（`archivable` / `archived` / `subtree_branches` / `blocking_tasks` 等，与 `branchArchivability` 同口径），供 Web 详情页决定是否显示「归档」按钮；核心 `inspect` 保持同步，这一层由 `worker.inspect` RPC handler 异步附加。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型Worker森林超过 1 MiB frame 时应改用 worker list 分页和指定根 ID 的 worker tree。
 

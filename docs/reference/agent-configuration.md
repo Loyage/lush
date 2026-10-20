@@ -29,17 +29,13 @@ source list/show、source models list 与 model choices 只读本地缓存。独
 
 `agent model choices --json` 的版本化外壳 data 供后续管家使用：连接、支持后端、模型目录、额度及观测时间。不返回凭证。现金、Key 预算和套餐窗口不能互相当作同一“余额”；失败/未知不是零，旧值须看时间。当前没有自动换账号或自动降级。
 
-账号录入推荐使用 Web「模型来源」。CLI 可用 `agent source save --file PATH`，文件为 owner-only（例如 `chmod 600`）JSON，形状为 `{connection,credential?}`，具体字段见[连接契约](../engineering/agent-connections.md)。不要把 Key 填进命令行。设备码登录使用 `agent source login start` 的 --method device 模式，用户完成授权后按 `help agent source login poll` 的叶帮助显式提交；CLI 不自动等待或轮询。备用回调流程见 `lush help` 与[设备码契约](../engineering/codex-device-login.md)。
+账号录入和设备码／回调登录使用现有 Web「模型来源」，不再提供 source save／login CLI。不要把 Key 填进命令行。后台凭证与显式授权流程不变，见[连接契约](../engineering/agent-connections.md)和[设备码契约](../engineering/codex-device-login.md)。
 
 ## 选择配置模式
 
-```bash
-bun run lush config agent set default --config-mode pi
-bun run lush config agent set default --config-mode lush --connection UUID --model PROVIDER/MODEL
-bun run lush order '目标' --profile-file /private/worker-profile.json
-```
+推荐通过已有 Agent 配置和 Worker 运行设置表单选择模式。CLI 只保留 `config agent replace --data JSON` 提交完整显式设备配置，以及 `worker config set ID --data JSON` 提交完整 Worker 覆盖；不再提供细项 config agent set／reset 或本地 profile 文件参数。order／input draft submit 的 `--data JSON` 直接承载原 profile，追加仍禁止覆盖；不要在 argv 中提供秘密。
 
-`--config-mode pi` 会清掉托管运行选项，不可同时指定来源或模型。Worker profile 文件必须是 owner-only 的小型普通 JSON 文件，不接受链接。最小 Pi 默认配置为 `{"agent":"pi","config_mode":"pi"}`；Lush 配置沿用完整 Agent profile，见[接口契约](../engineering/agent-configuration-v2.md)。只有 Pi 支持该双模式，Codex CLI 仍使用自身认证；隔离的无工具 Agent 不允许 Pi 默认模式。
+最小 Pi 默认 Profile 为 `{"agent":"pi","config_mode":"pi"}`，不能混入托管来源／模型等选项；它是 Profile，不是完整设备配置。完整设备配置形状及角色见对应叶帮助和[接口契约](../engineering/agent-configuration-v2.md)，不能从安全摘要补造私有设置。只有 Pi 支持该双模式，Codex CLI 仍使用自身认证；隔离的无工具 Agent 不允许 Pi 默认模式。
 
 ## Lush 内置能力
 
@@ -47,15 +43,7 @@ bun run lush order '目标' --profile-file /private/worker-profile.json
 
 ## 第三方插件与 Skills
 
-```bash
-bun run lush --json agent package list
-bun run lush agent package install 'npm:@example/pi-tools@1.2.3'
-bun run lush agent package install ./trusted-local-package
-bun run lush agent package update PACKAGE_ID
-bun run lush agent package remove PACKAGE_ID
-```
-
-只管理设备私有 Lush Pi 安装库，不更改用户默认 Pi。远端 npm 要求精确版本，Git 要求显式 ref；Git tag/branch 可能被远端移动，追求可复现时使用完整 commit。更新始终显式操作。已安装的扩展/Skills 在 Lush 配置和 Worker 表单中勾选启用；安装不自动启用、不调用 Agent。
+安装库使用已有用户设置／RPC 管理，不再提供 agent package CLI。只管理设备私有 Lush Pi 安装库，不更改用户默认 Pi。远端 npm 要求精确版本，Git 要求显式 ref；Git tag/branch 可能被远端移动，追求可复现时使用完整 commit。更新始终显式操作。已安装的扩展/Skills 在 Lush 配置和 Worker 表单中勾选启用；安装不自动启用、不调用 Agent。
 
 扩展及安装器可能执行代码，Skills 可能引导模型执行命令。私有文件权限和独立配置不是沙箱，请只安装信任的资源。真实账号登录、模型请求及第三方网络包安装仍需在自己的环境显式验收。
 

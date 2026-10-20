@@ -1,6 +1,6 @@
 # 一次性整合与历史归并接口
 
-本篇是一次性整合的 RPC、CLI／HTTP 参数及读面唯一参考，并保留历史归并查询契约。当前安全边界见[实施接缝](../../engineering/merge-convergence-implementation.md)，产品取舍见[一次性整合](../../design/merge-convergence.md)。接口不替代真实直接父、调用退出、写门或精确落地核验。
+本篇是一次性整合的 RPC／HTTP 参数及读面唯一参考，并保留历史归并查询契约。当前安全边界见[实施接缝](../../engineering/merge-convergence-implementation.md)，产品取舍见[一次性整合](../../design/merge-convergence.md)。接口不替代真实直接父、调用退出、写门或精确落地核验。
 
 ## 权限与参数
 
@@ -162,21 +162,7 @@ Runtime 内部创建的 `task_kind='integration'` 使用 invocation 临时 token
 
 ## CLI
 
-```bash
-bun run lush branch integrate preview main
-bun run lush branch integrate start main --revision PLAN_REV
-bun run lush branch integrate show 9
-bun run lush branch integrate cancel 9 --revision OP_REV
-bun run lush branch integrate retry 9 --revision OP_REV
-# 历史兼容
-bun run lush branch legacy-convergence list
-bun run lush branch legacy-convergence show main
-bun run lush branch legacy-convergence defaults
-bun run lush branch legacy-convergence history main --before 15 --limit 20
-bun run lush branch legacy-convergence retry 8 --revision RUN_REV
-```
-
-支持通用 --project PATH／--json。未知、重复、缺值或不适用选项拒绝；先读 plan／show 的 revision，不能自动刷新后重发。操作 ID 是整数，不是 Worker 编号。start／retry 可能调用 Agent 并产生费用；CLI 本地也拒绝带 Agent token 的客户端，包括读取。旧 convergence mount/on/off/remove/defaults set 只保留明确退休错误，不再保存配置；CLI 不接受旧 --command／--version，历史验证引用只在后端协议兼容。
+一次性整合、完整交付图与历史归并不再提供 CLI，不保留可执行别名；使用既有用户 Web／RPC。日常单项合并及 branch merge-all 仍走普通交付队列，不等价于一次性整合。后台操作 ID、revision、精确确认和未知不重放规则不变，旧在途和历史验证引用仅在后端协议兼容。
 
 ## HTTP
 

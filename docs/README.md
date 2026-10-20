@@ -14,7 +14,7 @@
 7. [项目出站网络代理](engineering/outbound-network.md)：项目后台与 Agent 的代理范围、私有配置、三种模式和远端执行位置；不同于模型端点或 Host 入站代理。
 8. [快速对话退役](engineering/project-quick-chat.md)：功能已删除，专用数据的安全清理与历史兼容边界。
 9. [全部中断、重启与全部继续](project-maintenance.md)：当前项目持久维护暂停、安全重启窗口和父子 Worker 的恢复安排。
-10. [终端内观看](native-viewer.md)：Pi 原生渲染、滚动与工具展开；只看已记录步骤，不启动 Agent 或逐字直播。
+10. [终端观看入口移除说明](native-viewer.md)：持续阅读使用 Web 工作台，CLI 保留单次执行记录查询。
 11. [Agent 能力开关与 Skills](agent-capabilities.md)：全局选择进度、委派、自动标题和上下文检索，薄入口与按需 CLI 指南。
 
 ## 理解与修改系统

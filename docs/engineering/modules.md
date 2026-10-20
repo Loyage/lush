@@ -23,7 +23,7 @@
 
 ## 设计方向与执行记录接缝
 
-从[设计索引](../design/README.md)选择对应理念。执行记录与引用分别遵循[阅读器](transcript-reader.md)和[上下文引用](../design/references.md)；CLI 观看见[终端内观看](../native-viewer.md)。
+从[设计索引](../design/README.md)选择对应理念。执行记录与引用分别遵循[阅读器](transcript-reader.md)和[上下文引用](../design/references.md)；旧终端观看的替代入口见[移除说明](../native-viewer.md)。
 
 ## 当前公开面
 

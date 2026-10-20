@@ -25,7 +25,7 @@ const saveOptions = {
   ...conditionOptions,
   '--exclusive': { type: 'boolean', description: '仅新建：独占开发意愿，隐含静息等待，不提高合并授权。' },
 };
-const profileFile = { ...file(INPUT_EMIT_SCHEMA.properties.profile), description: '完整私有运行配置，只在本次授权写入；owner-only、本用户所有、非符号链接普通文件，最多256KiB。追加不能覆盖；Valet 无文件能力。' };
+const profileData = { ...json(INPUT_EMIT_SCHEMA.properties.profile), description: '显式运行配置，仅本次新建授权使用；追加不能覆盖，Valet 私有字段仍由后台拒绝。' };
 const listOptions = {
   '--cursor': { ...text, description: '上页 page.next_cursor；版本化绑定 view、筛选及原底层续读来源，不能跨视图使用。' },
   '--limit': { type: 'integer', minimum: 1, maximum: 100, default: 50 },
@@ -68,10 +68,10 @@ const contextContract = (positionals = [], options = {}, extra = {}) => ({ param
   preconditions: ['有效 invocation 绑定自身，parent由服务端确定，child必须真实直接后代；不接受自身ID、不枚举全项目。'], recovery, ...extra });
 
 export const COMMANDS = defineCommands(add => {
-  add('order', "'目标' [--branch NAME] [--profile-file PATH] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON]",
+  add('order', "'目标' [--branch NAME] [--data JSON] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON]",
     '一步提交新建开发指令；可靠挂载，不承诺立即创建或调用。', "'实现登录' --branch main", ['order.submit','input.emit','worker.lookup'], 'agent',
     '只新建。直接追加用 worker message；需保留条件／可靠发射收据的追加用 input draft create → submit。不支持 management/buffer/append/defer/quiet。',
-    userContract([positional('goal', INPUT_EMIT_SCHEMA.properties.content)], { ...Object.fromEntries(Object.entries(saveOptions).filter(([key]) => key !== '--append-to')), '--profile-file': profileFile }, {
+    userContract([positional('goal', INPUT_EMIT_SCHEMA.properties.content)], { ...Object.fromEntries(Object.entries(saveOptions).filter(([key]) => key !== '--append-to')), '--data': profileData }, {
       modes: [{ name: 'ordinary-new', rpc: ['order.submit'] }, { name: 'conditional-new', rpc: ['input.emit'], when: '显式条件／when-idle／exclusive' },
         { name: 'numbered-condition', rpc: ['worker.lookup','input.emit'], when: '条件使用W编号' }],
       sources: { '--branch': 'input targets', '--after-settled/--after-merged': 'worker show / worker list中的真实开发目标' },
@@ -94,7 +94,7 @@ export const COMMANDS = defineCommands(add => {
     userContract([positional('id', positive)], {}, { sources: { id: 'input draft list/create返回的原整数ID，不是草稿展示号。' } }));
   add('input draft create', "'内容' [--branch BRANCH | --append-to ID] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON]",
     '只保存新建或追加意图，不授权执行、不创建Worker。', "'合并后继续' --append-to W5 --after-merged W6", ['draft.add','worker.lookup'], 'write',
-    'branch与append-to互斥；追加无独占或附件，不接受profile-file。运行覆盖只在submit时传。',
+    'branch与append-to互斥；追加无独占或附件。运行覆盖只在submit时通过--data传。',
     userContract([positional('content', INPUT_EMIT_SCHEMA.properties.content)], saveOptions, {
       modes: [{ name: 'new', rpc: ['draft.add'] }, { name: 'append/numbered-conditions', rpc: ['worker.lookup','draft.add'], when: 'W/V编号需要lookup；实际目标仍由原引擎核验' }],
       sources: { '--branch': 'input targets', '--append-to': 'worker show真实目标' }, effects: ['saved仅表示保存；下一步input draft show，再按精确revision submit。'],
@@ -111,8 +111,8 @@ export const COMMANDS = defineCommands(add => {
     ['submit','input.emit','授权保存的精确草稿版本；只保证挂载，不保证立即执行。'],
     ['cancel','input.emission_cancel','撤销尚未执行授权，不撤回已发生或未知副作用。'],
     ['release','input.exclusive_release','只释放独占意愿，不取消授权或已创建工作。'],
-  ]) add(`input draft ${verb}`, `ID --revision N|null${verb === 'submit' ? ' [--profile-file PATH]' : ''}`, description, '17 --revision 3', [method], verb === 'submit' ? 'agent' : 'write', '',
-    userContract([positional('id', positive)], { '--revision': revision, ...(verb === 'submit' ? { '--profile-file': profileFile } : {}) }, {
+  ]) add(`input draft ${verb}`, `ID --revision N|null${verb === 'submit' ? ' [--data JSON]' : ''}`, description, '17 --revision 3', [method], verb === 'submit' ? 'agent' : 'write', '',
+    userContract([positional('id', positive)], { '--revision': revision, ...(verb === 'submit' ? { '--data': profileData } : {}) }, {
       sources: { '--revision': 'input draft show ID 的revision，必须精确匹配保存版本' },
       effects: [description, ...(verb === 'submit' ? ['profile只应用于新建授权；追加模式由原引擎拒绝覆盖。scheduled/delivered/unknown依真实dispatch收据，不从CLI退出码猜测。'] : [])],
     }));
@@ -128,17 +128,17 @@ export const COMMANDS = defineCommands(add => {
       effects: ['历史保留total/non_plan_total、原游标及字节截断续读；不在客户端过滤整库。'] }));
   add('notice events', '[--cursor CURSOR] [--limit N]', '增量读取Notice来源事件，保留epoch/reset及不透明检查点。', '--limit 100', ['notice.sync'], 'read', '',
     userContract([], { '--cursor': { ...text, description: '上次events的page.next_cursor，不能与list游标混用；即使has_more=false也可作后续增量检查点。' }, '--limit': { type: 'integer', minimum: 1, maximum: 100, default: 100 } }));
-  for (const verb of ['ask','notify']) add(`notice ${verb}`, `'标题' --worker ID [--body TEXT]${verb === 'ask' ? ' [--questions-file FILE | --questions-json JSON]' : ''}`,
+  for (const verb of ['ask','notify']) add(`notice ${verb}`, `'标题' --worker ID [--body TEXT]${verb === 'ask' ? ' [--questions-json JSON]' : ''}`,
     verb === 'ask' ? '向明确Worker发布需要用户答复的决策。' : '发布非阻塞信息，不暂停Worker、不接受问卷。', "'方案确认' --worker W5 --body '背景'", ['notice.post','worker.lookup'], 'write',
     verb === 'ask' ? '发布后结束本轮，不自答；dismiss不是同意，参数示例不是实际目标。' : '只报告已经发生的事实；成功只证明已保存，不保证外部系统提醒送达。',
     userContract([positional('title')], { '--worker': { ...worker, required: true }, '--body': { type: 'string', default: '' },
-      ...(verb === 'ask' ? { '--questions-file': { ...file(fileEnvelope(questionsSchema)), conflicts: ['--questions-json'] }, '--questions-json': { ...json(questionsSchema), conflicts: ['--questions-file'] } } : {}) }, {
+      ...(verb === 'ask' ? { '--questions-json': json(questionsSchema) } : {}) }, {
       effects: [verb === 'ask' ? '固定kind=question，可能暂停关联调用，等待真实用户选择。' : '固定kind=info；不执行、答复或验收其它动作。'],
     }));
-  add('notice answer', 'ID ANSWER | ID --answers-file FILE', '答复已有问题，可能恢复关联Agent；文件与文字互斥。', "12 '采用第一项'", ['notice.answer'], 'agent', '',
-    userContract([positional('id', positive), positional('answer', text, false)], { '--answers-file': file(answersSchema) }, {
-      modes: [{ name: 'text', rpc: ['notice.answer'], requires: ['answer'], forbids: ['--answers-file'] },
-        { name: 'questionnaire', rpc: ['notice.answer'], requires: ['--answers-file'], forbids: ['answer'] }],
+  add('notice answer', 'ID ANSWER | ID --data JSON', '答复已有问题，可能恢复关联Agent；结构化答案与文字互斥。', "12 '采用第一项'", ['notice.answer'], 'agent', '',
+    userContract([positional('id', positive), positional('answer', text, false)], { '--data': json(answersSchema) }, {
+      modes: [{ name: 'text', rpc: ['notice.answer'], requires: ['answer'], forbids: ['--data'] },
+        { name: 'questionnaire', rpc: ['notice.answer'], requires: ['--data'], forbids: ['answer'] }],
       sources: { id: 'notice list中真实整数Notice ID；D/N是展示前缀。' }, effects: ['只答复真实问题；不重放已发生动作。'],
     }));
   for (const [verb, rpc, description] of [['dismiss','notice.dismiss','消除决策，不表示接受推荐项。'], ['mark-read','notice.read','标记info已知，不读取正文、不答复或执行。']]) {

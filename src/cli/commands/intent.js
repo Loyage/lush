@@ -1,9 +1,9 @@
-import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { check, isPlainObject } from '../../core/types.js';
+import { check } from '../../core/types.js';
 import { validateInputEmissionRequest } from '../../core/input-emission-protocol.js';
 import { exact, option } from '../args.js';
 import { resolveWorkerId } from '../worker-number.js';
+import { takeJsonInput } from '../private-json.js';
 
 // main owns the -- boundary. Its argv keeps literal strings for exact()/body,
 // while option/includes/indexOf see only the option-bearing prefix. Do not copy
@@ -36,28 +36,12 @@ function inlineJSON(value, name) {
   try { return JSON.parse(value); } catch { throw new Error(`${name} must be valid JSON`); }
 }
 
-export function readProfile(file) {
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-    const stat = fs.fstatSync(fd);
-    check(stat.isFile() && stat.size <= 256 * 1024, 'invalid file');
-    check(typeof process.getuid === 'function' && stat.uid === process.getuid() && (stat.mode & 0o077) === 0, 'unsafe file');
-    const source = fs.readFileSync(fd, 'utf8');
-    check(Buffer.byteLength(source) <= 256 * 1024, 'invalid file');
-    const value = JSON.parse(source);
-    check(isPlainObject(value), 'invalid profile');
-    return value;
-  } catch { throw new Error('cannot safely read private Worker profile JSON file (owner-only regular file required)'); }
-  finally { if (fd !== undefined) fs.closeSync(fd); }
-}
-
-/** Parse first, then resolve real Worker identities; saving never reads a profile. */
+/** Parse first, then resolve real Worker identities; saved drafts carry no profile. */
 export function inputOptions(args, { update = false, append = false, profile = false } = {}) {
   const branch = cliOption(args, '--branch'), target = append ? cliOption(args, '--append-to') : null;
   const mode = update ? cliOption(args, '--mode') : null;
   const source = cliOption(args, '--conditions'), references = cliOption(args, '--references');
-  const profileFile = profile ? cliOption(args, '--profile-file') : null;
+  const runProfile = profile && args.includes('--data') ? takeJsonInput(args) : null;
   const whenIdle = cliFlag(args, '--when-idle');
   const exclusive = update ? cliOption(args, '--exclusive') : cliFlag(args, '--exclusive');
   check(mode === null || ['new','append'].includes(mode), '--mode expects new or append');
@@ -77,16 +61,16 @@ export function inputOptions(args, { update = false, append = false, profile = f
   const selectedMode = target !== null ? 'append' : mode === 'new' || branch !== null ? 'order' : mode;
   const selectedExclusive = update ? exclusive === null ? undefined : exclusive === 'on' : exclusive || undefined;
   check(selectedMode !== 'append' || !selectedExclusive, 'exclusive development is not available for append input');
-  check(selectedMode !== 'append' || profileFile === null, 'append inputs use the target Worker run settings');
+  check(selectedMode !== 'append' || runProfile === null, 'append inputs use the target Worker run settings');
   const params = { ...(branch === null ? {} : { branch }), ...(selectedMode === null ? {} : { mode: selectedMode }),
     ...(references === null ? {} : { references: inlineJSON(references, '--references') }),
     ...(source !== null || whenIdle || waiting.length ? { conditions } : {}),
     ...(selectedExclusive === undefined ? {} : { exclusive: selectedExclusive }) };
-  // Validate local shape before any lookup/file read. Saved-mode and lifecycle checks
+  // Validate local shape before any lookup. Saved-mode and lifecycle checks
   // remain in the original draft/emission engine (especially update and submit).
   validateInputEmissionRequest({ content: 'CLI shape validation', ...params,
     ...(selectedMode === 'append' ? { target_id: 1 } : {}) });
-  return { params, target, waiting, profileFile };
+  return { params, target, waiting, profile: runProfile };
 }
 export async function resolveInputOptions(parsed, client) {
   const params = { ...parsed.params };
@@ -102,9 +86,8 @@ export async function run(command, args, ctx) {
   const parsed = inputOptions(args, { profile: true });
   positionalArguments(args, 1);
   check(args[0].length <= 32000 && args[0].trim().length > 0, 'input must be non-blank text of at most 32000 characters');
-  check(!client.management || parsed.profileFile === null, 'the management bridge cannot read local profile files');
   const params = { content: args[0], ...await resolveInputOptions(parsed, client),
-    ...(parsed.profileFile === null ? {} : { profile: readProfile(parsed.profileFile) }) };
+    ...(parsed.profile === null ? {} : { profile: parsed.profile }) };
   validateInputEmissionRequest(params);
   // Preserve both reviewed RPC branches; a CLI rename does not copy permissions.
   const conditional = Object.hasOwn(params, 'conditions') || params.exclusive;
