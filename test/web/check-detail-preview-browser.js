@@ -189,7 +189,7 @@ try {
       footerHeight:n.querySelector('.detail-preview-footer').getBoundingClientRect().height,
       mask:getComputedStyle(n.querySelector('.detail-preview-body')).maskImage,
       controls:n.querySelectorAll('.detail-preview-toggle').length,
-      headerControl:!!n.querySelector('.section-title>.detail-preview-toggle'),
+      headerControl:!!n.querySelector('.section-title>.module-actions>.detail-preview-toggle'),
       footerControl:!!n.querySelector('.detail-preview-footer .detail-preview-toggle'),
       natural:n.querySelector('.detail-preview-content').getBoundingClientRect().height}));`);
     assert(sizes.length >= 7, 'missing reading modules');
@@ -230,8 +230,16 @@ try {
           [...root.querySelectorAll('.conversation-filter,.conversation-order button,.conversation-search-toggle')].every(n=>n.getBoundingClientRect().height>=44));`), 'responsive search disclosure default or touch targets');
     assert(await execute(`const root=document.querySelector('.conversation-panel');
       return !!root.querySelector('.ui-list-pagination .conversation-more')&&[...root.querySelectorAll('.conversation-filters button,.ui-list-pagination button')].every(n=>{
-        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='9px'&&s.fontWeight==='600'&&r.height>=(innerWidth<=760?44:36));
+        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='9px'&&s.fontWeight==='600'&&r.height>=(innerWidth<=760?44:32));
       });`), 'conversation shared filter/pagination sizes or wiring');
+    assert(await execute(`return [...document.querySelectorAll('#detail>.ui-module>.section-title')].every(head=>{
+      const group=head.querySelector('.module-actions');if(!group||!group.getClientRects().length)return true;
+      const r=group.getBoundingClientRect(),h=head.getBoundingClientRect();
+      return head.querySelectorAll(':scope>.module-actions').length===1&&Math.abs(r.right-h.right)<1&&r.left>=h.left&&
+        [...group.children].filter(n=>n.getClientRects().length).every(n=>getComputedStyle(n).marginLeft==='0px');
+    });`), 'module heading actions must share one right-aligned group, including wrapped narrow headings');
+    assert(await execute(`const root=document.querySelector('.conversation-panel');return [...root.querySelectorAll('.conversation-order button,.conversation-filters button,.search-field-row>button')]
+      .filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().height===(innerWidth<=760?44:32));`), 'standalone reading/search/filter buttons must share the compact height');
     assert(await execute(`return [...document.querySelectorAll('.module-toggle,.conversation-expand')].filter(n=>!n.hidden&&n.getClientRects().length).every(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.classList.contains('view-disclosure')&&s.fontSize==='12px'&&s.fontWeight==='400'&&s.borderTopColor==='rgba(0, 0, 0, 0)'&&r.height===(innerWidth<=760?44:28);});`), 'reading disclosures must stay lighter and more compact than toolbar buttons');
     if(width<=760){
       await execute(`const root=document.querySelector('.conversation-panel');root.querySelector('.conversation-search-toggle').click();

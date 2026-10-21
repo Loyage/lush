@@ -26,7 +26,7 @@
 .management-call-failure[hidden] { display: none; }
 .management-diagnostic-controls, .management-diagnostic-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .management-diagnostic-controls { margin-block: 8px; }
-.management-calls button, .management-calls .management-diagnostic-controls a, .management-calls .management-diagnostic-details > summary { min-height: 44px; }
+.management-calls button, .management-calls .management-diagnostic-controls a, .management-calls .management-diagnostic-details > summary { min-height: var(--control-height); }
 .management-diagnostic-controls a { display: inline-flex; align-items: center; overflow-wrap: anywhere; }
 .management-diagnostic-timeline { padding-left: 20px; }
 /* Keep loaded failure/unknown indicators reachable; per-call diagnostics still require expansion. */

@@ -1,4 +1,4 @@
-import { block, button, el, revealModule } from './dom.js';
+import { block, button, el, revealModule, headingActions } from './dom.js';
 import { sortControl, batchDisclosure, disclosureIcon } from './view-controls.js';
 import { listSurface } from './list-surface.js';
 import { api, isReadAbort, projectApi } from './api.js';
@@ -63,7 +63,7 @@ export function renderManagementCalls(task, previous, options = {}) {
     };
     const foldControl = batchDisclosure({ getItems: () => nodes.values(), isExpanded: view => view.fold.open, setExpanded: setAll,
       scope: '作用于已加载调用详情，也设为后续分页及新增调用的默认状态；保留已读内容，不自动读取关联安全时间线。' });
-    controls.append(ordering, foldControl.root);
+    headingActions(section.querySelector('.section-title'), ordering, foldControl.root);
     const list = el('ol', undefined, 'management-calls-list');
     section.append(coverage, status, controls, list);
     let failedDirection = 'initial';

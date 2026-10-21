@@ -4,7 +4,10 @@
 .module-reading-root{overflow-anchor:none}
 .ui-module{position:relative;min-width:0;--module-preview-height:var(--detail-preview-height,min(400px,50dvh))}
 .ui-module>.section-title,.block.ui-module>.section-title{position:sticky;top:var(--module-sticky-top,-30px);z-index:3;display:flex;align-items:center;flex-wrap:wrap;gap:8px;background:var(--panel);padding:8px 0;margin-top:-8px;margin-bottom:6px;box-shadow:0 1px 0 var(--line-soft)}
-.ui-module>.section-title>.module-toggle{margin-left:auto}
+/* The group, never individual actions, consumes the heading's remaining space. */
+.section-title>.module-actions{display:flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;min-width:0;max-width:100%;margin-left:auto}
+.section-title>.module-actions>*{margin-left:0;max-width:100%}
+.section-title>.module-actions:empty,.section-title>.module-actions:not(:has(>:not([hidden]))){display:none}
 .module-toggle{font-size:11px;white-space:normal}
 .module-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .module-body{min-width:0}

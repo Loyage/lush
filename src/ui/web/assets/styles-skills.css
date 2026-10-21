@@ -14,6 +14,6 @@
 .skill-source{border-top:1px solid var(--line-soft);margin-top:8px;font-size:12px}
 .skill-source-body{min-width:0}.skill-source-body h3{margin-top:16px;font-size:13px}
 .skill-source-body pre{max-height:none;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;padding:12px;user-select:text}
-.skill-source-body button{min-height:44px}
+.skill-source-body button{min-height:var(--control-height)}
 .skill-details code{display:block;overflow-wrap:anywhere}
 @media(max-width:700px){.skill-card{padding:14px}.skills-tools button{min-height:44px}}

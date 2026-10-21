@@ -76,6 +76,13 @@ export function syncChildren(container, nodes) {
   for (const child of [...container.children]) if (!wanted.has(child)) child.remove();
   nodes.forEach((node, index) => { if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null); });
 }
+/** One right-aligned action group per module heading; only this group owns elastic space. */
+export function headingActions(head, ...nodes) {
+  let actions = [...head.children].find(node => node.classList.contains('module-actions'));
+  if (!actions) { actions = el('div', undefined, 'module-actions'); head.append(actions); }
+  actions.append(...nodes);
+  return actions;
+}
 export function block(title, count) {
   const section = el('div', undefined, 'block');
   const head = el('div', undefined, 'section-title');

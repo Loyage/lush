@@ -12,7 +12,7 @@
 .transcript-dialog > .worker-cli[hidden] { display: none; }
 .worker-cli-history { min-width: 0; display: grid; gap: 16px; }
 .worker-cli-history-tools { display: flex; flex-wrap: wrap; gap: 8px; }
-.worker-cli-history-tools button { min-height: 44px; }
+.worker-cli-history-tools button { min-height: var(--control-height); }
 .worker-cli-history-status { overflow-wrap: anywhere; color: var(--muted); }
 .worker-cli-controls { position: sticky; bottom: -30px; padding: 12px 0; background: var(--bg); }
 .execution-tabs { flex-wrap: wrap; }
@@ -27,7 +27,7 @@
 .worker-cli-controls { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .worker-cli-field { display: grid; gap: 6px; flex: 1; min-width: 0; }
 .worker-cli-input { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; font-family: monospace; }
-.worker-cli-run, .worker-cli-examples button { min-height: 44px; }
+.worker-cli-run, .worker-cli-examples button { min-height: var(--control-height); }
 .worker-cli-status, .worker-cli-result-meta { white-space: pre-wrap; overflow-wrap: anywhere; }
 .worker-cli-advanced { min-width: 0; }
 .worker-cli-advanced p { margin-top: 10px; }

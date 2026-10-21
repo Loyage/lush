@@ -1,5 +1,5 @@
 .valet-emergency-control{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px;min-width:0}
-.valet-emergency-control button{min-height:44px;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.valet-emergency-control button{min-height:var(--control-height);white-space:normal;overflow-wrap:anywhere;max-width:100%}
 .valet-emergency-status{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
 .valet-emergency-status:empty{display:none}
 .valet-emergency-status p{max-width:none}
@@ -9,5 +9,5 @@
 .valet-emergency-details summary{min-height:44px;cursor:pointer;display:list-item;align-content:center}
 .valet-emergency-details p{margin:8px 0;overflow-wrap:anywhere}
 .valet-emergency-modal .modal-actions{flex-wrap:wrap}
-.valet-emergency-modal .modal-actions button{min-height:44px;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.valet-emergency-modal .modal-actions button{min-height:var(--control-height);white-space:normal;overflow-wrap:anywhere;max-width:100%}
 @media(max-width:600px){.valet-emergency-control>.help-host{width:100%}.valet-emergency-control button{width:100%}.valet-emergency-modal .modal-actions>.help-host{width:100%}.valet-emergency-modal .modal-actions button{width:100%}}

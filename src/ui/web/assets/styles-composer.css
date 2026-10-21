@@ -37,7 +37,7 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 .composer-pending-status.failed { color:var(--failed); }
 #composer-shell .composer-menu-note { margin:2px 4px; line-height:1.5; }
 #composer-shell .composer-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-right:48px; margin-bottom:4px; }
-#composer-shell .composer-toolbar button { min-height:44px; }
+#composer-shell .composer-toolbar button { min-height:var(--control-height); }
 #composer-project { overflow-wrap:anywhere; min-width:0; }
 #composer-shell .composer-mode { margin:2px 0 6px; }
 #composer-shell .composer-mode-target { font-weight:650; font-size:12px; flex:1 1 200px; max-height:4.5em; overflow:auto; }
@@ -55,7 +55,7 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell .composer-draft-list button { min-height:44px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
 #composer-shell #composer-draft-status, #composer-shell #composer-condition-summary { margin:4px 0; font-size:11px; overflow-wrap:anywhere; }
 #composer-shell .composer-actions { width:100%; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
-#composer-shell .composer-actions button, #composer-shell .text-editor-controls button { min-height:44px; max-width:100%; font-size:12px; padding:6px 10px; white-space:normal; overflow:visible; }
+#composer-shell .composer-actions button, #composer-shell .text-editor-controls button { min-height:var(--control-height); max-width:100%; font-size:12px; padding:6px 10px; white-space:normal; overflow:visible; }
 #composer-shell #input-form .composer-expand { max-width:none; margin-right:auto; white-space:nowrap; }
 #composer-shell #input-form[data-expanded="false"] :is(#input-history,#input-drafts,.composer-run-settings,#composer-reset,.composer-management-result) { display:none; }
 #composer-shell .composer-target select { min-height:44px; font-size:13px; }

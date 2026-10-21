@@ -3,9 +3,9 @@
 .search-field-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
 .search-field .search-field-label{display:flex;flex:1 1 160px;flex-direction:column;align-items:stretch;gap:6px;min-width:0;margin:0;white-space:normal}
 .search-field-title{font-size:12px;line-height:1.4}
-.search-field .search-field-label>input.search-field-input{flex:none;box-sizing:border-box;width:100%;min-width:0;max-width:none;height:36px;padding:7px 10px;margin:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit;font-size:13px}
+.search-field .search-field-label>input.search-field-input{flex:none;box-sizing:border-box;width:100%;min-width:0;max-width:none;height:var(--control-height);padding:var(--control-padding-y) var(--control-padding-x);margin:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit;font-size:13px}
 .search-field .search-field-label>input.search-field-input:focus{outline:2px solid var(--accent);outline-offset:1px}
-.search-field .search-field-row>button{flex:none;box-sizing:border-box;min-width:36px;min-height:36px;max-width:100%;padding:8px 13px;margin:0;border:1px solid var(--line);border-radius:9px;font-size:12px;font-weight:600;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.search-field .search-field-row>button{flex:none;box-sizing:border-box;min-width:var(--control-height);min-height:var(--control-height);max-width:100%;padding:var(--control-padding-y) var(--control-padding-x);margin:0;border:1px solid var(--line);border-radius:9px;font-size:12px;font-weight:600;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
 .search-field .search-field-row>button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .search-field-help{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
 .search-field-status{color:var(--muted)}

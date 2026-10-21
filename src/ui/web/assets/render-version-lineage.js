@@ -1,4 +1,4 @@
-import { el } from './dom.js';
+import { el, headingActions } from './dom.js';
 import { api, projectApi } from './api.js';
 import { ui } from './state.js';
 import { routeContext } from './route.js';
@@ -332,7 +332,7 @@ export function createWorkerLineage(task, isMounted) {
   const newer = button('较新版本', () => load(index - 1), 'ghost versions-newer');
   const older = button('较早版本', () => load(index + 1), 'ghost versions-more');
   const controls = el('div', undefined, 'versions-controls'); controls.append(refresh, retry);
-  title.append(controls);
+  headingActions(title, controls);
   const paging = el('nav', undefined, 'versions-footer'); paging.setAttribute('aria-label', '来源图分段分页');
   for (const control of [newer, older]) {
     const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', '每段最多 30 个自身提交，固定首屏快照；没有对应页或读取中不可切换。'); host.append(control); paging.append(host);

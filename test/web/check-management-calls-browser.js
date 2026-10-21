@@ -110,14 +110,15 @@ try {
       compact:[...n.querySelectorAll('.management-call')].every(row=>row.getBoundingClientRect().height<=46&&row.querySelector('summary').getBoundingClientRect().height>=44),
       closed:[...n.querySelectorAll('.management-call-fold')].every(f=>!f.open),
       unified:n.querySelectorAll('.management-calls-order button').length===1&&n.querySelector('.management-calls-order button').textContent==='最早在前'
-        &&[...n.querySelectorAll('.management-calls-controls .view-control')].filter(b=>!b.hidden).every(b=>b.getBoundingClientRect().height>=(w.innerWidth<=760?44:36)),
+        &&[...n.querySelectorAll('.module-actions .view-control:not(.view-disclosure)')].filter(b=>!b.hidden).every(b=>b.getBoundingClientRect().height===(w.innerWidth<=760?44:32)),
+      aligned:Math.abs(n.querySelector('.module-actions').getBoundingClientRect().right-n.querySelector('.section-title').getBoundingClientRect().right)<1,
       preview:n.classList.contains('detail-preview'),unclipped:w.getComputedStyle(n.querySelector('.module-body')).maxHeight==='none',
       failureHidden:d.querySelector('[data-call-id="${fault.call_id}"] .management-call-failure').getBoundingClientRect().height===0,
       unknownVisible:d.querySelector('[data-call-id="${fault.call_id}"] .management-call-alert').textContent.includes('未知'),
       badgeUnclipped:[...n.querySelectorAll('.management-call-alert')].filter(e=>!e.hidden).every(e=>e.scrollWidth<=e.clientWidth+1),
       ellipsis:w.getComputedStyle(n.querySelector('code')).textOverflow==='ellipsis'};`);
     assert(layout.width===width&&!layout.overflow&&!layout.bodyOverflow&&layout.preview&&layout.unclipped&&layout.failureHidden
-      &&layout.unified&&layout.compact&&layout.closed&&layout.unknownVisible&&layout.badgeUnclipped&&layout.ellipsis, 'layout failure '+JSON.stringify(layout));
+      &&layout.unified&&layout.aligned&&layout.compact&&layout.closed&&layout.unknownVisible&&layout.badgeUnclipped&&layout.ellipsis, 'layout failure '+JSON.stringify(layout));
     assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,w=d.defaultView,audit=d.querySelector('.management-audit-details'),head=audit.querySelector('summary');
       const shape=w.getComputedStyle(head,'::before').transform; if(audit.open||head.getBoundingClientRect().height<44)return false;
       head.click();const changed=audit.open&&w.getComputedStyle(head,'::before').transform!==shape;head.click();return changed&&!audit.open;`), 'project authority audit must retain native default fold, shared caret and 44px target');
@@ -125,7 +126,7 @@ try {
       n.querySelector('.management-call-head').click();
       d.querySelector('[data-call-id="${fault.call_id}"] .management-call-head').click();
       return n.querySelector('details').open&&d.defaultView.getComputedStyle(n.querySelector('pre')).overflowY==='visible'
-      &&[...d.querySelectorAll('[data-call-id="${fault.call_id}"] .management-diagnostic-controls button,[data-call-id="${fault.call_id}"] .management-diagnostic-controls a')].every(e=>e.getBoundingClientRect().height>=44)
+      &&[...d.querySelectorAll('[data-call-id="${fault.call_id}"] .management-diagnostic-controls button,[data-call-id="${fault.call_id}"] .management-diagnostic-controls a')].every(e=>e.getBoundingClientRect().height>=(d.defaultView.innerWidth<=760?44:32))
       &&n.scrollWidth<=n.clientWidth+1&&d.documentElement.scrollWidth<=d.defaultView.innerWidth+1;`), 'expanded main-scroll/touch reading failed');
     await execute(`const w=document.getElementById('layout-frame').contentWindow;w.savedCall=w.document.querySelector('.management-call');w.savedCall.querySelector('summary').focus();`);
     // Native focus scrolling and shared module ResizeObserver settle before the baseline.
@@ -156,9 +157,9 @@ try {
   await execute(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-details>summary').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
   assert(await wait(`document.querySelector('[data-call-id="${fault.call_id}"] .management-diagnostic-timeline-status').textContent.includes('已读取')`), 'safe associated timeline not loaded');
-  assert(await execute(`const b=[...document.querySelectorAll('.management-calls-controls button')].find(b=>b.textContent==='全部展开');return !!b&&!b.disabled;`), 'mixed individual state must offer expand all');
+  assert(await execute(`const b=[...document.querySelectorAll('.management-calls .module-actions button')].find(b=>b.textContent==='全部展开');return !!b&&!b.disabled;`), 'mixed individual state must offer expand all');
   await execute(`document.activeElement.blur();document.querySelector('.management-calls-order button').click();
-    [...document.querySelectorAll('.management-calls-controls button')].find(b=>b.textContent==='全部展开').click();`);
+    [...document.querySelectorAll('.management-calls .module-actions button')].find(b=>b.textContent==='全部展开').click();`);
   await click('.management-calls-controls button:first-child');
   assert(await wait(`document.querySelectorAll('.management-call').length===37`), 'older real HTTP page missing '+JSON.stringify(await execute(`return {n:document.querySelectorAll('.management-call').length,status:document.querySelector('.management-calls-status').textContent,focus:document.activeElement?.outerHTML,toast:document.getElementById('error')?.textContent};`))+' paths='+JSON.stringify(paths));
   assert(await execute(`const ids=[...document.querySelectorAll('.management-call')].map(n=>+n.dataset.callId);return ids.every((id,i)=>!i||ids[i-1]>id)&&[...document.querySelectorAll('.management-call-fold')].every(f=>f.open);`), 'reverse order/bulk mode lost across older page');
@@ -192,7 +193,7 @@ try {
   assert(await wait(`document.querySelector('.management-calls-status').textContent.includes('不可用或失败')`), 'failure not shown');
   assert(await execute(`return document.querySelectorAll('.management-call').length===37;`), 'failure erased readable records');
   fail = false;
-  await execute(`[...document.querySelectorAll('.management-calls-controls button')].find(b=>b.textContent==='全部收起').click();`);
+  await execute(`[...document.querySelectorAll('.management-calls .module-actions button')].find(b=>b.textContent==='全部收起').click();`);
   const late = start(); finishManagementCall(f.project, manager.id, late, {}, null);
   await execute(`document.querySelectorAll('.management-calls-controls button')[2].click();`);
   assert(await wait(`document.querySelectorAll('.management-call').length===38&&${settled}`), 'read retry failed');

@@ -182,7 +182,7 @@ try {
     }
     await execute("document.querySelector('.dashboard-toolbar').scrollIntoView({block:'start'})"); await settle();
     await clickText('编辑模式'); await settle();
-    assert(await execute("return [...document.querySelectorAll('.dashboard-card-settings')].every(b=>b.getClientRects().length&&!b.disabled)"), 'edit mode must reveal every card setting');
+    assert(await execute("return [...document.querySelectorAll('.dashboard-card-settings')].every(b=>b.getClientRects().length&&!b.disabled&&b.getBoundingClientRect().height===(innerWidth<=760?44:32))&&[...document.querySelectorAll('.dashboard-toolbar button')].filter(b=>b.getClientRects().length).every(b=>b.getBoundingClientRect().height===(innerWidth<=760?44:32))"), 'edit mode must reveal every card setting and retain unified compact toolbar sizes');
     await execute(`window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-settings-open').click()`);
     assert(await execute(`const r=document.querySelector('#modal .modal-card').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))`), 'modal moved grid/overflow'); await clickText('取消');
     await containment(`${theme}/${width}/editing`);

@@ -43,6 +43,10 @@ test('real controlled Provider/bridge failure -> isolated safe HTTP receipt -> v
     dom.document.body.append(dom.node('detail'));
     section = renderManagementCalls(inspected); dom.node('detail').append(section);
     await until(() => section.querySelector('.management-call-failure'));
+    const headingActions = section.querySelector('.section-title').querySelector('.module-actions');
+    expect(headingActions.querySelectorAll('.view-control')).toHaveLength(2);
+    expect(headingActions.querySelector('.view-sort-icon')).toBeTruthy();
+    expect(section.querySelector('.management-calls-controls').querySelectorAll('.view-control')).toHaveLength(0);
     const row = section.querySelectorAll('.management-call').find(node => deepText(node).includes('input.emit'));
     const summary = row.querySelector('.management-call-failure'), disclosure = row.querySelector('.management-call-fold');
     expect(disclosure.open).toBe(false); expect(row.querySelector('.management-call-alert').hidden).toBe(false);

@@ -7,7 +7,7 @@
 .project-manager-form label{font-weight:700}.project-path-row{display:flex;gap:8px;align-items:stretch}.project-path-row input{min-width:0;flex:1}
 .project-manager-list{display:grid;gap:10px;padding:0;margin:0;list-style:none}.project-manager-list .project-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
 .project-open{min-width:0;display:grid;text-decoration:none;color:var(--text)}.project-open small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-status{color:var(--muted)}.project-status.error{color:var(--failed)}
-.project-color-editor{grid-column:1/-1;min-width:0}.project-color-editor .project-colors{display:flex;flex-wrap:wrap;gap:8px}.project-color-editor .settings-choice{padding:8px;min-height:44px}
+.project-color-editor{grid-column:1/-1;min-width:0}.project-color-editor .project-colors{display:flex;flex-wrap:wrap;gap:8px}.project-color-editor .settings-choice{padding:var(--control-padding-y) var(--control-padding-x);min-height:var(--control-height)}
 .project-item-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.workbench-nav{margin-bottom:4px}
 .workspace-link:disabled{opacity:.52;cursor:not-allowed}.project-popup-fallback{width:max-content}.warning{color:var(--waiting)}
 @media(max-width:700px){.workbench-view{padding:16px}.project-path-row{display:grid}.project-manager-list .project-item{grid-template-columns:1fr}.project-status{grid-column:1}.project-item-actions{justify-content:stretch}.project-item-actions>*{flex:1}.project-manager-form{padding:16px}}
@@ -18,7 +18,7 @@
 .workbench-service-restart p{overflow-wrap:anywhere}.workbench-service-restart .settings-runtime-actions{flex-wrap:wrap}
 /* Override legacy remove/restart/form sizes with one overview action type scale. */
 .project-manager button{font-family:inherit;font-size:12px;font-weight:600;line-height:1.5}
-.workbench-service-restart button,.project-item-actions button{white-space:normal;min-height:44px}
+.workbench-service-restart button,.project-item-actions button{white-space:normal;min-height:var(--control-height)}
 .project-manager-list .project-status{white-space:normal;overflow-wrap:anywhere;text-align:right;max-width:320px}
 .project-development{grid-column:1/-1;min-width:0;display:grid;gap:12px;border-top:1px solid var(--line-soft);padding-top:14px}
 .project-development-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
@@ -59,9 +59,9 @@
 .dashboard-library-item .dashboard-option{border:0;padding:0}
 .dashboard-library-item small{display:block;color:var(--muted);overflow-wrap:anywhere}
 .dashboard-layout-editing .dashboard-diagnostics-card .dashboard-widget-header{padding-right:88px}
-.dashboard-toolbar button,.dashboard-settings-panel button{min-height:44px;white-space:normal}
-/* Keep text and icon controls on the same 44px row, independent of font metrics. */
-.dashboard-toolbar button{display:inline-flex;align-items:center;justify-content:center;flex:none;height:44px}
+.dashboard-toolbar button,.dashboard-settings-panel button{min-height:var(--control-height);white-space:normal}
+/* Align text and icon controls to the shared height; wrapped labels may grow. */
+.dashboard-toolbar button{display:inline-flex;align-items:center;justify-content:center;flex:none;min-height:var(--control-height)}
 .dashboard-toolbar button[hidden]{display:none}
 .project-overview .dashboard-toolbar .dashboard-settings-open{display:grid;place-items:center;width:44px;padding:0;line-height:1}
 .dashboard-settings-open svg,.dashboard-card-settings svg,.dashboard-account-refresh svg,.dashboard-accounts-refresh svg{display:block;flex:none}
@@ -80,13 +80,13 @@
 .dashboard-settings-actions{display:flex;flex-wrap:wrap;gap:8px}
 .dashboard-settings-modal{width:min(760px,100%);max-height:calc(100dvh - 32px)}
 .dashboard-settings-modal .dashboard-settings-panel{border:0;padding:0;box-shadow:none;background:transparent}
-.dashboard-settings-modal .modal-actions button{min-height:44px}
+.dashboard-settings-modal .modal-actions button{min-height:var(--control-height)}
 .dashboard-settings-status{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .dashboard-settings-status.error{color:var(--failed)}
 .dashboard-settings-status[hidden]{display:none}
 .dashboard-account-view{box-sizing:border-box;width:100%;max-width:320px;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
 .project-board .dashboard-card-settings-host{position:absolute;right:10px;top:10px;z-index:2;display:block}
-.project-board .dashboard-card-settings{display:grid;place-items:center;width:44px;height:44px;min-height:44px;max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
+.project-board .dashboard-card-settings{display:grid;place-items:center;width:var(--control-height);height:var(--control-height);min-height:var(--control-height);max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
 .project-board .project-development-metric{border-color:color-mix(in srgb,var(--tone) 32%,var(--line-soft));background:color-mix(in srgb,var(--tint) 70%,var(--panel))}
 .project-board .project-development-value{color:var(--tone)}
 .project-dashboard-content{min-width:0;display:grid;gap:6px}
@@ -158,7 +158,7 @@
 .project-automation .automation-settings,.project-automation .automation-settings-controls,.project-automation .automation-settings-extra,.project-automation .push-main-settings{display:grid;gap:12px;min-width:0}
 .project-automation .automation-settings p,.project-automation .automation-settings label,.project-automation .automation-settings button{overflow-wrap:anywhere;white-space:normal}
 .project-automation .automation-settings select{box-sizing:border-box;min-width:0;max-width:100%;width:100%;min-height:44px}
-.project-automation .automation-settings button{min-height:44px;max-width:100%}
+.project-automation .automation-settings button{min-height:var(--control-height);max-width:100%}
 .project-automation .push-advanced-settings[hidden]{display:none}
 .project-automation .push-advanced-settings{display:grid;gap:10px;min-width:0}
 @media(max-width:600px){.project-automation .hook-field{display:grid;grid-template-columns:minmax(0,1fr)}.project-automation .hooks-page-header{flex-wrap:wrap}.project-automation .automation-settings .hook-action-preview{white-space:pre-wrap;overflow-wrap:anywhere}}

@@ -76,7 +76,7 @@ try {
     const result = await execute(`const links=[...document.querySelectorAll('.doc-row .nav-link')];return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,links:links.map(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return {text:n.textContent,left:r.left,right:r.right,height:r.height,decoration:s.textDecorationLine,radius:s.borderRadius,border:s.borderTopWidth,color:s.color,background:s.backgroundColor,arrow:getComputedStyle(n,'::after').clipPath}}),sidebarDecoration:getComputedStyle(document.querySelector('#docs-open')).textDecorationLine};`);
     layouts.push({ theme, ...result });
     assert(result.width === width && !result.overflow, `document overflow ${theme}/${width}`);
-    assert(result.links.every(n => n.left >= 0 && n.right <= width && n.height >= (width <= 760 ? 44 : 36) && n.decoration === 'none' && n.radius === '8px' && n.border === '1px' && n.arrow.startsWith('polygon(')), `navigation style/fit ${theme}/${width}`);
+    assert(result.links.every(n => n.left >= 0 && n.right <= width && n.height >= (width <= 760 ? 44 : 32) && n.decoration === 'none' && n.radius === '8px' && n.border === '1px' && n.arrow.startsWith('polygon(')), `navigation style/fit ${theme}/${width}`);
     assert(result.sidebarDecoration === 'none', 'sidebar gained an underline');
     await screenshot(`${theme}-${width}`);
   }
@@ -117,7 +117,7 @@ try {
     await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`);
     const source = await execute(`const n=document.querySelector('.agent-status-head .agent-sources-link'),s=getComputedStyle(n),r=n.getBoundingClientRect();return {href:n.getAttribute('href'),display:s.display,decoration:s.textDecorationLine,left:r.left,right:r.right,height:r.height};`);
-    assert(source.href === '/#model-sources' && source.display === 'inline-flex' && source.decoration === 'none' && source.left >= 0 && source.right <= width && source.height >= (width <= 760 ? 44 : 36), `source management navigation ${theme}/${width}: ${JSON.stringify(source)}`);
+    assert(source.href === '/#model-sources' && source.display === 'inline-flex' && source.decoration === 'none' && source.left >= 0 && source.right <= width && source.height >= (width <= 760 ? 44 : 32), `source management navigation ${theme}/${width}: ${JSON.stringify(source)}`);
     layouts.push({ theme, width, source });
     await screenshot(`sources-entry-${theme}-${width}`);
   }

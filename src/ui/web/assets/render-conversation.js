@@ -1,4 +1,4 @@
-import { block, button, el, syncChildren } from './dom.js';
+import { block, button, el, syncChildren, headingActions } from './dom.js';
 import { sortControl, paintDisclosure } from './view-controls.js';
 import { agentText, markdownEnabled } from './text.js';
 import { searchField } from './search-field.js';
@@ -104,7 +104,7 @@ export function renderConversation(task, history = {}, previous = null) {
   const paintSearch = (open = searchToggle.getAttribute('aria-expanded') === 'true') => paintDisclosure(searchToggle, open,
     { expand: query ? '搜索 · 已筛选' : '搜索', collapse: query ? '收起搜索 · 已筛选' : '收起搜索' });
   paintSearch(false); searchToggle.setAttribute('aria-controls', `conversation-search-${task.id}`);
-  ordering.append(sort.root); head.append(count, ordering, searchToggle);
+  ordering.append(sort.root); head.append(count); headingActions(head, ordering, searchToggle);
   const search = el('div', undefined, 'conversation-search'); search.id = `conversation-search-${task.id}`;
   const searchControl = searchField({ label: '筛选输入输出', placeholder: '搜索输入、回复与决策正文', scope: '范围：已加载完整内容；全历史查找分批读取旧内容，不含生命周期、Worker 通信、系统元数据或执行过程', onSubmit: value => {
     cancelRead(); query = value.toLowerCase(); remoteQuery = null; remoteHits.clear();

@@ -22,7 +22,7 @@ html[data-lush-space="global"] .help-host:focus-visible,
 .project-maintenance-copy p { margin: .2rem 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .project-maintenance[data-phase="pausing"] strong, .project-maintenance[data-phase="paused"] strong { color: var(--waiting); }
 .project-maintenance-actions { display: flex; flex: none; flex-wrap: wrap; gap: .4rem; }
-.project-maintenance-actions button { min-height: 36px; font-size: 12px; }
+.project-maintenance-actions button { min-height: var(--control-height); font-size: 12px; }
 .project-maintenance .help-host { display: inline-flex; min-width: 0; }
 .project-maintenance .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 680px) {

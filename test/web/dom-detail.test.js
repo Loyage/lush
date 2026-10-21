@@ -15,6 +15,14 @@ test('Worker detail links its original Input and opens the execution reader on d
   const input = findByText(detail.querySelector('.head'), '输入 O1');
   expect(input.tagName).toBe('A'); expect(input.getAttribute('href')).toBe('#input-input-1');
   expect(world.state.transcriptAfter).toEqual([]);
+  for (const name of ['conversation-panel', 'worker-timeline-panel']) {
+    const head = detail.querySelector(`.${name}`).querySelector('.section-title');
+    const actions = head.querySelector('.module-actions');
+    expect([...head.children].filter(node => node.classList.contains('module-actions'))).toHaveLength(1);
+    expect(actions.querySelector('.view-sort-icon')).toBeTruthy();
+    expect(actions.querySelector('.module-toggle')).toBeTruthy();
+    expect(head.querySelector('h2').parentNode).toBe(head);
+  }
   const toolbar = detail.querySelector('.task-actions');
   const entry = findByText(toolbar, '打开工作台');
   expect(entry.target).toBe('_blank'); expect(toolbar.children[0]).toBe(entry);

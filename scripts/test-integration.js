@@ -40,6 +40,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-transcript-view.test.js', // single-button order, mixed/bulk fold and live tool results
     'test/web/dom-task-graph-integration.test.js', // compact node caret -> fold/reopen, both graph modes and delivery status
     'test/web/reading-conversation-integration.test.js', // shared reading controls -> real HTTP history/record pagination
+    'test/web/dom-management-diagnostic.test.js', // shared heading actions -> real Provider/HTTP call records and safe diagnostic reading
     'test/web/transcript-reader.test.js', // shared search and explicit full-record reads
     'test/web/dom-questionnaire.test.js', // choices -> review -> answer
     'test/web/settings.test.js', // device preferences

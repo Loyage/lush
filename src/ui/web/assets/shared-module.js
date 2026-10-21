@@ -1,4 +1,4 @@
-import { button, el } from './dom-base.js';
+import { button, el, headingActions } from './dom-base.js';
 import { paintDisclosure } from './view-controls.js';
 import { captureModuleReading, restoreModuleReading } from './module-reading.js';
 
@@ -33,7 +33,7 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary,
     const top = button('', () => view.setExpanded(!view.expanded), 'ghost module-toggle');
     top.setAttribute('aria-controls', body.id);
     top.setAttribute('data-help', '只改变本模块的展示长度，不删除内容，也不调用 Agent；当前页面刷新时保留选择。');
-    head.append(top); section.append(status, body);
+    headingActions(head, top); section.append(status, body);
     section.classList.add('ui-module', `module-${mode}`);
     let gauge = null, footer = null, note = null;
     if (mode === 'preview') {

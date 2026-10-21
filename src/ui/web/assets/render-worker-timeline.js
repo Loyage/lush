@@ -1,4 +1,4 @@
-import { block, button, el, syncChildren } from './dom.js';
+import { block, button, el, syncChildren, headingActions } from './dom.js';
 import { sortControl, paintDisclosure } from './view-controls.js';
 import { absolute, eventLabel, lifecycleDuration } from './format.js';
 export { lifecycleDuration } from './format.js';
@@ -38,7 +38,7 @@ export function renderWorkerTimeline(task, history = {}, previous = null, option
   const order = el('div', undefined, 'lifecycle-order'); order.setAttribute('role', 'group'); order.setAttribute('aria-label', '生命周期排序');
   const sort = sortControl({ getOrder: () => direction, setOrder: value => { direction = value; paint(); },
     scope: '仅重排已加载生命周期与完整事件列表；同 Worker 刷新保留，不读取历史或调用 Agent。' });
-  order.append(sort.root); root.querySelector('.section-title').append(order);
+  order.append(sort.root); headingActions(root.querySelector('.section-title'), order);
   const more = button('加载更早时间线', () => loadMore(), 'ghost lifecycle-more');
   const advanced = el('details', undefined, 'lifecycle-advanced'); advanced.append(el('summary', '完整事件与通信（按需展开）'));
   const records = el('div', undefined, 'lifecycle-records');
