@@ -23,9 +23,15 @@ for (const minimal of [true, false]) test(`tree ${minimal ? 'minimal' : 'detail'
       ['integrated', null], ['withdrawn', null], ['stale', null],
     ]) {
       const op = operation(state);
-      renderTaskGraph({ nodes: nodes(op), edges: [], total: 3 });
+      renderTaskGraph({ nodes: nodes(op), edges: [], total: 3, archived_count: 2 });
       const panel = dom.node('detail'), cards = panel.querySelectorAll('.task-graph-card');
       expect(cards).toHaveLength(2);
+      const hero = panel.querySelector('.task-graph-hero');
+      expect(deepText(hero)).not.toContain('空白创建');
+      const archived = hero.querySelector('.task-graph-archived-toggle');
+      expect(archived.textContent).toBe('已回收 2');
+      expect(archived.getAttribute('aria-pressed')).toBe('false');
+      expect(archived.getAttribute('data-help')).toContain('已回收历史');
       expect(panel.querySelector('.integration-summary')).toBeNull();
       expect(deepText(panel)).not.toContain('W700');
       expect(deepText(panel)).not.toContain('个来源');

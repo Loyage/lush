@@ -420,7 +420,7 @@ export function renderTaskGraph(graph) {
   const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', '工作树'), workerCreateControl());
+  hero.append(el('h1', '工作树'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = graph.counts ? [...counts].reduce((sum, [status, count]) =>
     sum + (ACTIVE.has(status) && !hidden.has(status) ? count : 0), 0) : nodes.filter(node => ACTIVE.has(node.status)).length;
@@ -456,7 +456,7 @@ export function renderTaskGraph(graph) {
   }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Worker。' }));
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   if (archivedCount) {
-    const toggle = button(`显示已回收历史（${archivedCount}）`, async () => {
+    const toggle = button(`已回收 ${archivedCount}`, async () => {
       if (readingProtected()) {
         show('请先提交或清空正在编辑的待决答复，再切换归档显示。');
         return;

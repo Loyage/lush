@@ -13,7 +13,7 @@ window.errors=[];addEventListener('error',e=>errors.push(e.message));addEventLis
 document.documentElement.dataset.lushSpace='project';ui.view={id:'task-graph'};
 setPref('taskGraphMinimal',true);setPref('reduceMotion',true);
 const own={run_ms:93784000,input:121000,output:18000,cost:224.24,running:true};
-window.graph={total:3,nodes:[
+window.graph={total:3,archived_count:2,nodes:[
 {id:1,worker_number:'W1',title:'main',role:'agent',task_kind:'main',status:'waiting',children_total:2,
 resources:{own,subtree:{...own,input:242000,cost:448.48}}},
 {id:2,parent_id:1,worker_number:'W2',title:'手机进度与消耗分行展示',role:'agent',task_kind:'order',status:'running',integration:'pending',delivery_summary:{stage:'pending'},reservation:{version:2,status:'pending'},
@@ -21,7 +21,7 @@ progress:{total:3,completed:1,current:{label:'验证较长的进度说明和移�
 {id:3,parent_id:2,worker_number:'W2-1',title:'等待中的子 Worker',role:'agent',task_kind:'child',status:'waiting',integration:'merged',delivery_summary:{stage:'integrated'},
 waiting_reason:'等待父 Worker 确认接口，保留完整的等待原因',input_queue:{buffered:2},freeze:{task_id:1},resources:{own}}
 ]};
-window.paint=()=>renderTaskGraph(graph);window.paint();window.ready=true;
+window.paint=()=>renderTaskGraph(graph);window.setMode=minimal=>{setPref('taskGraphMinimal',minimal);window.paint();};window.paint();window.ready=true;
 </script>`;
 const html = (await Bun.file(join(assets,'index.html')).text())
   .replace(/<script[^>]*src="\/(?:app|appearance)\.js"[^>]*><\/script>/g,'').replace('</body>',script+'</body>');
@@ -29,6 +29,7 @@ const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){
   const path=new URL(req.url).pathname;
   if(path==='/')return new Response('<html><body style="margin:0"><iframe id="viewport" src="/fixture" style="width:390px;height:844px;border:0"></iframe></body></html>',{headers:{'Content-Type':'text/html'}});
   if(path==='/fixture')return new Response(html,{headers:{'Content-Type':'text/html'}});
+  if(['/administrator/protocol.js','/administrator/project-protocol.js','/shared/dashboard-quick-actions.js'].includes(path))return new Response(Bun.file(new URL('../../src'+path,import.meta.url)));
   if(/^\/[\w.-]+\.(js|css)$/.test(path))return new Response(Bun.file(join(assets,path.slice(1))));
   return new Response('not found',{status:404});
 }});
@@ -58,7 +59,7 @@ try{
   session=(await rpc('/session',{capabilities:{alwaysMatch:{browserName:'firefox','moz:firefoxOptions':{args:['-headless']}}}})).sessionId;
   await rpc(`/session/${session}/window/rect`,{width:1600,height:1100});
   await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});
-  await resize(390);assert(await wait('window.ready'),'fixture failed to render');
+  await resize(390);assert(await wait('window.ready'),'fixture failed to render: '+JSON.stringify(await execute('return window.errors||[]')));
   for(const theme of ['light','dark'])for(const width of [320,390,640,641,1440]){
     await resize(width);await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     const geometry=await execute(`return [...document.querySelectorAll('.task-graph-card')].map(card=>{
@@ -69,6 +70,15 @@ try{
         contained:[...meta.querySelectorAll('span')].every(s=>{const r=s.getBoundingClientRect();return r.left>=c.left&&r.right<=c.right&&r.bottom<=c.bottom}),
         text:note.textContent,usage:usage.textContent,metaDisplay:getComputedStyle(meta).display,moreTop:card.querySelector('.task-graph-more-trigger').getBoundingClientRect().top};
     });`);
+    const compact=await execute(`const hero=document.querySelector('.task-graph-hero'),fold=document.querySelector('.task-graph-fold'),title=fold.nextElementSibling;
+      const f=fold.getBoundingClientRect(),t=title.getBoundingClientRect(),c=fold.closest('.task-graph-card').getBoundingClientRect(),children=document.querySelector('.task-graph-children'),s=getComputedStyle(children);
+      return {chips:[...hero.querySelectorAll('.task-graph-summary>.badge')].map(n=>n.getBoundingClientRect().height),
+        archived:hero.querySelector('.task-graph-archived-toggle').textContent,blank:hero.textContent.includes('空白创建'),
+        indent:parseFloat(s.marginLeft)+parseFloat(s.paddingLeft)+parseFloat(s.borderLeftWidth),
+        foldWidth:f.width,foldHeight:f.height,foldInside:f.left>=c.left&&f.right<=t.left,gap:t.left-f.right};`);
+    assert(compact.chips.every(height=>height<=17)&&compact.archived==='已回收 2'&&!compact.blank,`filter/entry density: ${JSON.stringify(compact)}`);
+    assert(compact.indent===(width<=640?10:22),`tree indentation: ${JSON.stringify(compact)}`);
+    assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
     assert(geometry.length===3,'missing nested cards');
     for(const card of geometry){
       if(width<=640){
@@ -76,7 +86,7 @@ try{
         assert(!card.noteOverflow&&!card.metaOverflow&&card.contained,`mobile overflow: ${JSON.stringify(card)}`);
         assert(card.usageBottom<card.bottom&&card.moreTop<card.metaTop,`usage/actions outside card: ${JSON.stringify(card)}`);
       }else{
-        assert(card.height===68&&card.metaDisplay==='contents',`desktop layout changed: ${JSON.stringify(card)}`);
+        assert((width<=760?card.height>=86&&card.height<=88:card.height===68)&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
         assert(card.usageTop<card.noteBottom,'desktop no longer inline');
       }
     }
@@ -97,14 +107,16 @@ try{
   await execute(`window.normalGraph=graph;window.graph={total:1,nodes:[{id:2,worker_number:'W2',title:'交付中的工作',role:'agent',task_kind:'order',status:'waiting',integration:'pending',resources:{own:{run_ms:1000,input:100,output:10,cost:0.01}}}]};`);
   for(const theme of ['light','dark'])for(const width of [320,390,640,641,1440])for(const stage of ['requested','executing','resolving']){
     await resize(width);
-    await execute(`document.documentElement.dataset.theme='${theme}';graph.nodes[0].delivery_summary={version:2,stage:'${stage}'};graph.nodes[0].reservation={version:2,status:'${stage}'};window.paint();`);
+    const baselineHeight=await execute(`document.documentElement.dataset.theme='${theme}';delete graph.nodes[0].delivery_summary;delete graph.nodes[0].reservation;window.paint();
+      const baseline=document.querySelector('.task-graph-card').getBoundingClientRect().height;
+      graph.nodes[0].delivery_summary={version:2,stage:'${stage}'};graph.nodes[0].reservation={version:2,status:'${stage}'};window.paint();return baseline;`);
     const card=await execute(`const card=document.querySelector('.task-graph-card'),usage=card.querySelector('.task-graph-usage'),status=usage.nextElementSibling;
       const c=card.getBoundingClientRect(),s=status.getBoundingClientRect();
       return {height:c.height,text:status.textContent,tracking:!!card.querySelector('.source-delivery'),contained:s.left>=c.left&&s.right<=c.right&&s.bottom<=c.bottom};`);
-    assert(card.height<=(width<=640?72:68)&&!card.tracking&&card.contained,`active delivery adds a row/overflows (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
+    assert(card.height<=baselineHeight&&!card.tracking&&card.contained,`active delivery adds a row/overflows (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
     assert(card.text===({requested:'冻结 · 等待合并',executing:'合并中 · 尚未完成',resolving:'合并中 · 源侧分歧修复'})[stage],'delivery stage lost');
   }
-  console.log('PASS active delivery stays within two-line cards (desktop 68px/mobile ≤72px) in both themes at 320–1440px');
+  console.log('PASS active delivery adds no row or height against the same card baseline in both themes at 320–1440px');
   await execute(`window.graph=normalGraph;window.paint();`);
   await resize(390);
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();`);
@@ -112,7 +124,14 @@ try{
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();document.querySelector('[data-graph-focus="more-2"]').click();`);
   assert(await execute(`return document.querySelector('#task-graph-actions-2').matches(':popover-open')`),'mobile actions unavailable');
   assert(await execute('return errors.length===0'),'browser errors');
-  console.log('PASS folded totals and mobile action popover');passed=true;
+  console.log('PASS folded totals and mobile action popover');
+  await execute(`document.querySelector('#task-graph-actions-2').hidePopover();window.setMode(false);`);
+  for(const width of [390,1440]){
+    await resize(width);await execute(`window.paint();`);
+    assert(await execute(`const fold=document.querySelector('.task-graph-fold'),f=fold.getBoundingClientRect(),t=fold.nextElementSibling.getBoundingClientRect(),c=fold.closest('.task-graph-card').getBoundingClientRect();
+      return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/filter spacing');
+  }
+  console.log('PASS compact detail-mode caret and filter badges at mobile/desktop widths');passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});
   driver.kill();await driver.exited;server.stop(true);
