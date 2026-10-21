@@ -85,7 +85,6 @@ export function paintComposerDetails() {
   $('composer-details').hidden = !detail || entry?.mode !== 'order';
   $('composer-editor-tools').hidden = false;
   $('composer-management-settings').hidden = !detail || !ui.composerManagement;
-  $('composer-shortcuts').hidden = !detail;
   $('composer-expand').textContent = '详细编辑'; $('composer-expand').hidden = detail;
   $('composer-expand').removeAttribute('aria-expanded'); $('composer-expand').removeAttribute('data-help');
 }
@@ -160,7 +159,10 @@ export function syncComposer() {
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   $('composer-mode-title').textContent = management ? '管理 Lush' : followup ? waitingFirstInput(target.task) ? '输入工作指令' : '追加输入' : '新建工作';
   $('composer-mode-icon').textContent = management ? '⚙' : followup ? '↳' : '＋';
-  $('composer-mode-target').textContent = `去向：${management ? followup ? '原管家 ' : '新管家 · ' : followup ? '追加 ' : '新 Worker · 父 '}${label}${followup && target.task ? ` · ${taskTitle(target.task)}` : ''}`;
+  const destinationText = `${management ? followup ? '原管家 ' : '新管家 · ' : followup ? '' : '基于 '}${label}${followup && target.task ? ` · ${taskTitle(target.task)}` : ''}`;
+  $('composer-mode-target').textContent = destinationText;
+  $('composer-mode-target').setAttribute('data-help', `本条去向：${destinationText}。更改去向请进入详细编辑；不会随当前阅读页面改变。`);
+  $('composer-mode-target').setAttribute('tabindex', '0');
   $('composer-mode-behavior').textContent = target.reason || 'Enter / Shift+Enter 换行 · Ctrl/⌘+S 保存 · Ctrl/⌘+Enter 提交；保存与切换不执行。';
   const status = target.reason || target.queueText || target.wait || target.freeze?.reason || (followup && target.task?.status === 'paused' && !waitingFirstInput(target.task) ? '暂停中，需开始 / 继续后处理' : '');
   $('composer-target-status').hidden = !status; $('composer-target-status').textContent = status;
@@ -180,9 +182,15 @@ export function syncComposer() {
   textEditor?.sync(); paintRunSettings(); paintComposerWorkspace(); paintComposerDetails(); ui.inputEditor?.paint();
   const saved = entry.saved;
   $('composer-draft-status').hidden = false;
-  $('composer-draft-status').textContent = entry.error ? `保存/提交失败：${entry.error} · 本地编辑保留` : busy ? '正在保存/提交…' : saved ? `${draftLabel(saved)} · 版本 ${saved.revision} · ${ui.inputEditor?.dirty ? '有未保存修改' : '已保存，尚未提交'}` : '尚未保存到项目 · 离开此条编辑时自动保存；浏览器恢复仅作兜底';
+  const dirty = ui.inputEditor?.dirty;
+  $('composer-draft-status').textContent = entry.error ? '保存/提交失败' : entry.conflict ? '版本冲突' : busy ? '保存/提交中…' : saved && !dirty ? '已保存 · 未提交' : '未保存';
+  $('composer-draft-status').dataset.error = String(Boolean(entry.error || entry.conflict));
+  $('composer-draft-status').setAttribute('data-help', entry.error ? `保存/提交失败：${entry.error}；本地编辑保留，请在下方恢复区处理。` : entry.conflict ? '服务器版本已变化；本地编辑保留，请在下方恢复区对照整理，不会静默覆盖。'
+    : busy ? '正在保存或提交，请等待；不会重复请求。'
+      : `${saved ? `${draftLabel(saved)} · 版本 ${saved.revision} · ${dirty ? '有未保存修改' : '已保存到项目，尚未提交'}` : '尚未保存到项目'}。离开整条编辑时自动保存；浏览器恢复仅作兜底，保存不执行。`);
   $('composer-references').hidden = !detailHost || !composerReferences().length;
   $('composer-editor-tools').dataset.references = String(composerReferences().length);
+  $('composer-reference-count').textContent = `引用 ${composerReferences().length}`;
   if (!cacheScheduled) {
     cacheScheduled = true; const identity = ui.composerIdentity;
     queueMicrotask(() => { cacheScheduled = false; if (ui.composerIdentity === identity) rememberComposer(); });
@@ -234,7 +242,19 @@ export async function initComposer() {
   const [{ attachTextEditor }, { createUnifiedInputEditor }] = await Promise.all([import('./text-editor.js'), import('./unified-input-editor.js')]);
   if (ui.composerIdentity !== identity) return;
   textEditor = attachTextEditor(input, { onChange: () => { ui.composerEditRevision++; syncComposer(); } });
-  $('composer-editor-tools').replaceChildren(textEditor.controls);
+  for (const [selector, symbol, label] of [['.text-editor-undo', '↶', '撤销正文编辑'], ['.text-editor-redo', '↷', '重做正文编辑']]) {
+    const control = textEditor.controls.querySelector(selector);
+    control.textContent = symbol; control.setAttribute('aria-label', label);
+  }
+  const referenceCount = button('引用 0', async () => {
+    const editing = currentEdit();
+    if (!ui.inputEditor.inDetail) await ui.inputEditor.detail();
+    if (ui.composerIdentity !== identity || currentEdit() !== editing || !ui.inputEditor.inDetail) return;
+    const extras = $('input-form').querySelector('.unified-editor-extras'); extras.open = true;
+    (composerReferences().length ? $('composer-references') : extras).scrollIntoView?.({ block: 'nearest' });
+  }, 'ghost composer-reference-count', { help: '在详细编辑中查看本条引用及运行设置；不会提交或调用 Agent。' });
+  referenceCount.id = 'composer-reference-count';
+  $('composer-editor-tools').replaceChildren(textEditor.controls, referenceCount);
   runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP }); runSettingsButton.id = 'composer-run-settings';
   $('input-form').append(runSettingsButton);
   elevationControl = elevationChoice(checked => { ui.composerElevated = checked; syncComposer(); });
@@ -245,6 +265,11 @@ export async function initComposer() {
     onCreated: saved => saved.mode === 'order' ? loadComposerParents() : null,
     workspace: { currentEdit, rememberComposer, finishComposerEdit, activateComposerDraft, newComposerEntry, paintComposerWorkspace, openComposer, retargetComposerEntry, applyEntry } });
   renderComposerReferences();
+  $('composer-condition-summary').onclick = () => ui.inputEditor.detail();
+  $('composer-shortcuts-toggle').onclick = () => {
+    const shortcuts = $('composer-shortcuts'); shortcuts.hidden = !shortcuts.hidden;
+    $('composer-shortcuts-toggle').setAttribute('aria-expanded', String(!shortcuts.hidden));
+  };
   $('composer-reset').onclick = resetComposerMode;
   $('input-buffer').onclick = buffer;
   $('input-buffer').setAttribute('aria-keyshortcuts', 'Control+s Meta+s');

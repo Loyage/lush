@@ -56,7 +56,7 @@ window.fetch=async(url,options={})=>{
  return world.fetchImpl(path+route.search,options);
 };
 await import('/app.js');window.ui=(await import('/state.js')).ui;window.workspace=await import('/composer-workspace.js');window.inputPages=await import('/render-inputs.js');window.emissionFeature=await import('/automation-emission.js');
-window.originalInput=document.querySelector('#input');window.ready=true;
+window.preferences=await import('/prefs.js');window.originalInput=document.querySelector('#input');window.ready=true;
 `;
 
 export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/lush-input-${scope}` } = {}) {
@@ -150,16 +150,35 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         const visible=[...form.querySelectorAll('button')].filter(node=>node.getClientRects().length);
         const controlsFit=visible.every(node=>{const b=node.getBoundingClientRect();return b.left>=0&&b.right<=win.innerWidth+1&&(${width}>760||b.height>=44);});
         const fits=doc.documentElement.scrollWidth<=win.innerWidth+1&&form.scrollWidth<=form.clientWidth+1&&r.width>0;
-        return {retained,basic,agent,formal,hierarchy,runtimeVisible,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
+        const shellHeight=doc.querySelector('#composer-shell').getBoundingClientRect().height;
+        const tool=doc.querySelector('#composer-expand'),tools=doc.querySelector('.composer-tools'),actions=doc.querySelector('.composer-actions');
+        const compact=box.getBoundingClientRect().height===88&&shellHeight<=(${width}>760?210:300)
+          &&doc.querySelector('#composer-shortcuts').hidden&&tool.scrollWidth<=tool.clientWidth+1
+          &&tools.getBoundingClientRect().height<=(${width}<=760?44:32)
+          &&actions.getBoundingClientRect().height<=(${width}<=760?44:32)
+          &&doc.querySelector('#composer-draft-status').textContent==='已保存 · 未提交';
+        const handle=doc.querySelector('#composer-resize');handle.dispatchEvent(new win.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
+        await new Promise(resolve=>win.requestAnimationFrame(resolve));
+        const manualHeight=box.getBoundingClientRect().height;
+        await win.ui.inputEditor.detail();await win.ui.inputEditor.continuePortable();
+        const resizePreserved=manualHeight===104&&box.getBoundingClientRect().height===104;
+        win.preferences.setPref('composerHeight',null);
+        doc.querySelector('#composer-shortcuts-toggle').click();
+        const helpAvailable=!doc.querySelector('#composer-shortcuts').hidden&&doc.querySelector('#composer-shortcuts-toggle').getAttribute('aria-expanded')==='true';
+        doc.querySelector('#composer-shortcuts-toggle').click();
+        doc.querySelector('#composer-reference-count').click();await until(()=>win.ui.inputEditor.inDetail&&doc.querySelector('.unified-editor-extras').open);
+        const referenceEntry=win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
+        doc.querySelector('.unified-editor-extras').open=false;await win.ui.inputEditor.continuePortable();
+        return {retained,basic,agent,formal,hierarchy,runtimeVisible,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
       `);
-      assert(layout.width === width && Object.entries(layout).filter(([key]) => !['width', 'errors'].includes(key)).every(([, value]) => value), `${scope}/${theme}/${width}: ${JSON.stringify(layout)}`);
+      assert(layout.width === width && Object.entries(layout).filter(([key]) => !['width', 'errors', 'shellHeight'].includes(key)).every(([, value]) => value), `${scope}/${theme}/${width}: ${JSON.stringify(layout)}`);
       if (width === 390 || width === 1440) {
         await Bun.write(join(output, `${theme}-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
         await frame(`await win.ui.inputEditor.detail();doc.querySelector('#input-form').scrollIntoView({block:'start'});await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));return true;`);
         await Bun.write(join(output, `detail-${theme}-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
         await frame('await win.ui.inputEditor.continuePortable();return true;');
       }
-      console.log(`PASS ${scope} ${theme}/${width}: same DOM/state/ID, autosave both directions, hierarchy, Agent help, touch targets, no overflow`);
+      console.log(`PASS ${scope} ${theme}/${width}: ${layout.shellHeight}px dock, compact tools/actions, preserved manual height, on-demand shortcuts, same DOM/state/ID, autosave, hierarchy, Agent help, touch targets, no overflow`);
     }
     if (scope === 'history') {
       assert(await frame(`
@@ -168,7 +187,9 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         const feature=win.emissionFeature.renderEmissionAutomation({ownsPage:()=>win.ui.view===view});
         doc.querySelector('#detail').replaceChildren(feature);await feature.ready;
         const embedded=feature.querySelector('.inputs-page');await embedded.state.openItem({kind:'draft',id:1});
-        const local=win.ui.view===view&&win.location.hash===hash&&!doc.querySelector('.unified-editor-conditions').open;
+        const local=win.ui.view===view&&win.location.hash===hash&&!doc.querySelector('.unified-editor-conditions').open
+          &&!doc.querySelector('#composer-condition-summary').hidden&&doc.querySelector('#composer-condition-summary').textContent==='条件 1'
+          &&doc.querySelector('#draft-commit').textContent==='按条件提交';
         const body=doc.querySelector('#input');body.value+=' embedded';body.dispatchEvent(new win.Event('input'));
         await feature.setSubpage('history');
         const suspended=!win.ui.inputEditor.inDetail&&win.rows.find(row=>row.kind==='draft'&&row.id===1).content===body.value;
@@ -225,6 +246,13 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
           &&row.content==='native-first\\ndirty-end'&&doc.querySelector('#input').value===''
           &&trusted.some(event=>event.key==='Enter'&&!event.ctrl)&&trusted.some(event=>event.key==='s'&&event.ctrl)&&trusted.some(event=>event.key==='Enter'&&event.ctrl);`), 'native Ctrl+Enter must save dirty text then authorize its exact version once');
       console.log('PASS WebDriver native trusted Enter → newline/no request; Ctrl+S → one retained draft; dirty Ctrl+Enter → update then one exact-version authorization');
+      assert(await frame(`
+        const receipt=doc.querySelector('.composer-receipt'),meta=doc.querySelector('#composer-meta'),count=win.calls.length;
+        const compactReceipt=receipt.parentElement===meta&&receipt.textContent==='收据'&&!receipt.hidden&&receipt.getAttribute('data-help').includes('不是当前编辑');
+        receipt.click();await until(()=>doc.querySelector('.input-original')&&!win.ui.inputEditor.inDetail);
+        return compactReceipt&&win.calls.length===count&&Boolean(doc.querySelector('.input-original'));
+      `), 'compact receipt opens the last submitted draft without submitting again');
+      console.log('PASS compact last-submission receipt shares metadata and opens read-only without another write');
     }
     const errors = await frame('return win.errors;'); assert(!errors.length, `browser errors: ${JSON.stringify(errors)}`);
   } finally {

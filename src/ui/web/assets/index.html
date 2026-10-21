@@ -150,14 +150,22 @@
     <p id="composer-menu-note" class="composer-menu-note" hidden>黄点表示有未完成输入，不代表保存失败。浏览器保留不等于项目暂存或提交。</p>
   </div>
   <form id="input-form" data-mode="create" data-expanded="false" hidden>
-  <div class="composer-toolbar">
-    <span id="composer-project" class="hint"></span>
-  </div>
+  <div class="composer-context">
+  <div class="composer-identity">
+    <span id="composer-project" class="hint" tabindex="0"></span>
   <div id="composer-mode" class="composer-mode" role="status" aria-live="polite" aria-atomic="true">
     <span id="composer-mode-icon" class="composer-mode-icon" aria-hidden="true">＋</span>
     <strong id="composer-mode-title">新建工作</strong>
     <span id="composer-mode-target" class="composer-mode-target">去向：新 Worker · 基于 main</span>
     <span id="composer-mode-behavior" class="composer-mode-behavior">Enter 换行 · Ctrl/⌘+S 保存草稿 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker</span>
+  </div>
+  </div>
+  <div id="composer-meta" class="composer-meta">
+    <span id="composer-draft-status" class="hint" role="status" tabindex="0" hidden></span>
+    <button type="button" id="composer-condition-summary" class="ghost composer-condition-summary" hidden></button>
+    <button type="button" id="composer-resume" class="ghost composer-recovery">继续草稿</button>
+    <button type="button" id="composer-shortcuts-toggle" class="ghost composer-help" aria-label="输入快捷键" aria-controls="composer-shortcuts" aria-expanded="false" data-help="展开或收起输入快捷键说明，不保存或提交。">?</button>
+  </div>
   </div>
   <p id="composer-target-status" class="composer-target-status" role="status" hidden></p>
   <div id="composer-details" class="composer-details" hidden>
@@ -165,8 +173,6 @@
     <div class="composer-target"><label for="input-parent">父 Worker</label><select id="input-parent" aria-describedby="input-parent-help"><option value="">main（默认父 Worker）</option></select><span id="input-parent-help" class="hint">新 Worker 从所选父 Worker 的分支创建独立 worktree</span></div>
   </div>
   <div id="composer-draft-list" class="composer-draft-list" hidden></div>
-  <p id="composer-condition-summary" class="hint" hidden></p>
-  <p id="composer-draft-status" class="hint" hidden></p>
   <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
   <div class="draft-panel" id="draft-panel">
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
@@ -175,22 +181,22 @@
     <div id="composer-resize" class="composer-resize" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="input" aria-label="调整输入框高度" data-help="上下拖动调整输入框高度；也可聚焦后按 ↑／↓ 调整，Home 最小、End 最大。高度保存在当前浏览器和项目，下次打开沿用。"></div>
     <textarea id="input" rows="1" maxlength="32000" aria-describedby="composer-mode-title composer-mode-target composer-target-status composer-mode-behavior" aria-label="工作指令正文" placeholder="描述你希望新 Worker 完成的工作…"></textarea>
   </div>
-  <div id="composer-editor-tools" class="composer-editor-tools" aria-label="正文编辑操作" hidden></div>
   <div id="composer-management-settings" hidden></div>
   <div class="composer-foot">
-    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 提交 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl S</kbd> 保存草稿 <span class="shortcut-separator">/</span> <kbd>↑ / ↓</kbd> 空框切换草稿 <span class="shortcut-separator">/</span> <kbd>Enter / Shift+Enter</kbd> 换行</span>
+    <div class="composer-tools">
+      <div id="composer-editor-tools" class="composer-editor-tools" aria-label="正文编辑操作" hidden></div>
+      <button type="button" id="composer-expand" class="ghost composer-expand">详细编辑</button>
+    </div>
     <span class="composer-actions">
-      <button type="button" id="composer-resume" class="ghost composer-recovery">继续最近草稿</button>
       <button type="button" id="composer-choose-draft" class="ghost composer-recovery" data-help="选择本项目同模式与同目标的可编辑草稿；当前编辑保留在本页，不自动授权提交。">选择其他草稿</button>
       <span id="composer-remove-draft-help" class="help-host composer-recovery" hidden><button type="button" id="composer-remove-draft" class="danger" data-help="经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑保留，不删除已发送输入或 Worker。" hidden>删除草稿</button></span>
-      <button type="button" id="composer-expand" class="ghost composer-expand">详细编辑</button>
-
       <button type="button" id="composer-reset" class="ghost" data-help="恢复新建工作的独立编辑；当前追加或管理内容留在原去向，不带入新建。" hidden>回到新建工作</button>
       <button type="button" id="input-drafts" class="ghost">草稿</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>
       <span class="help-host" id="input-buffer-help" data-help="保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行；不创建 Worker 或工作区，不调用 Agent。"><button type="button" id="input-buffer">保存草稿</button></span>
       <span class="help-host" id="input-send-help"><button type="submit" id="draft-commit" class="agent-call">提交指令</button></span>
     </span>
+    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter / Shift+Enter</kbd> 换行 · <kbd>Ctrl/⌘+S</kbd> 保存草稿 · <kbd>Ctrl/⌘+Enter</kbd>（含 Shift）提交 · <kbd>↑ / ↓</kbd> 空框切换草稿 · <kbd>Ctrl/⌘+Z</kbd> 撤销 · <kbd>Ctrl/⌘+Shift+Z</kbd> 重做</span>
   </div>
 </form></div>
 </div>

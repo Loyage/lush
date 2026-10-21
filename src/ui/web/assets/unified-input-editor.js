@@ -38,24 +38,26 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   form.insertBefore(target, form.querySelector('.composer-input'));
   form.insertBefore(advanced, form.querySelector('.composer-foot'));
   form.append(error);
-  const receipt = button('查看提交收据', async () => {
+  const receipt = button('收据', async () => {
     if (!ui.lastInputReceipt || !await controller.leave()) return;
     const { openInputs } = await import('./render-inputs.js');
     if (owns()) await openInputs({ item: { kind: 'draft', id: ui.lastInputReceipt.draft_id } });
-  }, 'nav-link'); receipt.hidden = !ui.lastInputReceipt; form.append(receipt);
+  }, 'nav-link composer-receipt', { help: '查看最近一次提交的回执，不是当前编辑的保存状态，也不代表 Agent 已收到或执行完成；不会重新提交。' });
+  receipt.setAttribute('aria-label', '查看最近一次提交收据');
+  receipt.hidden = !ui.lastInputReceipt; ($('composer-meta') || form).append(receipt);
   const back = button('到底部继续编辑', () => controller.continuePortable(), 'nav-link');
-  const fresh = button('写新的一条', async () => {
+  const fresh = button('新一条', async () => {
     if (!await newComposerEntry()) return;
     if (controller.inDetail) { const { openLocalInputEditor } = await import('./render-inputs.js'); if (owns()) await openLocalInputEditor(); }
-  }, 'ghost');
-  $('composer-expand').parentNode?.insertBefore(fresh, $('composer-expand'));
+  }, 'ghost composer-new', { help: '先保存当前条目，再开启同去向的新一条；原草稿保留，不提交或调用 Agent。' });
+  fresh.setAttribute('aria-label', '写新的一条');
+  $('composer-expand').parentNode?.append(fresh);
   // The DOM stub has independent id nodes; the browser always follows the static form hierarchy.
   if (!fresh.parentNode) form.append(fresh);
   extras.insertBefore(managementSettings, null);
   const refs = $('composer-references'); extras.insertBefore(refs, null);
   const run = form.querySelector('.composer-run-settings'); if (run) extras.insertBefore(run, null);
   danger.insertBefore(removeHelp, null);
-  const description = $('composer-shortcuts'); description.hidden = false;
   function read() {
     const entry = currentEdit();
     return { content: input.value, references: composerReferences(), mode: entry.mode,

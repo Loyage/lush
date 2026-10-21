@@ -171,7 +171,9 @@ export function paintComposerWorkspace() {
   launcher.dataset.pending = String(pending);
   launcher.setAttribute('aria-label', `${space.open ? '收起输入' : '选择输入方式'}${pending ? ` · 有 ${pendingEntries.length} 条未完成输入` : ''}`);
   launcher.setAttribute('data-help', space.open ? '自动保存此条项目草稿后收起；失败则保留编辑并阻止收起。浏览器恢复仅作断网与关闭兜底，不提交或调用 Agent。' : '选择输入方式；黄点表示有未完成输入，菜单按类别列出原目标、摘要与保存状态。只恢复编辑，不提交或调用 Agent。');
-  $('composer-project').textContent = `项目：${$('project')?.textContent || '当前项目'}`;
+  const projectName = $('project')?.textContent || '当前项目';
+  $('composer-project').textContent = projectName;
+  $('composer-project').setAttribute('data-help', `本条输入属于项目：${projectName}。`);
   const management = active?.mode === 'management';
   $('composer-resume').hidden = Boolean(input.value.trim() || composerReferences().length || active?.saved);
   $('composer-choose-draft').hidden = !ui.inputEditor?.inDetail;
@@ -180,8 +182,10 @@ export function paintComposerWorkspace() {
   $('composer-remove-draft-help').setAttribute('data-help', ui.composerSubmitting ? '请求正在处理，请稍后再删除；不会重复提交。' : '经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑会保留，不删除已发送输入或 Worker。');
   const source = active?.localOptions || active?.saved;
   const options = source ? { conditions: source.conditions || [], exclusive: source.exclusive } : null;
-  $('composer-condition-summary').hidden = !options || !options.conditions.length && !options.exclusive;
-  $('composer-condition-summary').textContent = options ? `执行条件：${options.conditions.map(condition => `${({ worker_settled: '工作安全收尾', worker_merged: '本轮成果已合入 main', parent_quiet: '父 Worker 静息' })[condition.kind] || condition.kind}${condition.worker_id ? ` ${workerLabel(condition.worker_id)}` : ''}`).join('、') || '安全准入'}${options.exclusive ? ' · 独占' : ''}（保留原条件；在草稿页可调整）` : '';
+  const customProfile = Boolean(active?.profile), elevated = Boolean(ui.composerElevated);
+  $('composer-condition-summary').hidden = !options?.conditions.length && !options?.exclusive && !customProfile && !elevated;
+  $('composer-condition-summary').textContent = [options?.conditions.length ? `条件 ${options.conditions.length}` : '', options?.exclusive ? '独占' : '', customProfile ? '本条设置' : '', elevated ? '管理员' : ''].filter(Boolean).join(' · ');
+  $('composer-condition-summary').setAttribute('data-help', `打开详细编辑核对${options?.conditions.length ? `执行条件：${options.conditions.map(condition => `${({ worker_settled: '工作安全收尾', worker_merged: '本轮成果已合入 main', parent_quiet: '父 Worker 静息' })[condition.kind] || condition.kind}${condition.worker_id ? ` ${workerLabel(condition.worker_id, condition.worker_number)}` : ''}`).join('、')}；` : ''}${options?.exclusive ? '独占会暂缓其它开发；' : ''}${customProfile ? '本条已选择运行设置；' : ''}${elevated ? '本条选择管理员权限，提交须重新验密；' : ''}仅查看，不提交或调用 Agent。`);
   $('input-parent').disabled = Boolean(ui.composerSubmitting);
   $('input-parent-help').textContent = '更改父 Worker 前先保存旧去向；明确选择后仍编辑同一草稿，提交时再次校验，不会静默改投 main。';
   for (const id of ['composer-menu-order', 'composer-menu-append', 'composer-menu-management', 'composer-choose-draft', 'composer-resume']) $(id).disabled = Boolean(ui.composerSubmitting);
