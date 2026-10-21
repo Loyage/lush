@@ -13,14 +13,14 @@ import { workerLabel } from './worker-label.js';
 import { renderTaskMessageBody } from './render-task-message.js';
 import { previewHistoryEvent } from './reading-projection.js';
 import { copyButton } from './clipboard.js';
-import { AGENT_OPERATIONS, renderAgentOperation } from './render-agent-operation.js';
+import { AGENT_OPERATIONS, OPERATION_CATEGORIES, isOperationCategory, renderAgentOperation } from './render-agent-operation.js';
 import { progressReportingEnabled } from './render-progress.js';
 
 const CONTENT_CATEGORIES = [
   ['input', '输入指令', true, 'var(--green)'],
   ['output', 'Agent 回复', true, 'var(--queued)'],
   ['decision', '决策摘要', true, 'var(--accent)'],
-  ['operation', 'Agent 操作', true, 'var(--queued)'],
+  ...OPERATION_CATEGORIES,
   ['unknown', '来源不明内容', false, 'var(--muted)'],
 ];
 
@@ -69,7 +69,7 @@ const decisionExcerpt = text => {
 const MAX_LOADED_CHARS = 4 * 1024 * 1024; // At most 8 MiB of UTF-16 reading text per panel.
 const MAX_LOADED_RECORDS = 5000;
 
-/** Content-only reader; lifecycle and typed Worker/system communication belong to the separate timeline. */
+/** Conversation plus opt-in durable collaboration records; system lifecycle/signals stay in the timeline. */
 export function renderConversation(task, history = {}, previous = null) {
   history ||= {};
   if (previous?.conversationTaskId === task.id) { previous.updateConversation(task, history); return previous; }
@@ -93,7 +93,7 @@ export function renderConversation(task, history = {}, previous = null) {
   for (const [category, text, initial, color] of CONTENT_CATEGORIES) {
     visible[category] = initial;
     const toggle = button(text, () => { visible[category] = !visible[category]; paint(); }, 'task-graph-status-toggle conversation-filter',
-      { help: category === 'operation' ? '显示或隐藏已保存的计划、步骤完成与自动标题操作，不是全部 lushw 调用审计；原始命令及工具结果在工作台查看，不调用 Agent。'
+      { help: isOperationCategory(category) ? `显示或隐藏${text}的已保存记录，默认关闭；同 Worker 刷新保留本页选择，不是全部 lushw 调用审计，不调用 Agent。`
         : `显示或隐藏${text}，计数仅指已加载记录；不应用尚未提交的关键词，不调用 Agent。` });
     toggle.dataset.conversationFilter = category; toggle.style.color = color;
     toggle.setAttribute('aria-pressed', String(initial)); toggles[category] = toggle; filters.append(toggle);
@@ -110,12 +110,12 @@ export function renderConversation(task, history = {}, previous = null) {
   paintSearch(false); searchToggle.setAttribute('aria-controls', `conversation-search-${task.id}`);
   ordering.append(sort.root); head.append(count); headingActions(head, ordering, searchToggle);
   const search = el('div', undefined, 'conversation-search'); search.id = `conversation-search-${task.id}`;
-  const searchControl = searchField({ label: '筛选输入输出', placeholder: '搜索输入、回复、决策与操作记录', scope: '范围：已加载完整内容与关键操作；全历史查找分批读取旧内容，不含其他系统元数据、生命周期、Worker 通信或执行过程', onSubmit: value => {
+  const searchControl = searchField({ label: '筛选输入输出', placeholder: '搜索输入、回复、决策与操作记录', scope: '范围：已加载完整内容与关键操作；全历史查找分批读取旧内容，不含其他系统元数据、生命周期、系统信号或执行过程', onSubmit: value => {
     cancelRead(); query = value.toLowerCase(); remoteQuery = null; remoteHits.clear();
     status.textContent = '仅筛选已加载完整正文；未加载或未读完的记录不计为无命中。'; paint();
   } });
   const findAll = button('查找全部历史', () => scanAll(), 'ghost', {
-    help: '显式分批遍历此 Worker 全部历史，只显示输入、回复、决策、关键操作及来源不明内容；生命周期与通信请到时间线阅读，可取消，不调用 Agent。',
+    help: '显式分批遍历此 Worker 全部历史，只显示输入、回复、决策、协作记录及来源不明内容；生命周期与系统信号请到时间线阅读，可取消，不调用 Agent。',
   });
   const cancel = button('取消查找', () => {
     const copying = cancel.textContent === '取消复制';
@@ -183,7 +183,7 @@ export function renderConversation(task, history = {}, previous = null) {
       body.addEventListener('focusin', () => setExpanded(true));
       node.revealReadingContent = () => setExpanded(true); node.updateExpansion = () => setExpanded(node.expanded);
       node.measureReadingContent = limit => {
-        if (node.entry?.category === 'operation') return; // Confirmed UI: every saved plan step is visible by default.
+        if (node.entry?.category === 'progress') return; // Explicitly selected plan records show every saved step.
         const height = body.querySelector('.conversation-prose')?.getBoundingClientRect?.().height;
         if (height == null || !limit) return;
         const long = height > Math.min(260, limit * 0.7) + 60;
@@ -196,7 +196,7 @@ export function renderConversation(task, history = {}, previous = null) {
       const decisionOpen = node.querySelector('.conversation-decision-details')?.open === true;
       const content = entry.side === 'other' ? el('div', undefined, 'conversation-prose')
         : agentText(entry.text, { className: 'conversation-prose', plain: 'div', copyCode: true });
-      if (entry.category === 'operation') content.append(renderAgentOperation(entry));
+      if (entry.operationType) content.append(renderAgentOperation(entry));
       else if (entry.category === 'decision') {
         const title = decision?.title || '标题未知';
         const identity = noticeNumber({ id: decision?.notice_id, kind: decision?.notice_kind });
@@ -238,22 +238,22 @@ export function renderConversation(task, history = {}, previous = null) {
       }
       node.classList.toggle('conversation-failed', Boolean(content.querySelector('.message-failed')));
       node.querySelector('.conversation-body').replaceChildren(content); node.bodySignature = signature;
-      const long = !['decision', 'operation'].includes(entry.category) && (entry.truncated || entry.text.length > 1200 || entry.text.split('\n').length > 12);
+      const long = !['decision', 'progress'].includes(entry.category) && (entry.truncated || entry.text.length > 1200 || entry.text.split('\n').length > 12);
       node.classList.toggle('conversation-long', long); node.querySelector('.conversation-expand').hidden = !long; node.updateExpansion();
     }
     const username = ui.hostSession.status === 'ready' ? ui.hostSession.username : null;
     node.dataset.conversationCategory = entry.category || entry.side;
-    node.classList.toggle('conversation-operation', entry.category === 'operation');
+    node.classList.toggle('conversation-operation', isOperationCategory(entry.category));
     node.classList.toggle('conversation-failed', Boolean(node.querySelector('.message-failed')));
     for (const side of ['input', 'output', 'other']) {
       node.classList.toggle(`conversation-${side}`, entry.side === side);
       node.querySelector('.conversation-avatar').classList.toggle(`avatar-${side}`, entry.side === side);
     }
     const submitter = inputIdentity(entry.inputSource, username);
-    node.querySelector('.conversation-avatar').textContent = entry.side === 'input' ? submitter.avatar : entry.side === 'other' ? entry.category === 'operation' ? '🤖' : entry.category === 'decision' ? '决' : '?' : '🤖';
+    node.querySelector('.conversation-avatar').textContent = entry.side === 'input' ? submitter.avatar : entry.side === 'other' ? entry.category === 'notification' ? '🔔' : isOperationCategory(entry.category) ? '🤖' : entry.category === 'decision' ? '决' : '?' : '🤖';
     node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? submitter.name
-      : entry.side === 'other' ? entry.source === 'unknown' ? '来源不明' : entry.senderId != null ? `Worker ${workerLabel(entry.senderId, entry.senderNumber)}`
-        : entry.source === 'user' ? '用户答复' : entry.source === 'lush' ? 'Lush 自动选择' : entry.source === 'agent' ? `${workTypeLabel(current)} ${workerLabel(current)}` : '来源不明' : `${workTypeLabel(current)} ${workerLabel(current)}`;
+      : entry.side === 'other' ? entry.category === 'notification' ? '通知记录' : entry.source === 'unknown' ? '来源不明' : entry.senderId != null ? `Worker ${workerLabel(entry.senderId, entry.senderNumber)}`
+        : entry.source === 'user' ? entry.category === 'decision' ? '用户答复' : '用户' : entry.source === 'lush' ? 'Lush 自动选择' : entry.source === 'agent' ? `${workTypeLabel(current)} ${workerLabel(current)}` : '来源不明' : `${workTypeLabel(current)} ${workerLabel(current)}`;
     const number = entry.key === 'goal' ? originalNumber(current.input_id) : entry.appendNumber;
     node.querySelector('.conversation-kind').textContent = entry.side === 'input'
       ? `${entry.kind}${number ? ` · ${number}` : entry.key !== 'goal' ? entry.messageId != null ? ` · 消息 #${entry.messageId}` : ' · 追加编号未知' : ''}` : entry.kind;
@@ -305,7 +305,7 @@ export function renderConversation(task, history = {}, previous = null) {
     const latestKey = current.result ? matched || 'latest' : null;
     const all = [...inputs.values(), ...results, ...others.values()].filter(entry => (entry.category !== 'decision'
       || ((current.notices || []).find(notice => notice.id === entry.decision?.notice_id)?.kind ?? noticeKinds.get(entry.decision?.notice_id)) !== 'info')
-      && !(entry.operationType?.startsWith('progress.') && !progressReportingEnabled()));
+      && !(entry.category === 'progress' && !progressReportingEnabled()));
     if (current.goal) all.push({ key: 'goal', side: 'input', kind: '原始目标', text: current.goal,
       inputSource: inputSourceOf({ input_source: current.goal_input_source }),
       delivery: current.goal_input_delivery, at: current.created_at, sequence: 0 });
@@ -380,6 +380,18 @@ export function renderConversation(task, history = {}, previous = null) {
       recordKind: decision || kind ? 'event' : message.id != null ? 'message' : 'event', recordId: decision || kind ? eventId : message.id ?? eventId, decision: decision ?? old?.decision,
       limitations: [...new Set([...(message.limitations || old?.limitations || []), ...(message.input_event?.limitations || [])])] });
   }
+  function addCommunication(message, event = null) {
+    if (!Number.isSafeInteger(message.sender_id) || message.sender_id <= 0 || message.signal_type
+      || typeof message.body !== 'string') return null;
+    const key = `communication:${message.id ?? `event:${event.id}`}`, old = others.get(key);
+    return storeEntry(others, { ...old, key, side: 'other', category: 'communication', source: 'worker', kind: '收到 Worker 消息',
+      text: message.body, messageId: message.id, eventId: event?.id ?? old?.eventId,
+      senderId: message.sender_id, senderNumber: message.sender_worker_number ?? old?.senderNumber,
+      at: event?.created_at ?? message.created_at ?? old?.at, sequence: event?.id ?? old?.sequence ?? message.id,
+      truncated: Boolean(message.text_truncated), totalChars: message.total_chars,
+      recordKind: event ? 'event' : old?.recordKind ?? 'message', recordId: event?.id ?? old?.recordId ?? message.id,
+      limitations: [...new Set([...(message.limitations || []), ...(event?.limitations || [])])] });
+  }
   function ingest(page = {}, includeCurrent = true) {
     const hits = [];
     for (const notice of [...(current.notices || []), ...(page.events || []).filter(event => event.type === 'notice.opened')
@@ -389,14 +401,17 @@ export function renderConversation(task, history = {}, previous = null) {
         && (noticeKinds.has(notice.id) || noticeKinds.size < MAX_LOADED_RECORDS)) noticeKinds.set(notice.id, notice.kind);
     }
     const excludedMessages = new Set((page.events || []).filter(event => event.type === 'task.signal'
-      || event.type === 'message' && (event.data?.sender != null || event.data?.signal_type || event.message?.signal_type)
+      || event.type === 'message' && (event.data?.signal_type || event.message?.signal_type)
       || /^notice\./.test(event.type) && (event.data?.notice_kind ?? event.data?.kind
         ?? noticeKinds.get(event.data?.notice_id)) === 'info')
       .map(event => event.data?.message_id ?? event.message?.id).filter(id => id != null));
     for (const message of [...(includeCurrent ? current.messages || [] : []), ...(page.messages || [])]) {
-      if (message.sender_id != null || message.signal_type) excludedMessages.add(message.id);
+      if (message.signal_type) excludedMessages.add(message.id);
     }
-    for (const id of excludedMessages) { if (excludedInbox.size < MAX_LOADED_RECORDS) excludedInbox.add(id); others.delete(`other:message:${id}`); }
+    for (const id of excludedMessages) {
+      if (excludedInbox.size < MAX_LOADED_RECORDS) excludedInbox.add(id);
+      others.delete(`other:message:${id}`); others.delete(`communication:${id}`);
+    }
     if (includeCurrent) for (const run of current.runs || []) if (typeof run.result === 'string' && run.result) {
       const key = `run:${run.id}`, old = outputs.get(key);
       storeEntry(outputs, { ...old, key, side: 'output', kind: `调用 #${run.id}`, text: run.result,
@@ -415,11 +430,23 @@ export function renderConversation(task, history = {}, previous = null) {
       let represented = false;
       if (Object.hasOwn(AGENT_OPERATIONS, event.type)) {
         represented = true;
-        hits.push(storeEntry(others, { key: `operation:${event.id}`, side: 'other', category: 'operation', source: 'agent',
-          kind: `Agent 操作 · ${AGENT_OPERATIONS[event.type]}`, operationType: event.type,
+        const operation = AGENT_OPERATIONS[event.type], provenance = event.type === 'worker.delegated' ? data.input_source : null;
+        hits.push(storeEntry(others, { key: `operation:${event.id}`, side: 'other', category: operation.category,
+          source: event.type === 'worker.delegated' ? provenance?.kind === 'user' ? 'user'
+            : ['worker', 'valet'].includes(provenance?.kind) ? 'agent' : 'unknown' : 'agent',
+          senderId: ['worker', 'valet'].includes(provenance?.kind) ? provenance.worker_id : null,
+          senderNumber: provenance?.worker_number,
+          kind: operation.label, operationType: event.type,
           eventId: event.id, text: event.reading_text ?? JSON.stringify(data), at: event.created_at, sequence: event.id,
           truncated: Boolean(event.text_truncated), totalChars: event.total_chars, recordKind: 'event', recordId: event.id,
           unreadable: event.error, limitations: event.limitations }));
+      }
+      if (event.type === 'message' && Number.isSafeInteger(data.sender) && data.sender > 0
+        && !data.signal_type && !event.message?.signal_type && !excludedInbox.has(data.message_id)
+        && (event.message?.sender_id == null || event.message.sender_id === data.sender)) {
+        const key = addCommunication({ ...event.message, id: data.message_id ?? event.message?.id, sender_id: data.sender,
+          body: data.body, created_at: event.created_at, text_truncated: event.text_truncated, total_chars: event.total_chars }, event);
+        if (key) { represented = true; hits.push(key); }
       }
       if (followup(event)) { represented = true; hits.push(addInput({ ...event.message, id: data.message_id ?? event.message?.id,
         body: data.body, append_number: data.append_number ?? event.message?.append_number,
@@ -468,6 +495,7 @@ export function renderConversation(task, history = {}, previous = null) {
       if (['user', 'valet', 'worker'].includes(source.kind) && !message.signal_type && message.sender_id == null) {
         hits.push(addInput(message, evidence?.type === 'message' && evidence.data?.sender === null ? evidence : null));
       }
+      else if (Number.isSafeInteger(message.sender_id) && message.sender_id > 0) hits.push(addCommunication(message));
       else hits.push(addOther(message));
     }
     const deliveries = new Map((page.events || []).flatMap(event => event.input_deliveries || []).map(delivery => [delivery.message_id, delivery]));
@@ -482,7 +510,7 @@ export function renderConversation(task, history = {}, previous = null) {
     if (!requested || entry.text.toLowerCase().includes(requested)) return true;
     if (entry.decision?.title?.toLowerCase().includes(requested)) return true;
     // Structured answers may contain escaped strings; user input remains exact text.
-    if (['decision', 'operation'].includes(entry.category)) {
+    if (entry.category === 'decision' || isOperationCategory(entry.category)) {
       try {
         const decoded = JSON.parse(entry.text);
         const strings = value => typeof value === 'string' ? value : value && typeof value === 'object' ? Object.values(value).map(strings).join('\n') : '';
@@ -565,7 +593,7 @@ export function renderConversation(task, history = {}, previous = null) {
       } while (!finished && read.valid());
       if (read.valid()) {
         if (!requested) { complete = true; eventCursor = 0; messageCursor = 0; }
-        status.textContent = `查找完成：已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息（已遍历此 Worker 收件箱与事件，仅检索输入输出及关键操作；生命周期、通信及其他系统元数据请到时间线，新记录需重新查找）。${remoteHits.size ? `历史命中 ${remoteHits.size} 条；分类筛选可能隐藏命中，长正文可继续读取。` : '输入输出历史正文无命中；原始目标与最新结果另按已加载正文筛选。'}`;
+        status.textContent = `查找完成：已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息（已遍历此 Worker 收件箱与事件，仅检索输入输出及协作记录；生命周期、系统信号及其他系统元数据请到时间线，新记录需重新查找）。${remoteHits.size ? `历史命中 ${remoteHits.size} 条；分类筛选可能隐藏命中，长正文可继续读取。` : '输入输出历史正文无命中；原始目标与最新结果另按已加载正文筛选。'}`;
       }
     } catch (error) { if (read.valid()) status.textContent = `查找失败，范围未完成：${error.message}；已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息。可重新查找，已读取内容保留。`; }
     finally { finishRead(read); paint(); }

@@ -27,7 +27,7 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
       await cli('children','message', String(child.id), '--', '--help');
       await expect(cli('self','notice','post','legacy question','--kind','question')).rejects.toThrow();
       await expect(cli('self','notice','notify','legacy form','--questions-file','unused.json')).rejects.toThrow();
-      const notice = await cli('self','notice','notify','runtime notice');
+      const notice = await cli('self','notice','notify','runtime notice','--body','saved report body');
       result = { self, child, notice };
     } catch (error) { failure = error; }
     entered.resolve(); await finish.promise; return 'runtime CLI verified';
@@ -50,6 +50,11 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
     expect(f.store.all("SELECT id FROM notices WHERE task_id=? AND title IN ('legacy question','legacy form')", task.id)).toHaveLength(0);
     const operations = f.store.history(task.id, 0);
     expect(operations.find(event => event.type === 'task.auto_titled').data.auto_title).toBe('协作操作记录');
+    expect(operations.find(event => event.type === 'worker.delegated').data).toMatchObject({ child_id: result.child.id,
+      child_worker_number: result.child.worker_number, goal: 'runtime delegated child' });
+    expect(operations.find(event => event.type === 'worker.message_sent').data).toMatchObject({ target_task_id: result.child.id,
+      target_worker_number: result.child.worker_number, content: '--help' });
+    expect(operations.find(event => event.type === 'notice.reported').data).toMatchObject({ title: 'runtime notice', content: 'saved report body' });
     const plan = operations.find(event => event.type === 'progress.plan').data.progress;
     const completed = operations.find(event => event.type === 'progress.completed').data.progress;
     expect(plan.frozen).toBe(true);

@@ -206,6 +206,8 @@ export default {
         this.store.event(task.id, 'task.fork_failed', { parent_id: parent.id, commit, error: error.message });
         throw new Error(`worker ${workerLabel(task)} fork failed; inspect its worktree: ${error.message}`);
       }
+      this.store.event(parent.id, 'worker.delegated', { child_id: task.id, child_worker_number: task.worker_number,
+        goal, commit, input_source: inputSource(this.store, source) });
       this.kick(); return this.store.task(task.id);
     });
   },

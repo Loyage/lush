@@ -1,7 +1,7 @@
 // Real Firefox + temporary Project/RPC/HTTP integration. No user daemon or model calls.
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { setup, fetch } from './harness.js';
 
@@ -11,6 +11,7 @@ const steps = revision => [{ key: 'inspect', label: `检查 ${revision}` }, { ke
 for (let i = 0; i < 13; i++) f.project.reportProgressPlan(task.id, steps(i));
 f.project.completeProgressStep(task.id, 'inspect');
 f.project.message(task.id, '追加开发'); f.project.reportProgressPlan(task.id, steps(12));
+f.store.event(task.id, 'task.auto_titled', { auto_title: '自动标题独立筛选' });
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
 const fixture = html.replace('</body>', `<script>
@@ -40,6 +41,7 @@ await window.refresh();window.ready=true;
 const requestedPaths = [];
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url); requestedPaths.push(url.pathname);
+  if (url.pathname === '/host') return new Response('<!doctype html><body style="margin:0"><iframe id="fixture" src="/" style="width:1440px;height:900px;border:0;display:block"></iframe></body>', { headers: { 'Content-Type': 'text/html' } });
   if (url.pathname === '/') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
   if (url.pathname.startsWith('/api/')) return fetch(f.url + url.pathname + url.search);
   if (url.pathname === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
@@ -78,6 +80,12 @@ async function click(selector) {
   const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
   await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
+async function viewport(width, height) {
+  await rpc(`/session/${session}/frame`, { id: null });
+  await execute(`const frame=document.getElementById('fixture');frame.style.width='${width}px';frame.style.height='${height}px';`);
+  const frame = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#fixture' });
+  await rpc(`/session/${session}/frame`, { id: frame });
+}
 try {
   let ready = false;
   for (let i = 0; i < 100; i++) {
@@ -88,35 +96,67 @@ try {
   assert(ready, 'geckodriver timeout');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox',
     'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
+  await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1100 });
+  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/host` });
+  await viewport(1440, 900);
   assert(await wait('window.ready'), 'fixture failed to load: '+JSON.stringify(await execute('return {errors:window.fixtureErrors,stage:window.fixtureStage,ready:document.readyState,resources:performance.getEntriesByType("resource").slice(-5).map(e=>e.name)};'))+' paths: '+JSON.stringify(requestedPaths.slice(-15)));
   assert(await execute(`return !document.querySelector('.progress-history-panel')&&
     document.querySelector('#detail>.task-progress-panel progress').value===0;`), 'plan module must only show the current reset plan');
   await click('.conversation-more');
+  assert(await execute(`return !document.querySelector('.conversation-operation')&&
+    ['progress','auto_title','delegation','communication','notification'].every(key=>document.querySelector('[data-conversation-filter="'+key+'"]').getAttribute('aria-pressed')==='false');`), 'collaboration records must be opt-in');
+  await click('[data-conversation-filter="progress"]');
   assert(await wait(`document.querySelectorAll('.conversation-operation').length===28`), 'real operation history reading failed');
+  assert(await execute(`const record=[...document.querySelectorAll('.conversation-operation')].find(n=>n.entry.operationType==='progress.completed');
+    return record.querySelectorAll('li').length===0&&record.querySelector('progress').value===1&&record.querySelector('progress').max===2
+      &&record.querySelector('.operation-completed-name').textContent==='检查 12';`), 'completion must show only the completed name and saved completion meter');
   assert(await execute(`return [...document.querySelectorAll('.conversation-operation')].every(n=>!n.classList.contains('conversation-long'))&&
     document.querySelectorAll('.conversation-operation-steps li').length>=54;`), 'full plan steps are not visible by default');
-  for (const [width, height] of [[1440,900],[390,700],[320,560]]) {
-    await rpc(`/session/${session}/window/rect`, { width, height });
-    assert(await execute(`const n=document.querySelector('#detail');return n.scrollWidth<=n.clientWidth+1;`), 'horizontal overflow');
-    console.log('PASS history layout', width, height);
-  }
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  assert(await execute(`window.old=document.querySelector('.conversation-operation');window.oldText=window.old.textContent;
-    window.tick();return window.old.textContent===window.oldText&&
-    !document.querySelector('.conversation-operation .is-running-duration');`), 'history is not frozen');
-  assert(await wait(`!document.querySelector('.conversation-panel .detail-preview-toggle').hidden`), 'long operation history has no module preview control');
+  assert(await wait(`!document.querySelector('.conversation-panel .detail-preview-toggle').hidden`), 'long progress history needs a module preview control');
   if (!await execute(`return document.querySelector('.conversation-panel').classList.contains('detail-preview-expanded');`)) {
     await click('.conversation-panel .detail-preview-toggle');
   }
+  for (const theme of ['light', 'dark']) {
+  await execute(`document.documentElement.dataset.theme='${theme}';`);
+  for (const [width, height] of [[1440,900],[390,700],[320,560]]) {
+    await viewport(width, height);
+    assert(await execute(`const n=document.querySelector('#detail');return innerWidth===${width}&&n.scrollWidth<=n.clientWidth+1&&
+      [...document.querySelectorAll('.conversation-filter')].every(n=>getComputedStyle(n).display!=='none'&&(${width}>760||n.getBoundingClientRect().height>=44));`), 'horizontal overflow, wrong viewport or inaccessible filters');
+    assert(await execute(`const root=document.querySelector('.operation-completion'),meter=root.querySelector('progress'),name=root.querySelector('.operation-completed-name');
+      const r=root.getBoundingClientRect(),m=meter.getBoundingClientRect(),n=name.getBoundingClientRect();
+      const fill=getComputedStyle(meter,'::-moz-progress-bar').backgroundColor;
+      return m.height>=6&&m.left>=r.left&&m.right<=r.right+1&&m.bottom<=r.bottom+1&&n.right<=r.right+1
+        &&fill!=='rgba(0, 0, 0, 0)'&&fill!=='transparent';`), 'completion meter must have a visible fill and remain fully contained at every width');
+    if (process.env.BROWSER_ARTIFACTS) {
+      await execute(`document.querySelector('#composer-launcher').style.visibility='hidden';`);
+      await mkdir(process.env.BROWSER_ARTIFACTS, { recursive: true });
+      for (const [name, selector] of [['plan', '.operation-step-line'], ['completion', '.operation-completion']]) {
+        await execute(`document.querySelector('${selector}').closest('.conversation-message').scrollIntoView({block:'center'});`);
+        const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector === '.operation-step-line' ? '[data-conversation-category="progress"]' : '.operation-completion' });
+        const png = await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/screenshot`, undefined, 'GET');
+        await Bun.write(join(process.env.BROWSER_ARTIFACTS, `${name}-${theme}-${width}.png`), Buffer.from(png, 'base64'));
+      }
+    }
+    if (process.env.BROWSER_ARTIFACTS) await execute(`document.querySelector('#composer-launcher').style.visibility='';`);
+    console.log('PASS opt-in categories and progress layout', theme, width, height);
+  }
+  }
+  await execute(`document.documentElement.dataset.theme='light';`);
+  await viewport(1440, 900);
+  assert(await execute(`window.old=document.querySelector('.conversation-operation');window.oldText=window.old.textContent;
+    window.tick();return window.old.textContent===window.oldText&&
+    !document.querySelector('.conversation-operation .is-running-duration');`), 'history is not frozen');
   assert(await execute(`return document.querySelector('.conversation-more').hidden;`), 'exhaustion not shown');
   await execute(`return window.refresh();`);
   assert(await execute(`return document.querySelectorAll('.conversation-operation').length===28&&
     document.querySelector('.conversation-operation')===window.old;`), 'refresh lost operation nodes');
-  await click('[data-conversation-filter="operation"]');
-  assert(await wait(`!document.querySelector('.conversation-operation')`), 'operation filter failed: '+JSON.stringify(await execute(`return {pressed:document.querySelector('[data-conversation-filter="operation"]').getAttribute('aria-pressed'),count:document.querySelectorAll('.conversation-operation').length,errors:window.fixtureErrors};`)));
-  await click('[data-conversation-filter="operation"]');
-  assert(await execute(`return document.querySelectorAll('.conversation-operation').length===28;`), 'operation filter lost loaded history');
+  await click('[data-conversation-filter="progress"]');
+  assert(await wait(`!document.querySelector('.conversation-operation')`), 'progress filter failed');
+  await click('[data-conversation-filter="auto_title"]');
+  assert(await execute(`return document.querySelectorAll('.conversation-operation').length===1&&document.querySelector('.conversation-operation').dataset.conversationCategory==='auto_title';`), 'automatic titles are not independently selectable');
+  await click('[data-conversation-filter="auto_title"]');
+  await click('[data-conversation-filter="progress"]');
+  assert(await execute(`return document.querySelectorAll('.conversation-operation').length===28;`), 'progress filter lost loaded history');
   f.project.message(task.id, '再次追加'); f.project.reportProgressPlan(task.id, steps(12));
   await execute(`return window.refresh();`);
   // Refresh signals the changed range; only an explicit history read acquires new records.

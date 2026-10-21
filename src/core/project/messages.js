@@ -110,6 +110,8 @@ export default {
         : this.store.message(target.id, body, sender, held ? 'frozen' : null);
       const { append_number } = this.store.get('SELECT append_number FROM messages WHERE id=?', messageId);
       this.store.event(target.id, 'message', { sender, body, message_id: messageId, append_number, user_append: sender === null && userAppend && source.kind === 'user', input_source: source });
+      if (sender !== null) this.store.event(sender, 'worker.message_sent', { target_task_id: target.id,
+        target_worker_number: target.worker_number, target_message_id: messageId, content: body });
       if (held) this.store.event(target.id, 'task.input_buffered', { message_id: messageId });
       else if (sender === null) this.store.event(target.id, 'task.input_routed', { message_id: messageId,
         delivery: routing.decision.delivery, source: routing.decision.source, error: routing.error });
@@ -163,7 +165,7 @@ export default {
       // A durable source makes user-requested reports visible in the existing unread inbox.
       // This is not a lifecycle transition and must never park/abort or auto-answer the invocation.
       return this.store.transaction(() => {
-        const source = this.store.event(task.id, 'notice.reported', { title, kind: 'info' });
+        const source = this.store.event(task.id, 'notice.reported', { title, kind: 'info', content: body });
         return this.notify(task.id, title, body, source);
       });
     }
