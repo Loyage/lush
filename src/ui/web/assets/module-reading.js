@@ -2,7 +2,7 @@
 const inside = (root, node) => { for (let at = node; at; at = at.parentNode) if (at === root) return true; return false; };
 const rect = node => node?.getBoundingClientRect?.();
 const pageMode = () => globalThis.window?.matchMedia?.('(max-width: 760px)')?.matches === true;
-const candidatesOf = content => [...new Set(['p', 'pre', 'li', 'summary', '.task-message', '.progress-history-version', '.conversation-message']
+const candidatesOf = content => [...new Set(['p', 'pre', 'li', 'summary', '.task-message', '.conversation-message']
   .flatMap(selector => [...content.querySelectorAll(selector)]))]
   .filter(node => {
     // Full message text remains in the DOM, but clipped paragraphs are not visible anchors.

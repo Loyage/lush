@@ -294,13 +294,14 @@ export default {
     if (current && !current.started_at) current.started_at = now;
     const preserved = progress.items.filter(item => item.status === 'completed').length;
     this.store.transaction(() => {
+      const runs = this.store.all('SELECT started_at,ended_at FROM agent_runs WHERE task_id=? ORDER BY id LIMIT 1000', task.id);
       if (previous && (newInput || changed)) {
-        const runs = this.store.all('SELECT started_at,ended_at FROM agent_runs WHERE task_id=? ORDER BY id LIMIT 1000', task.id);
         this.store.event(task.id, 'progress.archived', { archived_at: now, reason: newInput ? 'new_input' : 'replan',
           progress: freezeProgress(previous, runs, task, nowMs) });
       }
       this.store.setProgressPlan(task.id, { ...progress, input_message_id: Math.max(input, previousInput) });
-      this.store.event(task.id, 'progress.plan', { steps: progress.items.map(item => ({ key: item.key, label: item.label })), preserved });
+      this.store.event(task.id, 'progress.plan', { steps: progress.items.map(item => ({ key: item.key, label: item.label })), preserved,
+        progress: freezeProgress(progress, runs, task, nowMs) });
     });
     return { task_id: task.id, progress };
   },
@@ -345,7 +346,9 @@ export default {
     this.store.transaction(() => {
       this.store.setProgressPlan(task.id, { ...progress,
         ...(inputMarker(task.progress_plan) !== null ? { input_message_id: inputMarker(task.progress_plan) } : {}) });
+      const runs = this.store.all('SELECT started_at,ended_at FROM agent_runs WHERE task_id=? ORDER BY id LIMIT 1000', task.id);
       this.store.event(task.id, 'progress.completed', { step: key, label: item.label, duration_ms: item.duration_ms,
+        progress: freezeProgress(progress, runs, task, Date.parse(now)),
         completed: progress.items.filter(step => step.status === 'completed').length, total: progress.items.length,
         timing_unknown: item.timing_unknown === true,
         unconfirmed: progress.items.filter(step => step.unconfirmed).map(step => step.key) });

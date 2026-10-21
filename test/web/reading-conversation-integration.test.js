@@ -15,6 +15,11 @@ test('real HTTP reading projections preserve submitters, locate an input and sea
   const eventId = f.store.event(task.id, 'message', { sender: null, message_id: messageId, append_number: 'A8-1' });
   const valetMessage = f.store.message(task.id, '管家挂载追加');
   f.store.event(task.id, 'message', { sender: null, message_id: valetMessage, body: '管家挂载追加', input_source: source, user_append: false });
+  f.project.reportProgressPlan(task.id, [{ key: 'inspect', label: '完整步骤 needle' }, { key: 'test', label: '验证' }]);
+  f.project.completeProgressStep(task.id, 'inspect');
+  f.project.reportProgressPlan(task.id, [{ key: 'ship', label: '交付新计划' }]);
+  const titleId = f.store.event(task.id, 'task.auto_titled', { auto_title: '协作记录 needle' });
+  const legacyPlanId = f.store.event(task.id, 'progress.plan', { steps: [{ key: 'old', label: '旧计划步骤' }] });
   const user = f.store.create({ role: 'agent', goal: 'user goal', input_source: { kind: 'user' } });
   const legacy = f.store.create({ role: 'agent', goal: 'old goal without source' });
   const inspect = async id => (await httpFetch(`${f.url}/api/worker/${id}`)).json();
@@ -34,6 +39,26 @@ test('real HTTP reading projections preserve submitters, locate an input and sea
     await findByText(root, '加载更早输入输出').onclick();
     expect(root.querySelectorAll('.conversation-input').find(node => node.entry.messageId === valetMessage)
       .querySelector('.conversation-sender').textContent).toBe(`管家 ${valet.worker_number}`);
+    const operation = root.querySelector(`[data-conversation-key="operation:${titleId}"]`);
+    expect(deepText(operation)).toContain('已设置自动标题：协作记录 needle');
+    expect(operation.dataset.conversationCategory).toBe('operation');
+    expect(root.querySelector('[data-conversation-filter="operation"]').getAttribute('aria-pressed')).toBe('true');
+    const plan = root.querySelectorAll('.conversation-operation').find(node => node.entry.operationType === 'progress.plan'
+      && node.entry.text.includes('完整步骤 needle'));
+    expect(plan.querySelectorAll('li')).toHaveLength(2);
+    expect(deepText(plan)).toContain('当时未完成');
+    expect(plan.classList.contains('conversation-long')).toBe(false);
+    expect(plan.querySelector('.conversation-expand').hidden).toBe(true);
+    const archived = root.querySelectorAll('.conversation-operation').find(node => node.entry.operationType === 'progress.archived');
+    expect(deepText(archived)).toContain('已完成'); expect(deepText(archived)).toContain('完整步骤 needle');
+    const old = root.querySelector(`[data-conversation-key="operation:${legacyPlanId}"]`);
+    expect(deepText(old)).toContain('状态未知'); expect(deepText(old)).not.toContain('交付新计划');
+    await root.querySelector('[data-conversation-filter="operation"]').onclick();
+    expect(root.querySelectorAll('.conversation-operation')).toHaveLength(0);
+    expect(await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: titleId } })).toBe(operation);
+    expect(root.querySelector('[data-conversation-filter="operation"]').getAttribute('aria-pressed')).toBe('true');
+    expect(renderConversation(detail, {}, root)).toBe(root);
+    expect(root.querySelector(`[data-conversation-key="operation:${titleId}"]`)).toBe(operation);
     const input = await root.revealConversationReference({ kind: 'message', target: { task_id: task.id, message_id: messageId } });
     expect(input.dataset.conversationKey).toBe(`input:${eventId}`); expect(deepText(input)).toContain('needle 输入');
     expect(input.querySelector('.conversation-sender').textContent).toBe('测试用户');
@@ -46,6 +71,8 @@ test('real HTTP reading projections preserve submitters, locate an input and sea
     await findByText(root, '查找全部历史').onclick();
     expect(deepText(root)).toContain('查找完成'); expect(root.querySelectorAll('.conversation-input')).toHaveLength(1);
     expect(root.querySelector('.conversation-input').dataset.ref).toContain(`event-${eventId}`);
+    expect(deepText(root.querySelector('.conversation-list'))).toContain('协作记录 needle');
+    expect(deepText(root.querySelector('.conversation-list'))).toContain('完整步骤 needle');
     expect(f.store.get('SELECT consumed FROM messages WHERE id=?', messageId).consumed).toBe(0);
     const timeline = renderWorkerTimeline(task);
     await findByText(timeline, '加载更早时间线').onclick();

@@ -31,7 +31,6 @@ import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText } from './worker-input.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
-import { renderProgressHistory } from './render-progress-history.js';
 import { noticePanel } from './render-notices.js';
 import { settledDecision } from './choice-snapshot.js';
 import { renderResolutions } from './render-resolutions.js';
@@ -79,15 +78,12 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const moreActionsOpen = sameTask && panel.querySelector('.worker-action-more')?.open === true;
   const previousConversation = sameTask ? panel.querySelector('.conversation-panel') : null;
   const previousTimeline = sameTask ? panel.querySelector('.worker-timeline-panel') : null;
-  const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
   const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
   const previousCalls = sameTask ? panel.querySelector('.management-calls') : null;
   const restoreCallsInteraction = captureCallsInteraction(previousCalls);
   panel.querySelector('.management-calls')?.disposeCalls?.();
-  const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
-    .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') || panel.querySelector('.worker-hooks[data-convergence-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
@@ -309,12 +305,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     else show('对应回复尚未加载或本轮没有回复；可在输入输出中加载更早内容。', 'info');
   } });
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
-  let progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
-  const progressHistory = renderProgressHistory(task, previousProgressHistory);
-  if (progressHistory) {
-    progress ||= block('计划');
-    progress.append(progressHistory);
-  }
+  const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
   if (conversation) panel.append(conversation);
   panel.append(timeline);
@@ -415,15 +406,14 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   panel.append(...(relations ? [relations] : []), stats, ...supplemental);
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
-  if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
   restoreCallsInteraction();
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
   conversation?.bindConversationLifetime(progressive.signal, progressive.current);
   timeline.bindTimelineLifetime(progressive.signal, progressive.current);
-  // Existing explicit history pagers start their GET synchronously. Bind them to this view,
-  // including reused conversation/progress nodes, without changing their write/action contracts.
-  if (progressive.signal) for (const area of [conversation, timeline, progressHistory]) {
+  // Existing explicit history pagers start their GET synchronously. Bind reused readers to this view
+  // without changing their write/action contracts.
+  if (progressive.signal) for (const area of [conversation, timeline]) {
     for (const control of area?.querySelectorAll('button') || []) {
       const start = readingHandlers.get(control) || control.onclick;
       if (typeof start !== 'function') continue;

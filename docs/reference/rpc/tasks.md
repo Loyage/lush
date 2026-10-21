@@ -125,6 +125,8 @@ summary 白名单提供明确 worker_number、父编号、标题、goal 前 200 
 
 每次步骤增删、改名或换序，替换前的完整状态保存为 `progress.archived` Event，reason 为 `replan`。已实际投递普通用户追加输入后的首次 plan，reason 为 `new_input`，即使步骤完全相同也归档并重置同 key 的完成态、漏报标记与计时；同一次工作调整保留稳定 key 状态。重复同形 plan 不增加历史。运行中尚未投递的输入、Notice 答复、Agent 消息和子 Worker 信号不开始新工作。精确 Message/Event 投递身份判定，不按正文、时间或 invocation 次数猜测；失败后的同一输入重复投递不二次重置，已收到但尚未重新规划的边界跨重启保留。
 
+新写入的 `progress.plan` 和 `progress.completed` Event 也附带本次操作完成时的冻结 `progress`，供输入输出回看完整步骤与当时状态；原有 steps／step 等字段保留，不回填旧 Event。这不是全部 CLI 调用审计，命令文本及未成功的尝试仍须查看执行记录。
+
 归档 `progress` 携带 `frozen:true,frozen_at`（与 archived_at 相同），步骤状态仍是归档时状态；`work_ms` / `wait_ms` / `duration_ms` 在归档时冻结，`active_since` / `waiting_since` 为 null，未知耗时仍为 null。旧历史不重建或回填，不用后续调用重新投影旧计划，也不由浏览器继续计时。`progress_reporting=false` 时历史读面为空 `{items:[],cursor:null,has_more:false,limit}`，存储 Event 保留，再开启可读。
 
 ## 目标与追加输入的投递时间

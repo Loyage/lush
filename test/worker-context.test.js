@@ -20,6 +20,9 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
     try {
       expect((await cli('help','self','show')).id).toBe('self.show');
       const self = await cli('self','show');
+      await cli('self','title','协作操作记录');
+      await cli('self','progress','plan','inspect:确认现状','test:测试');
+      await cli('self','progress','complete','inspect');
       const child = await cli('children','spawn','runtime delegated child','--name','runtime-child');
       await cli('children','message', String(child.id), '--', '--help');
       await expect(cli('self','notice','post','legacy question','--kind','question')).rejects.toThrow();
@@ -45,6 +48,15 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
     expect(f.store.unread(result.child.id)).toMatchObject([{ sender_id: task.id, body: '--help' }]);
     expect(f.store.get('SELECT task_id,title,kind,status FROM notices WHERE id=?', result.notice.id)).toEqual({ task_id: task.id, title: 'runtime notice', kind: 'info', status: 'sent' });
     expect(f.store.all("SELECT id FROM notices WHERE task_id=? AND title IN ('legacy question','legacy form')", task.id)).toHaveLength(0);
+    const operations = f.store.history(task.id, 0);
+    expect(operations.find(event => event.type === 'task.auto_titled').data.auto_title).toBe('协作操作记录');
+    const plan = operations.find(event => event.type === 'progress.plan').data.progress;
+    const completed = operations.find(event => event.type === 'progress.completed').data.progress;
+    expect(plan.frozen).toBe(true);
+    expect(plan.items[0].status).toBe('pending');
+    expect(completed.items[0].status).toBe('completed');
+    expect(completed.items[1].status).toBe('pending');
+    expect(completed.items.every(item => !item.active_since && !item.waiting_since)).toBe(true);
     const run = f.project.running.get(task.id); finish.resolve(); await run.promise;
     await expect(new Dispatcher(f.project).dispatch('context.inspect', { _token: runtimeToken })).rejects.toThrow('invalid or expired');
   } finally { finish.resolve(); await rpc?.close(); await f.close(); }
