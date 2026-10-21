@@ -58,27 +58,27 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
     if (task.integration_error) panel.append(el('p', task.integration_error, 'hint'));
     if (state === 'requested') controls.append(button('复查合并队列', async () => {
       await action('worker.reserve', { id: task.id, kind: 'merge' }); await refresh();
-    }, 'ghost', { agent: true, help: agentHelp('重新检查固定的合并请求；若上次失败，受检重试，绝不重复提交已落地的 Squash；分歧时唤醒原 Agent。') }));
+    }, 'ghost', { help: '重新检查固定的合并请求；若上次失败，受检重试，绝不重复提交已落地的 Squash，不启动新的 Agent；分歧时唤醒原 Agent。' }));
     const active = !['completed','failed','cancelled','awaiting_acceptance'].includes(task.status);
     if (reservation?.queue_protocol === 1 && ['suspended','blocked'].includes(state) && task.status === 'waiting') {
       controls.append(button(state === 'suspended' ? '恢复合并' : '受检复查落地', async () => {
         await action('worker.reserve', { id: task.id, kind: 'merge' }); await refresh();
-      }, 'ghost', { agent: true, help: agentHelp(state === 'suspended'
-        ? '重新核验源安全点并排队，重新固定成果与本次尝试、固定当前父基线；不复用旧修复回复，分歧时唤醒源 Agent。'
-        : '仅凭精确提交核对落地；未知父侧现场继续阻塞，不重放 Git 写入。确认父分支干净且未写入后才能重排，分歧时可能调用源 Agent。') }));
+      }, 'ghost', { help: state === 'suspended'
+        ? '重新核验源安全点并排队，重新固定成果与本次尝试、固定当前父基线；不启动新的 Agent，不复用旧修复回复，分歧时唤醒源 Agent。'
+        : '仅凭精确提交核对落地；未知父侧现场继续阻塞，不重放 Git 写入。确认父分支干净且未写入后才能重排，不启动新的 Agent，分歧时可能调用源 Agent。' }));
     }
     const canOffer = !state || state === 'pending' || (state === 'integrated' && active);
     if (canOffer && active && task.merge_readiness?.ready === true) {
       controls.append(button('合并', async () => {
         const confirmed = await confirmDialog({ title: `合并 Worker ${workerLabel(task)}？`,
           message: '复核本轮成果与 Git 条件后冻结源 Worker 的普通开发，由父 Worker 自有队列的 runtime 按入队顺序串行处理（代码依赖优先），向父分支写入一条 Squash 提交。不创建 merge Worker、不改变父子关系，也不额外调用父 Agent；包括 main 在内无需再次人工批准。取得父执行位后才固定父基线；分歧时自动唤醒原 Worker 在源侧修复并保留该执行位。挂起释放执行位，恢复重新排队并固定新基线。条件不满足时保留本次请求意图并显示原因；不会改变跨轮保留的自动合并设置。成功后进入待验收并暂时保留源分支与 worktree；验收表示不再有异议，同时归档并回收开发资源，保留运行历史。',
-          confirmLabel: '合并', agent: true,
-          confirmHelp: agentHelp('请求合并本轮成果；存在分歧时唤醒原 Worker 的 Agent 处理。') });
+          confirmLabel: '合并',
+          confirmHelp: '请求合并本轮成果，不启动新的 Agent；存在分歧时唤醒原 Worker 的 Agent 处理。' });
         if (!confirmed) return;
         const booked = await action('worker.reserve', { id: task.id, kind: 'merge' });
         show(`Worker ${workerLabel(task)} ${booked.reservation?.status === 'requested' ? '已发起合并请求' : '已提交合并意图，请查看合并状态'}`);
         await refresh();
-      }, 'ghost', { agent: true, help: agentHelp('尝试合并本轮成果；仍须复核 Git 与安全条件，不满足时保留请求意图并显示原因，分歧会唤醒原 Agent。') }));
+      }, 'ghost', { help: '尝试合并本轮成果，不启动新的 Agent；仍须复核 Git 与安全条件，不满足时保留请求意图并显示原因，分歧会唤醒原 Agent。' }));
     }
 
     const protectedAutomaticIntent = reservation?.auto_merge === true && task.auto_merge?.enabled === true;

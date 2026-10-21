@@ -5,6 +5,7 @@ import { installDom, dialogButton, deepText } from '../dom-stub.js';
 import { mountCard, workerHooks } from '../../src/ui/web/assets/render-hooks.js';
 import { openProjectAutomation } from '../../src/ui/web/assets/render-project-automation.js';
 import { ui } from '../../src/ui/web/assets/state.js';
+import { deliveryControls } from '../../src/ui/web/assets/render-delivery.js';
 import { registeredMountPicker } from '../../src/ui/web/assets/automation-registry.js';
 
 test('real automation DOM saves project defaults through HTTP/RPC and applies them to future Workers', async () => {
@@ -26,6 +27,38 @@ test('real automation DOM saves project defaults through HTTP/RPC and applies th
     expect(f.project.taskHooks(old.id).completion.level).toBe('off');
     const fresh = (await f.project.order('future', 'main', [], null, false)).task;
     expect(f.project.taskHooks(fresh.id).completion.level).toBe('accept');
+    // Reuse the real settings flow for compact Worker controls and their existing save gates.
+    ui.view = { id: 'task', key: String(old.id) };
+    let worker;
+    const refresh = () => { worker = workerHooks({ ...old, hooks: f.project.taskHooks(old.id) }, { refresh }); root.replaceChildren(worker); };
+    refresh();
+    expect(worker.classList.contains('ui-module')).toBe(true);
+    expect(worker.querySelector('.module-body').hidden).toBe(true);
+    expect(worker.querySelector('.module-body').querySelector('[data-level="merge"]')).toBeNull();
+    expect(worker.querySelector('.hook-management-toggle')).toBeNull();
+    expect(worker.querySelector('[data-level="merge"]').classList.contains('agent-call')).toBe(false);
+    await worker.querySelector('[data-level="merge"]').onclick();
+    expect(f.project.taskHooks(old.id).completion.level).toBe('merge');
+    expect(worker.querySelector('.module-body').hidden).toBe(true);
+    worker.querySelector('.module-toggle').onclick();
+    const management = worker.querySelector('.hook-management');
+    expect(management.open).toBe(true);
+    refresh(); expect(worker.querySelector('.hook-management').open).toBe(true);
+    const accepting = worker.querySelector('[data-level="accept"]').onclick();
+    expect(dialogButton(dom, '授权自动验收').classList.contains('agent-call')).toBe(false);
+    await dialogButton(dom, '授权自动验收').onclick(); await accepting;
+    expect(f.project.taskHooks(old.id).completion.level).toBe('accept');
+    expect(writes.slice(-2).map(write => write.method)).toEqual(['worker.completion', 'worker.completion']);
+    worker.querySelector('.module-toggle').onclick();
+    expect(worker.querySelector('.module-body').hidden).toBe(true);
+    worker.querySelector('.hook-management').open = true;
+    expect(worker.querySelector('.module-body').hidden).toBe(false);
+    const delivery = deliveryControls({ ...old, status: 'waiting', merge_readiness: { ready: true } });
+    root.append(delivery); const merge = delivery.querySelectorAll('button').find(node => node.textContent === '合并');
+    expect(merge.classList.contains('agent-call')).toBe(false);
+    const merging = merge.onclick();
+    expect(dialogButton(dom, '合并').classList.contains('agent-call')).toBe(false);
+    await dialogButton(dom, '取消').onclick(); await merging;
   } finally { ui.disposeProjectAutomation?.(); dom?.restore(); await f.close(); }
 });
 

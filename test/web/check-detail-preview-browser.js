@@ -167,7 +167,8 @@ try {
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
     assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),timeline=document.querySelector('.worker-timeline-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
-      if(filters.length!==4||filters.slice(0,3).some(n=>n.getAttribute('aria-pressed')!=='true')||filters[3].getAttribute('aria-pressed')!=='false'||root.querySelector('[data-conversation-filter="lifecycle"]')||root.textContent.includes('来自子 Worker 的通信'))throw new Error('input/output boundaries');
+      if(filters.map(n=>n.dataset.conversationFilter).join('/')!=='input/output/decision/operation/unknown'||filters.some(n=>n.getAttribute('aria-pressed')!==String(n.dataset.conversationFilter!=='unknown'))||root.querySelector('[data-conversation-filter="lifecycle"]')||root.textContent.includes('来自子 Worker 的通信'))throw new Error('input/output boundaries');
+      if(!root.querySelector('[data-conversation-key="operation:84"]')||root.querySelector('.conversation-operation.conversation-long')||document.querySelector('.progress-history-panel'))throw new Error('Agent operations must share input/output without restoring the retired plan history');
       if(!filters[0].textContent.includes('输入指令')||root.querySelector('[data-conversation-key="input:message:1"] .conversation-sender')?.textContent!=='管家 V42')throw new Error('input submitter identity');
       const advanced=timeline.querySelector('.lifecycle-advanced');if(advanced.open)throw new Error('advanced open by default');
       if(!timeline.querySelector('.lifecycle-current')||!timeline.querySelector('[data-lifecycle-key="point:83"]')?.textContent.includes('合并失败诊断'))throw new Error('lifecycle default facts');
@@ -206,7 +207,7 @@ try {
       assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
     assert(await execute(`const root=document.querySelector('.conversation-panel');
-      return root.querySelector('.conversation-filters').querySelectorAll('button').length===4&&
+      return root.querySelector('.conversation-filters').querySelectorAll('button').length===5&&
         !['只看 Agent 回复','只看我的输入','恢复默认内容'].some(text=>[...root.querySelectorAll('button')].some(n=>n.textContent===text));`), 'duplicate filter shortcuts retained');
     const previewReading = await execute(`const root=document.querySelector('.conversation-panel'),body=root.querySelector('.detail-preview-body').getBoundingClientRect(),
       prose=root.querySelector('.conversation-prose').getBoundingClientRect();

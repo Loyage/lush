@@ -1,5 +1,5 @@
 import { el, button, badge, block } from './dom.js';
-import { paintDisclosure } from './view-controls.js';
+import { enhanceModule } from './shared-module.js';
 import { api, action, projectApi } from './api.js';
 import { ui } from './state.js';
 import { detail } from './navigate.js';
@@ -30,7 +30,7 @@ const workerFeatureStates = new WeakMap();
 function featureStates(document, identity, project, taskId) {
   let state = workerFeatureStates.get(document);
   if (!state || state.identity !== identity || state.project !== project || state.taskId !== taskId) {
-    state = { identity, project, taskId, management: null, pushIdentity: null, titles: new Map() };
+    state = { identity, project, taskId, pushIdentity: null, titles: new Map(), modules: new Map([['automation', false]]) };
     workerFeatureStates.set(document, state);
   }
   return state;
@@ -147,7 +147,7 @@ function acceptanceNoticeControl(task, model, refresh = () => {}, ownsPage = () 
   }
   if (!valid(setting)) { node.append(status); paint(); return node; }
   for (const enabled of [false, true]) {
-    const control = button(enabled ? '开启' : '关闭', () => save(enabled), 'hook-completion-level'); control.dataset.noticeEnabled = String(enabled);
+    const control = button(enabled ? '开启告知' : '关闭告知', () => save(enabled), 'hook-completion-level'); control.dataset.noticeEnabled = String(enabled);
     const host = el('span', undefined, 'help-host'); host.append(control); choices.push({ enabled, control, host }); group.append(host);
     const clicked = control.onclick; control.onclick = async () => { await clicked(); paint(); };
   }
@@ -339,10 +339,9 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
       : task.auto_merge ? `自动合并 ${task.auto_merge.enabled ? '已启用' : '未启用'}` : '自动合并状态未知', 'hint'));
     return row;
   }
-  const section = el('section', undefined, 'block worker-hooks');
+  const section = block('自动化'); section.classList.add('worker-hooks');
   section.setAttribute('aria-label', 'Worker 自动化'); section.dataset.workerId = String(task.id);
   const row = el('div', undefined, 'worker-hooks-row');
-  row.append(el('strong', '自动化', 'worker-hooks-label'));
   const featureState = featureStates(ownerDocument, identity, project, task.id);
   const pushIdentity = model?.push;
   if (Number.isSafeInteger(pushIdentity?.worker_id) && pushIdentity.worker_id > 0
@@ -396,18 +395,12 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   }
   const management = el('div', undefined, 'hook-management');
   management.id = `worker-hooks-management-${task.id}`;
-  const toggle = button('高级与记录', () => { management.open = !management.open; }, 'ghost hook-management-toggle');
-  toggle.setAttribute('aria-controls', management.id);
-  // Keep one open-state seam for detail refreshes and programmatic editor expansion.
+  let moduleView;
+  // Existing editor/reference callers reveal the same shared module, never a second fold.
   Object.defineProperty(management, 'open', {
-    get: () => !management.hidden,
-    set(value) {
-      management.hidden = !value;
-      paintDisclosure(toggle, Boolean(value), { expand: '高级与记录', collapse: '收起高级与记录', help: '只展开或收起高级设置与运行记录；保留当前编辑，不提交设置或调用 Agent。' });
-    },
+    get: () => moduleView?.expanded ?? !management.hidden,
+    set(value) { management.hidden = !value; moduleView?.setExpanded(value); },
   });
-  management.open = featureState.management?.open === true;
-  featureState.management = management;
   management.append(advancedFeatures);
   if (!model) management.append(el('p', '完整挂载列表暂不可用；请更新服务或刷新。', 'hint'));
   if (!items.length) management.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
@@ -444,7 +437,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     finally { pending.delete(`attach:${task.id}`); attach.disabled = !writable; }
   }, 'ghost hook-button', { help: '只从项目登记目录选择明确版本；不能内联新建或改写动作，确认前说明代价。' });
   controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null), hookHelpLink());
-  management.append(controls, editor); row.append(toggle, management);
+  management.append(controls, editor);
   const pushFeature = featureNodes.get('push'), pushHost = el('div', undefined, 'worker-push-setting');
   const pushStatus = el('span', undefined, 'error worker-push-status'); pushStatus.setAttribute('role', 'status'); pushStatus.hidden = true;
   const pushError = message => { pushStatus.textContent = message; pushStatus.hidden = false; show(message, 'error'); };
@@ -497,7 +490,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
       controlHost = { sync: () => hosts.forEach(host => host.sync()) }; pushControlHost = controlHost;
       for (const enabled of [false, true]) {
         const agent = enabled && callsAgent(mount);
-        const control = button(enabled ? '开启' : '关闭', () => savePush(enabled), 'hook-completion-level', { agent,
+        const control = button(enabled ? '开启推送' : '关闭推送', () => savePush(enabled), 'hook-completion-level', { agent,
           help: agent ? agentHelp('开启 main 的未来推送挂载及已配置的 Agent 动作；不立即执行。') : '只修改 main 推送挂载的未来触发，不立即执行、撤回或重放旧推送。' });
         control.setAttribute('aria-pressed', String(enabled === mount.enabled)); control.classList.toggle('is-selected', enabled === mount.enabled);
         const host = guardedControl(control, () => pending.has(pushKey) ? '正在确认或保存。' : uncertain ? '请只读刷新核对已提交的设置，不要重复提交。'
@@ -519,7 +512,13 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     paintPush();
   }
   for (const nodes of featureNodes.values()) featureList.append(nodes.section);
-  section.append(row, featureList);
+  section.append(management);
+  moduleView = enhanceModule(section, { key: 'automation', mode: 'fold', states: featureState.modules });
+  moduleView.toggle.setAttribute('data-help', '展开完整自动化设置与记录；收起时只保留常用按钮和必要诊断，不提交设置或调用 Agent，同一 Worker 刷新时保留选择。');
+  moduleView.onChange(() => { management.hidden = !moduleView.expanded; });
+  management.hidden = !moduleView.expanded;
+  // Controls stay mounted and usable in compact mode; forms are never height-clipped.
+  section.insertBefore(row, moduleView.body); section.insertBefore(featureList, moduleView.body);
   return section;
 }
 

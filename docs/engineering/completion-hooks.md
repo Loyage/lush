@@ -53,7 +53,7 @@ inspect、graph、worker.hooks 同源。内置挂载为不可移除的 `auto-mer
 - CLI 仅接受 `worker automation completion ID off|merge|accept --revision REV`；旧 archive 仅在后端 RPC／持久历史兼容等价 accept，CLI 已拒绝，不放宽权限、冻结或 stale revision。
 - `worker.auto_merge` 和 auto-merge 挂载旧开关继续相同权限；on 不降级高级授权，off（允许时）关闭未来链，不撤回已发请求。
 - 项目 `completion_defaults:{enabled,level}` 与 `mount_scopes.completion` 用 hooks.automation_settings 保存，旧 hooks.completion_defaults 同源兼容；实际创建事务冻结挂载，未挂载默认不执行，旧缺少挂载字段保留原内置能力，显式开启通过原安全门同时挂载。完整范围与权威投影见[项目自动化接口](../reference/rpc/hooks.md#新指令默认流程)；设备默认写入拒绝。默认只影响未来实际创建的新指令，不改变已有 Worker 或 child 流程；持久化于项目 meta 的 versioned JSON，旧设备及旧项目历史值均不自动导入。
-- 选择验收授权须解释删除分支子树 worktree/ref、完整历史保留、脏现场阻止、自动验收不是质量评审；可能启动分歧 Agent 的配置按钮仍带 Agent 代价标识。
+- 选择验收授权须解释删除分支子树 worktree/ref、完整历史保留、脏现场阻止、自动验收不是质量评审；合并／验收配置及确认按钮不启动新的 Agent，不带闪电或 Agent 代价标识；可能唤醒原源侧 Agent 的分歧后果仍须说明。
 
 ## 告知
 

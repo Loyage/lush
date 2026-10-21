@@ -45,6 +45,11 @@
 .hook-button::before { content: '⌁'; margin-right: .35em; opacity: .75; }
 .hook-toggle { display: inline-flex; align-items: center; gap: .45rem; }
 .worker-hooks-row { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; min-width: 0; }
+.worker-hooks-row:empty { display: none; }
+/* Compact automation preserves the same live controls, not a clipped form or duplicate editor. */
+.worker-hooks:not(.module-expanded) .worker-feature-title { display: none; }
+.worker-hooks:not(.module-expanded) > .worker-automation-features { display: flex; flex-wrap: wrap; gap: .35rem .75rem; margin-top: 0; }
+.worker-hooks:not(.module-expanded) .worker-automation-feature-body { flex-basis: auto; }
 .worker-hooks-label, .hook-completion-label { white-space: nowrap; }
 .worker-automation-features { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; margin-top: .4rem; min-width: 0; }
 .worker-automation-feature { min-width: 0; padding: .15rem 0; }
@@ -68,10 +73,9 @@ button.hook-completion-level.agent-call { background: transparent; color: var(--
 .hook-completion-level.is-included { box-shadow: inset 0 -2px var(--violet-ink); }
 button.hook-completion-level.is-selected { border-color: var(--violet-ink); background: var(--violet-soft); color: var(--violet-ink); font-weight: 700; }
 .hook-completion-level[disabled] { opacity: .65; }
-.hook-completion-level:focus-visible, .hook-management-toggle:focus-visible { outline: 2px solid var(--violet-ink); outline-offset: 2px; }
+.hook-completion-level:focus-visible { outline: 2px solid var(--violet-ink); outline-offset: 2px; }
 .hook-completion-state, .hook-mount-alert { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
 .hook-completion-state[hidden] { display: none; }
-.hook-management-toggle { margin-left: auto; }
 .hook-management { flex-basis: 100%; min-width: 0; }
 .hook-management[hidden] { display: none; }
 .hook-completion-state.error, .hook-mount-alert.error { max-width: none; white-space: normal; overflow-wrap: anywhere; overflow: visible; }

@@ -1,7 +1,6 @@
 import { el, button } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
-import { agentHelp } from './help.js';
 import { automationMetadata } from './automation-features.js';
 import { MOUNT_SCOPES, completionLevelButtons } from './hook-controls.js';
 
@@ -65,15 +64,11 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
     scope.disabled = blocked; scope.value = draft?.scope ?? '';
     for (const { level: value, control, host } of choices) {
       control.disabled = blocked; control.setAttribute('aria-pressed', String(level() === value)); control.classList.toggle('is-selected', level() === value);
-      const agent = feature === 'completion' && value !== 'off'; control.classList.toggle('agent-call', agent);
-      const help = agent ? agentHelp(`选择未来 Worker 的${value === 'accept' ? '自动合并并安全验收' : '自动合并'}默认，保存后生效，不改变已有授权。`) : '选择未来挂载的默认状态，保存后生效，不改变已有授权。';
+      const help = '选择未来挂载的默认状态，保存后生效，不改变已有授权，也不启动新的 Agent。';
       control.setAttribute('data-help', help); host.setAttribute('data-help', help); host.tabIndex = control.disabled ? 0 : -1;
     }
     save.disabled = blocked || !dirty(); reload.disabled = busy;
-    const agent = feature === 'completion' && draft?.defaults.enabled === true && draft.scope !== 'none' && draft.scope !== 'main';
-    save.classList.toggle('agent-call', agent);
-    const help = agent ? agentHelp(`保存本项目未来 Worker 的自动流程授权，未来合并分歧可能调用 Agent。${draft.defaults.level === 'accept' ? acceptanceHelp : ''}`)
-      : '只保存本项目未来 Worker 挂载范围及默认状态，不修改已有授权，不执行功能。';
+    const help = `只保存本项目未来 Worker 挂载范围及默认状态，不修改已有授权，不执行功能或启动新的 Agent。${feature === 'completion' && draft?.defaults.level === 'accept' ? acceptanceHelp : ''}`;
     save.setAttribute('data-help', help);
     saveHost.setAttribute('data-help', `${busy ? '正在读取或保存。' : uncertain ? '保存结果未确认，先重新读取核查，勿重发。' : !model ? '设置读面不可用，请更新服务。' : !dirty() ? '没有未保存更改。' : ''} ${help}`);
     saveHost.tabIndex = save.disabled ? 0 : -1;
@@ -103,7 +98,7 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
     try {
       if (feature === 'completion' && draft.defaults.enabled && draft.defaults.level === 'accept'
         && !await confirmDialog({ title: '授权本项目未来 Worker 自动到验收？', message: acceptanceHelp,
-          confirmLabel: '授权并保存', danger: true, agent: true, confirmHelp: agentHelp(acceptanceHelp) })) return;
+          confirmLabel: '授权并保存', danger: true, confirmHelp: acceptanceHelp })) return;
       if (!owns()) return;
       submitted = true;
       const result = await action('hooks.automation_settings', params, { refresh: false });

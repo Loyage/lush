@@ -126,18 +126,32 @@ try {
       assert(JSON.stringify(layout.features.sort()) === JSON.stringify(expected.sort()), `non-mounted entries ${worker.id}`);
       assert(!layout.overflow && layout.heads.every(r => r.left >= 0 && r.right <= width), `Worker heading overflow ${theme}/${width}/${worker.id}`);
       assert(layout.advancedHidden && layout.height < (width === 1440 ? 245 : 345), `automation too tall ${theme}/${width}/${worker.id}: ${layout.height}`);
-      assert(await execute(`return [...document.querySelectorAll('.worker-automation-feature')].every(n=>{const t=n.querySelector('h3'),labels=[...n.querySelectorAll('button')].map(b=>b.textContent);return t.tabIndex===0&&!!t.dataset.help&&!t.hasAttribute('title')&&!n.querySelector('details')&&JSON.stringify(labels)===JSON.stringify(n.dataset.feature==='completion'?['关闭','合并','验收']:['关闭','开启'])})`), 'title/help/button shape mismatch');
+      assert(await execute(`return [...document.querySelectorAll('.worker-automation-feature')].every(n=>{const t=n.querySelector('h3'),labels=[...n.querySelectorAll('button')].map(b=>b.textContent);return t.tabIndex===0&&!!t.dataset.help&&!t.hasAttribute('title')&&!n.querySelector('details')&&JSON.stringify(labels)===JSON.stringify(n.dataset.feature==='completion'?['关闭','合并','验收']:n.dataset.feature==='push'?['关闭推送','开启推送']:['关闭告知','开启告知'])})`), 'title/help/button shape mismatch');
+      assert(await execute(`const root=document.querySelector('.worker-hooks'),toggle=root.querySelector('.module-toggle');return root.classList.contains('ui-module')&&getComputedStyle(root.querySelector('.section-title')).position==='sticky'&&toggle.getAttribute('aria-expanded')==='false'&&root.querySelector('.module-body').hidden&&[...root.querySelectorAll('.worker-feature-title')].every(n=>getComputedStyle(n).display==='none')&&[...root.querySelectorAll('[data-feature="completion"] button')].every(n=>!n.classList.contains('agent-call')&&getComputedStyle(n,'::before').content==='none'&&n.getBoundingClientRect().height>=${width<=390?44:32})`), 'shared heading, compact controls or non-Agent delivery markers');
+      await click('.worker-hooks .module-toggle');
+      assert(await execute(`const root=document.querySelector('.worker-hooks');window.savedControls=[...root.querySelectorAll('.worker-automation-feature button')];return root.querySelector('.module-toggle').getAttribute('aria-expanded')==='true'&&!root.querySelector('.module-body').hidden&&[...root.querySelectorAll('.worker-feature-title')].every(n=>getComputedStyle(n).display!=='none')`), 'full automation expansion');
+      if (await execute(`return document.querySelector('.worker-hooks').getBoundingClientRect().height>300`)) {
+        await execute(`const root=document.querySelector('.worker-hooks'),panel=document.querySelector('#detail'),page=getComputedStyle(panel).overflowY==='visible';
+          window.automationStickyEdge=parseFloat(getComputedStyle(root.querySelector('.section-title')).top)+(page?0:panel.getBoundingClientRect().top+parseFloat(getComputedStyle(panel).paddingTop));
+          const delta=root.getBoundingClientRect().top-automationStickyEdge+80;if(page)scrollBy(0,delta);else panel.scrollTop+=delta;`);
+        assert(await wait(`(()=>{const root=document.querySelector('.worker-hooks'),head=root.querySelector('.section-title');return Math.abs(head.getBoundingClientRect().top-automationStickyEdge)<2&&head.getBoundingClientRect().bottom<=root.getBoundingClientRect().bottom+1})()`), 'automation sticky title geometry');
+      }
+      await click('.worker-hooks .module-toggle');
+      assert(await execute(`return savedControls.every(n=>n.isConnected)&&document.querySelector('.worker-hooks .module-body').hidden`), 'fold must preserve live controls');
       if (worker.id === child.id) assert(await execute(`return [...document.querySelectorAll('[data-feature="completion"] button')].every(n=>n.disabled)&&!document.querySelector('[data-notice-enabled="true"]').disabled`), 'child lock changed');
       await execute(`document.querySelector('.worker-hooks').scrollIntoView({block:'center',behavior:'instant'});`);
       await screenshot(`${theme}-${width}-worker-${worker.id}`);
     }
     console.log(`PASS settings, mounted main/order/child/excluded; ${theme}/${width}px`);
   }
-  await workerRoute(child); const title = '[data-feature="completion"] h3';
+  await workerRoute(child); await click('.worker-hooks .module-toggle'); const title = '[data-feature="completion"] h3';
   await execute(`window.helpEvents=[];for(const type of ['pointerover','pointerout','scroll','focusout'])addEventListener(type,e=>helpEvents.push({type,time:performance.now(),target:e.target.outerHTML?.slice(0,300)}));`);
   await pointer(title, [{ type: 'pause', duration: 1400 }]); assert(await wait(visibleTitleHelp), 'hover title help missing');
   await recordHelp('hover');
-  await execute(`dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.querySelector('.hook-management-toggle').scrollIntoView({block:'center',behavior:'instant'});document.querySelector('.hook-management-toggle').focus();`);
+  // Move off the title before keyboard focus, so scroll-induced pointerout cannot cancel its help timer.
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' }, actions: [{ type: 'pointerMove', origin: 'viewport', x: 2, y: 2 }] }] });
+  await execute(`dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.querySelector('.worker-hooks .module-toggle').scrollIntoView({block:'center',behavior:'instant'});document.querySelector('.worker-hooks .module-toggle').focus();`);
+  await rpc(`/session/${session}/execute/async`, { script: 'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)))', args: [] });
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE004' }, { type: 'keyUp', value: '\uE004' }] }] });
   assert(await execute(`return document.activeElement.matches(${JSON.stringify(title)})`), 'keyboard cannot reach title');
   assert(await wait(visibleTitleHelp), 'keyboard title help missing'); await recordHelp('keyboard');
@@ -147,7 +161,7 @@ try {
   assert(await wait(visibleTitleHelp), 'long-press title help missing'); assert(mutations.length === beforePress, 'help press mutated settings'); await recordHelp('long-press');
   await click('[data-notice-enabled="true"]'); assert(await wait(`document.querySelector('[data-notice-enabled="true"]').getAttribute('aria-pressed')==='true'`), 'Worker notice ACK missing');
   assert(f.project.taskHooks(child.id).acceptance_notice.enabled && f.project.taskHooks(child.id).completion.locked, 'child notice save unlocked completion');
-  await press('高级与记录'); assert(await execute(`return !document.querySelector('.hook-management').hidden&&!document.querySelector('.delivery-handler')&&!document.querySelector('.worker-convergence-control')`), 'retired handler/settings visible');
+  assert(await execute(`return !document.querySelector('.hook-management').hidden&&!document.querySelector('.delivery-handler')&&!document.querySelector('.worker-convergence-control')`), 'retired handler/settings visible');
   await press('刷新详情'); assert(await wait(`!document.querySelector('.hook-management').hidden`), 'refresh lost advanced expansion');
   // A second real chain uses the unified registry, not a test-only RPC shortcut.
   await execute(`location.hash='#hooks-feature-register'`);
@@ -170,10 +184,14 @@ try {
   await execute(`document.querySelector('.registry-advanced').open=true`); await fill('Hook 名称', 'Browser notice revision 2'); await press('登记新版本'); await press('只登记功能');
   assert(await wait(`document.querySelector('.registry-registration > [role="status"]').textContent.includes('登记成功')`), 'revision ACK missing');
   assert(f.project.taskHooks(old.id).mounts.find(m => m.id === mount.id).registry_version === 1, 'definition revision changed old grant');
-  await workerRoute(old); await press('高级与记录');
+  await workerRoute(old); await click('.worker-hooks .module-toggle');
   assert(await execute(`return document.querySelector('.worker-hooks').textContent.includes('自定义 · ${registered.id} · 固定 v1')&&!document.querySelector('.worker-hooks .hook-form')&&!document.querySelector('[aria-label="挂载模板"]')`), 'source/version missing or raw action editor remains');
   await execute(`document.querySelector('[data-hook-id="${mount.id}"]').querySelectorAll('button')[2].click()`);
-  assert(await wait(`document.querySelector('.registered-mount-picker')`), 'upgrade picker missing'); await fill('授权版本', '2'); await press('确认升级挂载版本'); await press('授权升级版本');
+  assert(await wait(`document.querySelector('.registered-mount-picker')`), 'upgrade picker missing'); await fill('授权版本', '2');
+  await execute(`window.upgradePicker=document.querySelector('.registered-mount-picker');document.querySelector('[aria-label="授权版本"]').focus()`);
+  await click('.worker-hooks .module-toggle'); await click('.worker-hooks .module-toggle');
+  assert(await execute(`return upgradePicker===document.querySelector('.registered-mount-picker')&&upgradePicker.querySelector('[aria-label="授权版本"]').value==='2'`), 'fold discarded active editor/version draft');
+  await press('确认升级挂载版本'); await press('授权升级版本');
   assert(await wait(`document.querySelector('.worker-hooks')?.textContent.includes('固定 v2')`), 'Worker explicit upgrade not visible');
   for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}';location.hash='#hooks-feature-${registered.id}'`);
@@ -203,7 +221,7 @@ try {
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth`), `temporary expanded overflow ${theme}/${width}`); await screenshot(`temporary-expanded-${theme}-${width}`);
     await execute(`document.querySelector('.registry-advanced').open=false;document.querySelector('.temporary-usage details').open=false`);
   }
-  await workerRoute(old); await press('高级与记录');
+  await workerRoute(old); await click('.worker-hooks .module-toggle');
   const tempMount = f.project.taskHooks(old.id).mounts.find(m => m.registry_id === temporary.template_id);
   await execute(`document.querySelector('[data-hook-id="${tempMount.id}"]').querySelector('button').click()`);
   assert(await wait(`document.querySelector('[data-hook-id="${tempMount.id}"]').textContent.includes('停用 Hook')`), 'temporary enable ACK missing');

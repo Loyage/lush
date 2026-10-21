@@ -4,14 +4,18 @@ import { enhanceModule, observeModules, disposeModules, revealModule } from './s
 const panels = new WeakMap();
 let nextPreviewId = 0;
 
-/** Apply only to the detail renderer's reading blocks; lifecycle actions/forms stay outside. */
+/** Share geometry/lifecycle for automation's explicit fold and the reading blocks' previews. */
 export function limitDetailModules(panel, { taskId, from = 0 }) {
   disposeModules(panel);
   const old = panels.get(panel);
   const expanded = old?.taskId === taskId ? old.expanded : new Map();
   const views = [], occurrences = new Map();
-  for (const section of [...panel.children].slice(from)) {
+  for (const [index, section] of [...panel.children].entries()) {
     if (!section.classList.contains('block')) continue;
+    if (section.classList.contains('worker-hooks')) {
+      views.push(enhanceModule(section, { mode: 'fold' })); continue;
+    }
+    if (index < from) continue;
     const title = section.children[0]?.querySelector('h2')?.textContent || '模块';
     const occurrence = occurrences.get(title) || 0; occurrences.set(title, occurrence + 1);
     const key = `${title}:${occurrence}`;
