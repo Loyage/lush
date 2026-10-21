@@ -6,7 +6,7 @@ import { forkCheckpoint } from '../../agent/fork.js';
 import { checkDraftRevision } from './input-history.js';
 import { profileEvent } from './internal.js';
 import { workerLabel } from '../worker-number.js';
-import { emissionLocked } from './input-emission-data.js';
+import { emissionLocked, inputOptions } from './input-emission-data.js';
 import { inputSource } from '../../persistence/store/input-sources.js';
 import { assertLocalWorker, RETIRED_EXECUTION } from './execution-retired.js';
 
@@ -49,6 +49,7 @@ export default {
     if (draftId !== null && draftId !== undefined) {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
       draft = this.store.draft(id(draftId));
+      check(inputOptions(draft).mode !== 'management', 'management drafts cannot create development Inputs; use management.submit');
       check(!this.draftHookMount(draft.id), 'draft is already mounted on a Hook; remove that mount before sending');
       check(!emissionLocked(draft), 'draft has a mounted input; dispatch it through the input queue');
       check(draft.input_id === null, `draft ${draft.id} was already submitted as input O${draft.input_id}`);

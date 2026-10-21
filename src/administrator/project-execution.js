@@ -8,6 +8,7 @@ import { settleNoticeAnswer } from '../core/project/messages.js';
 import { assertManager } from '../core/project/management-auth.js';
 import { managementState, saveManagement, managementTime, MANAGEMENT_LIMITS } from '../core/project/management-data.js';
 import { trackControlJob } from '../core/project/management-control.js';
+import { inputOptions } from '../core/project/input-emission-data.js';
 import { capabilityDiagnostic } from '../core/project/management-diagnostic.js';
 import { safeAdministratorValue, canonicalAdministratorValue } from './delegation.js';
 import { readProjectAdministratorSource } from './project-source.js';
@@ -62,6 +63,11 @@ function validateBusiness(project, actorId, params) {
   privateFields(params.params);
   check(params.params.scope !== 'device', 'device scope is unavailable to project elevation');
   assertAllowed(params.method,params.params,null);
+  if (['draft.add','draft.update','draft.remove','input.emit','order.submit'].includes(params.method)) {
+    const draftId = params.method.startsWith('draft.') ? params.params.id : params.params.draft_id;
+    check(params.params.mode !== 'management' && (draftId === undefined || inputOptions(project.store.draft(draftId)).mode !== 'management'),
+      'management drafts require the actual user entrance');
+  }
   if (params.method === 'notice.post') check(params.params.kind === 'info' && (params.params.task === undefined || params.params.task === actorId), 'project elevation cannot create password-free decision questions');
   if (['notice.answer','notice.dismiss'].includes(params.method)) {
     const notice = project.store.get('SELECT task_id FROM notices WHERE id=?',params.params.id);

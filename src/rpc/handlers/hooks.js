@@ -152,7 +152,9 @@ export const handlers = {
   },
   'management.emergency_preview'(p) { return p.managementEmergencyPreview(); },
   'management.emergency_stop'(p, params) { return p.managementEmergencyStop(params.revision, params.confirm); },
-  'management.submit'(p, params) {
+  'management.submit'(p, params, actor, context) {
+    check(actor == null && !Object.hasOwn(params, '_token') && !context?.management
+      && (!context?.input_source || context.input_source.kind === 'user'), 'management submission is user only');
     const { _token: _privateToken, ...options } = params;
     return p.submitManagementInstruction(options);
   },

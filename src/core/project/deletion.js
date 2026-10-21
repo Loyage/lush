@@ -94,7 +94,8 @@ function databasePlan(project, rootId) {
     deps: select('task_deps', `task_id IN (${marks}) OR depends_on IN (${marks})`, [...ids,...ids]),
     specs: select('task_specs', `planner_task_id IN (${marks})`),
     candidates,
-    drafts: inputIds.length ? select('drafts', `input_id IN (${inputMarks})`, inputIds) : [],
+    drafts: [...(inputIds.length ? select('drafts', `input_id IN (${inputMarks})`, inputIds) : []),
+      ...store.managementDraftIds(ids).map(draftId => store.draft(draftId))].sort((a,b) => a.id-b.id),
     inputReferences: inputIds.length ? select('input_references', `input_id IN (${inputMarks})`, inputIds) : [],
   };
   const draftIds = data.drafts.map(row => row.id);

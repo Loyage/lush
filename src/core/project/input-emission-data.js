@@ -28,7 +28,7 @@ export function normalizeInputOptions(project, options = {}, previous = null) {
   check(!isPlainObject(options) || !Object.hasOwn(options, 'runner_node_id'), 'Runner selection is retired');
   check(isPlainObject(options) && Object.keys(options).every(key => INPUT_OPTION_KEYS.includes(key)), 'invalid draft input options');
   const mode = options.mode ?? previous?.mode ?? 'order';
-  check(['order','append'].includes(mode), 'input mode must be order or append');
+  check(['order','append','management'].includes(mode), 'input mode must be order, append or management');
   const exclusive = options.exclusive ?? previous?.exclusive ?? false;
   check(typeof exclusive === 'boolean' && (!exclusive || mode === 'order'), 'exclusive requires order mode');
   const conditions = options.conditions ?? previous?.conditions ?? [];
@@ -47,7 +47,11 @@ export function normalizeInputOptions(project, options = {}, previous = null) {
   if (Object.hasOwn(previous ?? {}, 'runner_node_id')) result.runner_node_id = previous.runner_node_id;
   check(result.conditions.length <= 16, 'input requires at most 16 conditions including exclusive quietness');
   if (mode === 'append') result.target_id = id(options.target_id ?? previous?.target_id);
-  else check(options.target_id === undefined || options.target_id === null, 'target_id requires append mode');
+  else if (mode === 'management') {
+    check(result.conditions.length === 0 && !exclusive, 'management drafts do not support conditions or exclusive execution');
+    const target = Object.hasOwn(options, 'target_id') ? options.target_id : previous?.mode === 'management' ? previous.target_id : null;
+    result.target_id = target === undefined || target === null ? null : id(target);
+  } else check(options.target_id === undefined || options.target_id === null, 'target_id requires append or management mode');
   return result;
 }
 
@@ -83,7 +87,7 @@ export function publicDispatch(state) {
   if (!state) return null;
   const result = { state: state.state, reason: state.reason ?? null,
     exclusive_active: state.exclusive_active === true, can_release_exclusive: canReleaseInputExclusive(state) };
-  for (const key of ['input_id','worker_id','worker_number','message_id','append_number','exclusive_released','created_at','finished_at'])
+  for (const key of ['input_id','worker_id','worker_number','message_id','append_number','exclusive_released','created_at','finished_at','kind','occurrence_id','receipt_id','authority','revision'])
     if (state[key] !== undefined) result[key] = state[key];
   result.conditions = state.signals.map(signal => ({ kind: signal.kind, ...(signal.worker_id ? { worker_id: signal.worker_id } : {}),
     satisfied: Boolean(signal.satisfied), ...(signal.event_id ? { event_id: signal.event_id } : {}) }));

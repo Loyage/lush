@@ -1,5 +1,6 @@
 import { check, id, text, bounded } from '../types.js';
 import { matchInputRoute } from '../input-routes.js';
+import { inputOptions, emissionLocked } from './input-emission-data.js';
 
 /** Buffered drafts are a cache, not a queue: bounded so a forgotten tab cannot grow the db forever. */
 const MAX_DRAFTS = 500;
@@ -24,6 +25,7 @@ export default {
   dropDraft(draftId) {
     this.assertWritable('remove a draft');
     const draft = this.store.draft(draftId);
+    check(!emissionLocked(draft), 'submitted draft is immutable; inspect its receipt');
     check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never removed`);
     this.store.run('DELETE FROM drafts WHERE id=?', draft.id);
     return { id: draft.id };
@@ -34,6 +36,7 @@ export default {
     this.assertWritable('edit a draft');
     text(content, 'draft');
     const draft = this.store.draft(draftId);
+    check(!emissionLocked(draft), 'submitted draft is immutable; inspect its receipt');
     check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never changed`);
     const normalized = references === undefined ? null : this.normalizeReferences(references);
     return this.store.transaction(() => {
@@ -77,6 +80,8 @@ export default {
         return draft;
       });
     }
+    check(drafts.every(draft => inputOptions(draft).mode !== 'management' && !emissionLocked(draft)),
+      'management or mounted drafts cannot be submitted as development Inputs');
     check(drafts.length > 0, 'no buffered drafts to submit');
     const inputs = [];
     for (const draft of drafts) {

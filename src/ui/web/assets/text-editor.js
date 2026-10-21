@@ -128,7 +128,14 @@ export function attachTextEditor(textarea, { onChange } = {}) {
     if (!before && composition === null && textarea.value === current.value) current = snapshot();
   });
   sync();
-  return { controls, reset, sync, dispose() {
+  return { controls, reset, sync,
+    capture: () => ({ entries: [...entries], position, chars, current: snapshot() }),
+    restore(state) {
+      reset();
+      if (!state || state.current.value !== textarea.value) return;
+      entries = [...state.entries]; position = state.position; chars = state.chars; current = state.current; sync();
+    },
+    dispose() {
     if (disposed) return;
     disposed = true; generation++;
     for (const [type, handler, capture] of listeners) textarea.removeEventListener?.(type, handler, capture);

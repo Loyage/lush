@@ -44,6 +44,7 @@ export default {
         check(Object.keys(options).every(key => ['draft_id','expected_revision','profile','client_request_id'].includes(key)), 'draft_id cannot be combined with content or input options; edit the draft first');
         expectedRevision(options.expected_revision);
         draft = this.store.draft(id(options.draft_id));
+        check(inputOptions(draft).mode !== 'management', 'management drafts require the real-user management.submit or password elevation entrance');
         const existing = inputEmission(draft);
         if (existing && existing.revision === options.expected_revision && existing.state !== 'cancelled') {
           check(existing.definition_hash === hash, 'mounted input parameters changed; do not replace an existing authorization');

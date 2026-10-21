@@ -7,13 +7,13 @@ export function editableDraft(record) {
     && (record.revision === null || Number.isSafeInteger(record.revision) && record.revision > 0)
     && !record.input_id && !record.hook_mount && (!record.dispatch || record.dispatch.state === 'cancelled')
     && (!record.status || ['draft', 'cancelled'].includes(record.status))
-    && (!record.mode || ['order', 'append'].includes(record.mode));
+    && (!record.mode || ['order', 'append', 'management'].includes(record.mode));
 }
 export function draftOptions(record) {
   return { conditions: (record.conditions || []).map(({ kind, worker_id }) => ({ kind, ...(worker_id == null ? {} : { worker_id }) })), exclusive: Boolean(record.exclusive) };
 }
 export function matchesDraft(record, { mode, target_id, parent_id, branch }) {
-  return (record.mode || 'order') === mode && (mode === 'append' ? record.target_id === target_id
+  return (record.mode || 'order') === mode && (mode === 'append' || mode === 'management' ? (record.target_id ?? null) === (target_id ?? null)
     : parent_id != null && record.parent_id === parent_id && record.branch === branch);
 }
 /** Walk the complete server-filtered result, not just the first page. An interrupted read is not an empty result. */
@@ -38,8 +38,8 @@ export async function updateDraft(saved, values) {
   const previous = { ...saved };
   const updated = await action('draft.update', { id: saved.id, ...values, expected_revision: saved.revision }, { refresh: false });
   const mode = values.mode || previous.mode || 'order';
-  const sameTarget = (updated.mode || 'order') === mode && (mode === 'append'
-    ? updated.target_id === (values.target_id ?? previous.target_id)
+  const sameTarget = (updated.mode || 'order') === mode && (mode === 'append' || mode === 'management'
+    ? (updated.target_id ?? null) === (Object.hasOwn(values, 'target_id') ? values.target_id : previous.target_id ?? null)
     : updated.branch === (values.branch ?? previous.branch) && (values.branch != null || updated.parent_id === previous.parent_id));
   if (updated.id !== previous.id || !editableDraft(updated) || !sameTarget || !Number.isSafeInteger(updated.revision) || updated.revision <= (previous.revision ?? 0)
     || typeof updated.content !== 'string' || !Array.isArray(updated.references))
@@ -50,8 +50,9 @@ export async function emitDraft(saved, profile, request) {
   if (!editableDraft(saved)) throw new Error('草稿不可编辑或已授权，请先核验状态。');
   const definition = JSON.stringify([saved.id, saved.revision, profile]);
   if (request.requestDefinition !== definition) { request.requestDefinition = definition; request.requestId = emissionRequestId(); }
-  const result = await action('input.emit', { draft_id: saved.id, expected_revision: saved.revision,
-    client_request_id: request.requestId, ...(profile ? { profile } : {}) }, { refresh: false });
-  if (result.emitted !== true || result.draft_id !== saved.id) throw new Error('提交响应缺少可靠草稿收据，请核验历史输入与服务版本，不会自动重试。');
+  const management = saved.mode === 'management';
+  const result = await action(management ? 'management.submit' : 'input.emit', { draft_id: saved.id, expected_revision: saved.revision,
+    client_request_id: request.requestId, ...(profile && saved.target_id == null ? { profile } : {}) }, { refresh: false });
+  if ((management ? result.management !== true || result.dispatch?.kind !== 'management' : result.emitted !== true) || result.draft_id !== saved.id) throw new Error('提交响应缺少可靠草稿收据，请核验历史输入与服务版本，不会自动重试。');
   return result;
 }

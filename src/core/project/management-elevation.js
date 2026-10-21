@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { check, isPlainObject, id } from '../types.js';
 import { managementState, managementInstruction, saveManagement } from './management-data.js';
+import { assertManagementDraft, consumeManagementDraft, managementDraftResult, managementDraftRequest } from './management-drafts.js';
+import { definitionHash } from './input-emission-data.js';
 import { normalizeProjectElevation, projectElevationText, PROJECT_ELEVATION_MODE, PROJECT_ELEVATION_SCOPE } from '../../administrator/project-protocol.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -39,7 +41,8 @@ function lookup(project, clientRequestId) {
 }
 function result(project, record) {
   check(record && !record.unavailable && project.store.get('SELECT id FROM tasks WHERE id=?', record.reference.task_id), 'original elevation record is unavailable; do not replay');
-  return { management: true, task: project.inspect(record.reference.task_id), instruction: record.source.definition.instruction };
+  return { ...(record.source.definition.draft_id === undefined ? { management: true, task: project.inspect(record.reference.task_id) }
+    : managementDraftResult(project, record.source.definition.draft_id)), instruction: record.source.definition.instruction };
 }
 function accept(project, accepted) {
   const definition = accepted.definition;
@@ -52,6 +55,8 @@ function accept(project, accepted) {
   check(!project.store.get('SELECT value FROM meta WHERE key=?', grantKey(accepted.grant_id)), 'elevation grant has already been consumed');
   check(!project.store.get(`SELECT id FROM tasks WHERE task_kind='management' AND json_extract(management,'$.client_request_id')=?`, definition.client_request_id),
     'client_request_id belongs to an ordinary management input and cannot be elevated');
+  check(!managementDraftRequest(project, definition.client_request_id), 'client_request_id belongs to an ordinary management draft input');
+  const draft = definition.draft_id === undefined ? null : assertManagementDraft(project, definition.draft_id, definition.expected_revision, definition);
   const submitted = definition.kind === 'submit'
     ? project.submitManagementInstruction({ instruction: definition.instruction, client_request_id: definition.client_request_id,
       ...(Object.hasOwn(definition, 'profile') ? { profile: definition.profile } : {}) }).task
@@ -74,7 +79,8 @@ function accept(project, accepted) {
   // Worker Event, so normal explicit Worker/history deletion removes the instruction material.
   project.store.run('INSERT INTO meta(key,value) VALUES (?,?)', requestKey(definition.client_request_id), JSON.stringify(reference));
   project.store.run('INSERT INTO meta(key,value) VALUES (?,?)', grantKey(accepted.grant_id), JSON.stringify(reference));
-  return { management: true, task: project.inspect(task.id), instruction: definition.instruction };
+  return { ...(draft ? consumeManagementDraft(project, draft, task, definitionHash(definition), 'administrator')
+    : { management: true, task: project.inspect(task.id) }), instruction: definition.instruction };
 }
 
 export default {
@@ -95,6 +101,6 @@ export default {
     const record = lookup(this, requestId(clientRequestId));
     if (!record || record.unavailable || !this.store.get('SELECT id FROM tasks WHERE id=?', record.reference.task_id)) return { version: 1, found: false };
     const current = result(this, record);
-    return { version: 1, found: true, definition: record.source.definition, task: current.task, instruction: current.instruction };
+    return { version: 1, found: true, definition: record.source.definition, ...current };
   },
 };

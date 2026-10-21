@@ -9,6 +9,7 @@ import controlMethods, { managementControlPending, trackControlJob } from './man
 import permissionMethods from './management-permissions.js';
 import emergencyMethods, { managementEmergencyBlockers } from './management-emergency.js';
 import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
+import { managementDraftRequest } from './management-drafts.js';
 import { safeInvocationMessage } from '../../agent/invocation-error.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
@@ -147,6 +148,7 @@ export default {
     const fingerprint = requestId === undefined ? null : creationFingerprint(options);
     if (requestId !== undefined) {
       check(!this.managementElevationRequestUsed(requestId), 'client_request_id belongs to a password-elevated input; inspect its receipt instead of replaying ordinary input');
+      check(!managementDraftRequest(this, requestId), 'client_request_id belongs to a management draft submission; inspect its original receipt');
       const existing = this.store.get(`SELECT id,management FROM tasks WHERE task_kind='management'
         AND json_extract(management,'$.client_request_id')=?`, requestId);
       if (existing) {

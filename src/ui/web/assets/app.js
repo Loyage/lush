@@ -242,6 +242,17 @@ export async function boot() {
   if (hashListener !== null) globalThis.removeEventListener?.('hashchange', hashListener);
   refreshTimer = liveTimer = hashListener = null;
   closeTranscriptView(); resetUiState(); resetTranscriptReaders();
+  ui.restoreInputContext = async ({ hash = '', scroll = 0 }) => {
+    if (!active()) return false;
+    window.history.replaceState(null, '', hash || location.pathname);
+    const pending = onHashChange(), generation = hashGeneration;
+    await pending;
+    if (!active() || generation !== hashGeneration || location.hash !== hash) return false;
+    ui.openComposer?.({ focus: false });
+    const pane = $('detail');
+    if (pane.scrollTo) pane.scrollTo({ top: scroll, behavior: 'instant' }); else pane.scrollTop = scroll;
+    return true;
+  };
   void loadHostSession(); // Host-only, non-blocking; details reuse the same single-flight read.
   initAppearance(); setProjectIdentity(); applyReducedMotion(readPref('reduceMotion')); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
   renderAutoSelectBanner(null); renderGlobalInboxSummary(null); resetProjectMaintenance();

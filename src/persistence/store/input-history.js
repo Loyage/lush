@@ -60,6 +60,16 @@ const appendFirstInputReceipt = `d.input_id=i.id AND ${draftMode}='append' AND t
     AND json_type(${dispatchData},'$.message_id') IS NULL AND json_type(${dispatchData},'$.append_number') IS NULL)`;
 const sourceDraft = predicate => `(SELECT CASE WHEN count(*)=1 AND min(d.id) BETWEEN 1 AND 9007199254740991
   THEN min(d.id) ELSE NULL END FROM drafts d WHERE ${predicate})`;
+const managementReceipt = `${draftMode}='management' AND json_extract(${emission},'$.kind')='management'
+  AND json_extract(${emission},'$.state')='succeeded'
+  AND json_type(${emission},'$.worker_id')='integer' AND json_extract(${emission},'$.worker_id')=t.id
+  AND EXISTS (SELECT 1 FROM events proof WHERE proof.task_id=t.id AND proof.type='management.draft_submitted'
+    AND proof.id=json_extract(${emission},'$.receipt_id')
+    AND json_extract(${safe('proof.data')},'$.draft_id')=d.id
+    AND json_extract(${safe('proof.data')},'$.revision')=d.revision
+    AND json_extract(${emission},'$.revision')=d.revision
+    AND json_extract(${safe('proof.data')},'$.definition_hash')=json_extract(${emission},'$.definition_hash')
+    AND json_extract(${safe('proof.data')},'$.occurrence_id')=json_extract(${emission},'$.occurrence_id'))`;
 const unsentDraft = `d.input_id IS NULL AND coalesce(json_extract(${emission},'$.state'),'')!='succeeded'
   AND NOT EXISTS (SELECT 1 FROM messages m WHERE ${appendReceipt} AND ${userMessage})`;
 const history = (conditional = undefined, view = 'history') => `WITH source AS (
@@ -83,12 +93,14 @@ const history = (conditional = undefined, view = 'history') => `WITH source AS (
   UNION ALL
   SELECT 'message',m.id,m.body,m.created_at,m.task_id,t.parent_id,t.worker_number,
     (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id),t.branch,${taskStatus},
-    coalesce(t.integration,'none'),NULL,${booking},t.id,'append',${messageNumber},${sourceDraft(appendReceipt)},NULL
+    coalesce(t.integration,'none'),NULL,${booking},t.id,CASE WHEN t.task_kind='management' THEN 'management' ELSE 'append' END,${messageNumber},
+    ${sourceDraft(`(${appendReceipt}) OR (${managementReceipt} AND json_extract(${options},'$.target_id')=m.task_id AND json_extract(${emission},'$.message_id')=m.id)`)},NULL
   FROM messages m LEFT JOIN tasks t ON t.id=m.task_id WHERE ${conditional || view === 'drafts' ? '0' : userMessage}
   UNION ALL
   SELECT 'management',t.id,t.goal,t.created_at,t.id,t.parent_id,t.worker_number,
     (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id),t.branch,${taskStatus},
-    coalesce(t.integration,'none'),NULL,${booking},t.id,'management',NULL,NULL,NULL
+    coalesce(t.integration,'none'),NULL,${booking},t.id,'management',NULL,
+    ${sourceDraft(`${managementReceipt} AND json_type(${options},'$.target_id')='null' AND json_type(${emission},'$.message_id') IS NULL`)},NULL
   FROM tasks t WHERE ${conditional || view === 'drafts' ? '0' : `t.task_kind='management' AND json_extract(${safe('t.management')},'$.origin')='input'`}
 ), projected AS (
   SELECT *,CASE
@@ -115,6 +127,12 @@ const history = (conditional = undefined, view = 'history') => `WITH source AS (
 const fields = 'kind,id,mode,append_number,source_draft_id,draft_number,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
 
 export const inputHistory = {
+  /** Exclusive submitted management drafts follow the same confirmed deletion scope as their native receipt. */
+  managementDraftIds(workerIds) {
+    if (!workerIds.length) return [];
+    return this.all(`SELECT d.id FROM drafts d JOIN tasks t ON t.id=json_extract(${emission},'$.worker_id')
+      WHERE t.task_kind='management' AND t.id IN (${workerIds.map(() => '?').join(',')}) AND ${managementReceipt} ORDER BY d.id`, ...workerIds).map(row => row.id);
+  },
   inputHistoryRows({ q, status, integration, conditional, view, modes, cursor, limit }) {
     const conditions = [], args = [];
     if (modes) {

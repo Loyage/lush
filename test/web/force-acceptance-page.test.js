@@ -62,9 +62,10 @@ test('real shared detail/graph control -> authenticated HTTP/RPC -> preview -> e
     const accepted = await api(`/api/worker/${parent.id}`);
     expect(accepted.accepted).toBe(true);
     expect(iterationControls(accepted)).toBeNull();
-    selectComposerMode('append', accepted);
+    await selectComposerMode('append', accepted);
     expect(dom.node('composer-mode-behavior').textContent).toContain('已验收完成，不能恢复开发');
     expect(dom.node('composer-mode-behavior').textContent).toContain('请新发指令');
-    expect(dom.node('input').disabled).toBe(true);
+    expect(dom.node('input').disabled).toBe(false); // original destination is blocked, but local editing/recovery stays available
+    expect(dom.node('draft-commit').disabled).toBe(true);
   } finally { dom.restore(); await f.close(); }
 });

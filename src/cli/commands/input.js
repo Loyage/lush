@@ -71,6 +71,7 @@ export async function run(command, args, { client }) {
   }
   if (action === 'create' || action === 'update') {
     const revision = action === 'update' ? draftRevision(cliOption(args, '--revision')) : undefined;
+    const requestId = action === 'create' ? cliOption(args, '--client-request-id') : null;
     const parsed = inputOptions(args, { update: action === 'update', append: true });
     positionalArguments(args, action === 'update' ? 2 : 1);
     const recordId = action === 'update' ? cliInteger(args[0], 'draft ID') : undefined;
@@ -79,6 +80,7 @@ export async function run(command, args, { client }) {
     check(typeof content === 'string' && content.length <= 32000 && content.trim().length > 0, 'draft content must be non-blank text of at most 32000 characters');
     const params = await resolveInputOptions(parsed, client);
     return client.request(action === 'create' ? 'draft.add' : 'draft.update', { content, ...params,
+      ...(requestId === null ? {} : { client_request_id: requestId }),
       ...(action === 'update' ? { id: recordId, expected_revision: revision } : {}) });
   }
   check(['remove','submit','cancel','release'].includes(action), 'unknown input draft command');

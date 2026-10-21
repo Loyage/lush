@@ -151,20 +151,21 @@ export function renderComposerReferences() {
   const holder = $('composer-references');
   if (!holder) return;
   holder.replaceChildren(...ui.composerReferences.map((reference, index) => {
-    const chip = el('span', undefined, 'context-chip');
+    const chip = el('article', undefined, 'input-reference');
     const canLocate = locatable(reference);
     // Locatable cards navigate back to the source; plain text references stay inert.
     const label = canLocate
-      ? button(reference.label, () => locateReference(reference), 'context-chip-label')
+      ? button(reference.label, () => locateReference(reference), 'context-chip-label', { help: '定位捕获时的来源；下方引文是快照，不代表目标当前状态，定位失败会明确提示。' })
       : el('span', reference.label, 'context-chip-label');
-    label.title = canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote;
+    const quote = el('pre', reference.quote || '', 'input-quote');
+    const source = el('p', `快照 · ${reference.captured_at || '捕获时间未知'} · ${JSON.stringify({ kind: reference.kind, target: reference.target, location: reference.location })}`, 'hint');
     const remove = button('×', () => {
       ui.composerReferenceRevision = (ui.composerReferenceRevision ?? 0) + 1;
       ui.composerReferences.splice(index, 1);
       renderComposerReferences();
-    }, 'context-remove');
+    }, 'context-remove', { help: '只从本条编辑移除引用；不会修改来源，保存后才更新项目草稿。' });
     remove.setAttribute('aria-label', `移除引用：${reference.label}`);
-    chip.append(label, remove); return chip;
+    chip.append(label, quote, source, remove); return chip;
   }));
   holder.hidden = ui.composerReferences.length === 0;
   ui.syncComposer?.();

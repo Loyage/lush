@@ -92,10 +92,12 @@ export const COMMANDS = defineCommands(add => {
     }));
   add('input draft show', 'ID', '读取完整草稿、保存版本与真实发射收据。', '17', ['input.get'], 'read', '',
     userContract([positional('id', positive)], {}, { sources: { id: 'input draft list/create返回的原整数ID，不是草稿展示号。' } }));
-  add('input draft create', "'内容' [--branch BRANCH | --append-to ID] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON]",
+  add('input draft create', "'内容' [--branch BRANCH | --append-to ID] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON] [--client-request-id KEY]",
     '只保存新建或追加意图，不授权执行、不创建Worker。', "'合并后继续' --append-to W5 --after-merged W6", ['draft.add','worker.lookup'], 'write',
-    'branch与append-to互斥；追加无独占或附件。运行覆盖只在submit时通过--data传。',
-    userContract([positional('content', INPUT_EMIT_SCHEMA.properties.content)], saveOptions, {
+    'branch与append-to互斥；追加无独占或附件。运行覆盖只在submit时通过--data传。这里只创建开发草稿；management草稿写入与提交仍限真实用户Web/RPC入口。',
+    userContract([positional('content', INPUT_EMIT_SCHEMA.properties.content)], { ...saveOptions,
+      '--client-request-id': { ...INPUT_EMIT_SCHEMA.properties.client_request_id, description: '可选精确创建去重身份；同key同定义返回原草稿，不同定义拒绝，删除后不重建。未知结果不得换key重放。' },
+    }, {
       modes: [{ name: 'new', rpc: ['draft.add'] }, { name: 'append/numbered-conditions', rpc: ['worker.lookup','draft.add'], when: 'W/V编号需要lookup；实际目标仍由原引擎核验' }],
       sources: { '--branch': 'input targets', '--append-to': 'worker show真实目标' }, effects: ['saved仅表示保存；下一步input draft show，再按精确revision submit。'],
     }));
@@ -108,7 +110,7 @@ export const COMMANDS = defineCommands(add => {
     }, { sources: { '--revision': 'input draft show ID 的revision' }, effects: ['更新保存版本，不重新投递、不改写Input或Message。'] }));
   for (const [verb, method, description] of [
     ['remove','draft.remove','移除未发送且未挂载的草稿，不删除已提交原话。'],
-    ['submit','input.emit','授权保存的精确草稿版本；只保证挂载，不保证立即执行。'],
+    ['submit','input.emit','授权保存的精确开发草稿版本；管理草稿须真实用户management.submit或密码提权入口，不能用此命令提交。'],
     ['cancel','input.emission_cancel','撤销尚未执行授权，不撤回已发生或未知副作用。'],
     ['release','input.exclusive_release','只释放独占意愿，不取消授权或已创建工作。'],
   ]) add(`input draft ${verb}`, `ID --revision N|null${verb === 'submit' ? ' [--data JSON]' : ''}`, description, '17 --revision 3', [method], verb === 'submit' ? 'agent' : 'write', '',

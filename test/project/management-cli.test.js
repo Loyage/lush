@@ -42,6 +42,7 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
       command(['worker','show',target.worker_number]), command(['worker','message',target.worker_number,'PRIVATE-CLI-MESSAGE']),
       command(['valet','context','show',target.worker_number]), command(['valet','context','history','--worker',target.worker_number,'--limit','1']),
       command(['worker','message',target.worker_number,'--','--file']),
+      command(['input','draft','create','keyed CLI draft','--branch','main','--client-request-id','cli-draft-key']),
     ]);
     expect(result.replies.every(reply => !reply.error)).toBe(true);
     expect(result.values[0].help).toContain('worker message');
@@ -54,13 +55,17 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
     expect(result.values[5]).toMatchObject({ status: 'succeeded', method: 'worker.message' });
     expect(result.values[6].id).toBe(target.id);
     expect(result.values[7].scope).toBe('current_project');
+    expect(result.values[9]).toMatchObject({ status: 'succeeded', method: 'draft.add', result: { submitted: true } });
+    expect(result.values[9].result.id).toBeGreaterThan(0);
+    expect(f.store.draft(result.values[9].result.id).content).toBe('keyed CLI draft');
+    expect((await f.dispatcher.dispatch('draft.add', { content: 'keyed CLI draft', branch: 'main', mode: 'order', client_request_id: 'cli-draft-key' })).id).toBe(result.values[9].result.id);
     expect(f.store.unread(target.id).some(row => row.sender_id === result.task.id && row.body === 'PRIVATE-CLI-MESSAGE')).toBe(true);
     expect(f.store.unread(target.id).some(row => row.sender_id === result.task.id && row.body === '--file')).toBe(true);
     const ordinary = (await f.dispatcher.dispatch('worker.reading_page', { id: target.id })).messages.find(row => row.body === 'PRIVATE-CLI-MESSAGE');
     expect(ordinary.input_source).toEqual({ kind: 'valet', worker_id: result.task.id, worker_number: result.task.worker_number });
     const audit = await f.dispatcher.dispatch('worker.management_calls', { id: result.task.id, after: 0 });
     expect(audit.items.filter(item => item.phase === 'finished').map(item => item.method)).toEqual([
-      'worker.lookup','worker.inspect','worker.lookup','worker.message','worker.lookup','manager.query','worker.lookup','manager.history','worker.lookup','worker.message',
+      'worker.lookup','worker.inspect','worker.lookup','worker.message','worker.lookup','manager.query','worker.lookup','manager.history','worker.lookup','worker.message','draft.add',
     ]);
     expect(audit.items.every(item => item.cli_command && !item.cli_command.includes('PRIVATE'))).toBe(true);
     expect(JSON.stringify(audit)).not.toContain('PRIVATE-CLI-MESSAGE');

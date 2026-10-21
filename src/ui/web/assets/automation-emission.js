@@ -5,7 +5,7 @@ import { createInputBrowser } from './render-inputs.js';
 export function renderEmissionAutomation({ ownsPage, catalogue } = {}) {
   const root = el('section', undefined, 'automation-emission');
   root.setAttribute('aria-label', '条件提交');
-  let disposed = false, subpage = 'settings';
+  let disposed = false, subpage = 'settings', transition = 0;
   const pages = new Map();
   function page(next) {
     if (!pages.has(next)) {
@@ -15,16 +15,19 @@ export function renderEmissionAutomation({ ownsPage, catalogue } = {}) {
     }
     return pages.get(next);
   }
-  root.setSubpage = next => {
-    if (disposed) return Promise.resolve();
-    subpage = next === 'history' ? 'history' : 'settings';
+  root.setSubpage = async next => {
+    if (disposed) return;
+    const token = ++transition, selected = next === 'history' ? 'history' : 'settings';
+    if (selected !== subpage && pages.has(subpage) && !await pages.get(subpage).suspend()) return;
+    if (disposed || token !== transition) return;
+    subpage = selected;
     const active = page(subpage);
     for (const [name, node] of pages) node.hidden = name !== subpage;
     // Only the list refreshes: local draft edits survive tab switches and explicit refreshes.
     root.ready = active.state.pending ?? active.load();
     return root.ready;
   };
-  root.dispose = () => { disposed = true; for (const node of pages.values()) node.dispose(); };
+  root.dispose = () => { disposed = true; transition++; for (const node of pages.values()) node.dispose(); };
   root.ready = root.setSubpage('settings');
   return root;
 }

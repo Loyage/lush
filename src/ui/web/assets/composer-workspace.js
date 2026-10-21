@@ -19,13 +19,14 @@ function createEntry(spec) {
 }
 export function rememberComposer() {
   const entry = currentEdit(); if (!entry) return;
+  ui.inputEditor?.capture?.();
   Object.assign(entry, { content: $('input').value, references: composerReferences(), profile: ui.composerManagement ? ui.composerManagementProfile : ui.composerProfile,
     expanded: ui.composerExpanded, scroll: $('input').scrollTop,
     selection: [$('input').selectionStart, $('input').selectionEnd], panelScroll: $('composer-shell').scrollTop });
   if (entry.mode === 'order') entry.parent = ui.composerParents?.find(parent => parent.branch === entry.branch) || entry.parent;
   cacheComposerWorkspace(workspace());
 }
-function applyEntry(entry) {
+export function applyEntry(entry) {
   const space = workspace(), changed = space.active !== entry; space.active = entry; space.menu = false; space.read++;
   ui.composerManagement = entry.mode === 'management';
   // Elevation is an explicit choice for one input, never part of a cached draft or mode restore.
@@ -36,11 +37,11 @@ function applyEntry(entry) {
   ui.composerExpanded = Boolean(entry.expanded);
   $('input-parent').value = entry.branch === 'main' ? '' : entry.branch || '';
   $('input').value = entry.content || ''; ui.composerEditRevision++;
-  if (changed) space.resetEditor?.(); setComposerReferences(entry.references || []);
+  if (changed) space.resetEditor?.(entry); setComposerReferences(entry.references || []);
   $('input').scrollTop = entry.scroll || 0;
   if (entry.selection?.every(Number.isInteger)) $('input').setSelectionRange?.(...entry.selection);
   $('composer-shell').scrollTop = entry.panelScroll || 0;
-  $('composer-draft-list').hidden = true; ui.syncComposer?.();
+  $('composer-draft-list').hidden = true; ui.inputEditor?.bind?.(); ui.syncComposer?.();
   if (entry.target_id != null && entry.taskFresh === false) void refreshEntryTarget(space, entry);
 }
 async function refreshEntryTarget(space, entry) {
@@ -57,24 +58,32 @@ async function refreshEntryTarget(space, entry) {
     ui.syncComposer?.(); show(target.error, 'error');
   }
 }
-export function selectComposerMode(mode, task = null, branch = 'main', { open = true } = {}) {
-  if (ui.composerSubmitting) { show('请求正在处理；编辑内容仍可修改，请稍后切换去向。'); return; }
+export async function selectComposerMode(mode, task = null, branch = 'main', { open = true, savedLeave = false } = {}) {
+  const spaceBefore = workspace(), transition = spaceBefore && (spaceBefore.transition = (spaceBefore.transition || 0) + 1);
+  if (!savedLeave && ui.inputEditor && !await ui.inputEditor.leave()) return;
+  if (!spaceBefore || workspace() !== spaceBefore || spaceBefore.transition !== transition) return;
+  if (ui.composerSubmitting && !savedLeave) { show('请求正在处理；编辑内容仍可修改，请稍后切换去向。'); return; }
   if (mode === 'append' && !Number.isSafeInteger(task?.id)) return;
   if (mode === 'append' && isValet(task)) mode = 'management';
   rememberComposer();
   const space = workspace(), spec = { mode, branch, ...(task ? { target_id: task.id, task } : {}) }, dest = destinationKey(spec);
   let entry = space.entries.get(space.last.get(dest) || dest);
   if (!entry) { entry = createEntry(spec); space.entries.set(entry.key, entry); space.last.set(dest, entry.key); }
-  if (task) { entry.task = task; entry.taskFresh = true; (entry.request ||= {}).uncertain = false; }
+  if (task) { entry.task = task; entry.taskFresh = true; (entry.request ||= {}).uncertain = false; entry.request.blocked = null; }
   applyEntry(entry); if (open) openComposer();
 }
 export function openComposer({ focus = true } = {}) {
   const space = workspace(); if (!space) return;
+  if (ui.inputEditor?.inDetail) { if (focus) $('input').focus({ preventScroll: true }); return; }
   space.open = true; space.menu = false; paintComposerWorkspace();
   if (focus) $('input').focus({ preventScroll: true });
 }
-export function collapseComposer() {
+export async function collapseComposer({ savedLeave = false } = {}) {
   const space = workspace(); if (!space) return;
+  const transition = space.transition = (space.transition || 0) + 1;
+  if (!savedLeave && ui.inputEditor && !await ui.inputEditor.leave()) return;
+  if (workspace() !== space || space.transition !== transition) return;
+  ui.inputEditor?.portable?.();
   const wasOpen = space.open || space.menu;
   rememberComposer(); space.open = false; space.menu = false; space.read++;
   if ($('composer-shell').contains?.(document.activeElement) || document.activeElement === $('input')) document.activeElement?.blur?.();
@@ -94,7 +103,8 @@ export function toggleComposerMenu() {
 }
 const liveEntry = entry => entry === currentEdit() ? { ...entry, content: $('input').value, references: composerReferences() } : entry;
 function editStatus(entry) {
-  if (entry.cached === false) return '浏览器自动保存失败 · 刷新前请暂存或复制';
+  if (entry.error) return `保存失败 · ${entry.error}`;
+  if (entry.cached === false) return '浏览器恢复保存失败 · 当前编辑仍在';
   if (entry.saved) return entry.saved.content === entry.content && JSON.stringify(entry.saved.references) === JSON.stringify(entry.references)
     ? `项目已暂存 · ${draftLabel(entry.saved)}` : `有本地修改 · ${draftLabel(entry.saved)}`;
   return entry.key === currentEdit()?.key && workspace().open ? '编辑中 · 收起时保留在本浏览器' : '已保留在本浏览器';
@@ -128,8 +138,9 @@ function paintPendingMenu(space, pending, task) {
     if (list.dataset.signature === signature) return;
     list.dataset.signature = signature; list.replaceChildren();
     for (const entry of items) {
-      const row = button('', () => {
+      const row = button('', async () => {
         if (ui.composerSubmitting || workspace() !== space) return;
+        if (ui.inputEditor && !await ui.inputEditor.leave()) return;
         const chosen = space.entries.get(entry.key); if (!chosen) return;
         rememberComposer(); space.last.set(chosen.destination, chosen.key); applyEntry(chosen); openComposer();
       }, 'ghost composer-pending-entry', { help: '恢复此条编辑及其原目标、引用和设置；当前编辑会保留，不提交或调用 Agent。' });
@@ -147,7 +158,8 @@ export function paintComposerWorkspace() {
   const space = workspace(); if (!space) return;
   const active = space.active, shell = $('composer-shell'), input = $('input');
   shell.dataset.open = String(space.open);
-  $('input-form').hidden = !space.open;
+  $('input-form').hidden = !space.open && !ui.inputEditor?.inDetail;
+  shell.dataset.detail = String(Boolean(ui.inputEditor?.inDetail));
   $('composer-menu').hidden = !space.menu;
   const task = menuWorker();
   const pendingEntries = [...space.entries.values()].map(liveEntry).filter(hasContent);
@@ -158,23 +170,20 @@ export function paintComposerWorkspace() {
   const pending = pendingEntries.length > 0;
   launcher.dataset.pending = String(pending);
   launcher.setAttribute('aria-label', `${space.open ? '收起输入' : '选择输入方式'}${pending ? ` · 有 ${pendingEntries.length} 条未完成输入` : ''}`);
-  launcher.setAttribute('data-help', space.open ? '收起面板并隐藏软键盘；自动保存文字、引用、设置与位置到当前浏览器，不提交或调用 Agent。' : '选择输入方式；黄点表示有未完成输入，菜单按类别列出原目标、摘要与保存状态。只恢复编辑，不提交或调用 Agent。');
+  launcher.setAttribute('data-help', space.open ? '自动保存此条项目草稿后收起；失败则保留编辑并阻止收起。浏览器恢复仅作断网与关闭兜底，不提交或调用 Agent。' : '选择输入方式；黄点表示有未完成输入，菜单按类别列出原目标、摘要与保存状态。只恢复编辑，不提交或调用 Agent。');
   $('composer-project').textContent = `项目：${$('project')?.textContent || '当前项目'}`;
   const management = active?.mode === 'management';
-  $('composer-resume').hidden = management || Boolean(input.value.trim() || composerReferences().length || active?.saved);
-  $('composer-choose-draft').hidden = management;
-  $('composer-remove-draft-help').hidden = $('composer-remove-draft').hidden = management || !active?.saved;
+  $('composer-resume').hidden = Boolean(input.value.trim() || composerReferences().length || active?.saved);
+  $('composer-choose-draft').hidden = !ui.inputEditor?.inDetail;
+  $('composer-remove-draft-help').hidden = $('composer-remove-draft').hidden = !ui.inputEditor?.inDetail || !active?.saved;
   $('composer-remove-draft').disabled = Boolean(ui.composerSubmitting);
   $('composer-remove-draft-help').setAttribute('data-help', ui.composerSubmitting ? '请求正在处理，请稍后再删除；不会重复提交。' : '经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑会保留，不删除已发送输入或 Worker。');
-  $('composer-draft-status').textContent = active?.cached === false ? '浏览器自动保存失败；本页编辑仍在，刷新前请手动暂存或复制原文' : active?.saved ? `${draftLabel(active.saved)} · 版本 ${active.saved.revision ?? '旧版'} · ${active.saved.content === input.value && JSON.stringify(active.saved.references) === JSON.stringify(composerReferences()) ? '正文与引用已保存' : '有本地修改，尚未保存'}`
-    : '未手动暂存；收起时自动保存到当前浏览器，不进入项目草稿';
-  $('composer-draft-status').hidden = !space.open || !hasContent(liveEntry(active));
-  const source = active?.saved || active?.localOptions;
+  const source = active?.localOptions || active?.saved;
   const options = source ? { conditions: source.conditions || [], exclusive: source.exclusive } : null;
   $('composer-condition-summary').hidden = !options || !options.conditions.length && !options.exclusive;
   $('composer-condition-summary').textContent = options ? `执行条件：${options.conditions.map(condition => `${({ worker_settled: '工作安全收尾', worker_merged: '本轮成果已合入 main', parent_quiet: '父 Worker 静息' })[condition.kind] || condition.kind}${condition.worker_id ? ` ${workerLabel(condition.worker_id)}` : ''}`).join('、') || '安全准入'}${options.exclusive ? ' · 独占' : ''}（保留原条件；在草稿页可调整）` : '';
-  $('input-parent').disabled = Boolean(active?.saved || ui.composerSubmitting);
-  $('input-parent-help').textContent = active?.saved ? '续写绑定原草稿父 Worker；如需改投，请在草稿页显式更改。选择其他类别不会携带此正文改投。' : '新 Worker 从所选父 Worker 的分支创建独立 worktree；更换父 Worker 会打开该去向的独立编辑。';
+  $('input-parent').disabled = Boolean(ui.composerSubmitting);
+  $('input-parent-help').textContent = '更改父 Worker 前先保存旧去向；明确选择后仍编辑同一草稿，提交时再次校验，不会静默改投 main。';
   for (const id of ['composer-menu-order', 'composer-menu-append', 'composer-menu-management', 'composer-choose-draft', 'composer-resume']) $(id).disabled = Boolean(ui.composerSubmitting);
 }
 function targetOfEntry(entry) {
@@ -185,13 +194,16 @@ function targetOfEntry(entry) {
 async function loadComposerDraft(record, { space, entry, target, current }) {
   const { editableDraft, matchesDraft } = await import('./draft-editor.js');
   if (!current()) return;
+  if (ui.inputEditor && !await ui.inputEditor.leave()) return;
   const full = await api(`/api/input/draft/${record.id}`); if (!current()) return;
   if (!editableDraft(full) || !matchesDraft(full, target) || typeof full.content !== 'string' || !Array.isArray(full.references))
     throw new Error('此草稿已授权、已发送、去向改变或版本不完整；不会覆盖本地内容');
   const key = `draft:${record.id}`;
   let chosen = space.entries.get(key);
   if (!chosen) {
-    chosen = { ...entry, key, saved: full, content: full.content, references: full.references, profile: null, scroll: 0, selection: null, request: {} };
+    chosen = { mode: entry.mode, branch: full.branch, target_id: full.target_id, task: entry.task, taskFresh: entry.taskFresh,
+      destination: entry.destination, key, saved: full, content: full.content, references: full.references, localOptions: { conditions: full.conditions || [], exclusive: Boolean(full.exclusive) },
+      profile: null, scroll: 0, selection: null, request: {} };
     space.entries.set(key, chosen);
   }
   rememberComposer(); space.last.set(entry.destination, key); applyEntry(chosen); openComposer();
@@ -201,7 +213,7 @@ async function loadComposerDraft(record, { space, entry, target, current }) {
 /** Start only from an empty editor; recalled, unmodified drafts keep the CLI-style cursor alive. */
 export function navigateComposerDraft(direction) {
   const space = workspace(), entry = currentEdit();
-  if (!space || !entry || entry.mode === 'management' || ui.composerSubmitting || $('input').disabled) return null;
+  if (!space || !entry || ui.composerSubmitting || $('input').disabled) return null;
   let history = space.history;
   const unchanged = () => space.history === history && space.active === history.entry && space.read === history.read
     && ui.composerEditRevision === history.revision && ui.composerReferenceRevision === history.refs;
@@ -239,7 +251,7 @@ export function navigateComposerDraft(direction) {
 
 /** Both empty-editor continuation and selection read the complete same-project destination scope. */
 export async function resumeComposerDraft(latest = true) {
-  if (ui.composerSubmitting || currentEdit()?.mode === 'management') return;
+  if (ui.composerSubmitting) return;
   rememberComposer();
   const space = workspace(), entry = currentEdit(), read = ++space.read;
   const revision = ui.composerEditRevision, refs = ui.composerReferenceRevision;
@@ -269,21 +281,21 @@ export async function resumeComposerDraft(latest = true) {
 /** Delete only the confirmed server identity/version; new typing survives as a detached local edit. */
 export async function removeComposerDraft() {
   const space = workspace(), entry = currentEdit(), saved = entry?.saved;
-  if (!saved || entry.mode === 'management' || ui.composerSubmitting || !space.open) return;
+  if (!saved || ui.composerSubmitting || !space.open && !ui.inputEditor?.inDetail) return;
   const input = $('input'), view = ui.view, read = ++space.read;
   const revision = ui.composerEditRevision, refs = ui.composerReferenceRevision;
   const content = input.value, signature = JSON.stringify(composerReferences()), profile = ui.composerProfile;
   const current = () => workspace() === space && currentEdit() === entry;
   space.history = null; $('composer-draft-list').hidden = true;
-  ui.composerSubmitting = true; ui.syncComposer?.();
+  entry.operation = 'remove'; ui.composerSubmitting = true; ui.syncComposer?.();
   try {
     const { editableDraft, draftOptions } = await import('./draft-editor.js');
-    if (!current() || space.read !== read || ui.view !== view || !space.open) return;
+    if (!current() || space.read !== read || ui.view !== view || !space.open && !ui.inputEditor?.inDetail) return;
     if (!editableDraft(saved)) throw new Error('草稿已授权、已发送或版本不完整，不能删除；请先核验草稿状态');
     const confirmed = await confirmDialog({ title: `删除${draftLabel(saved)}？`,
       message: '永久删除这条未发送草稿、引用及对应浏览器恢复内容，无法恢复；当前未保存的修改也会清空。确认或请求期间产生的新编辑将保留，不删除已发送输入或 Worker。',
       confirmLabel: '删除草稿', danger: true, confirmHelp: '永久删除当前草稿及对应浏览器恢复内容；不会调用 Agent。' });
-    if (!confirmed || !current() || space.read !== read || ui.view !== view || !space.open) return;
+    if (!confirmed || !current() || space.read !== read || ui.view !== view || !space.open && !ui.inputEditor?.inDetail) return;
     const result = await action('draft.remove', { id: saved.id, expected_revision: saved.revision }, { refresh: false });
     if (!current()) return;
     if (result.id !== saved.id) throw new Error('删除响应缺少可靠草稿身份；请核验草稿列表，本地内容保留，不会自动重试');
@@ -297,22 +309,57 @@ export async function removeComposerDraft() {
     show(`${draftLabel(saved)}已删除。${untouched ? '对应输入已清空。' : '新编辑已保留为未暂存输入，再次暂存会创建新草稿。'}${entry.cached === false ? '浏览器恢复内容未能更新，旧缓存可能仍存在；新编辑刷新前请复制保留。' : untouched ? '对应浏览器恢复内容已清空。' : ''}`, entry.cached === false ? 'error' : 'info');
     ui.draftsPage?.added?.();
   } catch (error) { if (current()) show(`删除失败：${error.message}；编辑内容已保留。`, 'error'); }
-  finally { if (workspace() === space) { ui.composerSubmitting = false; ui.syncComposer?.(); } }
+  finally { entry.operation = null; if (workspace() === space) { ui.composerSubmitting = false; ui.syncComposer?.(); } }
 }
 
 export function finishComposerEdit({ consume, detached = false, saved = null, options = null } = {}) {
   const space = workspace(), entry = currentEdit(); if (!entry) return;
   if (consume || detached) {
+    ui.composerElevated = false;
     space.entries.delete(entry.key);
     entry.key = space.entries.has(entry.destination) ? `${entry.destination}:local:${++space.serial}` : entry.destination;
     entry.saved = null; entry.request = {}; entry.localOptions = detached ? options : null;
     if (consume) { entry.content = ''; entry.references = []; entry.profile = null; }
     space.entries.set(entry.key, entry); space.last.set(entry.destination, entry.key);
+    delete entry.session; delete entry.consumed; delete entry.creation; delete entry.conflict; delete entry.error;
     if (consume) space.resetEditor?.();
   } else if (saved) {
     space.entries.delete(entry.key); entry.saved = saved; entry.key = `draft:${saved.id}`;
     space.entries.set(entry.key, entry); space.last.set(entry.destination, entry.key);
   }
+}
+export function retargetComposerEntry(entry = currentEdit()) {
+  const space = workspace(), previous = entry.destination, destination = destinationKey(entry);
+  if (previous === destination) return;
+  if (space.last.get(previous) === entry.key) space.last.delete(previous);
+  entry.destination = destination;
+  if (!entry.saved) { space.entries.delete(entry.key); entry.key = `local:${++space.serial}`; space.entries.set(entry.key, entry); }
+  space.last.set(destination, entry.key); rememberComposer();
+}
+export async function activateComposerDraft(record, { current = () => true } = {}) {
+  const spaceBefore = workspace(), transition = spaceBefore && (spaceBefore.transition = (spaceBefore.transition || 0) + 1);
+  if (ui.inputEditor && !await ui.inputEditor.leave()) return false;
+  if (!current() || workspace() !== spaceBefore || spaceBefore.transition !== transition) return false;
+  rememberComposer();
+  const space = workspace(), key = `draft:${record.id}`;
+  let entry = space.entries.get(key);
+  if (!entry) {
+    entry = { ...createEntry({ mode: record.mode || 'order', branch: record.branch,
+      target_id: record.target_id ?? null }), key, saved: record, content: record.content,
+      references: record.references || [], localOptions: { conditions: record.conditions || [], exclusive: Boolean(record.exclusive) }, taskFresh: false };
+    space.entries.set(key, entry);
+  }
+  space.last.set(entry.destination, key); applyEntry(entry); return true;
+}
+export async function newComposerEntry() {
+  const spaceBefore = workspace(), transition = spaceBefore && (spaceBefore.transition = (spaceBefore.transition || 0) + 1);
+  if (ui.inputEditor && !await ui.inputEditor.leave()) return false;
+  if (!spaceBefore || workspace() !== spaceBefore || spaceBefore.transition !== transition) return false;
+  rememberComposer();
+  const space = workspace(), previous = currentEdit();
+  const entry = createEntry({ mode: previous.mode, branch: previous.branch, target_id: previous.target_id, task: previous.task });
+  entry.key = `${entry.destination}:local:${++space.serial}`;
+  space.entries.set(entry.key, entry); space.last.set(entry.destination, entry.key); applyEntry(entry); openComposer(); return true;
 }
 export function initComposerWorkspace({ resetEditor }) {
   ui.composerWorkspace = { ...loadComposerCache(), active: null, open: false, menu: false, read: 0, resetEditor };

@@ -1,4 +1,5 @@
 import { check } from '../../core/types.js';
+import { inputOptions } from '../../core/project/input-emission-data.js';
 import { actorInputSource } from '../../persistence/store/input-sources.js';
 import { validateInputEmissionRequest } from '../../core/input-emission-protocol.js';
 
@@ -9,6 +10,12 @@ function draftOptions(params) {
 function emissionOptions(params) {
   return validateInputEmissionRequest(Object.fromEntries(
     Object.entries(params).filter(([key]) => !['_token', 'start', 'defer'].includes(key))));
+}
+
+function assertManagementDraftUser(p, params, actor, context) {
+  const management = params.mode === 'management' || params.id !== undefined && inputOptions(p.store.draft(params.id)).mode === 'management';
+  if (management) check(actor == null && !Object.hasOwn(params, '_token') && !context?.management
+    && (!context?.input_source || context.input_source.kind === 'user'), 'management drafts are user only; Agents cannot create or mutate management inputs');
 }
 
 /** input.* / draft.* */
@@ -46,9 +53,18 @@ export const handlers = {
     return p.submit(params.content, params.branch ?? null, params.references ?? []);
   },
   'input.list'(p, params, actor) { return p.inputs(); },
-  'draft.add'(p, params) { return p.addBufferedDraft(params.content, params.references === undefined ? [] : params.references, params.branch, draftOptions(params)); },
+  'draft.add'(p, params, actor, context) {
+    assertManagementDraftUser(p, params, actor, context);
+    return p.addBufferedDraft(params.content, params.references === undefined ? [] : params.references, params.branch, draftOptions(params), params.client_request_id);
+  },
   'draft.list'(p, params, actor) { return p.drafts(); },
-  'draft.remove'(p, params) { return p.removeBufferedDraft(params.id, params.expected_revision); },
-  'draft.update'(p, params) { return p.updateBufferedDraft(params.id, params.content, params.references, params.branch, params.expected_revision, draftOptions(params)); },
+  'draft.remove'(p, params, actor, context) {
+    assertManagementDraftUser(p, params, actor, context);
+    return p.removeBufferedDraft(params.id, params.expected_revision);
+  },
+  'draft.update'(p, params, actor, context) {
+    assertManagementDraftUser(p, params, actor, context);
+    return p.updateBufferedDraft(params.id, params.content, params.references, params.branch, params.expected_revision, draftOptions(params));
+  },
   'draft.commit'(p, params, actor) { return p.commitDrafts(params.ids ?? null, params.branch ?? null); },
 };

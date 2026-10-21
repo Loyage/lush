@@ -12,9 +12,9 @@
 | `input.get` | `GET /api/input/{kind}/{id}` | `kind:'draft'|'input'|'message'|'management'`、`id` |
 | `input.parents` | `GET /api/input-parents` | 无 |
 
-历史列表返回 `{items,next_cursor}`，默认每页 50 条、最多 100 条，正文预览最多 1000 字并带 `content_truncated`。搜索在服务端针对完整正文进行，不是搜索预览或首页 Worker 窗口。省略 `view` 且没有 `conditional` 时等价于 `view:'history'`，仅收录实际发送的三种去向：`order` 为全部真实原始 Input；`append` 为来源已证明的普通用户追加 Message；`management` 仅包含 `task_kind='management'` 且持久 `management.origin='input'` 的即时主输入框管理目标，不含定时信号绑定。历史不包含任何尚未发送的草稿；已发送追加以真实 Message 身份列出，不以草稿代替，不虚构 O/A。时间取实际 Input／Message 的 `created_at`，不取源草稿暂存时间。
+历史列表返回 `{items,next_cursor}`，默认每页 50 条、最多 100 条，正文预览最多 1000 字并带 `content_truncated`。搜索在服务端针对完整正文进行，不是搜索预览或首页 Worker 窗口。省略 `view` 且没有 `conditional` 时等价于 `view:'history'`，仅收录实际发送的三种去向：`order` 为全部真实原始 Input；`append` 为来源已证明的普通用户追加 Message；`management` 包含 `task_kind='management'` 且持久 `management.origin='input'` 的即时管理目标，以及原 V 的可信用户管理追加 Message，不含定时信号绑定自身的目标。历史不包含任何尚未发送的草稿；已发送追加以真实 Message 身份列出，不以草稿代替，不虚构 O/A。时间取实际 Input／Message 的 `created_at`，不取源草稿暂存时间。
 
-`view:'drafts'` 仅收录尚未实际发送的工作／追加草稿：未授权、撤销、条件或准入等待、投递中、失败及未知；已关联 Input、成功发射，或已通过明确追加收据关联真实可信 Message 的草稿不再列出。原始 Input 固定 `mode:'order'`，草稿 mode 取 `input_options`（旧草稿默认 order）。管理管家通过既有 `manager.call` 调用同一个 `input.history {view:'drafts'}` 查暂存，目录从统一 RPC 注册表获得 `view`，不新增权限或旁路。草稿／历史分流先于搜索、状态、模式及分页，在全库 SQL 执行，不在浏览器或单页结果中过滤。
+`view:'drafts'` 仅收录尚未实际发送的工作／追加／管理草稿：未授权、撤销、条件或准入等待、投递中、失败及未知；已关联 Input、成功发射，或已通过明确追加收据关联真实可信 Message 的草稿不再列出。原始 Input 固定 `mode:'order'`，草稿 mode 取 `input_options`（旧草稿默认 order）。管理管家通过既有 `manager.call` 调用同一个 `input.history {view:'drafts'}` 查暂存，目录从统一 RPC 注册表获得 `view`，不新增权限或旁路。草稿／历史分流先于搜索、状态、模式及分页，在全库 SQL 执行，不在浏览器或单页结果中过滤。
 
 `modes` 省略表示三种全含，空数组返回空列表；未知值、重复值、非数组和非字符串成员严格拒绝。HTTP 用 JSON 数组编码，例如 `/api/inputs?modes=%5B%22append%22%2C%22management%22%5D`，不接受逗号分隔形式或重复 query 参数。模式与正文／状态／合并筛选均在全库 SQL 分页前执行；cursor 绑定视图及完整筛选（含规范化的模式集合），模式顺序不同不影响续读，省略与显式三种全选等价，集合改变须重新查询。所有 kind 按 `(created_at,kind,id)` 稳定倒序分页，同时间和跨 kind 同整数 ID 不会互相覆盖。旧的未绑定视图 cursor 须刷新，不改写历史行；省略 view 与显式 history 等价，不能跨 history／drafts／conditional 视图续读。
 
@@ -46,7 +46,7 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 
 | RPC | 参数与行为 |
 |---|---|
-| `draft.add` | `{content,references?,branch?,mode?,target_id?,conditions?,exclusive?}`：保存并返回完整 draft；新建省略 branch 时解析 canonical 当前分支所有者，追加必须指定 target_id |
+| `draft.add` | `{content,references?,branch?,mode?,target_id?,conditions?,exclusive?,client_request_id?}`：保存并返回完整 draft；新建省略 branch 时解析 canonical 当前分支所有者，追加必须指定 target_id |
 | `draft.update` | `{id,content,references?,branch?,mode?,target_id?,conditions?,exclusive?,expected_revision}`：只更新未挂载条目，省略选项保留原值 |
 | `draft.remove` | `{id,expected_revision}`：只删除未挂载条目，不删除 Input |
 | `input.emit` 草稿路径 | `{draft_id,expected_revision,profile?,client_request_id?}`：模式、正文、条件及去向取已保存版本，不接受覆盖 |
@@ -66,6 +66,19 @@ D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手�
 
 历史 `create_worker` 预约仍保存一次性创建 Hook，不创建 Input/Worker/worktree。挂载认领草稿版本并保护其正文与引用；占用中不可编辑、删除或重复发射。等待／明确失败挂载停用或移除可释放占用；unknown 须检查现场后移除，不自动重放。已结束父上的未执行自定义挂载仍可移除释放草稿。创建成功才回写 `input_id`。参数与恢复边界见 [Hooks](hooks.md)。
 
+## 管理项目草稿与创建去重（D753／D754）
+
+`mode:'management'` 由统一编辑器接线到同一草稿列表、详情和便携入口；服务器保存、普通授权与密码授权共用以下版本边界。
+
+- `draft.add/update` 共用原 Draft ID、展示号、revision 和删除门。管理草稿 `parent_id/branch` 为 null，`target_id:null` 表示新建管家，正整数表示原生 V 管家；读面返回真实 `target_worker_number`。更新可显式传 null 清除管理目标，省略则保留。保存不创建 V、不占运行位，目标忙时可保存；不接受分支、非空引用、条件或独占，不保存运行权限／密码／可复用授权。切换回开发模式须显式选择父分支。
+- 用户 `management.submit` 新增与 `instruction` 互斥的 `{draft_id,expected_revision,client_request_id?,profile?}` 路径。正文及新建／追加去向只取保存版本；`profile` 只允许新建 V，追加沿用原 V 模型。实际提交复用管家串行位与追加安全门，忙碌／退役／未收口时拒绝而不排队；失败不消费草稿。
+- 成功返回 `{management:true,task,draft_id,draft_number,revision,dispatch}`。`dispatch` 为 `{kind:'management',state:'succeeded',worker_id,worker_number,occurrence_id,receipt_id,revision,authority:'ordinary'|'administrator',message_id?,created_at,finished_at,conditions:[],exclusive_active:false,...}`；succeeded 只证明该管理输入已接受，不证明模型或管理操作执行成功。管理输入与草稿消费在同一同步 SQLite 事务，保存／提交竞态复核精确 revision；落库任一步失败全部回滚。
+- 消费后草稿只读，移出未发送列表，仍可用 `input.get {kind:'draft',id}` 查看；普通精确重试只返回原收据，不重启 occurrence。management 原文及管理追加 Message 提供可证明的 `source_draft_id`。管理追加历史保留 `kind:'message'`，`mode:'management'`，不造开发 Input/O/A；按 management 模式筛选，不再落入 append 模式。
+- 密码提权完整定义可选绑定 `draft_id+expected_revision`，Host 签名与 daemon 均绑定原正文、保存版本、新建／原 V 目标；成功原子消费该草稿。`management.elevation_receipt` 的 found 响应同时带上述草稿收据字段。未知提权只读取精确原收据，不经普通提交补发；恢复草稿本身没有提权权限，下一次高权授权必须重新验密。详见[密码提权](administrator-valet.md)。
+- 管理草稿写入／消费仅接受真实用户；普通开发 Agent、Valet `manager.call` 和项目管理员业务代理均不能创建、修改、删除或提交管理输入。既有 `input.emit`／`order.submit`（含 start:false）、旧内部开发提交均拒绝管理草稿，不因知道 draft ID 取得创建／续轮管理身份的能力。开发草稿的已有受控代理权限不变；CLI 的 draft submit 仍仅支持开发草稿。
+- `draft.add.client_request_id` 可选，沿输入 key 的 1..128 字符、无外围空白／控制字符规则。同 key、同原始创建定义返回同一草稿当前版本，不同定义拒绝；事务内再次核验，跨并发／重启去重。同 key 的在途创建在异步父身份解析前合流，完成后仍以 SQLite 收据为权威。删除留下仅含哈希与整数关联的 tombstone，不重建已删除草稿；去重不会消费新的展示号。CLI `input draft create --client-request-id KEY` 使用同一接口。
+- 精确请求哈希／关联保存在项目 meta，正文仍只属于原 Draft／Worker／Message。已消费管理草稿随用户精确确认删除的原 V 收据一起纳入数据库预检 revision 并删除；未发送草稿不因此消失。关联已删除或缺少完成证明时拒绝重放，不从正文／时间猜测身份，不回填旧数据。
+
 ## 实现职责
 
 - `src/core/project/input-history.js`：公共草稿动作、父身份校验、历史详情与列表接缝。
@@ -74,19 +87,26 @@ D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手�
 - `src/ui/web/assets/render-inputs.js` / `styles-inputs.css`：`#inputs` 已发送历史与 `#drafts` 暂缓输入的独立页面、显式查询分页、暂存编辑及原文详情；`createInputBrowser` 提供同一编辑器的嵌入模式，不修改全局页面、地址或详情根。
 - `src/ui/web/assets/automation-emission.js`：`renderEmissionAutomation({ownsPage,catalogue})` 返回功能正文 DOM，`ready` 为初始读取 Promise，`setSubpage('settings'|'history')` 切换正文（默认设置），`dispose()` 释放编辑器并使迟到响应失效；父页面负责标题、返回与标签。标签往返保留未保存编辑，写入沿用单条草稿版本、请求去重与独立授权。
 - `src/ui/web/assets/composer.js` / `composer-workspace.js`：主输入快捷键与授权、浮动入口、按模式／目标隔离的本页编辑及原位暂存恢复；父候选使用独立完整读面。
-- `src/ui/web/assets/draft-editor.js`：主输入与草稿页共用的可编辑性、版本更新及精确版本授权接缝，不新增 RPC 或持久化实体。
+- `src/ui/web/assets/draft-editor.js`：共用可编辑性、版本更新及开发／管理精确版本授权接缝，不新增 RPC 或持久化实体。
+- `input-session.js`：每条 workspace entry 唯一的保存／授权队列、原定义创建去重与冲突基线；`unified-input-editor.js`：唯一 form／textarea 的 portable／detail／embedded 挂载、离开自动保存和显式冲突整理。宿主不持有第二份正文或版本。
 
 前端显式查询与刷新历史，不随 overview 重画编辑内容；所有异步响应核对页面身份，失败保留编辑，发射按钮单飞。CLI 不恢复旧 draft 命令，也不新增批量提交。
 
-两个列表复用资源页的页头、筛选容器与卡片样式，原文使用原生链接、草稿使用原生 button 进入独立详情，不内嵌写操作。历史突出正文摘要、类型、编号与实际发送时间，默认三模式全选，Worker／合并筛选放在默认收起的高级筛选；草稿在工作暂存／追加输入暂存间单选，常显去向、条件摘要与授权状态，类别在全库分页前筛选。
+两个列表复用资源页的页头、筛选容器与卡片样式，原文使用原生链接、草稿使用原生 button 进入独立详情，不内嵌写操作。历史突出正文摘要、类型、编号与实际发送时间，默认三模式全选，Worker／合并筛选放在默认收起的高级筛选；草稿在工作暂存／追加输入暂存／管理暂存间单选，常显去向、条件摘要与授权状态，类别在全库分页前筛选。
 
-`openInputs({section?:'history'|'drafts',item?:{kind,id},push?:boolean})` 复用编辑器但不混合页面身份：`#inputs` 属于 `ui.view.id='inputs'`，`#drafts` 和 `#input-draft-<id>` 属于 `drafts`；Input／Message／management 原文深链接归历史。旧条件提交 hash 转至草稿。同页往返保留查询、分页、滚动和本地编辑；追加深链接同步分类，分类变化使旧查询和分页失效；离页未保存编辑须确认，迟到读响应不能重开旧详情。版本冲突仍须先保留本地修改，再刷新读取。
+`openInputs({section?:'history'|'drafts',item?:{kind,id},push?:boolean})` 复用编辑器但不混合页面身份：`#inputs` 属于 `ui.view.id='inputs'`，`#drafts` 和 `#input-draft-<id>` 属于 `drafts`；Input／Message／management 原文深链接归历史。旧条件提交 hash 转至草稿。同页往返保留查询、分页、滚动和本地编辑；追加深链接同步分类，分类变化使旧查询和分页失效；离开当前条目先经共享保存队列，失败阻止离开，迟到读响应不能重开旧详情。版本冲突展示服务器最新版，由用户明确选择整理，不要求复制。
 
-主输入面板默认收起，导航只收起、不取消绑定的追加目标；详情页读取只可刷新同一目标，不能用另一 Worker 的状态替换编辑归属。模式、目标及恢复草稿的身份分别隔离编辑内容。W330／D692：收起与切换时经 `composer-cache.js`／`prefs.js` 项目作用域存储自动保存浏览器编辑快照（正文、引用、设置、位置及续写身份），不调用服务器暂存接口。W338／D706：v2 快照保留同目标多条编辑与各去向的最近选择，旧 v1 去向键只按当前项目发现，不删除旧快照；v2 存在后不重新加载已消费的旧编辑。菜单按模式投影同一批未完成编辑，具体条目恢复精确 key 而非只恢复默认去向。缓存的 Worker 简介仅作定位显示，刷新后恢复追加须经既有 `GET /api/worker/:id` 重新核验目标，读取失败或身份不匹配保持禁用与原文，迟到响应不能覆盖其他编辑。选择类别即打开默认大输入框；每次从圆形入口菜单选择类别，恢复同项目、模式及目标的自动保存，不将正文改投。保存失败明确提示并保留本页内容。手动暂存或提交成功且无在途新编辑时清空本条编辑与自动恢复，包含更新已恢复草稿；在途新编辑继续绑定已保存版本，授权后的新编辑则脱离原草稿。管理输入也可自动保存到浏览器，但不新增项目草稿或改变回车行为。空框 ↑／↓ 与可见续写按钮共用草稿恢复接缝；方向键仅在空框启动，按列表倒序移动并可返回原空框，正文或引用变更、去向切换及面板收起使本轮游标失效；重复按键复用在途读取，迟到响应不得覆盖编辑。续写通过既有 `input.history {view:'drafts'}` 查完所有分页，按模式与目标匹配可编辑记录，再读取完整详情核验；等待、结果未知、已发送或旧 Hook 占用记录不开放续写。恢复保留原 `id/revision`、去向、引用、条件与独占，保存调用 `draft.update`，授权调用 `input.emit {draft_id,expected_revision}`；版本冲突保留本地内容，不自动覆盖。迟到读取校验编辑身份、请求代次、正文与引用版本；在途新编辑不被旧提交清空，也不继续绑定已授权草稿。
+主输入默认收起，菜单按模式投影同一批未完成条目；恢复精确 entry key，不跟随阅读页改投。`composer-cache.js`／`prefs.js` v2 快照按项目保存正文、引用、目标、条件、本条 profile、位置、草稿版本及原始创建请求；旧 v1 仅在本项目无 v2 时发现，不删除旧数据。缓存的 Worker 简介不证明目标可提交，恢复后用 `/api/worker/:id` 核验；失败保留编辑、禁用授权，不改投。浏览器恢复不包含密码／管理员选择，也不承诺崩溃前异步服务器保存。
 
-主输入恢复草稿后提供「删除草稿」，经确认调用既有 `draft.remove {id,expected_revision}`；确认与请求共用提交单飞锁，去向／导航变化使尚未发出的确认失效。成功清除该条编辑及 v2 浏览器恢复身份、失效旧续写列表与方向键游标，同步未完成菜单与黄点；同目标其他编辑仍保留。确认或请求期间的新正文／引用／设置保留为脱离原草稿的本地编辑，失败与版本冲突不清空、不自动重试；删除后的列表刷新不纳入删除锁。
+同一条目只有一个 session、一个受控组件；挂载移动原 form，正文撤销栈随 entry 保留。`createUnifiedInputEditor` 提供 bind／mount／detail／continuePortable／save／submit／leave／detach／dispose，workspace 建立或恢复本地条目、真实草稿身份。离开整条编辑（互切、收起、换条目／去向、站内导航）调用 leave，与手动保存和授权共用队列；不监听普通 blur。`page-leave-guard.js` 只有一个协调器，以有界 input-session 与 page 槽顺序核验，页面保护不能覆盖输入保护。拒绝时恢复当前路由，不执行导航续体；项目、编辑身份与请求代次共同阻止迟到响应。
 
-主输入框不提供条件配置入口，但恢复已有条件草稿时保留条件摘要与「按条件提交」；Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 同样提交执行授权（内部仍为发射）。独立草稿详情默认展开执行条件，静息／独占高级项及运行参数按需展开；条件输入功能的嵌入编辑器仍默认收起条件表单。通过「执行条件设置」收起或展开，均保留本地设置；入口简要标注已有条件／独占，唯一发射动作按当前配置显示「提交指令／提交追加」或「按条件提交」，调用 `input.emit`，不以 ACK 冒充创建完成。保存按钮比较正文、目标、引用、条件和独占，恢复原值、保存成功后变灰；仅运行参数变动不启用保存。Ctrl/⌘+S 在活动可编辑详情内调用同一保存路径，IME、请求单飞、干净状态和页面身份均受保护；正文撤销／重做也同步保存状态。主输入与草稿详情的 Enter／Shift+Enter 都只换行，Ctrl/⌘+S 创建或更新草稿，Ctrl/⌘+Enter（含 Shift 组合）与提交按钮共用先保存再授权的路径；IME、重复按键与请求单飞均受保护，管理模式仍不提供项目草稿。
+首次创建在发送前缓存稳定 key 和原定义；未知创建只重查同 key／同定义，收到当前版本后才保存后续编辑，不编辑后换 key 重建。保存保留内容和 ID，之后 `draft.update {expected_revision}`。冲突暂停更新、保留本地，显式读取服务器版本后选择基线整理；不可编辑的服务器版本可显式脱离为新本地条目。提交先保存再授权精确 revision；管理只走 management.submit／专用密码入口，绝不调用 input.emit。接受后消费原条目并显示真实收据；请求期间新编辑脱离已消费草稿，不被旧回调清空。
+
+空框方向键和可见续写入口共用完整分页查找；新建匹配父，追加／管理匹配原目标。先读完整详情核验 id、mode、revision、引用和可编辑状态；等待、unknown、成功及旧 Hook 占用不作为普通草稿恢复。游标核验 entry、读取代次、正文与引用版本，编辑或切换即失效。
+
+删除只在详情独立危险区，经确认调用 `draft.remove {id,expected_revision}`；确认／请求占用同一条目的操作锁，导航和提交不得绕过。成功清除对应浏览器恢复身份，确认／请求期间的新编辑脱离原草稿保留；失败与冲突不清空、不自动重试。同目标其它条目不受影响。
+
+底部仅显示条件／独占摘要、基础工具和主要动作，不提供高级菜单。详情可编辑去向，工作／追加条件默认展开；嵌入条件自动化仍默认收起，收据留在嵌入宿主、不修改全局路由。运行设置与引用完整信息按需展开，已有设置有摘要。两处 Enter／Shift+Enter 换行、Ctrl/⌘+S 保存、Ctrl/⌘(+Shift)+Enter 先保存再授权，IME、重复按键和在途编辑受同一保护；管理也保存项目草稿，但无条件／附件。
 
 挂载 ACK 后消费编辑器并呈现只读发射收据，不等待全局刷新。实际获得 `input_id` 后才可转到历史 Order 原文；追加收据通过「查看已入箱追加原文」打开真实 Message/A 原文，不造 O。历史 Input／Message 用明确 `source_draft_id` 提供条件／独占收据入口，服务端显式 null 不得被前端旧缓存推翻；独占草稿保留合法释放入口，成功源草稿从列表移除但仍可寻址。后读失败不恢复已消费编辑器、不猜测 Input 关联或扫描全库。返回列表刷新草稿版本；所有迟到响应服从页面身份保护，不伪造 O 编号。
 
@@ -94,10 +114,9 @@ D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手�
 
 当前保留 `test/project/input-history.test.js` 的草稿编辑／发射主流程，以及 `test/web/dom-inputs-api.test.js` 的真实临时 HTTP／RPC／SQLite／Git 链；不连接用户项目。键盘模式、条件历史、迟到响应和冻结等组合不再逐项回归；精确 Web 入口用 `bun run test:integration --list` 查询，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 - `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。
-- `bun run scripts/check-input-history-ui.js`：Firefox/geckodriver 真实 app shell 与 fixture API，用 iframe 浏览上下文实际验证双主题 1440/900/390px 的独立导航、发送边界、暂存分类／摘要、原文只读、条件默认展开与高级项收起、窄屏无溢出，以及后退、Ctrl+S、提交收据和历史原文往返；不连接 daemon／模型，不代替手机真机验收。
-- `bun run scripts/check-composer-layout.js`：真实 `/p/<id>/` 项目页与 fixture API；Firefox iframe 验证三模式的字段线型与项目配色、双主题、1440/760/390/320px、长标题、冻结／阻塞目标、Enter 换行、保存／提交组合键、追加 ACK 恢复新建，以及导航收起而不改投。不连接 daemon 或模型，运行后清理服务与浏览器进程。
-
-- `bun run test/web/check-mobile-composer-browser.js`：隔离 Firefox iframe 验证 320/390/760/1440px、双主题、默认零表单占位、文字菜单、停靠不遮挡阅读、44px 控件、默认大输入框、收起自动保存与类别恢复、阅读位置、原位草稿更新及版本授权，保留页头／导航和回车／撤销／追加／创建回归。软键盘通过 VisualViewport 模拟，不等同于 iOS／Android 真机验收。
+- `bun run scripts/check-input-history-ui.js`：共享 Firefox/app-shell fixture 与 iframe，双主题 1440/900/390/320px 验证原 DOM／草稿 ID 双向续写、自动保存、正式层级、三类草稿、管理精确版本授权及只读收据。
+- `bun run scripts/check-composer-layout.js`：复用同一 Firefox 检查，1440/760/390/320px 验证便携／详情互切、可见基础工具、三模式线型、Agent 标识、44px 窄屏控件和无溢出。
+- `bun run test/web/check-mobile-composer-browser.js`：同一来源的真实窄 iframe／双主题检查，加 VisualViewport 软键盘模拟；不等同于 iOS／Android 真机。三入口均不连接 daemon／模型，退出清理自己的浏览器和服务。
 - `test/web/dom-inputs-api.test.js`：仅保留真实临时 HTTP／RPC／SQLite／Git 链上的追加输入与草稿恢复、修改、发射主流程，不调用模型。浏览器缓存、黄点、键盘、旧快照、失败／迟到隔离及组合矩阵不再独立自动回归。
 
 缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、任意 Worker 消息的全局全文检索或原始 Input 改写；普通用户追加仅在来源有持久证明时纳入历史检索；不将其它 Worker 消息或信号变成用户输入。

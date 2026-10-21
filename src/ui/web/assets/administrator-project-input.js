@@ -13,9 +13,10 @@ const managementTask = task => Number.isSafeInteger(task?.id) && task.id > 0 && 
 const pending = new Map(), secretForms = new Set();
 const key = definition => `${projectApi(receiptEndpoint)}:${definition.client_request_id}`;
 const storageKey = () => `lush.project-elevation.unknown:${projectApi(receiptEndpoint)}`;
-export function projectElevationDefinition({ kind, instruction, client_request_id, id, profile }) {
+export function projectElevationDefinition({ kind, instruction, client_request_id, id, profile, draft_id, expected_revision }) {
   return normalizeProjectElevation({ kind, mode: PROJECT_ELEVATION_MODE, scope: PROJECT_ELEVATION_SCOPE, instruction, client_request_id,
-    ...(kind === 'append' ? { id } : profile ? { profile } : {}) });
+    ...(kind === 'append' ? { id } : profile ? { profile } : {}),
+    ...(draft_id === undefined && expected_revision === undefined ? {} : { draft_id, expected_revision }) });
 }
 const definitionText = projectElevationText;
 function restore() {

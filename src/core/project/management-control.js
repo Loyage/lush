@@ -11,6 +11,8 @@ import { resolveRegisteredMount } from './automation-registry.js';
 import { managementAudit, managementPhase, capabilityDiagnostic } from './management-diagnostic.js';
 import { safeManagementDiagnostic } from '../management-diagnostic.js';
 import { MergeConditionCycleError } from '../merge-conditions.js';
+import { submitManagementDraft } from './management-drafts.js';
+import { inputOptions } from './input-emission-data.js';
 
 const transactionalOutcome = (project, call) => (TEMPORARY_RECEIPT_EVENTS[call.method] ? temporaryAutomationOutcome
   : call.method === 'hooks.register' ? hookRegistrationOutcome : hookInstallationOutcome)(project, call);
@@ -139,8 +141,13 @@ export function managementSafeResult(value, limits = {}) {
 
 export default {
   submitManagementInstruction(options) {
-    check(isPlainObject(options) && Object.keys(options).every(key => ['instruction','profile','client_request_id'].includes(key)),
+    check(isPlainObject(options) && Object.keys(options).every(key => ['instruction','profile','client_request_id','draft_id','expected_revision'].includes(key)),
       'invalid management submit fields');
+    if (Object.hasOwn(options, 'draft_id')) {
+      check(!Object.hasOwn(options, 'instruction'), 'draft_id cannot be combined with instruction; save the draft first');
+      return submitManagementDraft(this, options);
+    }
+    check(!Object.hasOwn(options, 'expected_revision'), 'expected_revision requires draft_id');
     const task = this.createManagementWorker({ ...options, name: '管理输入', signal_id: null });
     this.kick();
     return { management: true, task };
@@ -178,6 +185,11 @@ export default {
     const { task } = assertManager(this, actorId);
     requestKey(requestId);
     let policy = validateManagementCall(method, params, managementInstruction(this, task), this.managementPermissionsSnapshot());
+    if (['draft.add','draft.update','draft.remove','input.emit','order.submit'].includes(method)) {
+      const draftId = method.startsWith('draft.') ? params.id : params.draft_id;
+      check(params.mode !== 'management' && (draftId === undefined || inputOptions(this.store.draft(id(draftId))).mode !== 'management'),
+        'management drafts are user only; Valet cannot create, mutate or submit management inputs');
+    }
     if (method === 'worker.hook_attach' || (method === 'worker.hook_update' && params.hook !== undefined))
       resolveRegisteredMount(this, params.hook); // Registration must already be complete before asking to authorize a mount.
     if (method === 'worker.spawn') {

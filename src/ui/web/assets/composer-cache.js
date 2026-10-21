@@ -8,8 +8,8 @@ const keepEntry = entry => hasContent(entry) || entry.profile || entry.expanded 
 const cacheKey = () => scopedKey('lush.composer.workspace.v2');
 const metadata = task => task ? Object.fromEntries(['id', 'worker_number', 'goal', 'display_title', 'auto_title', 'branch'].map(key => [key, task[key]])) : null;
 const snapshot = entry => {
-  const { key, mode, branch, target_id, destination, content, references, profile, expanded, scroll, selection, panelScroll, saved, localOptions, request } = entry;
-  return { key, mode, branch, target_id, destination, content, references, profile, expanded, scroll, selection, panelScroll, saved, localOptions, request,
+  const { key, mode, branch, target_id, destination, content, references, profile, expanded, scroll, selection, panelScroll, saved, localOptions, request, creation, error, conflict } = entry;
+  return { key, mode, branch, target_id, destination, content, references, profile, expanded, scroll, selection, panelScroll, saved, localOptions, request, creation, error, conflict,
     task: metadata(entry.task), parent: metadata(entry.parent) };
 };
 function validate(value) {
@@ -17,9 +17,9 @@ function validate(value) {
     || (value.mode === 'append' || value.mode === 'management' && value.target_id != null) && (!Number.isSafeInteger(value.target_id) || value.target_id <= 0)
     || value.mode === 'order' && (typeof value.branch !== 'string' || !value.branch)) throw Error('自动保存格式不完整');
   const destination = destinationKey(value);
-  if (value.saved && (!Number.isSafeInteger(value.saved.id) || value.saved.id <= 0 || destinationKey(value.saved) !== destination)) throw Error('自动保存的草稿去向不匹配');
+  if (value.saved && (!Number.isSafeInteger(value.saved.id) || value.saved.id <= 0 || (value.saved.mode || 'order') !== value.mode)) throw Error('自动保存的草稿去向不匹配');
   const key = value.key || (value.saved ? `draft:${value.saved.id}` : destination);
-  if (typeof key !== 'string' || key !== destination && key !== `draft:${value.saved?.id}` && !key.startsWith(`${destination}:local:`)) throw Error('自动保存身份不匹配');
+  if (typeof key !== 'string' || key !== destination && key !== `draft:${value.saved?.id}` && !key.startsWith(`${destination}:local:`) && !/^local:[1-9]\d*$/.test(key)) throw Error('自动保存身份不匹配');
   const entry = { ...snapshot({ ...value, key, destination }), cached: true, taskFresh: false };
   if (entry.task?.id !== entry.target_id) entry.task = null;
   return entry;

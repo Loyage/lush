@@ -17,13 +17,18 @@ export function projectElevationJSON(value, depth = 0) {
 }
 export function normalizeProjectElevation(value) {
   requireValue(object(value), 'elevation definition required');
-  const allowed = ['kind', 'mode', 'scope', 'instruction', 'client_request_id', ...(value.kind === 'append' ? ['id'] : ['profile'])];
+  const allowed = ['kind', 'mode', 'scope', 'instruction', 'client_request_id', 'draft_id', 'expected_revision', ...(value.kind === 'append' ? ['id'] : ['profile'])];
   requireValue(['submit', 'append'].includes(value.kind) && Object.keys(value).every(key => allowed.includes(key)), 'invalid elevation definition fields');
   requireValue(value.mode === PROJECT_ELEVATION_MODE && value.scope === PROJECT_ELEVATION_SCOPE, 'explicit project administrator mode required');
   requireValue(typeof value.instruction === 'string' && value.instruction.trim().length > 0 && value.instruction.length <= 32000, 'elevation instruction must be 1..32000 characters');
   requireValue(typeof value.client_request_id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value.client_request_id), 'elevation request identity required');
   if (value.kind === 'append') requireValue(Number.isSafeInteger(value.id) && value.id > 0, 'elevation target must be a positive Worker id');
   if (Object.hasOwn(value, 'profile')) requireValue(object(value.profile), 'elevation profile must be an object');
+  if (Object.hasOwn(value, 'draft_id') || Object.hasOwn(value, 'expected_revision')) {
+    requireValue(Number.isSafeInteger(value.draft_id) && value.draft_id > 0
+      && (value.expected_revision === null || Number.isSafeInteger(value.expected_revision) && value.expected_revision > 0),
+      'elevation draft requires draft_id and an exact expected_revision');
+  }
   return projectElevationJSON(value);
 }
 export const projectElevationText = value => JSON.stringify(normalizeProjectElevation(value));

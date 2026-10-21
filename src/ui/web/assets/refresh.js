@@ -7,7 +7,7 @@ import { loadDetail } from './detail.js';
 import { HOT } from './format.js';
 import { createPollBackoff, liveTarget, liveTick } from './live.js';
 import { clear, show } from './messages.js';
-import { detail, registerNavigation } from './navigate.js';
+import { registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { loadTaskGraph } from './render-task-graph.js';
 import { paintUsageLast } from './render-agent.js';
@@ -178,10 +178,12 @@ async function runRefresh(session, currentResponse) {
       // Live tasks also refresh on a slow tick so elapsed time and agent pid stay honest.
       const changed = current.updated_at !== ui.selectedRevision;
       const tick = HOT.has(current.status) && Date.now() - ui.detailRenderedAt > 15000;
-      if (changed || tick) await detail(ui.selected);
+      // Same-view revalidation is not a user leaving the portable editor.
+      // Only explicit navigation uses navigate.detail's save/leave guard.
+      if (changed || tick) await loadDetail(ui.selected);
     }
     // 展开中的 notice 被别处答复/忽略后，右侧要收敛回普通任务详情。
-    if (noticeBefore !== ui.noticeFocus && ui.selected !== null && !editing) await detail(ui.selected);
+    if (noticeBefore !== ui.noticeFocus && ui.selected !== null && !editing) await loadDetail(ui.selected);
   } catch (error) {
     if (!currentResponse()) return;
     session.overviewBackoff.failed();

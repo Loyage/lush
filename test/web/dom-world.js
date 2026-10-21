@@ -361,9 +361,11 @@ export function makeWorld() {
         failed: 0, tasks: [{ id: 2, status: 'requested' }, { id: 3, status: 'blocked' }] });
       if (body.method === 'worker.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
-      if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }
+      if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) Object.assign(draft, body.params, { revision: (draft.revision || 0) + 1 }); return json(draft); }
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
-      if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, references: body.params.references || [], created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
+      if (body.method === 'draft.add') { const draft = { ...body.params, kind: 'draft', mode: body.params.mode || 'order', id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1,
+        content: body.params.content, references: body.params.references || [], conditions: body.params.conditions || [], exclusive: Boolean(body.params.exclusive), revision: 1, status: 'draft', created_at: iso(NOW) };
+        state.drafts = [...state.drafts, draft]; return json(draft); }
       if (body.method === 'input.emit') return json({ emitted: true, draft_id: 99, mode: body.params.mode || 'order', dispatch: { state: 'queued' } });
       if (body.method === 'management.submit') return json({ management: true, task: { id: 98, role: 'manager', task_kind: 'management' } });
       if (body.method === 'order.submit') {

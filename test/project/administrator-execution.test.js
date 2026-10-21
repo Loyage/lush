@@ -58,13 +58,21 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     const mounted=f.project.attachTaskHook(target.id,{template_id:registered.template_id,template_version:registered.template_version,enabled:false},f.project.taskHooks(target.id).revision);
     const shellMount=mounted.mounts.find(item=>item.registry_id===registered.template_id),registryRevision=f.project.hooksList().registry.revision,commandsRevision=f.project.shortcutCommands().revision;
     const forbiddenRegistration={...shellDefinition,client_request_id:'must-not-register',expected_revisions:{commands:commandsRevision,registry:registryRevision}};
-    const definition={kind:'submit',mode:'administrator',scope:'current_project',client_request_id:'native-high-1',instruction:' PRIOR-HIGH-GOAL-CANARY\n ',profile:{agent:'pi',config_mode:'pi'}};
+    const saved=await request('draft.add',{content:' PRIOR-HIGH-GOAL-CANARY\n ',mode:'management',client_request_id:'native-high-draft'});
+    const definition={kind:'submit',mode:'administrator',scope:'current_project',client_request_id:'native-high-1',instruction:saved.content,
+      draft_id:saved.id,expected_revision:saved.revision,profile:{agent:'pi',config_mode:'pi'}};
     const before=f.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management'").n;
     const wrong=await post(definition,'incorrect-password');expect(wrong.status).toBe(403);expect(await wrong.json()).toMatchObject({code:'elevation_password_rejected',execution:'not_started'});
     expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management'").n).toBe(before);expect(forwarded).toEqual([]);
+    const mismatch=await post({...definition,instruction:'not the saved body',client_request_id:'mismatched-draft'});expect(mismatch.status).toBe(400);
+    expect(f.project.inputGet('draft',saved.id).dispatch).toBeNull();
+    const acceptedIndex=forwarded.length;
     const accepted=await elevate(definition),manager=accepted.task;expect(accepted.instruction).toBe(definition.instruction);
-    expect(forwarded[0].method).toBe(PROJECT_ELEVATION_RPC.submit);expect(JSON.stringify(forwarded)).not.toContain(password);
-    const proof=structuredClone(forwarded[0].params.proof);proof.request.definition.instruction+='edited';
+    expect(accepted).toMatchObject({draft_id:saved.id,revision:1,dispatch:{kind:'management',state:'succeeded',authority:'administrator',worker_id:manager.id}});
+    expect(f.project.inputHistory({view:'drafts',modes:['management']}).items).toEqual([]);
+    await expect(request('management.submit',{draft_id:saved.id,expected_revision:1,client_request_id:'native-high-1'})).rejects.toThrow('password-elevated');
+    expect(forwarded[acceptedIndex].method).toBe(PROJECT_ELEVATION_RPC.submit);expect(JSON.stringify(forwarded)).not.toContain(password);
+    const proof=structuredClone(forwarded[acceptedIndex].params.proof);proof.request.definition.instruction+='edited';
     await expect(dispatcher.dispatch(PROJECT_ELEVATION_RPC.submit,{proof})).rejects.toThrow();
     const receipt=await fetch(base+'/api/management/elevation-receipt?client_request_id=native-high-1');
     expect(await receipt.json()).toMatchObject({found:true,definition,task:{id:manager.id},instruction:definition.instruction});
@@ -84,10 +92,12 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
       tool('project.call',{method:'worker.hook_attach',params:{id:target.id,hook:{template_id:registered.template_id,template_version:registered.template_version},expected_revision:mounted.revision}}),
       tool('project.call',{method:'worker.hook_update',params:{id:target.id,hook_id:shellMount.id,enabled:true,expected_revision:mounted.revision}}),
       tool('project.call',{method:'input.emit',params:{content:'spoofed user',input_source:{kind:'user'}}}),
+      tool('project.call',{method:'draft.add',params:{content:'must not create management intent',mode:'management'}}),
+      tool('project.call',{method:'input.emit',params:{draft_id:saved.id,expected_revision:1}}),
       tool('project.call',{method:'worker.auto_merge',params:{id:target.id,enabled:false}}),...sourcePlan]);
     const high=JSON.parse(f.store.task(manager.id).result);
     expect(high.registered).toEqual(['administrator']);expect(high.cliActive).toEqual(['administrator']);expect(high.modelActive).toEqual(['administrator']);expect(high.blocked.every(Boolean)).toBe(true);
-    expect(high.startup.management.instruction).toBe(definition.instruction);expect(JSON.stringify(high)).not.toContain(password);expect(JSON.stringify(high)).not.toContain(forwarded[0].params.proof.signature);
+    expect(high.startup.management.instruction).toBe(definition.instruction);expect(JSON.stringify(high)).not.toContain(password);expect(JSON.stringify(high)).not.toContain(forwarded[acceptedIndex].params.proof.signature);
     expect(JSON.stringify(f.store.all('SELECT data FROM events'))).not.toContain(password);
     expect(high.replies.slice(0,5).every(item=>!item.error)).toBe(true);
     expect(high.replies.slice(5,-sourcePlan.length-1).every(item=>item.error)).toBe(true);
@@ -157,9 +167,12 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
       return mergeAfter(id,conditions,revision);
     };
     const forgedCycle=tool('project.call',{method:'worker.merge_after',params:{id:target.id,conditions:[{kind:'worker_settled',worker_id:peer.id}],expected_revision:revision}});
-    const append={kind:'append',mode:'administrator',scope:'current_project',client_request_id:'native-high-2',id:manager.id,instruction:'new explicit high instruction'};
+    const appendDraft=await request('draft.add',{content:'new explicit high instruction',mode:'management',target_id:manager.id});
+    const append={kind:'append',mode:'administrator',scope:'current_project',client_request_id:'native-high-2',id:manager.id,instruction:appendDraft.content,
+      draft_id:appendDraft.id,expected_revision:appendDraft.revision};
     const wrongAppend=await post(append,'incorrect-again');expect(wrongAppend.status).toBe(403);expect(managementState(f.store.task(manager.id)).pending_signal).toBeNull();
-    expect((await elevate(append)).instruction).toBe(append.instruction);
+    expect(await elevate(append)).toMatchObject({instruction:append.instruction,draft_id:appendDraft.id,dispatch:{authority:'administrator',worker_id:manager.id}});
+    expect((await (await fetch(base+'/api/management/elevation-receipt?client_request_id=native-high-2')).json())).toMatchObject({found:true,draft_id:appendDraft.id,definition:append});
     const unknown=tool('project.call',{method:'worker.rename',params:{id:target.id,title:'unknown write'}});
     await pump([cycle,forgedCycle,unknown,unknown]);
     const failed=JSON.parse(f.store.task(manager.id).result),rejected=failed.replies[0].response.details;

@@ -181,6 +181,7 @@ export const tasks = {
     const inputs = [...new Set(inputIds.map(value => id(value)))], inputMarks = inputs.map(() => '?').join(',');
     return this.transaction(() => {
       const counts = {};
+      const managementDrafts = this.managementDraftIds(ids);
       const drop = (table, where, args) => {
         counts[table] = this.get(`SELECT count(*) AS value FROM ${table} WHERE ${where}`, ...args).value;
         this.run(`DELETE FROM ${table} WHERE ${where}`, ...args);
@@ -206,10 +207,14 @@ export const tasks = {
       drop('task_specs',`planner_task_id IN (${marks})`,ids);
       drop('review_candidates',`report_task_id IN (${marks})${inputs.length ? ` OR input_id IN (${inputMarks})` : ''}`,[...ids,...inputs]);
       drop('tasks',`id IN (${marks})`,ids);
-      if (inputs.length) {
+      const draftWhere = [inputs.length ? `input_id IN (${inputMarks})` : null,
+        managementDrafts.length ? `id IN (${managementDrafts.map(() => '?').join(',')})` : null].filter(Boolean).join(' OR ');
+      if (draftWhere) {
         // Reference child rows use ON DELETE CASCADE; counts remain truthful before their owners disappear.
-        drop('draft_references',`draft_id IN (SELECT id FROM drafts WHERE input_id IN (${inputMarks}))`,inputs);
-        drop('drafts',`input_id IN (${inputMarks})`,inputs);
+        drop('draft_references',`draft_id IN (SELECT id FROM drafts WHERE ${draftWhere})`,[...inputs,...managementDrafts]);
+        drop('drafts',draftWhere,[...inputs,...managementDrafts]);
+      }
+      if (inputs.length) {
         drop('input_references',`input_id IN (${inputMarks})`,inputs);
         drop('inputs',`id IN (${inputMarks})`,inputs);
       }

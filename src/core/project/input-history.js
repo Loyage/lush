@@ -3,7 +3,8 @@ import { assertLocalWorker } from './execution-retired.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
 import { waitingFirstInput } from '../worker-creation.js';
-import { normalizeInputOptions, inputOptions, emissionLocked, inputEmission } from './input-emission-data.js';
+import { normalizeInputOptions, inputOptions, emissionLocked, inputEmission, requestKey, definitionHash } from './input-emission-data.js';
+import { assertManagementDraftTarget } from './management-drafts.js';
 
 const STATUSES = new Set(['draft','waiting_conditions','emitted','sent','emission_failed','unknown_dispatch','created','queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled','unknown']);
 const MERGES = new Set(['merging','blocked','merged','none']);
@@ -20,24 +21,61 @@ export function checkDraftRevision(draft, expected) {
   check(draft.revision === expected, `draft ${draft.id} changed; reload its latest revision`);
 }
 
+const draftRequestKey = value => value === undefined ? null : `draft.add.request:${requestKey(value)}`;
+function previousDraft(project, key, hash) {
+  if (!key) return null;
+  const prior = project.store.get('SELECT value FROM meta WHERE key=?', key);
+  if (!prior) return null;
+  const saved = JSON.parse(prior.value);
+  check(saved.definition_hash === hash, 'client_request_id was used for a different draft definition');
+  // A deleted draft leaves a tombstone: unknown/repeated saves never recreate an old identity.
+  check(project.store.get('SELECT id FROM drafts WHERE id=?', saved.draft_id), 'original draft was removed; do not replay its creation');
+  const draft = project.store.draft(saved.draft_id);
+  // Explicit legacy create-only submission has no emission object, but a keyed save
+  // still returns its original identity, marked consumed rather than a new editable draft.
+  if (draft.input_id && !inputEmission(draft)) return { ...project.inputGet('input', draft.input_id),
+    ...project.draftEmissionView(draft), kind: 'draft', id: draft.id, input_id: draft.input_id, source_draft_id: null,
+    parent_id: draft.parent_id, revision: draft.revision, content: draft.content, references: project.store.draftReferences(draft.id) };
+  return project.inputGet('draft', saved.draft_id);
+}
+
 /** Private creation path: RPC options cannot choose or suppress a display number. */
-export function createBufferedDraft(project, content, references = [], branch = undefined, options = {}, numbered = false) {
-  return project.write('buffer a draft', async () => {
+export function createBufferedDraft(project, content, references = [], branch = undefined, options = {}, numbered = false, clientRequestId = undefined) {
+  const key = draftRequestKey(clientRequestId), hash = key ? definitionHash({ content, references, branch, options }) : null;
+  const flight = key ? project.bufferedDraftCreations?.get(key) : null;
+  if (flight) {
+    check(flight.hash === hash, 'client_request_id was used for a different draft definition');
+    return flight.promise;
+  }
+  // Coalesce an identical in-flight request before asynchronous parent resolution (including first main ownership).
+  // This is only an admission aid; durable transaction receipts remain the cross-invocation authority.
+  const operation = project.write('buffer a draft', async () => {
     text(content, 'draft');
+    const prior = previousDraft(project, key, hash); if (prior) return prior;
     const normalized = project.normalizeReferences(references);
-    const settings = normalizeInputOptions(project, options);
+    const settings = normalizeInputOptions(project, options), management = settings.mode === 'management';
+    check(!management || branch === undefined && normalized.length === 0, 'management drafts do not support branch or reference attachments');
+    if (management) assertManagementDraftTarget(project, settings.target_id);
     const target = settings.mode === 'append' ? project.assertAppendInputTarget(settings.target_id) : null;
-    const parent = target ? project.inputRoot(target) : await project.inputParent(branch);
+    const parent = management ? null : target ? project.inputRoot(target) : await project.inputParent(branch);
     project.assertWritable('buffer a draft');
     return project.store.transaction(() => {
-      project.assertInputParent(parent.id, parent.branch);
+      const prior = previousDraft(project, key, hash); if (prior) return prior;
+      if (management) assertManagementDraftTarget(project, settings.target_id);
+      else project.assertInputParent(parent.id, parent.branch);
       check(project.store.draftCount() < 500, 'too many buffered drafts; submit or remove some first');
       const draft = project.store.addDraft(content, { numbered });
-      project.store.run('UPDATE drafts SET parent_id=?,revision=1,input_options=? WHERE id=?', parent.id, JSON.stringify(settings), draft.id);
+      project.store.run('UPDATE drafts SET parent_id=?,revision=1,input_options=? WHERE id=?', parent?.id ?? null, JSON.stringify(settings), draft.id);
       project.store.setDraftReferences(draft.id, normalized);
+      if (key) project.store.run('INSERT INTO meta(key,value) VALUES (?,?)', key, JSON.stringify({ draft_id: draft.id, definition_hash: hash }));
       return project.inputGet('draft', draft.id);
     });
   });
+  if (!key) return operation;
+  project.bufferedDraftCreations ??= new Map();
+  const entry = { hash, promise: operation.finally(() => { if (project.bufferedDraftCreations.get(key) === entry) project.bufferedDraftCreations.delete(key); }) };
+  project.bufferedDraftCreations.set(key, entry);
+  return entry.promise;
 }
 
 export default {
@@ -123,8 +161,8 @@ export default {
     return { items: items.map(item => ({ ...item, freeze: this.branchFreeze(item.branch) })) };
   },
 
-  addBufferedDraft(content, references = [], branch = undefined, options = {}) {
-    return createBufferedDraft(this, content, references, branch, options, true);
+  addBufferedDraft(content, references = [], branch = undefined, options = {}, clientRequestId = undefined) {
+    return createBufferedDraft(this, content, references, branch, options, true, clientRequestId);
   },
 
   updateBufferedDraft(draftId, content, references, branch, revision, options = {}) {
@@ -136,18 +174,23 @@ export default {
       check(!emissionLocked(draft), 'draft has a mounted input; cancel its emission before editing');
       checkDraftRevision(draft, revision);
       const normalized = references === undefined ? null : this.normalizeReferences(references);
-      const settings = normalizeInputOptions(this, options, inputOptions(draft));
+      const settings = normalizeInputOptions(this, options, inputOptions(draft)), management = settings.mode === 'management';
+      check(!management || branch === undefined && (normalized ?? this.store.draftReferences(draft.id)).length === 0,
+        'management drafts do not support branch or reference attachments');
+      if (management) assertManagementDraftTarget(this, settings.target_id);
       const target = settings.mode === 'append' ? this.assertAppendInputTarget(settings.target_id) : null;
-      const parent = target ? this.inputRoot(target) : branch === undefined ? null : await this.inputParent(branch);
+      const parent = management ? null : target ? this.inputRoot(target) : branch === undefined ? null : await this.inputParent(branch);
+      check(management || parent || inputOptions(draft).mode !== 'management', 'select a saved parent branch when changing a management draft to development');
       this.assertWritable('edit a draft');
       return this.store.transaction(() => {
         const live = this.store.draft(draft.id);
         checkDraftRevision(live, revision);
         check(!emissionLocked(live) && !this.draftHookMount(live.id), 'draft was mounted while editing; cancel its emission first');
-        if (parent) this.assertInputParent(parent.id, parent.branch);
+        if (management) assertManagementDraftTarget(this, settings.target_id);
+        else if (parent) this.assertInputParent(parent.id, parent.branch);
         this.store.updateDraft(draft.id, content);
         this.store.run('UPDATE drafts SET input_options=? WHERE id=?', JSON.stringify(settings), draft.id);
-        if (parent) this.store.run('UPDATE drafts SET parent_id=? WHERE id=?', parent.id, draft.id);
+        if (management || parent) this.store.run('UPDATE drafts SET parent_id=? WHERE id=?', parent?.id ?? null, draft.id);
         if (normalized !== null) this.store.setDraftReferences(draft.id, normalized);
         return this.inputGet('draft', draft.id);
       });

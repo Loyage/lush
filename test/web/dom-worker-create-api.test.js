@@ -51,7 +51,8 @@ async function submitFirst(task, content = 'first real user instruction') {
   const input = dom.node('input'); input.value = content; input.oninput();
   await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
   const request = requests.findLast(call => call.method === 'input.emit');
-  expect(request.params).toMatchObject({ mode: 'append', target_id: task.id, content });
+  expect(request.params).toMatchObject({ draft_id: expect.any(Number), expected_revision: 1 });
+  expect(requests.findLast(call => call.method === 'draft.add').params).toMatchObject({ mode: 'append', target_id: task.id, content });
   await fixture.project.drainInputEmissions();
   const draftId = fixture.store.all('SELECT * FROM drafts').at(-1).id;
   return { receipt: fixture.project.inputGet('draft', draftId), draftId };

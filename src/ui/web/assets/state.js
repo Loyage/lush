@@ -37,6 +37,7 @@ export const ui = {
   disposeAdministratorPage: null, // 旧全局管理员历史页离开时释放只读请求；不撤回已提交副作用。
   composerManagement: false, composerElevated: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
   composerWorkspace: null, openComposer: null, collapseComposer: null,
+  inputEditor: null, composerKeydown: null, lastInputReceipt: null, currentPageHash: '', restoreInputContext: null,
   composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
   transcriptView: null,
   draftSignature: null,
@@ -91,6 +92,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.inputEditor?.dispose(); ui.inputEditor = null; ui.composerKeydown = null; ui.lastInputReceipt = null; ui.currentPageHash = ''; ui.restoreInputContext = null;
   ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null;
   ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null;
   ui.disposePageModules?.(); ui.disposePageModules = null;

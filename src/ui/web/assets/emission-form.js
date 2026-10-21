@@ -11,6 +11,7 @@ export const DISPATCH_STATUS = {
 };
 export function dispatchText(dispatch) {
   if (!dispatch) return '';
+  if (dispatch.kind === 'management' && dispatch.state === 'succeeded') return '管理输入已接受（不代表执行成功）';
   return `${DISPATCH_STATUS[dispatch.state] || '提交状态未知'}${dispatch.reason ? `：${dispatch.reason}` : ''}`;
 }
 export function emissionAcknowledgement(result, append = false, firstInput = false) {
@@ -35,14 +36,14 @@ const field = (label, control) => {
 const check = (label, value) => { const input = el('input'); input.type = 'checkbox'; input.checked = Boolean(value); return { input, node: field(label, input) }; };
 
 /** Explicit bounded pages and exact W lookup, never the truncated overview window. */
-export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条件 Worker', initial = null, onChange = () => {} } = {}) {
+export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条件 Worker', initial = null, onChange = () => {}, numberPrefix = 'W', accept = () => true } = {}) {
   const node = el('div', undefined, 'emission-worker-picker');
   const select = el('select'); const workers = new Map(); let cursor = null, busy = false, disabled = false, generation = 0;
   const empty = el('option', '请选择 Worker'); empty.value = ''; select.append(empty);
-  const feedback = el('p', '按需加载项目 Worker；可继续加载更早记录或按完整 W 编号定位。', 'hint'); feedback.setAttribute('role', 'status');
+  const feedback = el('p', `按需加载项目 ${numberPrefix === 'V' ? '管家' : 'Worker'}；可继续加载更早记录或按完整 ${numberPrefix} 编号定位。`, 'hint'); feedback.setAttribute('role', 'status');
   function add(items) {
     rememberWorkers(items);
-    for (const item of items) if (Number.isSafeInteger(item.id) && item.id > 0) workers.set(item.id, item);
+    for (const item of items) if (Number.isSafeInteger(item.id) && item.id > 0 && accept(item)) workers.set(item.id, item);
     const previous = select.value;
     select.replaceChildren(empty, ...[...workers.values()].map(item => {
       const option = el('option', `${workerLabel(item)} ${taskTitle(item)}${item.status ? ` · ${item.status}` : ''}`);
@@ -50,7 +51,7 @@ export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条
     })); select.value = previous;
   }
   if (initial) { add([initial]); select.value = String(initial.id); }
-  const number = el('input'); number.placeholder = '例如 W123 或 W123-1'; number.maxLength = 128;
+  const number = el('input'); number.placeholder = numberPrefix === 'V' ? '例如 V3' : '例如 W123 或 W123-1'; number.maxLength = 128;
   const load = controlledButton('加载 Worker', async () => {
     if (busy || disabled || !ownsPage()) return;
     busy = true; sync(); const attempt = ++generation;
@@ -66,12 +67,12 @@ export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条
   }, 'ghost');
   const lookup = controlledButton('按编号定位', async () => {
     if (busy || disabled || !ownsPage()) return;
-    if (!/^W[1-9]\d*(?:-[1-9]\d*)*$/.test(number.value.trim())) { feedback.textContent = '请输入完整的 W 编号，不从内部整数推算。'; return; }
+    if (!(numberPrefix === 'V' ? /^V[1-9]\d*$/ : /^W[1-9]\d*(?:-[1-9]\d*)*$/).test(number.value.trim())) { feedback.textContent = `请输入完整的 ${numberPrefix} 编号，不从内部整数推算。`; return; }
     busy = true; sync(); const attempt = ++generation;
     try {
       const item = await api(`/api/worker-lookup?number=${encodeURIComponent(number.value.trim())}`);
       if (!ownsPage() || generation !== attempt) return;
-      if (!Number.isSafeInteger(item.id) || item.worker_number !== number.value.trim()) throw new Error('编号定位结果不兼容');
+      if (!Number.isSafeInteger(item.id) || item.worker_number !== number.value.trim() || !accept(item)) throw new Error('编号定位结果不兼容');
       add([item]); select.value = String(item.id); onChange(); feedback.textContent = `已定位 ${workerLabel(item)}。`;
     } catch (error) { if (ownsPage() && generation === attempt) feedback.textContent = `定位失败：${error.message}；现有选择保留。`; }
     finally { busy = false; if (ownsPage()) sync(); }
@@ -82,7 +83,7 @@ export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条
   } }
   select.onchange = onChange;
   const selection = el('div', undefined, 'emission-picker-row'); selection.append(field(label, select), hosts[0]);
-  const lookupRow = el('div', undefined, 'emission-picker-row'); lookupRow.append(field('Worker 编号', number), hosts[1]);
+  const lookupRow = el('div', undefined, 'emission-picker-row'); lookupRow.append(field(numberPrefix === 'V' ? '管家编号' : 'Worker 编号', number), hosts[1]);
   node.append(selection, lookupRow, feedback);
   return { node, select, value: () => workers.get(Number(select.value)) || null,
     // A caller may hydrate a minimal lookup with verified public detail; preserve selection without firing change again.

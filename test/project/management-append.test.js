@@ -22,6 +22,6 @@ test('user RPC appends a fresh occurrence to the same settled Valet while preser
     expect(f.store.unread(original.id)).toEqual([]);
     expect(f.store.all('SELECT * FROM agent_runs WHERE task_id=?', original.id)).toHaveLength(2);
     expect(f.project.managementOccupant()).toBeNull();
-    expect(f.project.inputHistory({ modes: ['append'] }).items).toMatchObject([{ kind: 'message', content: '本轮新增需求', task_id: original.id }]);
+    expect(f.project.inputHistory({ modes: ['management'] }).items.filter(item => item.kind === 'message')).toMatchObject([{ kind: 'message', content: '本轮新增需求', task_id: original.id }]);
   } finally { await f.close(); }
 });

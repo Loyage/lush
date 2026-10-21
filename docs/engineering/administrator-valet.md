@@ -4,9 +4,9 @@ W363／D738 取代 D737 的设备级独立管理员方向：运行和权限都�
 
 ## 用户流程与界面
 
-项目输入选择「管家」，默认仍是普通 Valet；在「高级设置」中提供默认未勾选的「以管理员身份运行」。选中后就地显示当前项目范围、风险及执行中不逐项询问权限。普通输入走原入口，不额外要求密码；提权输入核对完整内容、目标、模式与范围，并输入当前 Web 登录密码后提交。创建可在同一核对框明确确认“创建管家并执行首条指令”，不再先建空的全局管理员。
+项目输入选择「管理 Lush」，默认仍是普通 Valet；只有正式详情的「运行设置与引用」中提供默认未勾选的「以管理员身份运行」，便携底部不提供提权开关。选中后就地显示当前项目范围、风险及执行中不逐项询问权限。普通输入走原入口，不额外要求密码；提权输入核对完整内容、目标、模式与范围，并输入当前 Web 登录密码后提交。创建可在同一核对框明确确认“创建管家并执行首条指令”，不再先建空的全局管理员。
 
-同一个项目管家保留原 V 编号与历史。详情默认显示本轮普通／管理员、运行／阻塞、首次失败／unknown 和紧急停止；输入框提供相同的单条提权选择。结果与执行记录默认显示，审计／收据／模型信息按需展开；窄屏单列、长文换行、控件至少44px。密码不进入指令、草稿、sessionStorage、模型、会话、审计或错误正文，取消及离页清空。内容／目标／模式／模型覆盖变化使旧核对失效；未知提交保留精确定义和请求身份，只读核对，不自动重发或换 key。
+同一个项目管家保留原 V 编号与历史。详情默认显示本轮普通／管理员、运行／阻塞、首次失败／unknown 和紧急停止；「追加输入」使用同一草稿编辑器，在正式详情提供单条提权选择。结果与执行记录默认显示，审计／收据／模型信息按需展开；窄屏单列、长文换行、控件至少44px。密码不进入指令、草稿、sessionStorage、模型、会话、审计或错误正文，取消及离页清空。内容／目标／模式／模型覆盖变化使旧核对失效；未知提交保留精确定义和请求身份，只读核对，不自动重发或换 key。
 
 ## 身份和入口授权
 
@@ -16,13 +16,13 @@ W363／D738 取代 D737 的设备级独立管理员方向：运行和权限都�
 
 协议单一来源 `src/administrator/project-protocol.js`：
 
-- 定义 `{kind:'submit'|'append',mode:'administrator',scope:'current_project',instruction,client_request_id,profile? | id}`。submit 可含原管理模型覆盖 profile；append 仅固定实际目标 id。正文不 trim；上限与原管家入口一致，为32000字符。
+- 定义 `{kind:'submit'|'append',mode:'administrator',scope:'current_project',instruction,client_request_id,profile? | id}`。submit 可含原管理模型覆盖 profile；append 固定实际目标 id。二者可选同时携带 `draft_id+expected_revision`，要求完整 instruction 与管理草稿保存版本逐字一致，且新建／追加目标完全一致；不能只传 ID 让签名缺少正文。正文不 trim；上限与原管家入口一致，为32000字符。
 - HTTP 项目路径 `POST /p/<id>/api/management/elevate`（单项目绑定兼容无前缀），正文仅 `{definition,password,confirm:true}`。这是专用用户入口，不经通用 `/api/action` 代理，不接受 Agent token、客户端签名身份或免密参数。
 - RPC `management.elevated_submit {proof}`、`management.elevated_append {proof}` 只接可信签名 proof，不接受密码／布尔批准；拒绝任何 Agent token。
 - 只读 `GET /p/<id>/api/management/elevation-receipt?client_request_id=...` → 用户 RPC `management.elevation_receipt {client_request_id}`，返回 `{version:1,found,definition?,task?,instruction?}`。只证明原提交，不能作为执行成功或新授权。重新登录后可查原收据，但不能复用原确认获新权。
 - 模型唯一高权限工具仍为 administrator；固定项目 bridge 调用 `manager.administrator_call {operation,params}`，actor 来自真实 invocation，不接收可替换身份、签名或目标项目覆盖。
 
-proof 使用独立 `project-elevation-authority` 密钥命名空间，不沿用旧全局管理员的签名权。`project-elevation-proof.js` 固定项目、规范化精确定义、内容摘要、grant_id、会话派生绑定和五分钟准入期限；它不是模型可持有的永久 bearer 凭证。实际接受时在同一事务保存 request 去重与 `management.elevation_accepted` Event。私有 `pending_signal.elevation` 至少包含 `{version:1,mode,scope,project,grant_id,definition_hash,instruction_hash,occurrence_id,source_event_id,verified_at}`；source Event 含相同 grant_id、definition_hash、instruction_hash、occurrence_id。工具每次核对真实活跃 invocation 和这一代码生成的接受证据。
+proof 使用独立 `project-elevation-authority` 密钥命名空间，不沿用旧全局管理员的签名权。`project-elevation-proof.js` 固定项目、规范化精确定义、内容摘要、grant_id、会话派生绑定和五分钟准入期限；它不是模型可持有的永久 bearer 凭证。实际接受时在同一事务保存 request 去重与 `management.elevation_accepted` Event；绑定管理项目草稿时同事务消费该精确版本，失败全部回滚，普通提交不能补发高权草稿。管理草稿收据与真实用户专属边界见[输入接口](input-history.md#管理项目草稿与创建去重d753d754)。私有 `pending_signal.elevation` 至少包含 `{version:1,mode,scope,project,grant_id,definition_hash,instruction_hash,occurrence_id,source_event_id,verified_at}`；source Event 含相同 grant_id、definition_hash、instruction_hash、occurrence_id。工具每次核对真实活跃 invocation 和这一代码生成的接受证据。
 
 ## 执行、隔离与未知副作用
 

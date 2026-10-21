@@ -48,7 +48,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null; ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
+  if (changed) { ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null; ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.({ savedLeave: true }); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';
@@ -87,6 +87,7 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
     const base = `${globalThis.location?.pathname || '/'}${globalThis.location?.search || ''}`;
     globalThis.window?.history?.pushState?.(null, '', target || base);
   }
+  ui.currentPageHash = target;
   toggleMobileNavigation(false);
   ui.syncComposer?.();
   return ui.view;
