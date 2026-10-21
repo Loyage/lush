@@ -318,7 +318,7 @@ export default {
         : row.status === 'queued' && blockers.length ? `等待依赖 Worker ${blockers.map(workerLabel).join('、')}`
         : row.status === 'queued' ? '等待运行准入或安全边界'
         : row.status === 'awaiting_acceptance' ? (row.task_kind === 'child'
-          ? `本轮已交付 · 等待父Worker ${workerLabel({ id: row.parent_id, worker_number: row.parent_worker_number })} 确认` : '本轮已交付 · 等待你验收或追加输入')
+          ? `本轮已交付 · 等待父Worker ${workerLabel({ id: row.parent_id, worker_number: row.parent_worker_number })} 确认` : '已交付 · 待验收')
         : row.status === 'waiting' ? '静息 · 等待后续事件' : null;
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。

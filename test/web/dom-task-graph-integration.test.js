@@ -28,6 +28,9 @@ for (const minimal of [true, false]) test(`tree ${minimal ? 'minimal' : 'detail'
       expect(cards).toHaveLength(2);
       const hero = panel.querySelector('.task-graph-hero');
       expect(deepText(hero)).not.toContain('空白创建');
+      expect(deepText(hero)).not.toContain('图中');
+      expect(deepText(hero)).not.toContain('活动');
+      expect(hero.querySelectorAll('.task-graph-status-toggle').length).toBeGreaterThan(0);
       const archived = hero.querySelector('.task-graph-archived-toggle');
       expect(archived.textContent).toBe('已回收 2');
       expect(archived.getAttribute('aria-pressed')).toBe('false');

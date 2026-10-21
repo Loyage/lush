@@ -104,19 +104,24 @@ try{
     });`),'merge status not inline after usage');
   }
   console.log('PASS pending/merged status after usage without standalone tracking rows');
-  await execute(`window.normalGraph=graph;window.graph={total:1,nodes:[{id:2,worker_number:'W2',title:'交付中的工作',role:'agent',task_kind:'order',status:'waiting',integration:'pending',resources:{own:{run_ms:1000,input:100,output:10,cost:0.01}}}]};`);
+  await execute(`window.normalGraph=graph;window.graph={total:1,nodes:[{id:2,parent_id:1,parent_worker_number:'W1',target_branch:'main',worker_number:'W2',title:'交付中的工作',role:'agent',task_kind:'order',status:'waiting',integration:'pending',
+    merge_queue:{total:1,counts:{resolving:1},items:[{id:3,worker_number:'W2-1',status:'resolving'}]},
+    resources:{own:{run_ms:1000,input:100,output:10,cost:0.01}}}]};`);
   for(const theme of ['light','dark'])for(const width of [320,390,640,641,1440])for(const stage of ['requested','executing','resolving']){
     await resize(width);
-    const baselineHeight=await execute(`document.documentElement.dataset.theme='${theme}';delete graph.nodes[0].delivery_summary;delete graph.nodes[0].reservation;window.paint();
+    const baselineHeight=await execute(`document.documentElement.dataset.theme='${theme}';delete graph.nodes[0].delivery_summary;graph.nodes[0].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'${stage}'};window.paint();
       const baseline=document.querySelector('.task-graph-card').getBoundingClientRect().height;
-      graph.nodes[0].delivery_summary={version:2,stage:'${stage}'};graph.nodes[0].reservation={version:2,status:'${stage}'};window.paint();return baseline;`);
+      graph.nodes[0].delivery_summary={version:2,stage:'${stage}'};window.paint();return baseline;`);
     const card=await execute(`const card=document.querySelector('.task-graph-card'),usage=card.querySelector('.task-graph-usage'),status=usage.nextElementSibling;
       const c=card.getBoundingClientRect(),s=status.getBoundingClientRect();
-      return {height:c.height,text:status.textContent,tracking:!!card.querySelector('.source-delivery'),contained:s.left>=c.left&&s.right<=c.right&&s.bottom<=c.bottom};`);
+      const relations=card.querySelector('.task-graph-merge-relations'),r=relations.getBoundingClientRect();
+      return {height:c.height,text:status.textContent,tracking:!!card.querySelector('.source-delivery'),contained:s.left>=c.left&&s.right<=c.right&&s.bottom<=c.bottom,relationHeight:r.height,
+        links:[...relations.querySelectorAll('button')].map(link=>{const b=link.getBoundingClientRect();return {height:b.height,contained:b.top>=r.top&&b.bottom<=r.bottom&&b.bottom<=c.bottom};})};`);
     assert(card.height<=baselineHeight&&!card.tracking&&card.contained,`active delivery adds a row/overflows (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
+    assert((width<=760||card.relationHeight<=20)&&card.links.length===2&&card.links.every(link=>link.contained&&(width<=760?link.height>=44:link.height<=20)),`merge target/conflict link height (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
     assert(card.text===({requested:'冻结 · 等待合并',executing:'合并中 · 尚未完成',resolving:'合并中 · 源侧分歧修复'})[stage],'delivery stage lost');
   }
-  console.log('PASS active delivery adds no row or height against the same card baseline in both themes at 320–1440px');
+  console.log('PASS merge target/conflict links fit the 20px desktop row, retain 44px mobile targets, and active delivery adds no height in both themes at 320–1440px');
   await execute(`window.graph=normalGraph;window.paint();`);
   await resize(390);
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();`);

@@ -739,7 +739,8 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-merge-relations{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:6px 0;color:var(--muted);font-size:12px}
 .task-graph-merge-incoming,.task-graph-merge-group,.task-graph-merge-own{display:inline;line-height:inherit}
 .task-graph-merge-group+.task-graph-merge-group::before{content:' · '}
-.task-graph-merge-relations .task-graph-merge-link{display:inline;padding:0 3px;font-size:inherit;line-height:inherit;color:var(--accent);vertical-align:baseline}
+.task-graph-merge-relations .task-graph-merge-link{display:inline;min-height:0;padding:0 3px;font-size:inherit;line-height:1.4;color:var(--accent);vertical-align:baseline}
+@media(max-width:760px),(pointer:coarse){.task-graph-merge-relations .task-graph-merge-link{min-height:44px}}
 .task-graph-merge-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:task-graph-merge-pulse 2.4s ease-in-out infinite}
 @keyframes task-graph-merge-pulse{50%{opacity:.4}}
 .task-graph-minimal-progress>.task-graph-merge-relations{display:block;flex:1;min-width:0;white-space:nowrap;overflow-x:auto;scrollbar-width:none;margin:0;font-size:11px;line-height:20px}

@@ -43,7 +43,6 @@ function syncGraphDevicePreference() {
 }
 onDevicePreferences(syncGraphDevicePreference);
 
-const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance', 'completed', 'failed', 'cancelled'];
@@ -422,10 +421,7 @@ export function renderTaskGraph(graph) {
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
   hero.append(el('h1', '工作树'));
   const summary = el('div', undefined, 'task-graph-summary');
-  const active = graph.counts ? [...counts].reduce((sum, [status, count]) =>
-    sum + (ACTIVE.has(status) && !hidden.has(status) ? count : 0), 0) : nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
-  summary.append(badge(`图中 ${nodes.length} / ${graph.matched_total ?? graph.total} Worker`), badge(`${active} 活动`));
   // 状态计数本身兼作图例与开关：点一下隐藏 / 显示该状态，只改显示、不写库、不改任务状态。
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) || 0;
