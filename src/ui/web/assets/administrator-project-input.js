@@ -39,7 +39,7 @@ export function pendingProjectElevation(kind, id) {
 export function elevationChoice(onChange) {
   const root = el('div', undefined, 'project-elevation-choice'), label = el('label', undefined, 'project-elevation-label');
   const input = el('input'); input.type = 'checkbox'; input.checked = false; input.setAttribute('type', 'checkbox');
-  label.append(input, el('span', '仅本条提升为管理员权限'));
+  label.append(input, el('span', '以管理员身份运行'));
   const risk = el('p', PROJECT_ELEVATION_RISK, 'project-elevation-risk'); risk.hidden = true;
   input.onchange = () => { risk.hidden = !input.checked; onChange?.(input.checked); };
   root.append(label, risk);

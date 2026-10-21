@@ -28,7 +28,7 @@ export function createAdministratorPage({ container, request = api, isCurrent = 
   const reads = new Set(), stopping = new Set(), uncertainStops = new Set();
   const owns = () => !disposed && owner === globalThis.document && pathname === globalThis.location?.pathname && root.parentNode === container && isCurrent();
   const header = el('header', undefined, 'administrator-hero'), status = el('p', '正在只读核对旧服务状态…'), notice = el('p', '', 'administrator-notice');
-  header.append(el('h1', '旧全局管理员历史'), el('p', '此入口已退役，只保留历史阅读和安全停止。请在当前项目的管家输入中选择“仅本条提升为管理员权限”，并重新验证 Web 登录密码。', 'administrator-risk'), status,
+  header.append(el('h1', '旧全局管理员历史'), el('p', '此入口已退役，只保留历史阅读和安全停止。请在当前项目的管家输入中在高级设置中选择“以管理员身份运行”，并重新验证 Web 登录密码。', 'administrator-risk'), status,
     button('只读刷新历史', () => load(), 'ghost'));
   try {
     const retained = JSON.parse(globalThis.sessionStorage?.getItem('lush.administrator.unconfirmed.v1') || '[]');

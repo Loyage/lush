@@ -63,7 +63,7 @@ function paintManagementReceipts() {
         show(`原提权提交已确认存在，实际状态：${receipt.task.management?.state || receipt.task.status || '未知'}；不代表执行成功，请核对详情，不重发。`);
         syncComposer();
       } });
-    elevationControl.root.parentNode?.append(elevationReceipts.root);
+    $('input-form').append(elevationReceipts.root);
   }
   elevationReceipts.refresh();
 }
@@ -206,11 +206,13 @@ export function paintComposerDetails() {
   if ($('composer-details')) $('composer-details').hidden = !open || followup;
   if ($('composer-shortcuts')) $('composer-shortcuts').hidden = !open || followup;
   if ($('composer-editor-tools')) $('composer-editor-tools').hidden = !open;
+  if ($('composer-management-settings')) $('composer-management-settings').hidden = !open || !ui.composerManagement;
   const toggle = $('composer-expand');
   if (!toggle) return;
   const parent = followup ? null : selectedParentLabel();
   toggle.setAttribute('aria-expanded', String(open));
-  toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
+  toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : ui.composerManagement
+    ? '展开：显示正文的撤销与重做按钮、以管理员身份运行选项及适用的管理运行设置；不提交或改变本条权限。' : followup
     ? '展开：显示正文的撤销与重做按钮、草稿、历史输入；不改变追加目标。'
     : `展开：显示正文的撤销与重做按钮、草稿、历史输入、运行设置，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
   paintDisclosure(toggle, open, { expand: '高级设置', collapse: '收起高级' });
@@ -513,10 +515,10 @@ export function initComposer() {
   host?.querySelector?.('.composer-management-result')?.remove?.();
   managementResultButton = button('查看最近管理记录', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');
   managementResultButton.hidden = true; host?.append(managementResultButton);
-  host?.querySelector?.('.project-elevation-choice')?.remove?.(); host?.querySelector?.('.project-elevation-receipts')?.remove?.();
+  $('input-form').querySelector?.('.project-elevation-receipts')?.remove?.();
   elevationReceiptKey = null; elevationReceipts = null;
   elevationControl = elevationChoice(checked => { ui.composerElevated = checked; syncComposer(); });
-  host?.append(elevationControl.root);
+  $('composer-management-settings').replaceChildren(elevationControl.root);
   const sendHelp = agentHelp('提交工作指令并可靠保存执行授权，安全准入后创建并开始新 Worker；不保证立即创建。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);

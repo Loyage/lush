@@ -45,13 +45,18 @@ test('project Valet input: ordinary default, one-input password elevation, unkno
   resetUiState(); ui.view = { id: 'overview' }; ui.lastSnapshot = { status: { project: '/isolated/elevation-project' } }; dom.location.pathname = '/p/1234567890abcdef/';
   const navigation = registerNavigation({ refresh: async () => {} });
   try {
+    const shell = dom.node('composer-shell'), input = dom.node('input'), advanced = dom.node('composer-management-settings');
+    shell.append(dom.node('input-form')); dom.node('input-form').append(advanced);
     await initComposer(); await dom.node('composer-menu-management').onclick();
-    const shell = dom.node('composer-shell'), input = dom.node('input');
     expect(choice(shell).checked).toBe(false);
+    expect(deepText(advanced)).toContain('以管理员身份运行'); expect(advanced.hidden).toBe(true);
+    await dom.node('composer-expand').onclick(); expect(advanced.hidden).toBe(false);
     input.value = 'ordinary first'; input.oninput(); await dom.node('input-form').onsubmit({ preventDefault() {} });
     expect(ordinary).toHaveLength(1); expect(ordinary[0].method).toBe('management.submit'); expect(elevated).toHaveLength(0);
     input.value = '  first elevated\n exact whitespace  '; input.oninput(); choice(shell).checked = true; choice(shell).onchange();
     expect(deepText(shell)).toContain('不管理其他项目');
+    await dom.node('composer-expand').onclick(); expect(advanced.hidden).toBe(true);
+    expect(choice(shell).checked).toBe(true); // Folding does not change this input's explicit choice.
     let opening = dom.node('input-form').onsubmit({ preventDefault() {} });
     await until(() => dialogButton(dom, '验证密码并执行这一条'));
     let secret = dom.node('modal').querySelector('.project-elevation-password');
@@ -83,7 +88,10 @@ test('project Valet input: ordinary default, one-input password elevation, unkno
     await dom.node('input-form').onsubmit({ preventDefault() {} });
     expect(ordinary.at(-1)).toEqual({ method: 'worker.message', params: { id: 17, body: 'ordinary append' } });
     find(root, '追加输入').onclick(); input.value = 'append unknown'; input.oninput();
+    expect(advanced.hidden).toBe(true);
+    await dom.node('composer-expand').onclick(); expect(advanced.hidden).toBe(false);
     const toggle = choice(shell); toggle.checked = true; toggle.onchange();
+    await dom.node('composer-expand').onclick(); expect(advanced.hidden).toBe(true);
     opening = dom.node('input-form').onsubmit({ preventDefault() {} });
     await until(() => dialogButton(dom, '验证密码并执行这一条'));
     expect(dialogText(dom)).toContain('V9 · ID 17');
@@ -93,6 +101,7 @@ test('project Valet input: ordinary default, one-input password elevation, unkno
     expect(dialogButton(dom, '验证密码并执行这一条').disabled).toBe(true);
     closeDialog(); await opening;
     const count = elevated.length;
+    expect(dom.node('input-form').querySelector('.project-elevation-receipts').parentNode).toBe(dom.node('input-form'));
     expect(dom.node('draft-commit').disabled).toBe(true);
     await find(shell, '只读核对提权提交').onclick();
     expect(deepText(shell)).toContain('继续保留未知'); expect(elevated).toHaveLength(count);
