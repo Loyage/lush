@@ -4,7 +4,7 @@
 
 ## 发送与执行
 
-Web 中尚未决定执行的想法可先按 Enter 暂存，Shift+Enter 换行；暂存不创建 Worker、不调用 Agent。在「历史输入」中可搜索原始指令、编辑暂存并逐条发射，见[历史输入与暂存](input-history.md)。
+Web 中尚未决定执行的想法可先按 Ctrl/⌘+S 暂存，Enter 换行；暂存不创建 Worker、不调用 Agent。在「历史输入」中可搜索原始指令、编辑暂存并逐条发射，见[历史输入与暂存](input-history.md)。
 
 1. `lush order '目标'` 或 Web「发射」/ Ctrl/⌘+Enter 可靠挂载这一条输入，不保证立即有 Worker；Ctrl/⌘+Shift+Enter 同样直接发射；条件发射仅在草稿详情主动展开设置后使用。条件全部满足且父 runtime 真正空闲、安全可写时才创建并开始独立 Worker，保留原话与引用，**不先运行 planner、快速路由或 Plan Compiler**。显式 API start:false 仅创建路径仍保留兼容；详见[条件发射](engineering/conditional-emission.md)。
 2. CLI 未指定父时使用当前本地分支，Web 默认 main，可显式选择父。main 有静息根 Worker，其它分支须先显式绑定所有者（用户 RPC `branch.bind {branch,commit}`；无 CLI）。从实际创建时父的已提交 tip 建工作区；未提交改动不会被带入。

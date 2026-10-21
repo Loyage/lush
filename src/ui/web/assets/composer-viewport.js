@@ -6,10 +6,6 @@ export function viewportScrollDelta(rect, { top, height }, margin = 8) {
   return 0;
 }
 
-export function usesTouchEnter(win = window) {
-  return Boolean(win.matchMedia?.('(pointer: coarse)').matches);
-}
-
 export function attachComposerViewport(input, shell, win = window) {
   if (!shell || !win.addEventListener || !win.requestAnimationFrame) return () => {};
   const viewport = win.visualViewport;

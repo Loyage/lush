@@ -1,6 +1,6 @@
 import { $, button, el } from './dom.js';
 import { paintDisclosure } from './view-controls.js';
-import { attachComposerViewport, usesTouchEnter } from './composer-viewport.js';
+import { attachComposerViewport } from './composer-viewport.js';
 import { attachComposerResize } from './composer-resize.js';
 import { workerKind } from './worker-kind.js';
 import { waitingFirstInput } from './worker-create.js';
@@ -268,8 +268,7 @@ export function syncComposer() {
   paintManagementReceipts();
   const target = destination(), followup = target.id != null, firstInput = !management && followup && waitingFirstInput(target.task);
   const input = $('input');
-  const touch = usesTouchEnter();
-  const enter = touch ? '回车换行 · 按钮' : 'Enter';
+  const shortcuts = 'Enter 换行 · Ctrl/⌘+S 保存草稿 · Ctrl/⌘+Enter';
   const label = followup ? `Worker ${workerLabel(target.task || target.id)}` : target.task
     ? `Worker ${workerLabel(target.task)} · ${target.branch}` : selectedParentLabel() || 'main';
   $('input-form').dataset.mode = management ? 'management' : followup ? 'append' : 'create';
@@ -287,9 +286,9 @@ export function syncComposer() {
       ? ui.composerElevated ? '仅本条当前项目管理员 · 重新验证 Web 登录密码 · 执行中不逐项询问 · 下一条默认普通'
         : followup ? '向同一管家授权新一轮，不重放旧操作 · 沿用模型来源 · Enter 换行 · Ctrl/⌘+Enter 提交追加 · 其他管家占位时拒绝，不排队保存'
           : '由普通管家处理 · 接口按普通权限执行 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
-      : firstInput ? `不创建新 Worker · ${enter} 提交首条工作指令并授权 Agent 执行 · 生成真实原始输入 O · 暂存不执行`
-      : followup ? `不创建新 Worker · ${enter} 提交追加 · 暂存请点按钮 · Ctrl/⌘+Enter 也可提交 · 安全点交付，导航不改变目标${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
-        : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
+      : firstInput ? `不创建新 Worker · ${shortcuts} 提交首条工作指令并授权 Agent 执行 · 生成真实原始输入 O · 暂存不执行`
+      : followup ? `不创建新 Worker · ${shortcuts} 提交追加 · 安全点交付，导航不改变目标${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+        : `${shortcuts} 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
   // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
   for (const [id, text] of Object.entries(modeText)) {
@@ -494,7 +493,7 @@ async function submitInput(mode) {
   if (update) void updateAfterSubmit(update);
 }
 export function buffer() { return submitInput('buffer'); }
-/** Desktop Enter buffers new work and emits append input; Ctrl(+Shift)+Enter emits either. */
+/** Enter inserts a newline; Ctrl/Meta+S saves, Ctrl/Meta(+Shift)+Enter submits. */
 export function initComposer() {
   textEditor?.dispose(); disposeViewport?.(); disposeResize?.(); textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
@@ -521,6 +520,8 @@ export function initComposer() {
   $('composer-management-settings').replaceChildren(elevationControl.root);
   const sendHelp = agentHelp('提交工作指令并可靠保存执行授权，安全准入后创建并开始新 Worker；不保证立即创建。');
   $('draft-commit').setAttribute('data-help', sendHelp);
+  $('draft-commit').setAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter Control+Shift+Enter Meta+Shift+Enter');
+  $('input-buffer')?.setAttribute('aria-keyshortcuts', 'Control+s Meta+s');
   $('input-send-help')?.setAttribute('data-help', sendHelp);
   initComposerWorkspace({ resetEditor: () => textEditor?.reset() });
   renderComposerReferences();
@@ -535,21 +536,18 @@ export function initComposer() {
   $('input').oncompositionstart = () => { composing = true; };
   $('input').oncompositionend = () => { composing = false; };
   $('input').onkeydown = event => {
-    if (composing || event.isComposing || event.keyCode === 229) return;
+    if (event.defaultPrevented || composing || event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Escape') { event.preventDefault(); collapseComposer(); return; }
-    if ((event.ctrlKey || event.metaKey) && event.key?.toLowerCase() === 's' && !event.altKey && !event.shiftKey && currentEdit()?.saved) {
+    if ((event.ctrlKey || event.metaKey) && event.key?.toLowerCase() === 's' && !event.altKey && !event.shiftKey && !ui.composerManagement) {
       event.preventDefault(); if (!event.repeat) return buffer(); return;
     }
     if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       const navigation = navigateComposerDraft(event.key === 'ArrowUp' ? 1 : -1);
       if (navigation) { event.preventDefault(); return navigation; }
     }
-    if (event.key !== 'Enter') return;
-    if (event.altKey) return;
-    if (!event.metaKey && !event.ctrlKey && (event.shiftKey || usesTouchEnter() || ui.composerManagement)) return;
+    if (event.key !== 'Enter' || event.altKey || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
     if (event.repeat) return;
-    if (!event.metaKey && !event.ctrlKey && !ui.composerAppendTarget) return buffer();
     return submitInput('emit');
   };
   // Load the shared editor outside the static startup closure. Initialization

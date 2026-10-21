@@ -125,7 +125,7 @@ try {
     `);
     assert(result.width===width&&result.scrollWidth<=width&&result.fits,`overflow ${theme}/${width}: ${JSON.stringify(result)}`);
     assert(JSON.stringify(result.history)===JSON.stringify(['input:20','message:21','management:22'])&&result.readOnly&&result.historyClosed,`history ${JSON.stringify(result)}`);
-    assert(result.searchFits&&result.controls.every(row=>row.height>=(width<=760?44:36)&&row.font==='12px'&&row.radius==='9px'),`search/filter controls ${JSON.stringify(result)}`);
+    assert(result.searchFits&&result.controls.every(row=>row.height>=(width<=760?44:32)&&row.font==='12px'&&row.radius==='9px'),`search/filter controls ${JSON.stringify(result)}`);
     assert(result.equal.every(height=>height===result.equal[0])&&result.draftScope==='drafts'&&result.summary.includes('W17 本轮合入 main'),`list summaries ${JSON.stringify(result)}`);
     assert(result.workOnly&&result.appendOnly&&result.target&&result.retained&&result.conditionOpen&&result.advancedClosed,`hierarchy ${JSON.stringify(result)}`);
     assert(result.actions.every(row=>row.x>=0&&row.right<=width+1&&(width>760||row.height>=44)),`actions ${JSON.stringify(result)}`);
@@ -170,12 +170,16 @@ try {
   await execute("document.querySelector('[data-input=\"draft:1\"] .input-row').click();");
   await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>document.querySelector('.input-detail textarea')&&!document.querySelector('.input-detail').hidden?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
   await execute("const node=document.querySelector('.input-detail textarea');node.value='真实键盘保存的工作暂存';node.dispatchEvent(new Event('input',{bubbles:true}));node.focus();");
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'}]}]});
+  assert(await execute("return document.querySelector('.input-detail textarea').value.includes('\\n')&&window.calls.length===0;"),'draft Enter must insert a native newline without requests');
   await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'s'},{type:'keyUp',value:'s'},{type:'keyUp',value:'\uE009'}]}]});
   const saved=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>window.calls.at(-1)?.method==='draft.update'&&document.querySelector('.input-save').disabled?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
   assert(saved,'real Ctrl+S failed');
-  await execute("document.querySelector('.input-detail .agent-call').click();");
+  await execute("const node=document.querySelector('.input-detail textarea');node.value+='提交前修改';node.dispatchEvent(new Event('input',{bubbles:true}));node.focus();");
+  await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'},{type:'keyUp',value:'\uE009'}]}]});
   const mounted=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>!document.querySelector('.input-detail textarea')&&window.calls.at(-1)?.method==='input.emit'?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
   assert(mounted,'mount must consume editor, not create fake Worker');
+  assert(await execute("return window.calls.at(-2)?.method==='draft.update'&&window.calls.at(-2).params.content.endsWith('提交前修改')&&window.calls.at(-1).params.expected_revision===3;"),'Ctrl+Enter must save edits before authorizing the exact revision');
   await execute("window.finishDraft();[...document.querySelectorAll('button')].find(node=>node.textContent==='刷新提交状态').click();");
   const finished=await rpc(`/session/${session}/execute/async`,{script:"const done=arguments[0];let n=0;const check=()=>document.querySelector('.input-detail').textContent.includes('已投递')?done(true):++n>200?done(false):setTimeout(check,10);check();",args:[]});
   assert(finished,'successful receipt did not refresh');
@@ -187,7 +191,7 @@ try {
   await rpc(`/session/${session}/frame`,{id:null});
   const noDuplicate=await frame("await until(()=>win.location.hash==='#input-draft-1');button('← 返回草稿').click();return ![...doc.querySelectorAll('.input-record')].some(node=>node.dataset.input==='draft:1');");
   assert(noDuplicate,'successful source still appears in draft list');
-  console.log('PASS real browser back, Ctrl+S, mounted readonly receipt, successful history/source round trip and no duplicate draft');
+  console.log('PASS real browser back, native Enter newline, Ctrl+S, Ctrl+Enter saves then submits, mounted readonly receipt, successful history/source round trip and no duplicate draft');
   passed=true;
 } finally {
   if(session){try{await rpc(`/session/${session}`,undefined,'DELETE');}catch{}}

@@ -490,7 +490,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     if (editable) {
       editor.textEditor = attachTextEditor(content, { onChange: () => syncSave() });
       panel.append(editor.textEditor.controls);
-      const shortcuts = el('p', 'Ctrl/⌘+S 保存 · Ctrl/⌘+Z 撤销 · Ctrl/⌘+Shift+Z 或 Ctrl+Y 重做 · Enter 换行', 'hint');
+      const shortcuts = el('p', 'Enter 换行 · Ctrl/⌘+S 保存 · Ctrl/⌘+Enter 提交 · Ctrl/⌘+Z 撤销 · Ctrl/⌘+Shift+Z 或 Ctrl+Y 重做', 'hint');
       shortcuts.id = 'draft-editor-shortcuts'; content.setAttribute('aria-describedby', shortcuts.id);
       panel.append(shortcuts);
     }
@@ -670,7 +670,10 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         ['删除草稿', 'remove', { help: '经确认后永久删除这条未发送草稿及其引用；已发送输入不可删除。', className: 'danger' }],
       ]) {
         const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); (kind === 'emit' ? submitActions : secondaryActions).append(control.host);
-        if (kind === 'emit') launchControls.set(kind, control);
+        if (kind === 'emit') {
+          launchControls.set(kind, control);
+          control.node.setAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter Control+Shift+Enter Meta+Shift+Enter');
+        }
         if (kind === 'save') {
           saveControl = control; control.host.className = 'help-host';
           control.node.setAttribute('aria-keyshortcuts', 'Control+s Meta+s');
@@ -689,10 +692,12 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       paintParent(); syncSave();
       panel.onkeydown = event => {
         if (!current() || panel.hidden || !state.activeItem || event.defaultPrevented
-          || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key?.toLowerCase() !== 's') return;
+          || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+        const kind = event.key === 'Enter' ? 'emit' : !event.shiftKey && event.key?.toLowerCase() === 's' ? 'save' : null;
+        if (!kind) return;
         event.preventDefault();
-        if (event.isComposing || event.keyCode === 229 || composing) return;
-        return mutate('save');
+        if (event.repeat || event.isComposing || event.keyCode === 229 || composing) return;
+        return mutate(kind);
       };
     }
     if (record.task_id) actions.append(button(`查看 Worker ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id), undefined, { worker: record.task_id }));

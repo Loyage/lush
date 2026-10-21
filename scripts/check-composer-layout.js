@@ -36,6 +36,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   if (path === '/fixture-frame') return new Response(`<!doctype html><style>body{margin:0}iframe{display:block;border:0}</style><iframe id="viewport" width="1440" height="900" src="${projectPath}#worker-1"></iframe>`, { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
   if (path === '/fixture-world.js') return new Response(worldSource, { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -72,8 +73,11 @@ async function setViewport(width, height) {
   const frame = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' });
   await rpc(`/session/${session}/frame`, { id: frame });
 }
-async function enter() {
-  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+async function key(value, control = false) {
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [
+    ...(control ? [{ type: 'keyDown', value: '\uE009' }] : []), { type: 'keyDown', value }, { type: 'keyUp', value },
+    ...(control ? [{ type: 'keyUp', value: '\uE009' }] : []),
+  ] }] });
 }
 async function checkLayout(mode, theme, color, focused) {
   const layout = await execute(`const form=document.querySelector('#input-form'),band=document.querySelector('#composer-mode'),box=document.querySelector('#input');
@@ -98,9 +102,9 @@ async function checkLayout(mode, theme, color, focused) {
   assert(layout.mode === mode && layout.fits && layout.described, `clipped/inaccessible ${theme}/${color}/${mode}/${focused}: ${JSON.stringify(layout)}`);
   assert(layout.outerBorderless && layout.fieldWidth === (focused ? '3px' : '2px') && (!focused || layout.outlineStyle === 'none')
     && layout.regionTint !== layout.fieldBackground, `extra frame or missing regional tint/focus: ${JSON.stringify(layout)}`);
-  assert(mode === 'create' ? layout.fieldStyle === 'solid' && layout.title === '新建工作' && layout.target.includes('去向：新 Worker · 基于') && layout.behavior.includes('Enter 暂存')
+  assert(mode === 'create' ? layout.fieldStyle === 'solid' && layout.title === '新建工作' && layout.target.includes('去向：新 Worker · 基于') && layout.behavior.includes('Enter 换行') && layout.behavior.includes('Ctrl/⌘+S 保存草稿')
     : mode === 'append' ? layout.fieldStyle === 'dashed' && Number(layout.targetWeight) >= 650
-      && layout.title === '追加输入' && layout.target.includes('W179') && layout.behavior.includes('Enter 提交追加') && !layout.behavior.includes('Enter 暂存')
+      && layout.title === '追加输入' && layout.target.includes('W179') && layout.behavior.includes('Enter 换行') && layout.behavior.includes('Ctrl/⌘+Enter 提交追加')
       : layout.fieldStyle === 'double' && layout.title === '管理 Lush' && layout.target === '去向：管家 · 当前项目'
         && layout.bufferHidden && layout.behavior.includes('暂不支持暂存'), `wrong structure/target: ${JSON.stringify(layout)}`);
   const copy = mode === 'create' ? ['描述你希望新 Worker 完成的工作…', '工作指令正文', '提交新工作']
@@ -194,13 +198,17 @@ try {
     && checks[2].disabled && checks[2].statusVisible && checks[2].summary.includes('Worker 已完成'), `long/frozen/blocked target lost: ${JSON.stringify(checks)}`);
   console.log('PASS long numbered/text-safe targets, compact visible frozen/blocked reasons and legal frozen append');
   await setViewport(1440, 900);
-  await execute(`const box=document.querySelector('#input');box.value='确认追加给目标';box.dispatchEvent(new Event('input'));box.focus();`);
-  await enter();
-  assert(await waitFor('window.calls.some(c=>c.method==="input.emit" && c.params.mode==="append" && c.params.target_id===1 && c.params.content==="确认追加给目标") && !window.ui.composerSubmitting && document.querySelector("#input-form").dataset.mode==="create"'), 'Enter append emission ACK did not restore creation');
+  await execute(`const box=document.querySelector('#input');box.value='确认追加给目标';box.dispatchEvent(new Event('input'));box.focus();window.beforeKeys=window.calls.length;`);
+  await key('\uE007');
+  assert(await execute(`return document.querySelector('#input').value.includes('\\n')&&window.calls.length===window.beforeKeys;`), 'desktop append Enter must insert newline without saving or submitting');
+  await key('\uE007', true);
+  assert(await waitFor('window.calls.some(c=>c.method==="input.emit" && c.params.mode==="append" && c.params.target_id===1 && c.params.content==="确认追加给目标") && !window.ui.composerSubmitting && document.querySelector("#input-form").dataset.mode==="create"'), 'Ctrl+Enter append emission ACK did not restore creation');
   assert(await execute(`return document.querySelector('#composer-reset').hidden && !document.querySelector('#input-buffer-help').hidden;`), 'auto-reset did not restore new-work controls');
-  await execute(`const box=document.querySelector('#input');box.value='新建模式只暂存';box.dispatchEvent(new Event('input'));box.focus();`);
-  await enter();
-  assert(await waitFor('window.calls.some(c=>c.method==="draft.add" && c.params.content==="新建模式只暂存") && !window.ui.composerSubmitting'), 'Enter did not buffer in create mode');
+  await execute(`const box=document.querySelector('#input');box.value='新建模式只暂存';box.dispatchEvent(new Event('input'));box.focus();window.beforeKeys=window.calls.length;`);
+  await key('\uE007');
+  assert(await execute(`return document.querySelector('#input').value.includes('\\n')&&window.calls.length===window.beforeKeys;`), 'desktop create Enter must insert newline without saving or submitting');
+  await key('s', true);
+  assert(await waitFor('window.calls.some(c=>c.method==="draft.add" && c.params.content==="新建模式只暂存") && !window.ui.composerSubmitting'), 'Ctrl+S did not buffer in create mode');
   assert(await execute(`return !window.calls.some(c=>c.method==='order.submit');`), 'mode reset unexpectedly created Worker');
   await execute(`window.composer.appendToWorker(window.ui.composerTask);const box=document.querySelector('#input');box.value='仍然只给原目标';box.dispatchEvent(new Event('input'));location.hash='#workers';`);
   assert(await waitFor('document.querySelector("#input-form").hidden && window.ui.composerAppendTarget?.id===1'), 'navigation changed the pinned append destination or left the form open');
@@ -208,7 +216,7 @@ try {
   assert(await execute(`return window.ui.composerAppendTarget?.id===1&&document.querySelector('#input').value==='仍然只给原目标'&&!document.querySelector('#input-form').hidden;`), 'launcher changed destination or lost the retained body');
   await execute(`window.ui.composerTask={id:999,worker_number:'W999',goal:'不同页面目标'};window.composer.syncComposer();`);
   assert(await execute(`return document.querySelector('#composer-mode-target').textContent.includes('W179')&&!document.querySelector('#composer-mode-target').textContent.includes('W999');`), 'unrelated detail replaced pinned target metadata');
-  console.log(`PASS Enter emits selected append target, ACK restores new-work mode; navigation collapses without retargeting. Screenshots: ${output}-*.png`);
+  console.log(`PASS Enter inserts native newlines, Ctrl+S saves, Ctrl+Enter emits selected append target, ACK restores new-work mode; navigation collapses without retargeting. Screenshots: ${output}-*.png`);
   // Exercise the actual pointer-captured drag, persisted reload, keyboard and viewport clamp.
   await setViewport(1440, 900);
   await execute(`document.querySelector('#input').blur();document.querySelector('#composer-shell').scrollTop=0;`);
