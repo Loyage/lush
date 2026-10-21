@@ -121,13 +121,14 @@ try {
     for (const worker of [main, old, child, unmounted]) {
       await workerRoute(worker); const facts = f.project.taskHooks(worker.id).mounted_features;
       const expected = Object.keys(facts).filter(id => facts[id] && id !== 'convergence');
-      const layout = await execute(`const root=document.querySelector('.worker-hooks'), heads=[...root.querySelectorAll('.worker-automation-feature-head')];return {features:heads.map(n=>n.parentElement.dataset.feature),height:root.getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth,heads:heads.map(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right,height:r.height}}),advancedHidden:root.querySelector('.hook-management').hidden};`);
+      const layout = await execute(`const root=document.querySelector('.worker-hooks'), heads=[...root.querySelectorAll('.worker-automation-feature-head')];return {features:heads.map(n=>n.parentElement.dataset.feature),height:root.getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth||root.scrollWidth>root.clientWidth,heads:heads.map(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height}}),advancedHidden:root.querySelector('.hook-management').hidden};`);
       layouts.push({ theme, width, worker_id: worker.id, ...layout });
       assert(JSON.stringify(layout.features.sort()) === JSON.stringify(expected.sort()), `non-mounted entries ${worker.id}`);
       assert(!layout.overflow && layout.heads.every(r => r.left >= 0 && r.right <= width), `Worker heading overflow ${theme}/${width}/${worker.id}`);
+      assert(layout.heads.every((r,i)=>Math.abs(r.left-layout.heads[0].left)<1&&Math.abs(r.right-layout.heads[0].right)<1&&(i===0||r.top>=layout.heads[i-1].bottom)), `each automation feature needs its own row ${theme}/${width}/${worker.id}`);
       assert(layout.advancedHidden && layout.height < (width === 1440 ? 245 : 345), `automation too tall ${theme}/${width}/${worker.id}: ${layout.height}`);
       assert(await execute(`return [...document.querySelectorAll('.worker-automation-feature')].every(n=>{const t=n.querySelector('h3'),labels=[...n.querySelectorAll('button')].map(b=>b.textContent);return t.tabIndex===0&&!!t.dataset.help&&!t.hasAttribute('title')&&!n.querySelector('details')&&JSON.stringify(labels)===JSON.stringify(n.dataset.feature==='completion'?['关闭','合并','验收']:n.dataset.feature==='push'?['关闭推送','开启推送']:['关闭告知','开启告知'])})`), 'title/help/button shape mismatch');
-      assert(await execute(`const root=document.querySelector('.worker-hooks'),toggle=root.querySelector('.module-toggle');return root.classList.contains('ui-module')&&getComputedStyle(root.querySelector('.section-title')).position==='sticky'&&toggle.getAttribute('aria-expanded')==='false'&&root.querySelector('.module-body').hidden&&[...root.querySelectorAll('.worker-feature-title')].every(n=>getComputedStyle(n).display==='none')&&[...root.querySelectorAll('[data-feature="completion"] button')].every(n=>!n.classList.contains('agent-call')&&getComputedStyle(n,'::before').content==='none'&&n.getBoundingClientRect().height>=${width<=390?44:32})`), 'shared heading, compact controls or non-Agent delivery markers');
+      assert(await execute(`const root=document.querySelector('.worker-hooks'),toggle=root.querySelector('.module-toggle');return root.classList.contains('ui-module')&&getComputedStyle(root.querySelector('.section-title')).position==='sticky'&&toggle.getAttribute('aria-expanded')==='false'&&root.querySelector('.module-body').hidden&&[...root.querySelectorAll('.worker-feature-title')].every(n=>{const r=n.getBoundingClientRect(),controls=n.nextElementSibling.getBoundingClientRect();return r.width>0&&r.height>0&&r.right<=controls.left&&!!n.dataset.help})&&[...root.querySelectorAll('[data-feature="completion"] button')].every(n=>!n.classList.contains('agent-call')&&getComputedStyle(n,'::before').content==='none'&&n.getBoundingClientRect().height>=${width<=390?44:32})`), 'shared heading, compact controls or non-Agent delivery markers');
       await click('.worker-hooks .module-toggle');
       assert(await execute(`const root=document.querySelector('.worker-hooks');window.savedControls=[...root.querySelectorAll('.worker-automation-feature button')];return root.querySelector('.module-toggle').getAttribute('aria-expanded')==='true'&&!root.querySelector('.module-body').hidden&&[...root.querySelectorAll('.worker-feature-title')].every(n=>getComputedStyle(n).display!=='none')`), 'full automation expansion');
       if (await execute(`return document.querySelector('.worker-hooks').getBoundingClientRect().height>300`)) {
@@ -144,7 +145,7 @@ try {
     }
     console.log(`PASS settings, mounted main/order/child/excluded; ${theme}/${width}px`);
   }
-  await workerRoute(child); await click('.worker-hooks .module-toggle'); const title = '[data-feature="completion"] h3';
+  await workerRoute(child); const title = '[data-feature="completion"] h3';
   await execute(`window.helpEvents=[];for(const type of ['pointerover','pointerout','scroll','focusout'])addEventListener(type,e=>helpEvents.push({type,time:performance.now(),target:e.target.outerHTML?.slice(0,300)}));`);
   await pointer(title, [{ type: 'pause', duration: 1400 }]); assert(await wait(visibleTitleHelp), 'hover title help missing');
   await recordHelp('hover');
@@ -161,6 +162,7 @@ try {
   assert(await wait(visibleTitleHelp), 'long-press title help missing'); assert(mutations.length === beforePress, 'help press mutated settings'); await recordHelp('long-press');
   await click('[data-notice-enabled="true"]'); assert(await wait(`document.querySelector('[data-notice-enabled="true"]').getAttribute('aria-pressed')==='true'`), 'Worker notice ACK missing');
   assert(f.project.taskHooks(child.id).acceptance_notice.enabled && f.project.taskHooks(child.id).completion.locked, 'child notice save unlocked completion');
+  await click('.worker-hooks .module-toggle');
   assert(await execute(`return !document.querySelector('.hook-management').hidden&&!document.querySelector('.delivery-handler')&&!document.querySelector('.worker-convergence-control')`), 'retired handler/settings visible');
   await press('刷新详情'); assert(await wait(`!document.querySelector('.hook-management').hidden`), 'refresh lost advanced expansion');
   // A second real chain uses the unified registry, not a test-only RPC shortcut.

@@ -514,7 +514,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   for (const nodes of featureNodes.values()) featureList.append(nodes.section);
   section.append(management);
   moduleView = enhanceModule(section, { key: 'automation', mode: 'fold', states: featureState.modules });
-  moduleView.toggle.setAttribute('data-help', '展开完整自动化设置与记录；收起时只保留常用按钮和必要诊断，不提交设置或调用 Agent，同一 Worker 刷新时保留选择。');
+  moduleView.toggle.setAttribute('data-help', '展开完整自动化设置与记录；收起时逐行保留功能名称、常用按钮和必要诊断，不提交设置或调用 Agent，同一 Worker 刷新时保留选择。');
   moduleView.onChange(() => { management.hidden = !moduleView.expanded; });
   management.hidden = !moduleView.expanded;
   // Controls stay mounted and usable in compact mode; forms are never height-clipped.
