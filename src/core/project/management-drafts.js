@@ -81,7 +81,7 @@ export function submitManagementDraft(project, options) {
     const target = assertManagementDraftTarget(project, settings.target_id);
     check(!target || options.profile === undefined, 'management append uses the original Valet model settings');
     const task = target ? project.appendManagementInstruction(target.id, draft.content)
-      : project.createManagementWorker({ name: '管理输入', signal_id: null, instruction: draft.content,
+      : project.createPreparedManagementWorker({ name: '管理输入', signal_id: null, instruction: draft.content,
         ...(options.profile === undefined ? {} : { profile: options.profile }) });
     const result = consumeManagementDraft(project, draft, task, fingerprint);
     if (request !== undefined) project.store.run('INSERT INTO meta(key,value) VALUES (?,?)', key(request),

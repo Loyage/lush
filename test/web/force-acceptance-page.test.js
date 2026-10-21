@@ -67,5 +67,41 @@ test('real shared detail/graph control -> authenticated HTTP/RPC -> preview -> e
     expect(dom.node('composer-mode-behavior').textContent).toContain('请新发指令');
     expect(dom.node('input').disabled).toBe(false); // original destination is blocked, but local editing/recovery stays available
     expect(dom.node('draft-commit').disabled).toBe(true);
+    // Valet uses this same control and authenticated user entrance, without a Git delivery.
+    f.project.kick = () => {};
+    f.project.provider = { async run() { return 'Valet 正常收口'; } };
+    const future = new Date(f.project.hookClock() + 3600000).toISOString();
+    const signals = f.project.saveHookSignal({ name: '保留共享信号', enabled: true,
+      schedule: { kind: 'once', at: future, timezone: 'UTC' } }, f.project.hookSignals().revision);
+    const binding = await f.project.createManagementWorker({ name: '验收管理成果', instruction: '检查管理状态',
+      signal_id: signals.signals.items[0].id, mode: 'persistent' });
+    f.project.submitManagementSignal(binding.id, { id: f.store.event(binding.id, 'test.signal', {}),
+      signal_id: binding.management.signal_id, name: 'test', due_at: future, submitted_at: future });
+    f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
+    const valet = f.project.inspect(binding.id), workspace = valet.workspace;
+    expect(valet.management).toMatchObject({ accepted: false, can_accept: true, enabled: true, requires_confirmation: true });
+    const post = params => authenticatedFetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'worker.accept', params }) });
+    expect((await authenticatedFetch(f.url + '/api/action', { method: 'POST', anonymous: true, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'worker.accept', params: { id: valet.id } }) })).status).toBe(401);
+    expect((await post({ id: valet.id })).status).toBe(400); // Cannot silently end future authorization.
+    const beforeRuns = f.store.all('SELECT * FROM agent_runs WHERE task_id=?', valet.id);
+    const valetPanel = iterationControls(valet, { refresh }); dom.node('detail').replaceChildren(valetPanel);
+    expect(find(valetPanel, '强制验收…')).toBeUndefined();
+    expect(find(valetPanel, '验收').classList.contains('agent-call')).toBe(false);
+    pending = find(valetPanel, '验收').onclick();
+    await until(() => dialogButton(dom, '结束未来绑定并验收'));
+    expect(dialogText(dom)).toContain('不删除共享信号');
+    expect(dialogText(dom)).toContain(workspace);
+    await answerDialog(dom, '结束未来绑定并验收'); await pending;
+    expect(f.project.inspect(valet.id)).toMatchObject({ accepted: true, archived: true, workspace: null,
+      management: { enabled: false, accepted: true, archived: true, can_append: false, requires_confirmation: false } });
+    expect(fs.existsSync(workspace)).toBe(false);
+    expect(f.store.all('SELECT * FROM agent_runs WHERE task_id=?', valet.id)).toEqual(beforeRuns);
+    expect(f.project.hookSignals().items.some(item => item.id === binding.management.signal_id)).toBe(true);
+    expect(f.store.task(child.id).status).toBe('cancelled');
+    await find(valetPanel, '验收').onclick();
+    expect(calls.filter(call => call.method === 'worker.accept' && call.params.id === valet.id)).toHaveLength(1);
+    expect(iterationControls(f.project.inspect(valet.id)).querySelector('.iteration-phase').textContent).toContain('已验收归档');
   } finally { dom.restore(); await f.close(); }
 });

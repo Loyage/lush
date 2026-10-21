@@ -47,8 +47,59 @@ export function guardedAction(node, reason) {
   host.append(node); return host;
 }
 
+function valetAcceptanceControls(task, { refresh = () => {}, root = null } = {}) {
+  if (task.role !== 'manager' || task.execution_retired === true || !task.management) return null;
+  const facts = task.management;
+  const panel = root || el('div', undefined, 'iteration-controls'); panel.replaceChildren();
+  if (facts.accepted === true && facts.archived === true) {
+    panel.append(el('p', '已验收归档 · 结果、会话与执行历史只读保留', 'hint iteration-phase'));
+    return panel;
+  }
+  if (facts.acceptance_blocked) {
+    panel.append(el('p', facts.acceptance_reason || '验收记录不完整 · 请检查持久记录，不能恢复旧授权', 'hint iteration-phase'));
+    return panel;
+  }
+  if (!facts.can_accept && !facts.acceptance_recovery) return null;
+  const view = ui.view, scope = projectBase(), owner = globalThis.document;
+  const owns = () => ui.view === view && projectBase() === scope && !routeContext().invalid && globalThis.document === owner;
+  const state = acceptanceState(owner, view, scope, task.id);
+  const actions = el('div', undefined, 'actions iteration-actions');
+  panel.append(el('p', facts.acceptance_recovery ? '资源回收未完成 · 请核对记录并显式续办验收' : '管理事项已安全收口 · 待验收', 'hint iteration-phase'));
+  const help = '验收只归档此 Valet 并安全回收其专属空运行目录，保留编号、目标、结果、消息、Notice、事件、会话与执行历史；不会验收或删除其管理的开发 Worker，不删除共享信号。若仍绑定未来信号，确认后同时结束此身份的未来授权；排队、在途、未知副作用、未处理输入与待决均阻止验收。验收后历史只读，不可追加或启用；不调用 Agent。';
+  const accept = async () => {
+    if (!owns() || state.accepting || state.accepted) return;
+    state.accepting = true;
+    try {
+      const preview = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'worker.accept_preview', params: { id: task.id } }) });
+      if (!owns()) return;
+      if (preview?.kind !== 'management' || preview.id !== task.id || preview.can_accept !== true
+        || !/^[0-9a-f]{64}$/.test(preview.revision) || preview.history_preserved !== true
+        || preview.managed_workers_unchanged !== true || !preview.resources) throw new Error('Valet 验收预检不完整；请核对服务版本，不会提交。');
+      if (!await confirmDialog({ title: `验收 Valet ${workerLabel(task)}？`,
+        message: preview.ends_future_binding ? '将同时结束此 Valet 尚未触发的未来信号绑定并归档；此授权不可恢复。不会取消已排队或在途事项。' : '确认此 Valet 的工作不再有异议，并归档回收其专属运行资源；验收后不可追加或启用。',
+        detail: `${preview.resources.management_workspace ? `回收专属空目录：${preview.resources.management_workspace}` : '无专属运行目录需要回收。'}\n保留编号、目标、消息、Notice、事件、结果、会话与执行历史。\n不删除共享信号，不连带验收其管理或创建的开发 Worker。`,
+        confirmLabel: preview.ends_future_binding ? '结束未来绑定并验收' : '验收归档', confirmHelp: help }) || !owns()) return;
+      const result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'worker.accept', params: { id: task.id, revision: preview.revision, confirm: true } }) });
+      state.accepted = true;
+      if (!owns()) return;
+      const reclaimed = result?.id === task.id && result.management?.accepted === true && result.management?.archived === true && result.workspace === null;
+      show(reclaimed ? 'Valet 已验收归档；结果、会话与执行历史保留。' : '验收请求已返回，但完成事实未确认；请刷新核对，勿重复提交。', reclaimed ? 'info' : 'error');
+      for (const reload of [refreshOverview, refresh]) {
+        if (!owns()) break;
+        try { await reload(); } catch (error) { if (owns()) show(`验收请求已处理，但刷新失败：${error.message}`, 'error'); }
+      }
+    } catch (error) { if (owns()) show(error.message, 'error'); }
+    finally { state.accepting = false; }
+  };
+  actions.append(guardedAction(button(facts.acceptance_recovery ? '续办验收' : '验收', accept, undefined, { help }), facts.can_accept ? null : facts.acceptance_reason));
+  panel.append(actions); return panel;
+}
+
 /** Detail and graph share the same non-Agent acceptance/sync and explicit Agent conflict path. */
 export function iterationControls(task, { refresh = () => {}, events = [], showParentDistance = false, onRebuild = () => {}, root = null } = {}) {
+  if (task.task_kind === 'management') return valetAcceptanceControls(task, { refresh, root });
   if (task.execution_retired === true || !isIterationTask(task) || isHistoricalDelivery(task)) return null;
   const ended = ['completed', 'failed', 'cancelled'].includes(task.status);
   const accepted = task.accepted === true || events.some(event => event.type === 'task.accepted');

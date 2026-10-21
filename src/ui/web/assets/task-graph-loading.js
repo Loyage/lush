@@ -47,8 +47,8 @@ const currentPage = page => ui.taskGraphPage === page && ui.view === page.view &
  * samples, not a claim that the whole loaded range was revalidated. */
 function applyBatch(page, response, { summary, next, restart, previousCursor }) {
   const [hidden, archived] = JSON.parse(page.filter);
-  const matches = node => !ui.deletedWorkerIds.has(node.id) && !hidden.includes(node.status)
-    && (archived || node.acceptance_recovery === true || !(node.archived || node.branch_info?.archived));
+  const matches = node => !ui.deletedWorkerIds.has(node.id) && (node.management_attention || (!hidden.includes(node.status)
+    && (archived || node.acceptance_recovery === true || !(node.archived || node.branch_info?.archived))));
   const paginated = typeof response.has_more === 'boolean';
   const nodes = (response.nodes || []).map(node => paginated ? { ...node, graph_cached: false } : node);
   const incoming = new Set(nodes.map(node => node.id));
@@ -63,8 +63,9 @@ function applyBatch(page, response, { summary, next, restart, previousCursor }) 
     .map(node => refreshing && !incoming.has(node.id) ? { ...node, graph_cached: true } : node) : [];
   const byId = new Map([...retained, ...nodes].map(node => [node.id, node]));
   const graph = { ...response, nodes: [...byId.values()].filter(paginated ? matches : node => !ui.deletedWorkerIds.has(node.id)) };
-  const loadedIds = new Set(graph.nodes.map(node => node.id));
-  graph.edges = graph.nodes.filter(node => loadedIds.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
+  const loadedIds = new Set(graph.nodes.filter(node => node.task_kind !== 'management' && node.role !== 'manager').map(node => node.id));
+  graph.edges = graph.nodes.filter(node => node.task_kind !== 'management' && node.role !== 'manager'
+    && loadedIds.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
   graph.details_pending = response.details_pending === true || graph.nodes.some(node => node.details_pending === true);
   if (!summary && (!page.fullStarted || next || restart || !paginated || page.nextError
     || (!page.hasMore && response.matched_total > graph.nodes.length))) {
@@ -117,7 +118,7 @@ export async function readTaskGraph({ summary = false, next = false, retry = fal
         page.restartRequired = true;
         if (page.staleRestarts >= 1) {
           page.hasMore = false;
-          throw new Error('工作树结构连续变化，已停止自动重开；请手动重试。');
+          throw new Error('项目树结构连续变化，已停止自动重开；请手动重试。');
         }
         page.staleRestarts++;
         restart = true;
@@ -156,12 +157,12 @@ export function paintGraphStatus() {
   const tail = $('detail').querySelector('.task-graph-page-tail');
   if (!tail) return;
   const count = tail.querySelector('.task-graph-page-count');
-  if (count) count.textContent = `已加载 ${page.graph?.nodes.length || 0} / ${page.graph?.matched_total ?? page.graph?.total ?? 0} Worker`;
+  if (count) count.textContent = `已加载 ${page.graph?.nodes.length || 0} / ${page.graph?.matched_total ?? page.graph?.total ?? 0} 条项目记录`;
   const note = tail.querySelector('.task-graph-page-note');
   if (note) note.textContent = page.nextError ? `加载失败：${page.nextError}；请重试。`
     : page.fullPending ? '加载中…' : !page.fullStarted ? '正在补充详情…'
       : page.hasMore ? '向下滚动以加载下一批，或手动加载。'
-        : cached ? '已加载范围含旧采样缓存，尚未重新核验全部历史。' : '已加载全部匹配 Worker。';
+        : cached ? '已加载范围含旧采样缓存，尚未重新核验全部历史。' : '已加载全部匹配项目记录。';
   const control = tail.querySelector('button');
   if (control) {
     control.textContent = page.nextError ? '重试加载' : '加载下一批';
@@ -173,7 +174,7 @@ export function paintGraphStatus() {
 
 export function graphTail(loadNext) {
   const tail = el('section', undefined, 'task-graph-page-tail');
-  tail.setAttribute('aria-label', '工作树分页');
+  tail.setAttribute('aria-label', '项目树分页');
   tail.append(el('p', undefined, 'task-graph-page-count'));
   const note = el('p', undefined, 'hint task-graph-page-note'); note.setAttribute('role', 'status');
   const control = button('加载下一批', () => loadNext(), 'ghost');

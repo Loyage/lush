@@ -13,13 +13,16 @@ window.errors=[];addEventListener('error',e=>errors.push(e.message));addEventLis
 document.documentElement.dataset.lushSpace='project';ui.view={id:'task-graph'};
 setPref('taskGraphMinimal',true);setPref('reduceMotion',true);
 const own={run_ms:93784000,input:121000,output:18000,cost:224.24,running:true};
-window.graph={total:3,archived_count:2,nodes:[
-{id:1,worker_number:'W1',title:'main',role:'agent',task_kind:'main',status:'waiting',children_total:2,
+window.graph={total:6,archived_count:2,management_count:3,nodes:[
+{id:1,worker_number:'W1',title:'main',branch:'main',role:'agent',task_kind:'main',status:'waiting',children_total:2,
 resources:{own,subtree:{...own,input:242000,cost:448.48}}},
 {id:2,parent_id:1,worker_number:'W2',title:'手机进度与消耗分行展示',role:'agent',task_kind:'order',status:'running',integration:'pending',delivery_summary:{stage:'pending'},reservation:{version:2,status:'pending'},
 progress:{total:3,completed:1,current:{label:'验证较长的进度说明和移动端布局，不应被消耗信息挤走'}},resources:{own}},
 {id:3,parent_id:2,worker_number:'W2-1',title:'等待中的子 Worker',role:'agent',task_kind:'child',status:'waiting',integration:'merged',delivery_summary:{stage:'integrated'},
-waiting_reason:'等待父 Worker 确认接口，保留完整的等待原因',input_queue:{buffered:2},freeze:{task_id:1},resources:{own}}
+waiting_reason:'等待父 Worker 确认接口，保留完整的等待原因',input_queue:{buffered:2},freeze:{task_id:1},resources:{own}},
+{id:4,parent_id:1,worker_number:'V21',title:'运行中的项目管家',role:'manager',task_kind:'management',status:'running',management_attention:true,management:{state:'running',reason:'正在管理本项目，不进入开发分支'}},
+{id:5,parent_id:null,worker_number:'V22',title:'历史无父记录只读投影到 main 的管理区',role:'manager',task_kind:'management',status:'completed',management_attention:true,management:{state:'unknown',reason:'结果未知，必须保留完整异常摘要，不能因极简或窄屏被省略'}},
+{id:6,parent_id:1,worker_number:'V23',title:'资源回收未完成的管家',role:'manager',task_kind:'management',status:'failed',acceptance_recovery:true,management_attention:true,notice_count:1,management:{state:'failed',reason:'具体失败与资源回收异常须保持可见',acceptance_recovery:true,can_accept:false,acceptance_reason:'资源回收异常，请核对记录'}}
 ]};
 window.paint=()=>renderTaskGraph(graph);window.setMode=minimal=>{setPref('taskGraphMinimal',minimal);window.paint();};window.paint();window.ready=true;
 </script>`;
@@ -65,7 +68,7 @@ try{
     const geometry=await execute(`return [...document.querySelectorAll('.task-graph-card')].map(card=>{
       const note=card.querySelector('.task-graph-minimal-note,.task-graph-merge-relations'),meta=card.querySelector('.task-graph-minimal-meta'),usage=meta.querySelector('.task-graph-usage');
       const n=note.getBoundingClientRect(),m=meta.getBoundingClientRect(),u=usage.getBoundingClientRect(),c=card.getBoundingClientRect();
-      return {id:card.dataset.taskId,height:c.height,noteHeight:n.height,noteBottom:n.bottom,metaTop:m.top,usageTop:u.top,usageBottom:u.bottom,bottom:c.bottom,
+      return {id:card.dataset.taskId,hasManagers:!!card.querySelector('.project-management'),height:c.height,noteHeight:n.height,noteBottom:n.bottom,metaTop:m.top,usageTop:u.top,usageBottom:u.bottom,bottom:c.bottom,
         noteOverflow:note.scrollWidth>note.clientWidth+1,metaOverflow:meta.scrollWidth>meta.clientWidth+1,
         contained:[...meta.querySelectorAll('span')].every(s=>{const r=s.getBoundingClientRect();return r.left>=c.left&&r.right<=c.right&&r.bottom<=c.bottom}),
         text:note.textContent,usage:usage.textContent,metaDisplay:getComputedStyle(meta).display,moreTop:card.querySelector('.task-graph-more-trigger').getBoundingClientRect().top};
@@ -79,14 +82,17 @@ try{
     assert(compact.chips.every(height=>height<=17)&&compact.archived==='已回收 2'&&!compact.blank,`filter/entry density: ${JSON.stringify(compact)}`);
     assert(compact.indent===(width<=640?10:22),`tree indentation: ${JSON.stringify(compact)}`);
     assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
-    assert(geometry.length===3,'missing nested cards');
+    assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
+    const management=await execute(`const section=document.querySelector('[data-task-id="1"]>.project-management');return {text:section.textContent,rows:[...section.querySelectorAll('.project-management-row')].map(row=>{const r=row.getBoundingClientRect();return {overflow:row.scrollWidth>row.clientWidth+1,buttons:[...row.querySelectorAll('button')].map(b=>b.getBoundingClientRect().height),contained:r.right<=section.getBoundingClientRect().right};})};`);
+    assert(management.rows.length===3&&management.text.includes('V21')&&management.text.includes('V22')&&management.text.includes('V23')&&management.text.includes('结果未知')&&management.text.includes('资源回收未完成')&&management.text.includes('待决'), 'management identities or alerts hidden');
+    assert(management.rows.every(row=>!row.overflow&&row.contained&&(width>760||row.buttons.every(h=>h>=44))),`management overflow/touch targets: ${JSON.stringify(management)}`);
     for(const card of geometry){
       if(width<=640){
         assert(card.metaTop>=card.noteBottom&&card.usageTop>=card.noteBottom,`metadata covers progress: ${JSON.stringify(card)}`);
         assert(!card.noteOverflow&&!card.metaOverflow&&card.contained,`mobile overflow: ${JSON.stringify(card)}`);
         assert(card.usageBottom<card.bottom&&card.moreTop<card.metaTop,`usage/actions outside card: ${JSON.stringify(card)}`);
       }else{
-        assert((width<=760?card.height>=86&&card.height<=88:card.height===68)&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
+        assert((card.hasManagers|| (width<=760?card.height>=86&&card.height<=88:card.height===68))&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
         assert(card.usageTop<card.noteBottom,'desktop no longer inline');
       }
     }
@@ -136,7 +142,16 @@ try{
     assert(await execute(`const fold=document.querySelector('.task-graph-fold'),f=fold.getBoundingClientRect(),t=fold.nextElementSibling.getBoundingClientRect(),c=fold.closest('.task-graph-card').getBoundingClientRect();
       return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/filter spacing');
   }
-  console.log('PASS compact detail-mode caret and filter badges at mobile/desktop widths');passed=true;
+  console.log('PASS compact detail-mode caret and filter badges at mobile/desktop widths');
+  await execute(`window.graph=structuredClone(normalGraph);window.graph.nodes.push({id:7,parent_id:1,worker_number:'V24',title:'可收起的已收口管理记录',role:'manager',task_kind:'management',status:'completed',management:{state:'succeeded'}});window.graph.management_count=4;window.graph.total++;window.paint();`);
+  for(const width of [390,1440]){
+    await resize(width);
+    await execute(`document.querySelector('.project-management-head button').click();window.paint();`);
+    assert(await execute(`const section=document.querySelector('.project-management'),ordinary=section.querySelector('[data-valet-id="7"]');return section.querySelector('button').getAttribute('aria-expanded')==='false'&&getComputedStyle(ordinary).display==='none'&&[...section.querySelectorAll('.project-management-row')].filter(row=>row!==ordinary).every(row=>getComputedStyle(row).display!=='none');`),'management collapse hid alerts or did not persist across repaint');
+    await execute(`document.querySelector('.project-management-head button').click();`);
+    assert(await execute(`return getComputedStyle(document.querySelector('[data-valet-id="7"]')).display!=='none';`),'management records did not reopen');
+  }
+  console.log('PASS management collapse preserves alerts, survives repaint and reopens at mobile/desktop widths');passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});
   driver.kill();await driver.exited;server.stop(true);

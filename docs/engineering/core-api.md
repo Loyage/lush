@@ -6,6 +6,8 @@
 
 Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父Worker、子Worker、状态、权限与交付生命周期不变。实体名称不再与历史 `role='worker'` 混为一谈：新 指令/child 的角色仍为 `agent`，历史角色值不改写。界面区分开发 Worker 与受限管家 Valet，二者共享持久执行底座和读取接口，不共享 Git、权限和交付契约；Valet 的内部 manager/management 身份与接口保留，见[Valet 契约](hook-signals-management.md)。
 
+W383／D761、D762：新 Valet 的 `parent_id` 归属项目真实 main Worker（按 `task_kind='main'`、`branch='main'` 查找，不假定内部 ID）；仍为 `role='manager'`／`task_kind='management'`、独立真实 V 编号，不带 `branch`／`target_branch`／`base_commit`。父关系仅表达项目归属，不继承开发上下文、工具、权限或 child／Git 合并生命周期。即时、信号、草稿及密码提权的新建入口均要求已有真实本地 `refs/heads/main`；无 Git／无 main 明确拒绝，不自动初始化或创建分支。精确旧请求仍返回原身份与收据，不因 main 后来缺失而重放或新建；历史行不回写，图归属只读投影见[项目树](task-graph.md#阅读项目树)。
+
 这是**破坏性的公开接口命名变更**，旧入口不保留别名：
 
 - CLI 项目管理使用 `lush worker …`；开发协作改用 invocation 绑定的 `lushw self/parent/children …`，自身 Notice 按决策／告知使用 `lushw self notice ask/notify …`，只有本地 help 双入口。旧项目式开发调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config runtime set worker-call-limit N` / `lush config runtime reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
@@ -35,7 +37,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ## Worker 自定义标题
 
-用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web 工作树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
+用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web 项目树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
 
 ### Agent 自动标题（W202／决定 D471）
 
@@ -69,7 +71,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
 - `branch.version_graph {delivery?,cursor?,limit?}`：用户专属只读完整 main 可达图或固定成功交付 Event 的源图；`delivery` 是成功 Event ID（不是 Worker ID／预约 delivery_id），Web `GET /api/version-graph`，没有 Git 写操作、Agent 调用或任意 ref／路径参数。返回范围绑定的签名分页与精确 Worker 关联；历史缺证据明确不可追溯，详见 [分支 RPC](../reference/rpc/branches.md#branchversion_graph)。
 - `worker.version_lineage {id,cursor?,limit?}`／`worker.version_lineage_commit {id,snapshot,commit}`：用户专属只读 Worker 创建以来的提交来源链及按需节点详情，Web `GET /api/worker/ID/version-lineage`／`version-lineage-commit`。固定创建锚点、来源快照与持久交付映射，不枚举父侧外部历史，不新增 Git 写操作或 Agent 工具；旧 graph／deliveries 协议兼容保留，详见[分支 RPC](../reference/rpc/branches.md#workerversion_lineage)。
-- `worker.graph {details?:boolean,hidden_statuses?:string[],include_archived?:boolean,cursor?:string,scope?:"all"|"tree"}`：缺省 scope=all 仍读取完整字段并包含归档、兼容历史节点；Web 显式 scope=tree 只分页可绘制种类。所有请求按真实 JSON 字节与每批 200 节点双重分页；状态/归档筛选不加载隐藏节点正文，`details:false` 不读取 Git/会话。响应提供完整筛选计数、匹配总数、续读游标与页外布局祖先；巨型节点明示降级并推进游标，结构变化拒绝旧游标要求刷新，详见 [Worker RPC](../reference/rpc/tasks.md)与[字节分页边界](task-graph.md#字节分页与服务端筛选)。不新增写入口或权限，不迁移 Git/Store 历史。
+- `worker.graph {details?:boolean,hidden_statuses?:string[],include_archived?:boolean,cursor?:string,scope?:"all"|"tree"}`：缺省 scope=all 仍读取完整字段并包含归档、兼容历史节点；Web 显式 scope=tree 分页开发卡片与 main 内部的 Valet 管理记录。所有请求按真实 JSON 字节与每批 200 节点双重分页；状态/归档筛选不加载隐藏节点正文，`details:false` 不读取 Git/会话。响应提供完整筛选计数、匹配总数、管理记录数、真实 main 身份摘要、续读游标与页外布局祖先；Valet 仅投影管理归属、不产生开发边，管理异常及验收恢复保持可见，已验收记录从已回收筛选查看；巨型节点明示降级并推进游标，结构变化拒绝旧游标要求刷新，详见 [Worker RPC](../reference/rpc/tasks.md)与[字节分页边界](task-graph.md#字节分页与服务端筛选)。不新增写入口或权限，不迁移 Git/Store 历史。
 - `worker.delivery_graph {history?:boolean,cursor?:string,limit?:number}`：用户专属只读历史合并诊断兼容面，不再有独立当前交付导航；GET `/api/worker-delivery-graph`，来源 `delivery_summary` 与 inspect/graph 同源，不改变真实 parent_id、不增加模型工具。参数、完整计数与有界分页唯一契约见[归并接口](../reference/rpc/convergence.md#项目交付视图d642)。
 - `worker.relations {id,after?,limit?}`：用户专属只读直接父与直接子分页，Web `GET /api/worker/ID/relations`，不读 Git／会话、不改变状态；[局部关系字段](../reference/rpc/tasks.md#局部-worker-关系)。
 - `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.progress_history` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；Web 保留完整功能，CLI 仅保留核心查询，不为每个 RPC 提供命令。普通开发查询受[上下文边界](../reference/api.md#开发与管理双入口)限制：禁止项目枚举，相关 inspect／history 是精简投影，不沿用用户全量读面。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1` / Valet 的 `V1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。

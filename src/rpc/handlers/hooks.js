@@ -146,13 +146,14 @@ export const handlers = {
     check(params.mode === undefined || ['once','persistent'].includes(params.mode), 'mode must be once|persistent');
     check(params.profile === undefined || isPlainObject(params.profile), 'profile must be an object');
     const client_request_id = params.client_request_id === undefined ? undefined : hookId(params.client_request_id, 'client_request_id');
-    return { task: await p.createManagementWorker({ name, instruction, signal_id,
+    const options = { name, instruction, signal_id,
       ...(params.mode === undefined ? {} : { mode: params.mode }), ...(params.profile === undefined ? {} : { profile: params.profile }),
-      ...(client_request_id === undefined ? {} : { client_request_id }) }) };
+      ...(client_request_id === undefined ? {} : { client_request_id }) };
+    return { task: await p.createManagementWorker(options) };
   },
   'management.emergency_preview'(p) { return p.managementEmergencyPreview(); },
   'management.emergency_stop'(p, params) { return p.managementEmergencyStop(params.revision, params.confirm); },
-  'management.submit'(p, params, actor, context) {
+  async 'management.submit'(p, params, actor, context) {
     check(actor == null && !Object.hasOwn(params, '_token') && !context?.management
       && (!context?.input_source || context.input_source.kind === 'user'), 'management submission is user only');
     const { _token: _privateToken, ...options } = params;

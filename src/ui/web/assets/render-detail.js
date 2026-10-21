@@ -115,7 +115,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const readOnly = management || isHistoricalDelivery(task) || task.execution_retired === true;
   if (management) {
     panel.append(el('p', task.role === 'manager' && task.task_kind === 'management'
-      ? 'Valet 正常结束并安全收口后可追加输入，授权新一轮而不重放旧操作；仍可停止、停用授权并预检删除，不提供开发或 Git 动作。'
+      ? task.management?.archived ? 'Valet 已验收归档，运行资源已回收；历史只读保留。'
+        : 'Valet 正常结束并安全收口后可追加输入或验收归档；仍可停止、停用授权并预检删除，不提供开发或 Git 动作。'
       : 'Valet 身份不一致，仅提供只读记录；请核对持久身份，不开放开发或管理写操作。', 'hint management-readonly'));
   }
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
@@ -282,7 +283,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     toolbar.adopt(section, '.parent-commit-distance', 'settings');
     toolbar.adopt(section, '.iteration-actions');
   };
-  const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true, onRebuild: placeIteration });
+  const iteration = iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true, onRebuild: placeIteration });
   if (iteration) { placeIteration(iteration); panel.append(iteration); }
   const delivery = management ? null : deliveryControls(task, { refresh: () => detail(task.id) });
   if (delivery) { toolbar.adopt(delivery, '.delivery-actions'); panel.append(delivery); }

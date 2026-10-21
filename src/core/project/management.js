@@ -10,14 +10,18 @@ import permissionMethods from './management-permissions.js';
 import emergencyMethods, { managementEmergencyBlockers } from './management-emergency.js';
 import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
 import { managementDraftRequest } from './management-drafts.js';
+import { inputOptions, inputEmission } from './input-emission-data.js';
 import { safeInvocationMessage } from '../../agent/invocation-error.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
-  managementView, managementWorkers, managementEnableReason, managementUnsettled, managementAppendReason, managementInstruction, managementAuthority } from './management-data.js';
+  managementView, managementWorkers, managementEnableReason, managementUnsettled, managementAppendReason, managementInstruction, managementAuthority, managementAcceptanceFacts } from './management-data.js';
 
 const unknownReason = '管理调用或操作曾中断，副作用未知；绑定已停用，不自动重放。';
 const failureAction = '管理授权已停用，不自动重放。请先核对执行记录与受控操作收据，确认安全并修复原因后再另建管理指令。';
 const failedReason = `管理调用未完成，未记录可用的具体原因。\n${failureAction}`;
+function creationFields(options) {
+  check(isPlainObject(options) && Object.keys(options).every(key => ['name','instruction','signal_id','mode','profile','client_request_id'].includes(key)), 'invalid management creation fields');
+}
 function revokeOwnQuestion(project, taskId, state) {
   if (state.pending_signal?.phase !== 'question') return;
   project.store.run("UPDATE notices SET status='dismissed',answer='management authorization stopped' WHERE id=? AND task_id=? AND status='open'",
@@ -135,9 +139,34 @@ export default {
       })[0] ?? null;
   },
 
-  createManagementWorker(options) {
+  /** Async intake only: receipt reads/appends keep working without restoring a missing main.
+   * Native creation below remains synchronous with draft/elevation receipt transactions. */
+  async prepareManagementCreation(options) {
+    this.assertWritable('prepare a management Worker');
+    const request = options.client_request_id;
+    if (typeof request === 'string' && (this.managementElevationRequestUsed(request) || managementDraftRequest(this, request)
+      || this.store.get("SELECT id FROM tasks WHERE task_kind='management' AND json_extract(management,'$.client_request_id')=?", request))) return;
+    if (options.draft_id !== undefined) {
+      const draft = this.store.draft(id(options.draft_id));
+      if (inputEmission(draft)?.kind === 'management' || inputOptions(draft).target_id != null) return;
+    }
+    return this.workspaces.exclusive(async () => {
+      try { await this.workspaces.git(this.config.project, 'rev-parse', '--verify', 'refs/heads/main^{commit}'); }
+      catch { check(false, '新建 Valet 需要已有真实本地 refs/heads/main；不会自动初始化 Git 或创建分支。'); }
+      return this.ensureMainTask();
+    });
+  },
+
+  async createManagementWorker(options) {
+    creationFields(options);
+    await this.prepareManagementCreation(options);
+    return this.createPreparedManagementWorker(options);
+  },
+
+  /** Internal synchronous phase, only after async intake; shares the caller's receipt transaction. */
+  createPreparedManagementWorker(options) {
     this.assertWritable('create a management Worker');
-    check(isPlainObject(options) && Object.keys(options).every(key => ['name','instruction','signal_id','mode','profile','client_request_id'].includes(key)), 'invalid management creation fields');
+    creationFields(options);
     text(options.instruction, 'management instruction');
     check(typeof options.name === 'string' && options.name.trim().length > 0 && options.name.length <= 200, 'management name must be non-empty text (max 200 characters)');
     const mode = options.mode ?? 'once'; check(['once','persistent'].includes(mode), 'management mode must be once or persistent');
@@ -171,7 +200,11 @@ export default {
     check(!profile || profile.agent === 'pi', 'management Workers require the restricted Pi adapter, not the legacy Codex CLI');
     check(!profile || profile.config_mode === 'pi' || profile.connection_id, 'management Worker requires a configured model source or Pi default mode');
     const task = this.store.transaction(() => {
-      const task = this.store.create({ role: 'manager', task_kind: 'management', input_id: null,
+      // Identity/ownership only. Never inherit a development branch, profile, context or child lifecycle.
+      const roots = this.store.all("SELECT id,status FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id");
+      check(roots.length === 1 && !TERMINAL.has(roots[0].status),
+        '新建 Valet 需要真实 main Worker；请先通过管理入口核验已有 refs/heads/main，不会创建伪 main。');
+      const task = this.store.create({ parent_id: roots[0].id, role: 'manager', task_kind: 'management', input_id: null,
         goal: options.instruction, name: options.name.trim(), input_source: { kind: 'user', worker_id: null, worker_number: null } });
       this.store.update(task.id, { status: immediate ? 'queued' : 'waiting', retry_profile: profile ? JSON.stringify(profile) : null });
       const occurrence = immediate ? this.store.event(task.id, 'management.input_submitted', { mode: 'once' }) : null;
@@ -217,6 +250,8 @@ export default {
     this.assertWritable('configure a management binding');
     const task = this.store.task(id(taskId)), state = managementState(task);
     check(task.task_kind === 'management' && state, 'not a management Worker');
+    const acceptance = managementAcceptanceFacts(this.store, task);
+    check(!acceptance.accepted && !acceptance.acceptance_recovery && !acceptance.acceptance_blocked && !this.acceptanceBusy?.has(task.id), 'Valet is archived or acceptance recovery is unfinished; history is read-only');
     check(typeof enabled === 'boolean', 'management enabled must be boolean');
     check(typeof expectedRevision === 'string' && expectedRevision === managementRevision(task, state), 'management revision changed; reload before editing');
     if (enabled) {

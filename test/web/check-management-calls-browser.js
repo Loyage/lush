@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { setup, fetch } from './harness.js';
+import { repo } from '../helpers.js';
 import { beginManagementCall, finishManagementCall } from '../../src/core/project/management-calls.js';
 import { managementDiagnostic } from '../../src/core/management-diagnostic.js';
 
-const f = await setup(); f.project.kick = () => {};
-const manager = f.project.submitManagementInstruction({ instruction: '隔离浏览器调用时间线验证' }).task;
+const f = await setup(); f.project.kick = () => {}; await repo(f.root); await f.project.ensureMainTask();
+const manager = (await f.project.submitManagementInstruction({ instruction: '隔离浏览器调用时间线验证' })).task;
 f.store.update(manager.id, { status: 'running' });
 f.project.running.set(manager.id, { recordId: 781, controller: new AbortController() });
 const start = () => beginManagementCall(f.project, f.store.task(manager.id), 'manager.call', 'worker.inspect', { id: manager.id, instruction: 'PRIVATE-NOT-DISPLAYED' });

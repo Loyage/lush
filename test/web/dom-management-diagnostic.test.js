@@ -14,7 +14,7 @@ function clipboard() {
 }
 
 test('real controlled Provider/bridge failure -> isolated safe HTTP receipt -> visible per-call summary and exact whitelist copy with stable source links', async () => {
-  const f = await setup(); f.project.kick = () => {}; await repo(f.root);
+  const f = await setup(); f.project.kick = () => {}; await repo(f.root); await f.project.ensureMainTask();
   const c = clipboard(); let dom, section;
   try {
     f.project.scheduleInputEmissions = () => {};
@@ -27,7 +27,7 @@ test('real controlled Provider/bridge failure -> isolated safe HTTP receipt -> v
     const cli = managementToolCLI(f.root, 'node'); f.config.env.LUSH_PI_COMMAND = cli.command;
     f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
     cli.plan([{ name: 'manager_call', params: { method: 'input.emit', params: { content: 'PRIVATE-INPUT', client_request_id: 'PRIVATE-KEY' } } }]);
-    const manager = f.project.submitManagementInstruction({ instruction: '隔离诊断UI测试', profile: { agent: 'pi', config_mode: 'pi' } }).task;
+    const manager = (await f.project.submitManagementInstruction({ instruction: '隔离诊断UI测试', profile: { agent: 'pi', config_mode: 'pi' } })).task;
     f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
     const receipt = JSON.parse(f.store.task(manager.id).result).replies[0].response.details.receipt_id;
     await f.project.rpcDispatcher.dispatch('management.emergency_stop', { revision: f.project.managementEmergencyPreview().revision, confirm: true });

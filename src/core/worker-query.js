@@ -19,7 +19,7 @@ export const WORKER_QUERY_CAPABILITIES = Object.freeze({
     include_archived: { type: 'boolean', default: true },
     cursor: { type: 'string', minLength: 1, maxLength: 1024, description: '原样使用上一页返回的 cursor；末页为 null，不再请求。' },
     scope: { type: 'string', enum: graphScopes, default: 'all',
-      description: 'all 保留非管家的历史类型，tree 仅可绘制的开发树；两者都不含管家，不接受 development 或 device。' },
+      description: 'tree 读取开发卡片与 main 内 Valet 管理记录，all 另保留历史类型；管家不产生开发图边，不接受 development 或 device。' },
   }), examples: [{ details: false, scope: 'tree', hidden_statuses: ['completed', 'cancelled', 'awaiting_acceptance'] }],
   limitations: ['按返回的 cursor/has_more 续读，用户单页最多 200 节点、管家单页最多 100 条安全元数据；摘要不是全库', 'scope 是查询范围，不是设备设置；counts 不受 hidden_statuses 影响'] },
   'worker.list': { schema: object({ after: integer(0, undefined, 0), limit: integer(1, 1000, 200),

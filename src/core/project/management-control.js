@@ -20,6 +20,10 @@ const transactionalAutomation = method => ['hooks.install','hooks.register', ...
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
 const safeFailure = '管理操作未确认完成；检查现场，不自动重放。';
+function submitFields(options) {
+  check(isPlainObject(options) && Object.keys(options).every(key => ['instruction','profile','client_request_id','draft_id','expected_revision'].includes(key)),
+    'invalid management submit fields');
+}
 class ManagementPermissionError extends Error {}
 function executionAuthorization(project, task, call) {
   const authorization = project.managementPermissionsSnapshot();
@@ -140,15 +144,20 @@ export function managementSafeResult(value, limits = {}) {
 }
 
 export default {
-  submitManagementInstruction(options) {
-    check(isPlainObject(options) && Object.keys(options).every(key => ['instruction','profile','client_request_id','draft_id','expected_revision'].includes(key)),
-      'invalid management submit fields');
+  async submitManagementInstruction(options) {
+    submitFields(options);
+    await this.prepareManagementCreation(options);
+    return this.submitPreparedManagementInstruction(options);
+  },
+  /** Internal synchronous phase keeps draft/elevation consumption atomic with native creation. */
+  submitPreparedManagementInstruction(options) {
+    submitFields(options);
     if (Object.hasOwn(options, 'draft_id')) {
       check(!Object.hasOwn(options, 'instruction'), 'draft_id cannot be combined with instruction; save the draft first');
       return submitManagementDraft(this, options);
     }
     check(!Object.hasOwn(options, 'expected_revision'), 'expected_revision requires draft_id');
-    const task = this.createManagementWorker({ ...options, name: '管理输入', signal_id: null });
+    const task = this.createPreparedManagementWorker({ ...options, name: '管理输入', signal_id: null });
     this.kick();
     return { management: true, task };
   },

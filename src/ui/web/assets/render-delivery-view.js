@@ -55,7 +55,7 @@ export function deliveryCard(item) {
     if (value?.current === false) row.append(el('p', '非当前预约交付；此历史不能表示来源新一轮已合并', 'hint'));
     if (value?.waiting_reason) row.append(el('p', value.waiting_reason, 'hint'));
     row.append(el('p', deliveryInput(value?.input_queue), 'hint'), deliveryWarnings(source), deliveryWarnings(value),
-      deliveryLink('返回工作树并定位来源 →', `#worker-graph-worker-${source.id}`));
+      deliveryLink('返回项目树并定位来源 →', `#worker-graph-worker-${source.id}`));
     sources.append(row);
   }
   if (!item.sources?.length) sources.append(el('p', '来源信息不可用；不能解释为没有来源', 'warn'));
@@ -82,7 +82,7 @@ export async function openDeliveryView({ history = false, locator = {}, push = t
     const sourceUnverified = match && locator.run_id && locator.worker_id && !match.sources?.some(source => source.id === locator.worker_id);
     const treeWorker = locator.worker_id || match?.sources?.[0]?.id || (ui.taskGraphLocatorBase === session.base ? ui.taskGraphLocator : null);
     session.treeWorker = treeWorker;
-    header.append(el('h1', '历史合并记录'), deliveryLink('工作树 →', `#worker-graph${treeWorker ? `-worker-${treeWorker}` : ''}`),
+    header.append(el('h1', '历史合并记录'), deliveryLink('项目树 →', `#worker-graph${treeWorker ? `-worker-${treeWorker}` : ''}`),
       el('p', session.page ? counters(session.page.counts) : '历史记录数量尚未读取', 'delivery-count-summary'),
       el('p', '旧链接只读兼容，不提供持续归并设置或操作入口；按真实目标分组，不改变开发父子关系。整合 Worker 完成不等于已合并。', 'hint'));
     const controls = el('div', undefined, 'actions');

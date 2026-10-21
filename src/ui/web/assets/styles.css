@@ -723,6 +723,24 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-mode input{width:16px;height:16px;margin:0;flex:none}
 .task-graph-minimal .task-graph-node{margin:5px 0;min-width:300px}
 .task-graph-minimal .task-graph-card{height:68px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) 30px;grid-template-rows:26px 20px;gap:4px 7px;border-radius:7px}
+.task-graph-minimal .task-graph-card.task-graph-with-management{height:auto}
+.project-management{min-width:0;grid-column:1/-1;grid-row:3;border-top:1px solid var(--line);margin-top:8px;padding-top:8px;overflow-wrap:anywhere}
+.project-management-head,.project-management-identity,.project-management-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0}
+.project-management-head{justify-content:space-between;font-size:12px}
+.project-management-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px;padding:8px 0;border-bottom:1px solid var(--line);min-width:0}
+.project-management-row[hidden]{display:none}
+.project-management-identity{grid-column:1;grid-row:1;font-size:12px}
+.project-management-diagnostic{grid-column:1;grid-row:2;margin:0;white-space:pre-wrap;font-size:11px}
+.project-management-actions{grid-column:2;grid-row:1/3;justify-content:flex-end}
+.project-management-actions .iteration-controls,.project-management-actions .iteration-actions{margin:0}
+.project-management-actions .iteration-phase{max-width:32ch;font-size:11px}
+.project-main-anchor{padding:12px;border:1px solid var(--line);border-radius:7px;min-width:0}
+@media(max-width:760px),(pointer:coarse){
+  .project-management-row{grid-template-columns:minmax(0,1fr)}
+  .project-management-actions{grid-column:1;grid-row:3;justify-content:flex-start}
+  .project-management :is(button,a){min-height:44px;white-space:normal;overflow-wrap:anywhere}
+  .project-management-identity>*{max-width:100%}
+}
 .task-graph-minimal .task-graph-head{grid-column:1;grid-row:1;flex-wrap:nowrap;gap:3px;min-width:0;margin:0}
 .task-graph-minimal .task-graph-head>button{padding:2px 5px;flex:none}
 /* A node caret is a tree affordance, not a labelled toolbar button. */

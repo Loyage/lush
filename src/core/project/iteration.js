@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { acceptManagementWorker } from './management-acceptance.js';
+import { managementAcceptanceFacts } from './management-data.js';
 import { assertLocalWorker } from './execution-retired.js';
 import { forceAcceptanceScope, assertForceAcceptanceMessages } from './acceptance-force.js';
 import { assertManagementCodeExecution } from './management-code.js';
@@ -166,7 +168,9 @@ export function iterationViews(store, tasks) {
             && Array.isArray(receipt.task_ids) && receipt.task_ids.includes(task.id);
         } catch { /* Corrupt history cannot authorize a recovery action. */ }
       }
-      result.set(task.id, { accepted, parent_sync_conflict: conflict, acceptance_recovery: recovery });
+      result.set(task.id, task.task_kind === 'management'
+        ? { ...managementAcceptanceFacts(store, task, events), parent_sync_conflict: null }
+        : { accepted, parent_sync_conflict: conflict, acceptance_recovery: recovery });
     }
   }
   return result;
@@ -218,6 +222,9 @@ export default {
 
   async acceptWorkerOperation(taskId, actor = null, options = {}) {
     this.assertWritable('accept a worker');
+    if (this.store.task(id(taskId)).task_kind === 'management') return acceptManagementWorker(this, id(taskId), actor, options);
+    check(options.revision === undefined || options.force === true, 'acceptance confirmation parameters apply only to Valet or explicit force acceptance');
+    check(options.confirm === undefined || options.force === true, 'acceptance confirmation parameters apply only to Valet or explicit force acceptance');
     const forced = options.force === true || options.forcePreview === true;
     check(!forced || (actor === null && !options.completion && !options.managementReceipt), '强制验收仅允许用户显式操作');
     if (options.force === true) check(options.confirm === true && typeof options.revision === 'string'

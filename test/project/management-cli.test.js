@@ -14,13 +14,13 @@ import { callDiagnosticReport, diagnosticSummaryLines } from '../../src/ui/web/a
 
 const command = argv => ({ name: 'lush_cli', params: { argv } });
 async function harness() {
-  const f = fixture(); await repo(f.root); f.project.kick = () => {};
+  const f = fixture(); await repo(f.root); await f.project.ensureMainTask(); f.project.kick = () => {};
   const cli = managementToolCLI(f.root, 'node'); f.config.env.LUSH_PI_COMMAND = cli.command;
   f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
   const dispatcher = new Dispatcher(f.project, createSignal(), {}), rpc = new RPCServer(f.config.socket, dispatcher); await rpc.start();
   return { ...f, dispatcher, async invoke(plan) {
     cli.plan(plan);
-    const manager = f.project.submitManagementInstruction({ instruction: '管理当前项目', profile: { agent: 'pi', config_mode: 'pi' } }).task;
+    const manager = (await f.project.submitManagementInstruction({ instruction: '管理当前项目', profile: { agent: 'pi', config_mode: 'pi' } })).task;
     f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
     const task = f.store.task(manager.id), result = JSON.parse(task.result);
     for (const key of ['registered','cliActive','sessionActive','modelActive']) expect(result[key]).toEqual(['lush_cli']);

@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test';
 import { fetch as httpFetch, setup } from './harness.js';
+import { repo } from '../helpers.js';
 import { installDom } from '../dom-stub.js';
 import { initComposer } from '../../src/ui/web/assets/composer.js';
 import { loadDetail } from '../../src/ui/web/assets/detail.js';
@@ -33,6 +34,7 @@ test('real Valet detail -> authenticated HTTP/RPC rejects busy input intact, the
     expect(response.ok).toBe(ok); return response.json();
   };
   try {
+    await repo(f.root); await f.project.ensureMainTask();
     await initComposer();
     const definition = { content: '保留的最初管理指令', mode: 'management', client_request_id: 'new-management-draft' };
     const draft = await call('draft.add', definition); managementDraftId = draft.id;
@@ -52,7 +54,7 @@ test('real Valet detail -> authenticated HTTP/RPC rejects busy input intact, the
     await pump();
     await loadDetail(manager.id);
     expect(append(dom).disabled).toBe(false);
-    const other = f.project.submitManagementInstruction({ instruction: '占用串行位' }).task;
+    const other = (await f.project.submitManagementInstruction({ instruction: '占用串行位' })).task;
     // A busy lane rejects submission, never preservation of the user's next management input.
     const appendDraft = await call('draft.add', { content: '项目草稿追加', mode: 'management', target_id: manager.id });
     const updated = await call('draft.update', { id: appendDraft.id, content: '项目草稿追加（已修改）', expected_revision: 1 });

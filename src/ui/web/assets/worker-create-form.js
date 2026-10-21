@@ -129,7 +129,7 @@ export async function openWorkerCreate({ source = null, parent: parentWorker = n
           // A successful write is consumed before any refresh/detail read, even after navigation or dismissal.
           created = result?.task || {};
           if (!Number.isSafeInteger(created.id)) {
-            show('创建请求已成功，但响应缺少 Worker 身份；请刷新工作树核验，不要重复创建。', 'error');
+            show('创建请求已成功，但响应缺少 Worker 身份；请刷新项目树核验，不要重复创建。', 'error');
           } else if (projectApi('/api/') === project && ui.workerNumbers === boot) {
             show(`已创建 Worker ${workerLabel(created)}，等待首条输入 · 尚未调用 Agent。`);
           }

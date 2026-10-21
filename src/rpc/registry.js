@@ -98,7 +98,7 @@ export const PARAMS = {
   'worker.spawn': ['parent','goal','name'], 'worker.integrate': ['id','commit'],
   'worker.reserve': ['id','kind'], 'worker.reserve_all': ['branch'], 'worker.auto_merge': ['id','enabled'],
   'worker.resolve': ['id'], 'worker.resolve_divergence': ['id'],
-  'worker.accept': ['id'], 'worker.accept_preview': ['id'], 'worker.accept_force': ['id','revision','confirm'], 'worker.reopen': ['id'], 'worker.sync_parent': ['id'], 'worker.resolve_sync': ['id'],
+  'worker.accept': ['id','revision','confirm'], 'worker.accept_preview': ['id'], 'worker.accept_force': ['id','revision','confirm'], 'worker.reopen': ['id'], 'worker.sync_parent': ['id'], 'worker.resolve_sync': ['id'],
   'worker.resolve_child_divergence': ['id'], 'worker.unreserve': ['id'],
   'worker.approve_merge': ['id','commit','baseline'], 'worker.message': ['id','body'],
   'worker.cancel': ['id'], 'worker.retry': ['id','profile'], 'worker.clear_override': ['id'], 'worker.cleanup': ['id','keep_branch'],

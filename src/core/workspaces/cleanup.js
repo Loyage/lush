@@ -6,6 +6,25 @@ import { workerLabel } from '../worker-number.js';
 
 /** 分支回收与安全清理。 */
 export const methods = {
+  /** Valet acceptance preserves sessions/history and never recursively discards unknown files. */
+  managementAcceptanceResource(task, expected = null, remove = false) {
+    check(task.task_kind === 'management' && task.role === 'manager' && !task.branch && !task.target_branch
+      && !task.base_commit && !task.baseline_workspace, 'management resource identity changed');
+    const dir = path.join(this.config.home, 'management', String(task.id));
+    check(!task.workspace || task.workspace === dir, 'management workspace identity changed');
+    deletionPath(this.config, dir);
+    check(!this.store.get('SELECT id FROM tasks WHERE id<>? AND (workspace=? OR baseline_workspace=?) LIMIT 1', task.id, dir, dir)
+      && !this.store.get('SELECT branch FROM branches WHERE worktree=? LIMIT 1', dir), 'management resource has another owner');
+    const stat = present(dir);
+    check(stat || !task.workspace, 'management resource is missing without an exact reclamation receipt; inspect before recovery');
+    check(!stat || stat.isDirectory(), 'management resource is not a directory');
+    check(!stat || task.workspace === dir, 'management resource ownership is unknown');
+    check(!stat || fs.readdirSync(dir).length === 0, 'management workspace contains files; preserve and inspect before acceptance');
+    const resource = { path: dir, present: Boolean(stat), dev: stat?.dev ?? null, ino: stat?.ino ?? null };
+    if (expected) check(JSON.stringify(resource) === JSON.stringify(expected), 'management resource changed or is missing without an exact reclamation receipt; inspect before recovery');
+    if (remove && stat) fs.rmdirSync(dir);
+    return resource;
+  },
   /**
    * 任务分支是恢复点，只有能证明「这次工作已经是目标分支的一部分」时才删。
    * 不做 force：先要求分支顶端仍是审阅过的那次提交，再用 update-ref 的 compare-and-delete

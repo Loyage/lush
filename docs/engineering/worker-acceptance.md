@@ -11,6 +11,16 @@
 - 验收严格阻止脏工作区，不默许丢弃未提交改动；消息（含暂存输入）、待决、后代、冻结、同步、实际 invocation 退出及交付检查不放宽。
 - 归档范围继续沿用受检的分支子树，不删除 canonical 检出或其他 Worker 仍使用的共享资源。已验收／已回收的子 Worker 不阻止父级验收。无代码改动也需回收其开发资源。
 
+## Valet 自身验收（W383／D761）
+
+Valet 没有 Git 分支、没有合并步骤，不参加开发 Worker 自动验收链；只有真实用户能通过同一 `worker.accept` 入口验收其正常返回且安全收口的成果。开发 Agent、普通及提权 Valet 不能验收自己或其他 Valet。失败、取消、急救隔离、未启动／未收口事项、实际 invocation／控制 owner／busy、未读或暂存输入、待决、waiting／running／unknown 副作用与冻结／回收竞态均阻止验收；不能借验收取消排队或在途工作。
+
+验收只回收该身份专属的非 Git 空运行目录；未知文件、符号链接、共享、归属变化或没有精确回收收据的资源缺失均保留并拒绝。保留编号、目标、Message、Notice、Event、结果、Run、执行历史和会话文件，不删除共享时间信号，不连带验收其管理／创建的开发 Worker。验收后拒绝追加、启用和重放，历史只读；旧创建 key 的精确重试只返回原归档身份，不产生新授权。
+
+仅剩尚未触发的未来信号绑定时，用户专属 `worker.accept_preview {id}` 返回 `kind:'management'`、revision、`ends_future_binding`、回收目录及历史保留事实。界面明确显示将结束未来绑定与回收范围后，用户用 `worker.accept {id,revision,confirm:true}` 确认同一精确版本；同一安全操作永久结束此身份的未来授权并归档，不删除共享信号。旧 `{id}` 普通入口仍适用无未来绑定的安全收口 Valet；有未来绑定时拒绝静默解绑。Valet 不支持 `worker.accept_force`，开发 Worker 原强制验收与自动链授权不变。
+
+`task.acceptance_started` 固定 `kind:'management'`、task／occurrence 与专属目录设备／inode；未来解绑与开始证据同事务保存，完成回收后才写 `task.accepted`。失败记录 `task.acceptance_failed`，禁止追加或启用；显式续办只接受同一固定身份与仍在原位的空目录，不从目录缺失猜成功，daemon 重启不自动重放删除。验收不挂载开发 `worker.accepted` 自动链。`management` 公开投影提供当前 `accepted/archived/acceptance_recovery/can_accept/acceptance_reason/requires_confirmation`，详情与图共享 `iterationControls`；`completed` 本身从不证明已验收。
+
 ## 父级安全批量验收（W197／用户决定 #462）
 
 - 父 Agent 必须检查子成果、测试及交付事实，完成集成验证；不得仅因合并成功、本轮交付或准备收口就逐个验收 child。默认保留 `awaiting_acceptance`、分支、worktree 和会话，后续需求通过 `worker.message` 交给同一个 child。
@@ -45,7 +55,7 @@ inspect／graph 同源增加 `acceptance_recovery:boolean`：仅据当前轮未�
 
 旧存储/API 的 `archive` 值继续兼容作为 `accept` 的等价授权，不机械改写历史记录；公开读面宜规范为 `accept`，旧私有执行收据与未知结果仍须尊重，不得因此绕过恢复检查或重复执行。旧自动归档已授权行为保留。旧已验收未回收的 accept 授权可安全补办回收；失败/unknown 不自动重试。
 
-child 的配置仍锁定、默认自动合并，由直接父 Agent 检查成果，但默认保留待验收现场供追加需求；检查通过不等于立即执行验收回收。父级验收可安全纳入已交付的派生 child，不把子 Worker 提升为自动验收，不继承父授权。Agent 不可修改结束级别。`worker.accept` 参数继续为 id，`branch.archive` 保留低层／特殊现场清理兼容入口，CLI 文案解释统一语义。
+child 的配置仍锁定、默认自动合并，由直接父 Agent 检查成果，但默认保留待验收现场供追加需求；检查通过不等于立即执行验收回收。父级验收可安全纳入已交付的派生 child，不把子 Worker 提升为自动验收，不继承父授权。Agent 不可修改结束级别。开发 Worker 的 `worker.accept` 参数继续为 id（Valet 未来绑定确认扩展见上），`branch.archive` 保留低层／特殊现场清理兼容入口，CLI 文案解释统一语义。
 
 ## 分区与验证
 

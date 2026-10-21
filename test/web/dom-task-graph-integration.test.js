@@ -1,6 +1,9 @@
 import { test, expect } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
-import { renderTaskGraph } from '../../src/ui/web/assets/render-task-graph.js';
+import { installDom, deepText, dialogButton, answerDialog } from '../dom-stub.js';
+import { renderTaskGraph, openTaskGraph, loadTaskGraph, loadNextTaskGraph } from '../../src/ui/web/assets/render-task-graph.js';
+import { setPref } from '../../src/ui/web/assets/prefs.js';
+import { fetch as httpFetch, setup } from './harness.js';
+import { repo, until } from '../helpers.js';
 import { integrationSummary } from '../../src/ui/web/assets/render-integration.js';
 import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 
@@ -71,14 +74,94 @@ for (const minimal of [true, false]) test(`tree ${minimal ? 'minimal' : 'detail'
   } finally { resetUiState(); dom.restore(); }
 });
 
-test('ordinary serial merge relations remain visible without integration operation facts', () => {
-  const dom = installDom(); resetUiState(); ui.view = { id: 'task-graph' }; ui.taskGraphMinimal = true;
+test('real project graph keeps serial branches, pages Valets inside main, and isolates filters/late responses', async () => {
+  const f = await setup(); await repo(f.root); f.project.kick = () => {};
+  // Real main is deliberately not internal ID 1. Legacy Valets keep their stored parent unchanged.
+  f.store.create({ role: 'agent', goal: 'legacy non-tree row' });
+  const main = await f.project.ensureMainTask();
+  const source = f.store.create({ role: 'agent', task_kind: 'order', parent_id: main.id, goal: 'serial source' });
+  f.store.update(source.id, { status: 'waiting', reservation: JSON.stringify({ version: 2, kind: 'merge', queue_protocol: 1, parent_id: main.id, status: 'executing' }) });
+  f.project.provider = { async run() { return 'graph acceptance fixture'; } };
+  const native = (await f.project.submitManagementInstruction({ instruction: '真实项目树验收链路' })).task;
+  f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
+  const managers = Array.from({ length: 204 }, (_, i) => {
+    const task = f.store.create({ role: 'manager', task_kind: 'management', parent_id: i % 2 ? main.id : null, goal: `management ${i}` });
+    f.store.update(task.id, { status: 'completed', management: JSON.stringify({ version: 1, config_revision: 1, enabled: false, consumed: true, state: 'succeeded', mode: 'once' }) });
+    return task;
+  }).concat(native);
+  const accepted = managers[0], unknown = managers[1];
+  f.store.event(accepted.id, 'task.accepted', { resources_reclaimed: true });
+  f.store.update(unknown.id, { management: JSON.stringify({ version: 1, enabled: false, state: 'unknown', reason: '未知结果不能隐藏' }) });
+  let hold = false, release, held;
+  const dom = installDom({ fetch: async (url, options) => {
+    const response = await httpFetch(f.url + url, options);
+    if (hold && String(url).includes('worker-graph')) {
+      hold = false; held?.(); await new Promise(resolve => { release = resolve; });
+    }
+    return response;
+  } });
+  resetUiState(); ui.taskGraphMinimal = true;
   try {
-    const rows = nodes(null).slice(0, 2);
-    rows[1].reservation = { version: 2, kind: 'merge', queue_protocol: 1, parent_id: 1, status: 'executing' };
-    renderTaskGraph({ nodes: rows, edges: [], total: 2 });
-    expect(deepText(dom.node('detail'))).toContain('合并中');
-    expect(dom.node('detail').querySelector('.task-graph-merge-own')).toBeTruthy();
-    expect(dom.node('detail').querySelector('.task-graph-integration-status')).toBeNull();
-  } finally { resetUiState(); dom.restore(); }
+    await openTaskGraph(); await loadTaskGraph();
+    const panel = dom.node('detail');
+    expect(deepText(panel)).toContain('项目树');
+    expect(ui.taskGraphPage.graph.nodes.length).toBe(200);
+    expect(ui.taskGraphPage.graph.management_count).toBe(204);
+    expect(ui.taskGraphPage.graph.has_more).toBe(true);
+    expect(panel.querySelectorAll('.task-graph-card')).toHaveLength(2);
+    expect(panel.querySelector('.task-graph-merge-own')).toBeTruthy();
+    expect(panel.querySelector('.task-graph-integration-status')).toBeNull();
+    expect(deepText(panel)).toContain('合并中');
+    expect(deepText(panel.querySelector('.project-management-head'))).toContain('/ 204');
+    expect(deepText(panel)).toContain('未知结果不能隐藏');
+    expect(ui.taskGraphPage.graph.edges.some(edge => managers.some(row => row.id === edge.to))).toBe(false);
+    await loadNextTaskGraph();
+    expect(ui.taskGraphPage.graph.nodes.length).toBe(206);
+    expect(panel.querySelectorAll('.project-management-row')).toHaveLength(204);
+    expect(ui.taskGraphPage.graph.has_more).toBe(false);
+    expect(deepText(panel)).toContain('未知结果不能隐藏');
+    const fold = panel.querySelector('.project-management-head').querySelector('button');
+    await fold.onclick();
+    expect(fold.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.querySelector(`[data-valet-id="${managers[2].id}"]`).hidden).toBe(true);
+    expect(panel.querySelector(`[data-valet-id="${unknown.id}"]`).hidden).toBe(false);
+    await fold.onclick();
+    expect(fold.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.querySelector(`[data-valet-id="${managers[2].id}"]`).hidden).toBe(false);
+    expect(ui.taskGraphPage.graph.nodes.find(row => row.id === managers[2].id)).toMatchObject({ parent_id: null, project_parent_id: main.id });
+    expect(f.store.task(managers[2].id).parent_id).toBeNull();
+    expect(ui.taskGraphPage.graph.nodes.some(row => row.id === accepted.id)).toBe(false);
+    // One old-filter response is delivered after the new filter has already rendered.
+    hold = true;
+    const started = new Promise(resolve => { held = resolve; });
+    const late = loadTaskGraph(); await started;
+    setPref('taskGraphStatuses', ['completed', 'waiting']);
+    await loadTaskGraph();
+    const filtered = ui.taskGraphPage;
+    expect(filtered.graph.management_count).toBe(1);
+    expect(panel.querySelectorAll('.project-management-row')).toHaveLength(1);
+    expect(panel.querySelectorAll('.task-graph-card')).toHaveLength(0);
+    expect(panel.querySelector('.project-main-anchor')).toBeTruthy();
+    expect(deepText(panel)).toContain('未知结果不能隐藏');
+    release(); await late;
+    expect(ui.taskGraphPage).toBe(filtered);
+    expect(panel.querySelectorAll('.project-management-row')).toHaveLength(1);
+    setPref('taskGraphStatuses', []); await loadTaskGraph();
+    await panel.querySelector('.task-graph-archived-toggle').onclick();
+    await loadTaskGraph(); await loadNextTaskGraph();
+    expect(panel.querySelectorAll('.project-management-row')).toHaveLength(205);
+    expect(deepText(panel)).toContain('已验收');
+    // Cross-change seam: actual native return -> graph projection -> shared control -> authenticated acceptance.
+    const nativeNode = ui.taskGraphPage.graph.nodes.find(node => node.id === native.id);
+    expect(nativeNode.management).toMatchObject({ accepted: false, can_accept: true, requires_confirmation: false });
+    const nativeRow = panel.querySelector(`[data-valet-id="${native.id}"]`);
+    const accepting = nativeRow.querySelectorAll('button').find(button => button.textContent === '验收').onclick();
+    await until(() => dialogButton(dom, '验收归档'));
+    await answerDialog(dom, '验收归档'); await accepting;
+    expect(f.project.inspect(native.id).management).toMatchObject({ accepted: true, archived: true });
+    await panel.querySelector('.task-graph-archived-toggle').onclick();
+    await loadTaskGraph(); await loadNextTaskGraph();
+    expect(panel.querySelector(`[data-valet-id="${native.id}"]`)).toBeNull();
+    expect(deepText(panel)).toContain('未知结果不能隐藏');
+  } finally { release?.(); resetUiState(); dom.restore(); await f.close(); }
 });

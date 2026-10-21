@@ -1,11 +1,12 @@
 import { test, expect } from 'bun:test';
 import { setup, fetch } from '../web/harness.js';
+import { repo } from '../helpers.js';
 import { managementState, saveManagement } from '../../src/core/project/management-data.js';
 
 test('user HTTP emergency isolates only lane occupants, preserves healthy history and future bindings, and permits fresh input', async () => {
   const f = await setup();
   try {
-    f.project.kick = () => {};
+    f.project.kick = () => {}; await repo(f.root); await f.project.ensureMainTask();
     const healthy = [
       { status: 'completed', state: 'idle', enabled: false, consumed: true,
         last_execution: { id: 1, status: 'succeeded', started_at: new Date().toISOString() } },
@@ -28,7 +29,7 @@ test('user HTTP emergency isolates only lane occupants, preserves healthy histor
       last_execution: { id: occurrence, status: 'unknown', reason: 'PRIVATE-HISTORY' } });
     f.store.update(old.id, { status: 'failed' });
     const original = managementState(f.store.task(old.id));
-    expect(() => f.project.submitManagementInstruction({ instruction: 'blocked' })).toThrow('已有管家');
+    await expect(f.project.submitManagementInstruction({ instruction: 'blocked' })).rejects.toThrow('已有管家');
     const preview = await (await fetch(f.url + '/api/management/emergency-preview')).json();
     expect(preview).toMatchObject({ total: 4, affected_total: 1, history_preserved: true });
     expect(preview.items.map(item => item.id)).toEqual([old.id]);
@@ -47,7 +48,7 @@ test('user HTTP emergency isolates only lane occupants, preserves healthy histor
     expect(clean).toMatchObject({ total: 4, affected_total: 0, already_isolated_total: 1 });
     expect(f.project.managementEmergencyStop(clean.revision, true)).toMatchObject({ affected_total: 0, status: 'isolated' });
     for (const task of healthy) expect(f.store.task(task.id)).toEqual(task);
-    const created = f.project.submitManagementInstruction({ instruction: 'new explicit authorization' });
+    const created = await f.project.submitManagementInstruction({ instruction: 'new explicit authorization' });
     expect(created).toMatchObject({ management: true, task: { status: 'queued' } });
     expect(f.project.managementOccupant().id).toBe(created.task.id);
     // Queued work and actual runtime ownership still require real cleanup.
@@ -67,7 +68,7 @@ test('user HTTP emergency isolates only lane occupants, preserves healthy histor
     f.project.settleManagementEmergency(created.task.id);
     expect(f.project.managementOccupant()).toBeNull();
     // A transport retry reports its original set, not the later explicit input.
-    const next = f.project.submitManagementInstruction({ instruction: 'later explicit input' }).task;
+    const next = (await f.project.submitManagementInstruction({ instruction: 'later explicit input' })).task;
     expect(f.project.managementEmergencyStop(live.revision, true)).toMatchObject({ affected_total: 1, status: 'isolated' });
     expect(f.store.task(next.id).status).toBe('queued');
     for (const task of healthy) expect(f.store.task(task.id)).toEqual(task);

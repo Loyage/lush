@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { fixture, gate } from './helpers.js';
+import { fixture, gate, repo, git } from './helpers.js';
 import { Dispatcher } from '../src/rpc/dispatcher.js';
 import { createSignal } from '../src/signal.js';
 import { managementState, saveManagement } from '../src/core/project/management-data.js';
@@ -69,8 +69,11 @@ test('native V occurrence accepts one verified elevation, defaults the next inpu
     await expect(dispatcher.dispatch('management.elevated_submit', { proof: firstProof, _token: null })).rejects.toThrow('Agent credentials');
     await expect(dispatcher.dispatch('management.elevated_submit', { proof: firstProof, elevated: true })).rejects.toThrow('unknown parameter');
     for (const method of ['management.elevated_submit', 'management.elevated_append', 'management.elevation_receipt']) expect(managementPolicy(method).access).toBe('unavailable');
-    expect(() => f.project.submitManagementInstruction({ instruction: 'cannot self elevate', elevation: true })).toThrow('fields');
-    const ordinary = f.project.submitManagementInstruction({ instruction: 'ordinary first', client_request_id: 'ordinary_key' }).task;
+    await expect(f.project.submitManagementInstruction({ instruction: 'cannot self elevate', elevation: true })).rejects.toThrow('fields');
+    await expect(dispatcher.dispatch('management.elevated_submit', { proof: firstProof })).rejects.toThrow('refs/heads/main');
+    expect(f.store.tasks()).toHaveLength(0);
+    await repo(f.root); const main = await f.project.ensureMainTask();
+    const ordinary = (await f.project.submitManagementInstruction({ instruction: 'ordinary first', client_request_id: 'ordinary_key' })).task;
     await pump();
     await expect(dispatcher.dispatch('management.elevated_submit', { proof: issue(definition('submit', 'ordinary_key', 'ordinary first')) })).rejects.toThrow('ordinary management');
     expect(f.project.managementView(ordinary.id).last_execution.authority.mode).toBe('ordinary');
@@ -79,7 +82,8 @@ test('native V occurrence accepts one verified elevation, defaults the next inpu
     await expect(dispatcher.dispatch('management.elevated_submit', { proof: changedHash })).rejects.toThrow('definition changed');
     const made = await dispatcher.dispatch('management.elevated_submit', { proof: firstProof });
     const task = made.task, state = managementState(f.store.task(task.id)), elevation = state.pending_signal.elevation;
-    expect(task).toMatchObject({ role: 'manager', task_kind: 'management', input_id: null, branch: null, status: 'queued' });
+    expect(task).toMatchObject({ parent_id: main.id, role: 'manager', task_kind: 'management', input_id: null,
+      branch: null, target_branch: null, base_commit: null, status: 'queued' });
     expect(task.worker_number).toMatch(/^V[1-9]\d*$/);
     expect(elevation).toMatchObject({ version: 1, mode: 'administrator', scope: 'current_project', project: f.config.project,
       occurrence_id: state.pending_signal.id, instruction_hash: hash(firstDefinition.instruction), definition_hash: hash(JSON.stringify(firstDefinition)) });
@@ -87,11 +91,13 @@ test('native V occurrence accepts one verified elevation, defaults the next inpu
     expect(source.task_id).toBe(task.id);
     expect(JSON.parse(source.data)).toMatchObject({ grant_id: elevation.grant_id, definition_hash: elevation.definition_hash,
       instruction_hash: elevation.instruction_hash, occurrence_id: elevation.occurrence_id });
+    await git(f.root, 'update-ref', '-d', 'refs/heads/main');
     const duplicate = await dispatcher.dispatch('management.elevated_submit', { proof: firstProof });
     expect(duplicate.task.id).toBe(task.id);
+    await git(f.root, 'update-ref', 'refs/heads/main', main.head_commit);
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='management.elevation_accepted'", task.id).n).toBe(1);
     await expect(dispatcher.dispatch('management.elevated_submit', { proof: issue({ ...firstDefinition, instruction: 'different body' }) })).rejects.toThrow('different elevation');
-    expect(() => f.project.submitManagementInstruction({ instruction: firstDefinition.instruction, client_request_id: firstDefinition.client_request_id })).toThrow('password-elevated');
+    await expect(f.project.submitManagementInstruction({ instruction: firstDefinition.instruction, client_request_id: firstDefinition.client_request_id })).rejects.toThrow('password-elevated');
     expect(await dispatcher.dispatch('management.elevation_receipt', { client_request_id: 'first_high' })).toMatchObject({ version: 1, found: true,
       definition: firstDefinition, task: { id: task.id, status: 'queued' }, instruction: firstDefinition.instruction });
     expect(JSON.stringify(f.store.all("SELECT data FROM events WHERE task_id=?", task.id))).not.toContain('RAW_PROOF_SIGNATURE_CANARY');

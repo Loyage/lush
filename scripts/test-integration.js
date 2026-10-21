@@ -13,7 +13,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-administrator-page.test.js', // project Valet password elevation, ordinary fallback, unknown receipts and emergency stop
     'test/web/dom-detail.test.js', // Worker detail -> independent reader
     'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
-    'test/web/force-acceptance-page.test.js', // acceptance/reclamation -> pinned append editor cannot reopen
+    'test/web/force-acceptance-page.test.js', // authenticated acceptance -> future Valet binding ends; history and append gates remain
     'test/web/dom-valet-append-api.test.js', // Valet detail -> shared composer -> same-identity fresh round
     'test/web/dom-worker-create-api.test.js', // create/fork -> first Input receipt
     'test/web/dom-worker-cli-api.test.js', // CLI keyboard -> preview -> real CLI and history
@@ -25,6 +25,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   rpc: Object.freeze([
     'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects
     'test/project/management-cli.test.js', // Provider -> bridge -> CLI policy, execution and audit
+    'test/project/management-append.test.js', // real main intake -> same Valet rounds -> acceptance and read-only history
     'test/project/administrator-execution.test.js', // native elevated occurrence -> isolated Provider/bridge -> current-project handler
     'test/administrator-runtime.test.js', // proof intake, per-occurrence authority, ordinary fallback and real-owner/unknown stop
     'test/project/merge-conditions-bridge.test.js', // real new merge syntax -> fixed parent queue
@@ -38,7 +39,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/version-lineage.test.js', // compact lineage -> selected child endpoints -> same-snapshot page navigation
     'test/web/dom-inputs-api.test.js', // persisted draft editing and submission
     'test/web/dom-transcript-view.test.js', // single-button order, mixed/bulk fold and live tool results
-    'test/web/dom-task-graph-integration.test.js', // compact node caret -> fold/reopen, both graph modes and delivery status
+    'test/web/dom-task-graph-integration.test.js', // real graph pagination/filter -> Valets inside main -> shared acceptance control
     'test/web/reading-conversation-integration.test.js', // shared reading controls -> real HTTP history/record pagination
     'test/web/dom-management-diagnostic.test.js', // shared heading actions -> real Provider/HTTP call records and safe diagnostic reading
     'test/web/transcript-reader.test.js', // shared search and explicit full-record reads

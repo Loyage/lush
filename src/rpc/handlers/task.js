@@ -131,7 +131,9 @@ export const handlers = {
   'worker.reserve_all'(p, params) { return p.reserveMergeAll(params.branch); },
   'worker.auto_merge'(p, params) { return p.setTaskAutoMerge(params.id, params.enabled); },
   'worker.resolve'(p, params) { return p.resolveTask(params.id); },
-  'worker.accept'(p, params, actor) { return p.acceptTask(params.id, actor); },
+  'worker.accept'(p, params, actor) { return p.acceptTask(params.id, actor, {
+    ...(params.revision === undefined ? {} : { revision: params.revision }),
+    ...(params.confirm === undefined ? {} : { confirm: params.confirm }) }); },
   'worker.accept_preview'(p, params, actor) { return p.acceptTask(params.id, actor, { forcePreview: true }); },
   'worker.accept_force'(p, params, actor) { return p.acceptTask(params.id, actor,
     { force: true, revision: params.revision, confirm: params.confirm }); },

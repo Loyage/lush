@@ -58,7 +58,7 @@ function accept(project, accepted) {
   check(!managementDraftRequest(project, definition.client_request_id), 'client_request_id belongs to an ordinary management draft input');
   const draft = definition.draft_id === undefined ? null : assertManagementDraft(project, definition.draft_id, definition.expected_revision, definition);
   const submitted = definition.kind === 'submit'
-    ? project.submitManagementInstruction({ instruction: definition.instruction, client_request_id: definition.client_request_id,
+    ? project.submitPreparedManagementInstruction({ instruction: definition.instruction, client_request_id: definition.client_request_id,
       ...(Object.hasOwn(definition, 'profile') ? { profile: definition.profile } : {}) }).task
     : project.appendManagementInstruction(id(definition.id), definition.instruction);
   const task = project.store.task(submitted.id), state = managementState(task), occurrence = state?.pending_signal;
@@ -87,9 +87,10 @@ export default {
   managementElevationRequestUsed(clientRequestId) {
     return Boolean(this.store.get('SELECT value FROM meta WHERE key=?', requestKey(clientRequestId)));
   },
-  submitElevatedManagementInstruction(proof) {
+  async submitElevatedManagementInstruction(proof) {
     this.assertWritable('submit an elevated management instruction');
     const accepted = verified(this, proof, 'submit');
+    await this.prepareManagementCreation(accepted.definition);
     return this.store.transaction(() => accept(this, accepted));
   },
   appendElevatedManagementInstruction(proof) {

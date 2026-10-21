@@ -146,17 +146,32 @@ export default {
     const details = options.details && !projection?.summary;
     const branchRows = this.store.branches();
     const records = new Map(branchRows.map(row => [row.branch, row]));
-    const metadata = this.store.all(`SELECT id,parent_id,status,task_kind,branch,head_commit,
+    const metadata = this.store.all(`SELECT id,parent_id,status,task_kind,role,branch,head_commit,
+      CASE WHEN json_valid(management) THEN json_extract(management,'$.state') END AS management_state,
+      CASE WHEN json_valid(management) THEN json_extract(management,'$.emergency.status') END AS management_emergency,
+      EXISTS (SELECT 1 FROM notices WHERE task_id=tasks.id AND status='open') AS has_open_notice,
       (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch
-      FROM tasks WHERE task_kind IS NULL OR task_kind!='management'
+      FROM tasks
       ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC`);
     const archivedCandidates = metadata.filter(row => records.get(row.branch)?.status === 'archived'
       || (row.task_kind === 'merge' && !row.branch && records.get(row.parent_branch)?.status === 'archived'));
     // Unfinished acceptance remains visible even after partial resource reclamation.
-    const recovery = iterationViews(this.store, archivedCandidates);
-    const archivedIds = new Set(archivedCandidates.filter(row => !recovery.get(row.id)?.acceptance_recovery).map(row => row.id));
-    for (const row of metadata) row.archived = archivedIds.has(row.id);
+    const managementRows = metadata.filter(row => row.task_kind === 'management' || row.role === 'manager');
+    const recovery = iterationViews(this.store, [...new Map([...archivedCandidates, ...managementRows].map(row => [row.id, row])).values()]);
+    const archivedIds = new Set([...archivedCandidates, ...managementRows.filter(row => recovery.get(row.id)?.accepted)]
+      .filter(row => !recovery.get(row.id)?.acceptance_recovery).map(row => row.id));
+    for (const row of metadata) {
+      row.management_attention = (row.task_kind === 'management' || row.role === 'manager')
+        && (['running','queued','awaiting','failed'].includes(row.status) || row.has_open_notice
+          || !row.management_state || ['failed','unknown','waiting_actions'].includes(row.management_state)
+          || row.management_emergency === 'stopping' || recovery.get(row.id)?.acceptance_recovery === true
+          || recovery.get(row.id)?.acceptance_blocked === true);
+      row.archived = recovery.get(row.id)?.archived ?? archivedIds.has(row.id);
+    }
+    const priority = row => ['main','owner'].includes(row.task_kind) ? 0
+      : row.management_attention || ['running','queued','waiting','awaiting'].includes(row.status) ? 1 : 2;
+    metadata.sort((a, b) => priority(a) - priority(b) || b.id - a.id);
     const page = graphPage(this.config.home, metadata, options);
     if (projection?.identity) check(page.identity === projection.identity, 'Worker graph cursor stale; refresh from first page');
     const windowIds = projection?.preview
@@ -164,7 +179,7 @@ export default {
       : page.filtered.slice(page.offset, page.offset + pageLimit).map(row => row.id);
     const rows = windowIds.length ? this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, display_title, auto_title, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
-      reservation, auto_merge, interrupt_state, progress_plan, created_at, updated_at, calls, agent_wakes,
+      reservation, auto_merge, interrupt_state, progress_plan, management, substr(error,1,2000) AS error, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
       (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch,
       (SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
@@ -174,10 +189,11 @@ export default {
     const byId = new Map(rows.map(row => [row.id, row]));
     const selected = windowIds.map(id => byId.get(id));
     const ids = selected.map(row => row.id);
-    const resources = details && ids.length ? await readWorkerResources(this.config,
+    const developmentIds = selected.filter(row => row.task_kind !== 'management' && row.role !== 'manager').map(row => row.id);
+    const resources = details && developmentIds.length ? await readWorkerResources(this.config,
       this.store.all('SELECT id,parent_id,status FROM tasks'),
       this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs'),
-      { read_ids: new Set(ids), index: this.usageIndex }).catch(() => new Map()) : new Map();
+      { read_ids: new Set(developmentIds), index: this.usageIndex }).catch(() => new Map()) : new Map();
     const iterations = iterationViews(this.store, selected);
     const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
@@ -191,7 +207,8 @@ export default {
     const children = new Map();
     if (ids.length) for (const child of this.store.all(`SELECT parent_id, count(*) AS total,
       sum(CASE WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 0 END) AS active
-      FROM tasks WHERE parent_id IN (${ids.map(() => '?').join(',')}) GROUP BY parent_id`, ...ids)) children.set(child.parent_id, child);
+      FROM tasks WHERE (task_kind IS NULL OR task_kind!='management') AND role!='manager'
+        AND parent_id IN (${ids.map(() => '?').join(',')}) GROUP BY parent_id`, ...ids)) children.set(child.parent_id, child);
     const dependencies = this.store.depMap(ids);
     const resolutions = new Map();
     if (ids.length) for (const entry of this.store.all(`SELECT task_id, data FROM events
@@ -302,7 +319,35 @@ export default {
     } catch { /* 工作区不可读不影响已确认的 refs / 提交关系。 */ }
     const archivability = details ? await this.branchArchivability(branchNames,
       { git: refsKnown, refs, current_branch: currentBranch, worktrees }) : new Map();
-    const nodes = selected.map(({ goal, progress_plan, reservation, parent_branch, ...row }) => {
+    const nodes = selected.map(({ goal, progress_plan, reservation, parent_branch, management, error, ...row }) => {
+      if (row.task_kind === 'management' || row.role === 'manager') {
+        let binding = null;
+        try { binding = this.managementView({ ...row, goal, reservation, management }); }
+        catch { /* Preserve malformed historical identity as an explicitly unavailable management row. */ }
+        const operations = [binding?.pending_signal, binding?.last_execution].filter(Boolean)
+          .flatMap(item => [...(item.actions || []), ...(item.control_calls || [])]);
+        const operation_states = [...new Set(operations.map(item => item.status))];
+        const main = metadata.find(item => item.task_kind === 'main' && item.branch === 'main');
+        return { id: row.id, worker_number: row.worker_number, parent_id: row.parent_id,
+          project_parent_id: main?.id ?? null, layout_parent_id: null, role: row.role, task_kind: row.task_kind, kind: 'task',
+          title: row.display_title || row.auto_title || summarize(goal) || row.name || 'Valet', name: row.name,
+          status: row.status, created_at: row.created_at, updated_at: row.updated_at, has_result: Boolean(row.has_result),
+          ...iterations.get(row.id),
+          accepted: binding?.accepted ?? iterations.get(row.id)?.accepted ?? false,
+          archived: binding?.archived ?? iterations.get(row.id)?.archived ?? metadata.find(item => item.id === row.id)?.archived === true,
+          acceptance_recovery: binding?.acceptance_recovery ?? iterations.get(row.id)?.acceptance_recovery ?? false,
+          management_attention: metadata.find(item => item.id === row.id)?.management_attention === true,
+          notice: pending.get(row.id)?.notice ?? null, notice_count: pending.get(row.id)?.count ?? 0,
+          error, workspace_state: row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
+          management: binding ? { version: binding.version, state: binding.state, reason: binding.reason?.slice(0, 2000),
+            enabled: binding.enabled, mode: binding.mode, emergency: binding.emergency, operation_states,
+            accepted: binding.accepted, archived: binding.archived, acceptance_recovery: binding.acceptance_recovery,
+            acceptance_blocked: binding.acceptance_blocked,
+            can_accept: binding.can_accept, acceptance_reason: binding.acceptance_reason,
+            requires_confirmation: binding.requires_confirmation,
+            first_failure: binding.first_failure } : null,
+          details_pending: false };
+      }
       const view = this.progressView({ id: row.id, progress_plan, reservation, status: row.status }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
       const plan = compactProgress(view.progress);
@@ -359,7 +404,10 @@ export default {
     });
     const projected = projection?.preview
       ? projection.preview.map(node => node.node_truncated ? node : nodes.find(full => full.id === node.id)) : nodes;
-    const graph = packGraph(projected, page, this.store.get('SELECT count(*) AS n FROM tasks').n, details);
+    const main = this.store.get("SELECT id,worker_number,role,task_kind,status,branch,name,display_title,auto_title FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id LIMIT 1");
+    const graph = packGraph(projected, page, this.store.get('SELECT count(*) AS n FROM tasks').n, details,
+      main ? { id: main.id, worker_number: main.worker_number, role: main.role, task_kind: main.task_kind,
+        status: main.status, branch: main.branch, title: (main.display_title || main.auto_title || main.name || 'main').slice(0, 200) } : null);
     return projection?.summary ? { graph, identity: page.identity } : graph;
   },
 

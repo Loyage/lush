@@ -23,8 +23,52 @@ export function managementInstruction(project, task, state = managementState(tas
   check(message, 'management append instruction is missing; do not replay the original instruction');
   return message.body;
 }
+/** Explicit completion evidence, never a bare completed status or a missing directory. */
+export function managementAcceptanceFacts(store, task, events = null) {
+  const accepted = events ? events['task.accepted'] : store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' ORDER BY id DESC LIMIT 1", task.id);
+  const started = events ? events['task.acceptance_started'] : store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", task.id);
+  let receipt = null;
+  try { receipt = started ? JSON.parse(started.data) : null; } catch { /* Invalid receipts cannot authorize recovery. */ }
+  const recovery = Boolean(!accepted && receipt?.kind === 'management' && receipt.task_id === task.id
+    && Number.isSafeInteger(receipt.occurrence_id) && receipt.resource && typeof receipt.resource.path === 'string');
+  return { accepted: Boolean(accepted), archived: Boolean(accepted), acceptance_recovery: recovery,
+    acceptance_blocked: Boolean(started && !accepted && !recovery) };
+}
+function managementArchivedReason(project, task) {
+  const facts = managementAcceptanceFacts(project.store, task);
+  return facts.accepted ? '此管家已验收归档，历史只读；请另建管理指令。'
+    : facts.acceptance_recovery || facts.acceptance_blocked || project.acceptanceBusy?.has(task.id) ? '验收回收尚未完成，请检查记录并显式续办验收。' : null;
+}
+export function managementAcceptanceReason(project, task, state = managementState(task), { busy = false } = {}) {
+  if (task.role !== 'manager' || task.task_kind !== 'management' || !state) return '不是有效的管家身份。';
+  if (project.store.executionRetired(task.id)) return '执行环境已退役，历史只读。';
+  if (state.emergency || !['completed','waiting'].includes(task.status)
+    || !['succeeded','skipped'].includes(state.last_execution?.status) || !state.last_execution?.started_at
+    || ['failed','unknown'].includes(state.state)) return '管家尚未正常结束并安全收口；失败、取消或未知事项不能验收。';
+  const effects = [...(state.control_calls ?? []), ...(state.receipts ?? []),
+    ...(state.last_execution?.control_calls ?? []), ...(state.last_execution?.actions ?? [])];
+  if (state.pending_signal || managementUnsettled(project, task, state)
+    || effects.some(item => ['waiting','pending_confirmation','approved','running','unknown'].includes(item.status)
+      || project.managementControlBusy?.has(item.receipt_id))) return '已排队事项、实际调用或受控操作尚未退出或收口，不能借验收撤销。';
+  if (project.stopping || project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying
+    || project.taskSyncBusy?.has(task.id) || project.taskMergeBusy?.has(task.id) || project.workspaces.busy.has(task.id)
+    || [...(project.cliRunning?.values() ?? [])].some(lease => lease.taskId === task.id)
+    || (!busy && project.acceptanceBusy?.has(task.id))) return '项目或管家正在停止、冻结或回收，请等待安全点。';
+  if (state.enabled && state.signal_id) {
+    const signal = project.hookSignals().items.find(item => item.id === state.signal_id);
+    if (signal?.enabled && signal.next_run_at && Date.parse(signal.next_run_at) <= project.hookClock())
+      return '绑定信号已经到期，须先由运行时处理；验收不能撤销已到期事项。';
+  }
+  if (task.branch || task.target_branch || task.base_commit || task.reservation || task.interrupt_state
+    || task.freeze || project.commandHookRunning?.has(task.id)) return '管家资源或冻结状态异常，请先检查记录。';
+  if (project.pendingAppendEmission(task.id) || project.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id))
+    return '管家仍有未处理或暂存输入，请先核对记录。';
+  if (project.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)) return '待决或未处理通知阻止验收。';
+  return null;
+}
 export function managementAppendReason(project, task, state = managementState(task)) {
   if (task.role !== 'manager' || task.task_kind !== 'management' || !state) return '不是有效的管家身份。';
+  const archived = managementArchivedReason(project, task); if (archived) return archived;
   if (state.emergency) return '此管家已急救隔离，旧授权永久失效；请另建管理指令。';
   if (project.store.executionRetired(task.id)) return '执行环境已退役，历史只读。';
   if (!['completed','waiting'].includes(task.status) || !['succeeded','skipped'].includes(state.last_execution?.status)
@@ -68,6 +112,7 @@ export function managementModel(project, task) {
 }
 export function managementEnableReason(project, task, state = managementState(task)) {
   if (!state || task.role !== 'manager' || task.task_kind !== 'management') return '不是 Valet。';
+  const archived = managementArchivedReason(project, task); if (archived) return archived;
   if (state.emergency) return '此管家已急救隔离，旧授权永久失效；请另建管理指令。';
   if (TERMINAL.has(task.status) || state.consumed || ['failed','unknown'].includes(state.state))
     return '一次性绑定已消费或管理调用已中断，不能重新启用旧授权；正常收口后可追加新一轮，失败或未知结果须另建管理指令。';
@@ -102,6 +147,10 @@ export function managementView(task, project) {
     }) } : null;
   const enableReason = managementEnableReason(project, task, state);
   const appendReason = managementAppendReason(project, task, state);
+  const acceptance = managementAcceptanceFacts(project.store, task);
+  const acceptanceReason = acceptance.accepted ? '此管家已验收归档，历史只读。'
+    : acceptance.acceptance_blocked ? '验收开始记录不完整，不能推断已回收或恢复授权；请检查持久记录。'
+      : managementAcceptanceReason(project, task, state);
   // Native executor redacts failures before persistence. Expose only the first safe
   // name/message, never private call parameters or an arbitrary result object.
   const failed = [...(state.last_execution?.control_calls ?? []), ...(state.control_calls ?? [])]
@@ -112,6 +161,8 @@ export function managementView(task, project) {
   return { version: 1, revision: managementRevision(task, state), signal_id: state.signal_id, mode: state.mode,
     ...(detail ? { first_failure: { receipt_id: failed.receipt_id, detail: detail.slice(0, 2000), truncated: detail.length > 2000 } } : {}),
     authority: managementAuthority(state.pending_signal),
+    ...acceptance, can_accept: acceptanceReason === null, acceptance_reason: acceptanceReason,
+    requires_confirmation: !acceptance.acceptance_recovery && state.enabled && Boolean(state.signal_id),
     can_append: appendReason === null, append_reason: appendReason,
     origin: state.origin ?? 'signal',
     enabled: state.enabled, can_enable: enableReason === null, state: state.state,

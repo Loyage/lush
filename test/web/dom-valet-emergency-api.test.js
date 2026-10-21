@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { setup, fetch as httpFetch } from './harness.js';
 import { installDom, dialogButton, dialogText, deepText } from '../dom-stub.js';
-import { until } from '../helpers.js';
+import { until, repo } from '../helpers.js';
 import { renderTree } from '../../src/ui/web/assets/render-tree.js';
 import { managementState, saveManagement } from '../../src/core/project/management-data.js';
 import { closeDialog } from '../../src/ui/web/assets/dialog.js';
@@ -25,19 +25,20 @@ test('empty Valet list -> explicit user emergency -> real authenticated HTTP/RPC
   } }); resetUiState(); ui.view = { id: 'valets' };
   const restore = registerNavigation({ refresh: async () => {} });
   try {
+    await repo(f.root); await f.project.ensureMainTask();
     const healthy = f.store.create({ role: 'manager', task_kind: 'management', goal: '正常结束的管家' });
     saveManagement(f.project, healthy.id, { version: 1, config_revision: 1, mode: 'once', enabled: false,
       consumed: true, state: 'idle', pending_signal: null, receipts: [], control_calls: [],
       last_execution: { id: 1, status: 'succeeded', started_at: new Date().toISOString() } });
     f.store.update(healthy.id, { status: 'completed' });
     const preserved = f.store.task(healthy.id);
-    const old = f.project.submitManagementInstruction({ instruction: '旧管家' }).task;
+    const old = (await f.project.submitManagementInstruction({ instruction: '旧管家' })).task;
     const state = managementState(f.store.task(old.id));
     state.enabled = false; state.state = 'unknown'; state.pending_signal.phase = 'started';
     state.control_calls = [{ receipt_id: 101, method: 'worker.retry', status: 'unknown', reason: '原始未知收据' }];
     saveManagement(f.project, old.id, state); f.store.update(old.id, { status: 'failed' });
     expect(f.project.running.size).toBe(0);
-    expect(() => f.project.submitManagementInstruction({ instruction: 'blocked rescue' })).toThrow('已有管家');
+    await expect(f.project.submitManagementInstruction({ instruction: 'blocked rescue' })).rejects.toThrow('已有管家');
     const control = mount(dom);
     const opening = control.querySelector('button').onclick();
     await until(() => dialogButton(dom, '确认强制终结并解除占位'));

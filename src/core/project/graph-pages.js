@@ -18,17 +18,17 @@ export function graphPage(project, metadata, options) {
   let archived_count = 0;
   const filtered = metadata.filter(row => {
     // Keep historical RPC/CLI nodes, but UI counters describe drawable kinds only.
-    const drawable = ['main', 'owner', 'order', 'say', 'child', 'merge'].includes(row.task_kind);
+    const drawable = row.role === 'manager' || ['main', 'owner', 'order', 'say', 'child', 'merge', 'management'].includes(row.task_kind);
     if (options.scope === 'tree' && !drawable) return false;
     if (drawable && row.archived) archived_count++;
-    if (!options.include_archived && row.archived) return false;
+    if (!options.include_archived && row.archived && !row.management_attention) return false;
     if (drawable) counts[row.status] = (counts[row.status] ?? 0) + 1;
-    return !options.hidden_statuses.includes(row.status);
+    return row.management_attention || !options.hidden_statuses.includes(row.status);
   });
   // Ordering depends only on structural metadata. Any structural drift invalidates
   // continuation instead of silently skipping/repeating rows. Body updates are OK.
   const filterIdentity = hash([project, options.details, options.hidden_statuses, options.include_archived, options.scope]);
-  const identity = hash(metadata.map(row => [row.id, row.parent_id, row.status, row.task_kind, row.archived]));
+  const identity = hash(metadata.map(row => [row.id, row.parent_id, row.status, row.task_kind, row.role, row.archived, row.management_attention]));
   let offset = 0;
   if (options.cursor !== undefined) {
     let value;
@@ -54,13 +54,16 @@ export function graphPage(project, metadata, options) {
     }
     return null;
   };
-  return { filtered, offset, layoutParent, counts, archived_count, identity,
+  const management_count = filtered.filter(row => row.task_kind === 'management' || row.role === 'manager').length;
+  return { filtered, offset, layoutParent, counts, archived_count, management_count, identity,
     cursorAt: next => next < filtered.length ? Buffer.from(JSON.stringify({ version: 2, filter_identity: filterIdentity, identity, offset: next })).toString('base64url') : null };
 }
 
 function unavailable(node) {
   return { id: node.id, parent_id: node.parent_id, layout_parent_id: node.layout_parent_id,
-    parent_task_kind: node.parent_task_kind, kind: 'task', task_kind: node.task_kind,
+    parent_task_kind: node.parent_task_kind, kind: 'task', task_kind: node.task_kind, role: node.role,
+    project_parent_id: node.project_parent_id, accepted: node.accepted, acceptance_recovery: node.acceptance_recovery,
+    management_attention: node.management_attention,
     worker_number: String(node.worker_number ?? '').slice(0, 100) || null,
     status: node.status, archived: node.archived, integration: node.integration,
     ...(node.execution_retired ? { execution_retired: true } : {}),
@@ -70,17 +73,19 @@ function unavailable(node) {
     details_pending: false, resources: null, branch_info: null };
 }
 
-export function packGraph(nodes, page, total, details) {
+export function packGraph(nodes, page, total, details, project_main = null) {
   const result = { nodes: [], edges: [], total, truncated: false,
     ...(!details ? { details_pending: true } : {}), cursor: null, has_more: false,
-    matched_total: page.filtered.length, counts: page.counts, archived_count: page.archived_count };
+    matched_total: page.filtered.length, counts: page.counts, archived_count: page.archived_count,
+    management_count: page.management_count, project_main };
   const finalize = () => {
     const next = page.offset + result.nodes.length;
     result.cursor = page.cursorAt(next);
     result.has_more = result.cursor !== null;
     result.truncated = result.has_more || result.nodes.some(node => node.node_truncated);
-    const ids = new Set(result.nodes.map(node => node.id));
-    result.edges = result.nodes.filter(node => ids.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
+    const ids = new Set(result.nodes.filter(node => node.task_kind !== 'management' && node.role !== 'manager').map(node => node.id));
+    result.edges = result.nodes.filter(node => node.task_kind !== 'management' && node.role !== 'manager'
+      && ids.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
   };
   for (const full of nodes) {
     // A pathological single node must still advance the cursor, never poison every page.
