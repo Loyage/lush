@@ -56,8 +56,16 @@ button.input-draft-row{grid-template-rows:18px 44px 34px 23px;height:163px}
 .emission-condition-text{display:flex;flex-direction:column;gap:6px;flex:1 1 180px;min-width:0}.emission-condition-text strong{font-size:13px}.emission-exclusive-card{border-color:var(--accent);background:var(--accent-soft)}
 .emission-condition-empty{margin:0;padding:18px 12px;border:1px dashed var(--line);border-radius:9px;background:var(--bg);overflow-wrap:anywhere}.emission-conditions button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 @media(max-width:1000px){.emission-conditions-layout{grid-template-columns:minmax(0,1fr)}.input-secondary-actions{flex-basis:100%;padding-left:0;padding-top:10px;border-left:0;border-top:1px solid var(--line-soft)}}
+.unified-editor-condition-section,.draft-condition-valet{min-width:0}
+.draft-condition-valet{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:14px;border:1px solid var(--line-soft);border-radius:9px;background:var(--bg)}
+.draft-condition-summary{margin:0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.draft-condition-label{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;font-size:12px;color:var(--muted)}
+#input-form .draft-condition-label textarea{box-sizing:border-box;width:100%;min-width:0;min-height:76px;max-height:none;margin:0;padding:9px;resize:vertical;font:inherit;font-size:13px;line-height:1.6;border:1px solid var(--line-soft);border-radius:7px;background:var(--panel);color:var(--text)}
+.draft-condition-valet>.hint{margin:0;overflow-wrap:anywhere}.draft-condition-valet button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.draft-condition-status{display:flex;flex-wrap:wrap;gap:8px;min-width:0;width:100%}.draft-condition-status:empty{display:none}.draft-condition-status p{flex-basis:100%;margin:0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.draft-condition-status a{max-width:100%;white-space:normal;overflow-wrap:anywhere}.draft-condition-error{color:var(--failed)}
 #input-form[data-mode="management"] #input{border-style:double}
 @media(max-width:760px){
+  .draft-condition-valet{padding:10px;width:100%;box-sizing:border-box}.draft-condition-valet button,.draft-condition-status a{min-height:44px}#input-form .draft-condition-label textarea{font-size:16px}
   .emission-field input:not([type="checkbox"]),.emission-field select{font-size:16px;min-height:44px}.emission-conditions button,.input-actions button{min-height:44px}
   .emission-conditions{padding:10px}.emission-conditions-layout{gap:14px}.emission-configured{padding:10px}.emission-field:has(input[type="checkbox"]){min-height:44px;line-height:1.6}
   .inputs-filters{flex-direction:row;align-items:flex-end;gap:9px}.input-search{flex-basis:100%}.input-filter{flex:1 1 120px}

@@ -96,17 +96,19 @@ D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手�
 
 `openInputs({section?:'history'|'drafts',item?:{kind,id},push?:boolean})` 复用编辑器但不混合页面身份：`#inputs` 属于 `ui.view.id='inputs'`，`#drafts` 和 `#input-draft-<id>` 属于 `drafts`；Input／Message／management 原文深链接归历史。旧条件提交 hash 转至草稿。同页往返保留查询、分页、滚动和本地编辑；追加深链接同步分类，分类变化使旧查询和分页失效；离开当前条目先经共享保存队列，失败阻止离开，迟到读响应不能重开旧详情。版本冲突展示服务器最新版，由用户明确选择整理，不要求复制。
 
-主输入默认收起，菜单按模式投影同一批未完成条目；恢复精确 entry key，不跟随阅读页改投。`composer-cache.js`／`prefs.js` v2 快照按项目保存正文、引用、目标、条件、本条 profile、位置、草稿版本及原始创建请求；旧 v1 仅在本项目无 v2 时发现，不删除旧数据。缓存的 Worker 简介不证明目标可提交，恢复后用 `/api/worker/:id` 核验；失败保留编辑、禁用授权，不改投。浏览器恢复不包含密码／管理员选择，也不承诺崩溃前异步服务器保存。
+主输入默认收起，菜单只列三模式及各自全项目未发送草稿与去重本地条目的数量；完整分页未查完或失败时数量未知，不用首页结果猜总数。进入编辑器后按需选择同模式全部目标的草稿，恢复精确 entry key，不跟随阅读页改投；等待／unknown 只查看收据。`composer-cache.js`／`prefs.js` v2 快照按项目保存正文、引用、目标、条件、本条 profile、位置、草稿版本及原始创建请求；旧 v1 仅在本项目无 v2 时发现，不删除旧数据。缓存的 Worker 简介不证明目标可提交，恢复后用 `/api/worker/:id` 核验；失败保留编辑、禁用授权，不改投。浏览器恢复不包含密码／管理员选择，也不承诺崩溃前异步服务器保存。
 
 同一条目只有一个 session、一个受控组件；挂载移动原 form，正文撤销栈随 entry 保留。`createUnifiedInputEditor` 提供 bind／mount／detail／continuePortable／save／submit／leave／detach／dispose，workspace 建立或恢复本地条目、真实草稿身份。离开整条编辑（互切、收起、换条目／去向、站内导航）调用 leave，与手动保存和授权共用队列；不监听普通 blur。`page-leave-guard.js` 只有一个协调器，以有界 input-session 与 page 槽顺序核验，页面保护不能覆盖输入保护。拒绝时恢复当前路由，不执行导航续体；项目、编辑身份与请求代次共同阻止迟到响应。
 
 首次创建在发送前缓存稳定 key 和原定义；未知创建只重查同 key／同定义，收到当前版本后才保存后续编辑，不编辑后换 key 重建。保存保留内容和 ID，之后 `draft.update {expected_revision}`。冲突暂停更新、保留本地，显式读取服务器版本后选择基线整理；不可编辑的服务器版本可显式脱离为新本地条目。提交先保存再授权精确 revision；管理只走 management.submit／专用密码入口，绝不调用 input.emit。接受后消费原条目并显示真实收据；请求期间新编辑脱离已消费草稿，不被旧回调清空。
 
-空框方向键和可见续写入口共用完整分页查找；新建匹配父，追加／管理匹配原目标。先读完整详情核验 id、mode、revision、引用和可编辑状态；等待、unknown、成功及旧 Hook 占用不作为普通草稿恢复。游标核验 entry、读取代次、正文与引用版本，编辑或切换即失效。
+空框方向键和快速续写入口共用完整分页查找；新建匹配父，追加／管理匹配原目标。「选择草稿」另按模式跨目标查询，由用户明确选择原去向。先读完整详情核验 id、mode、revision、引用和可编辑状态；等待、unknown、成功及旧 Hook 占用不作为普通草稿恢复。游标核验 entry、读取代次、正文与引用版本，编辑或切换即失效。
 
 删除只在详情独立危险区，经确认调用 `draft.remove {id,expected_revision}`；确认／请求占用同一条目的操作锁，导航和提交不得绕过。成功清除对应浏览器恢复身份，确认／请求期间的新编辑脱离原草稿保留；失败与冲突不清空、不自动重试。同目标其它条目不受影响。
 
-底部仅显示条件／独占摘要、基础工具和主要动作，不提供高级菜单。详情可编辑去向，工作／追加条件默认展开；嵌入条件自动化仍默认收起，收据留在嵌入宿主、不修改全局路由。运行设置与引用完整信息按需展开，已有设置有摘要。两处 Enter／Shift+Enter 换行、Ctrl/⌘+S 保存、Ctrl/⌘(+Shift)+Enter 先保存再授权，IME、重复按键和在途编辑受同一保护；管理也保存项目草稿，但无条件／附件。
+底部仅显示条件／独占摘要、基础工具和主要动作，不提供高级菜单。详情可编辑去向，工作／追加默认显示自然语言条件入口与摘要，手动条件／独占默认收起；嵌入条件自动化沿用相同层级，收据留在嵌入宿主、不修改全局路由。运行设置与引用完整信息按需展开，已有设置有摘要。两处 Enter／Shift+Enter 换行、Ctrl/⌘+S 保存、Ctrl/⌘(+Shift)+Enter 先保存再授权，IME、重复按键和在途编辑受同一保护；管理也保存项目草稿，但无条件／附件。
+
+自然语言条件入口复用同一 session 保存队列和 flight 锁，保存后以 `management.submit {instruction,client_request_id}` 创建普通管家，不消费开发草稿。请求固定原草稿 ID、revision、模式／去向、条件原话与运行覆盖；失败／断连只核验原请求，后续编辑不混入原授权。V 创建收据与条件挂载收据分开显示，管家仍经既有受控 CLI、精确版本、权限和安全准入；操作语义见[用户说明](../input-history.md#条件与管理边界)，不新增条件解释器或调度器。
 
 挂载 ACK 后消费编辑器并呈现只读发射收据，不等待全局刷新。实际获得 `input_id` 后才可转到历史 Order 原文；追加收据通过「查看已入箱追加原文」打开真实 Message/A 原文，不造 O。历史 Input／Message 用明确 `source_draft_id` 提供条件／独占收据入口，服务端显式 null 不得被前端旧缓存推翻；独占草稿保留合法释放入口，成功源草稿从列表移除但仍可寻址。后读失败不恢复已消费编辑器、不猜测 Input 关联或扫描全库。返回列表刷新草稿版本；所有迟到响应服从页面身份保护，不伪造 O 编号。
 
@@ -114,7 +116,7 @@ D705：草稿另有可空展示号 `draft_number`，草稿列表、详情、手�
 
 当前保留 `test/project/input-history.test.js` 的草稿编辑／发射主流程，以及 `test/web/dom-inputs-api.test.js` 的真实临时 HTTP／RPC／SQLite／Git 链；不连接用户项目。键盘模式、条件历史、迟到响应和冻结等组合不再逐项回归；精确 Web 入口用 `bun run test:integration --list` 查询，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 - `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。
-- `bun run scripts/check-input-history-ui.js`：共享 Firefox/app-shell fixture 与 iframe，双主题 1440/900/390/320px 验证原 DOM／草稿 ID 双向续写、自动保存、正式层级、三类草稿、管理精确版本授权及只读收据。
+- `bun run scripts/check-input-history-ui.js`：共享 Firefox/app-shell fixture 与 iframe，双主题 1440/900/390/320px 验证原 DOM／草稿 ID 双向续写、自动保存、三模式菜单与去重计数、编辑器选稿、自然语言条件入口、默认收起的手动配置、三类草稿、管理精确版本授权及只读收据。
 - `bun run scripts/check-composer-layout.js`：复用同一 Firefox 检查，1440/760/390/320px 验证便携／详情互切、可见基础工具、三模式线型、Agent 标识、44px 窄屏控件和无溢出。
 - `bun run test/web/check-mobile-composer-browser.js`：同一来源的真实窄 iframe／双主题检查，加 VisualViewport 软键盘模拟；不等同于 iOS／Android 真机。三入口均不连接 daemon／模型，退出清理自己的浏览器和服务。
 - `test/web/dom-inputs-api.test.js`：仅保留真实临时 HTTP／RPC／SQLite／Git 链上的追加输入与草稿恢复、修改、发射主流程，不调用模型。浏览器缓存、黄点、键盘、旧快照、失败／迟到隔离及组合矩阵不再独立自动回归。

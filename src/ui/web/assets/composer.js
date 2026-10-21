@@ -68,6 +68,7 @@ function destination() {
       wait: inputWaitReason(task), queueText: inputQueueText(task) };
   }
   if (ui.composerManagement) return {};
+  if (entry.mode === 'append') return { reason: '尚未选择追加目标；请选择草稿恢复原目标，或进入详细编辑选择 Worker。不会作为新建工作提交。' };
   const task = ui.composerParents?.find(parent => parent.branch === entry.branch);
   return { task, branch: entry.branch, freeze: task?.freeze,
     reason: !task ? '原父 Worker 尚未读取或已不可用；内容保留，请在详细编辑中显式选择。' : task.execution_retired ? '远端执行已退役，仅保留历史。' : (() => { const reason = iterationBlocker(task); return reason && !/冻结/.test(reason) ? reason : null; })() };
@@ -149,12 +150,13 @@ export function syncComposer() {
   if (!currentEdit()) return;
   renderParentOptions();
   ui.composerSubmitting = Boolean(ui.inputEditor?.busy);
-  const entry = currentEdit(), management = entry.mode === 'management', target = destination(), followup = target.id != null;
+  const entry = currentEdit(), management = entry.mode === 'management', target = destination(), followup = entry.mode === 'append' || target.id != null;
+  const missingTarget = entry.mode === 'append' && entry.target_id == null;
   const input = $('input'), detailHost = Boolean(ui.inputEditor?.inDetail), conditional = entry.localOptions?.conditions?.length || entry.localOptions?.exclusive;
   if (!management) ui.composerElevated = false;
   if (!ui.composerElevated) elevationControl?.reset();
   syncProjectElevationSecrets(); paintManagementReceipts();
-  const label = followup ? workerLabel(target.task || target.id, entry.saved?.target_worker_number) : management ? '当前项目' : target.task ? `${workerLabel(target.task)} · ${target.branch}` : entry.branch;
+  const label = missingTarget ? '尚未选择 Worker' : followup ? workerLabel(target.task || target.id, entry.saved?.target_worker_number) : management ? '当前项目' : target.task ? `${workerLabel(target.task)} · ${target.branch}` : entry.branch;
   $('input-form').dataset.mode = management ? 'management' : followup ? 'append' : 'create';
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   $('composer-mode-title').textContent = management ? '管理 Lush' : followup ? waitingFirstInput(target.task) ? '输入工作指令' : '追加输入' : '新建工作';
@@ -166,7 +168,7 @@ export function syncComposer() {
   $('composer-mode-behavior').textContent = target.reason || 'Enter / Shift+Enter 换行 · Ctrl/⌘+S 保存 · Ctrl/⌘+Enter 提交；保存与切换不执行。';
   const status = target.reason || target.queueText || target.wait || target.freeze?.reason || (followup && target.task?.status === 'paused' && !waitingFirstInput(target.task) ? '暂停中，需开始 / 继续后处理' : '');
   $('composer-target-status').hidden = !status; $('composer-target-status').textContent = status;
-  input.disabled = false; input.placeholder = management ? '描述希望管家处理的事项…' : followup ? '补充要求或反馈…' : '描述希望完成的工作…';
+  input.disabled = missingTarget; input.placeholder = management ? '描述希望管家处理的事项…' : followup ? '补充要求或反馈…' : '描述希望完成的工作…';
   input.setAttribute('aria-label', management ? '管理指令正文' : followup ? '追加指令正文' : '工作指令正文');
   const busy = Boolean(entry.flight || entry.operation), empty = !input.value.trim();
   $('draft-commit').disabled = busy || empty || Boolean(target.reason) || management && managementPending().length > 0;
@@ -174,7 +176,7 @@ export function syncComposer() {
   const help = agentHelp(target.reason || (conditional ? '先保存，再授权此精确版本按条件提交；等待全部条件与安全准入，不保证立即执行。' : '先保存，再授权此精确版本提交；可靠接受不表示 Agent 已收到或执行完成。'));
   $('draft-commit').classList.add('agent-call'); $('draft-commit').setAttribute('data-help', help); $('input-send-help').setAttribute('data-help', help);
   $('input-buffer').hidden = $('input-buffer-help').hidden = false;
-  $('input-buffer').disabled = busy || empty; $('input-buffer').textContent = '保存草稿';
+  $('input-buffer').disabled = busy || empty || missingTarget; $('input-buffer').textContent = '保存草稿';
   $('input-buffer-help').setAttribute('data-help', '保存到当前项目，不执行；首次创建、之后更新同一草稿，内容保留。');
   $('input-buffer').removeAttribute('data-help');
   $('composer-reset').hidden = !detailHost; $('input-history').hidden = $('input-drafts').hidden = !detailHost;

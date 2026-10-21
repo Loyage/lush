@@ -26,15 +26,8 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell .composer-menu button { min-height:44px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
 #composer-shell .composer-category { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 8px; }
 .composer-pending-count { font-size:11px; font-weight:normal; white-space:nowrap; }
-.composer-pending-count::before, .composer-pending-heading::before { content:''; display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:50%; background:var(--waiting); }
-#composer-shell .composer-pending-heading { margin:4px 8px 0; font-size:12px; }
-#composer-shell .composer-pending-list { display:grid; gap:4px; padding:0 0 4px 8px; border-left:2px solid var(--line); }
-#composer-shell .composer-pending-entry { display:flex; flex-direction:column; gap:3px; min-width:0; width:100%; }
-.composer-pending-entry strong { font-size:12px; font-weight:600; }
-.composer-pending-preview { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
-.composer-pending-status, #composer-shell .composer-menu-note { font-size:11px; color:var(--muted); }
-.composer-pending-status.failed { color:var(--failed); }
-#composer-shell .composer-menu-note { margin:2px 4px; line-height:1.5; }
+.composer-category[data-pending="true"] .composer-pending-count::before { content:''; display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:50%; background:var(--waiting); }
+.composer-pending-status { font-size:11px; color:var(--muted); }
 #input-form .composer-context { display:flex; align-items:center; flex-wrap:wrap; gap:2px 12px; min-height:32px; }
 #composer-shell .composer-context { padding-right:40px; }
 #input-form .composer-identity { display:flex; align-items:center; gap:10px; flex:1 1 260px; min-width:0; max-width:100%; }
@@ -55,8 +48,11 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell .composer-resize:hover::after, #composer-shell .composer-resize:focus-visible::after { background:var(--accent); }
 #composer-shell .composer-resize:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 #composer-shell textarea, #composer-shell textarea:focus { height:var(--composer-input-height,88px); min-height:64px; max-height:50dvh; font-size:16px; line-height:22px; padding:10px 40px 10px 10px; }
-#composer-shell .composer-draft-list { display:grid; gap:6px; max-height:160px; overflow:auto; margin:6px 0; }
-#composer-shell .composer-draft-list button { min-height:44px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
+#input-form .composer-draft-list { display:grid; gap:6px; max-height:240px; overflow:auto; margin:6px 0; min-width:0; }
+#input-form .composer-draft-list button { min-height:44px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
+#input-form .composer-draft-choice { display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0; }
+#input-form .composer-draft-choice strong { font-size:12px; }
+#input-form .composer-draft-preview { font-size:12px; max-width:100%; overflow-wrap:anywhere; }
 #input-form .composer-foot { display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; }
 #input-form .composer-tools, #input-form .composer-editor-tools { display:flex; align-items:center; flex-wrap:wrap; gap:4px; min-width:0; margin:0; }
 #input-form .text-editor-controls { gap:2px; margin:0; }

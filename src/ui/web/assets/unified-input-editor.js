@@ -9,17 +9,20 @@ import { composerReferences, setComposerReferences } from './context-references.
 import { draftLabel } from './draft-label.js';
 import { editableDraft } from './draft-editor.js';
 import { isValet } from './work-type.js';
+import { createDraftConditionValet } from './draft-condition-valet.js';
 
 /** The form and textarea are MOVED, never cloned. Hosts have no editable state or submit lock. */
 export function createUnifiedInputEditor({ authorize, accepted, history, sync, workspace, onCreated = () => {} }) {
   const { currentEdit, rememberComposer, finishComposerEdit, activateComposerDraft, newComposerEntry, paintComposerWorkspace, openComposer, retargetComposerEntry, applyEntry } = workspace;
   const form = $('input-form'), shell = $('composer-shell'), input = $('input'), details = $('composer-details'), scope = projectApi('/api/');
   const managementSettings = $('composer-management-settings'), removeHelp = $('composer-remove-draft-help');
-  let bound = null, conditions = null, picker = null, detailHost = null, origin = null, generation = 0, hostGeneration = 0, disposed = false, composing = false, receiptPresenter = null;
+  let bound = null, conditions = null, conditionValet = null, picker = null, detailHost = null, origin = null, generation = 0, hostGeneration = 0, disposed = false, composing = false, receiptPresenter = null;
   const owns = () => !disposed && projectApi('/api/') === scope && ui.inputEditor === controller;
   const advanced = el('div', undefined, 'unified-editor-advanced');
   const target = el('div', undefined, 'unified-editor-target');
-  const conditionHost = el('details', undefined, 'unified-editor-conditions'); conditionHost.open = true;
+  const conditionSection = el('section', undefined, 'unified-editor-condition-section');
+  const conditionHost = el('details', undefined, 'unified-editor-conditions'); conditionHost.open = false;
+  conditionSection.append(conditionHost);
   const extras = el('details', undefined, 'unified-editor-extras'), extrasSummary = el('summary', '运行设置与引用完整信息'); extras.append(extrasSummary);
   const danger = el('details', undefined, 'unified-editor-danger'); danger.append(el('summary', '危险操作'));
   const error = el('section', undefined, 'unified-editor-recovery'); error.hidden = true; error.setAttribute('role', 'status');
@@ -34,7 +37,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   }, 'ghost', { help: '服务器草稿已不可编辑；显式把本地修改保留为新的未提交条目，旧草稿收据不变，不执行。' });
   detachLocal.hidden = true;
   error.append(errorText, retry, latest, serverText, keep, use, detachLocal);
-  advanced.append(conditionHost, extras, danger);
+  advanced.append(conditionSection, extras, danger);
   form.insertBefore(target, form.querySelector('.composer-input'));
   form.insertBefore(advanced, form.querySelector('.composer-foot'));
   form.append(error);
@@ -89,7 +92,8 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
     const entry = currentEdit();
     extrasSummary.textContent = `运行设置与引用 · ${entry?.profile ? '本条设置已选择' : '默认设置'} · 引用 ${composerReferences().length}${ui.composerElevated ? ' · 本条管理员（提交须验密）' : ''}`;
     const summary = conditionHost.querySelector('summary'), options = entry?.localOptions;
-    if (summary) summary.textContent = `执行条件 · ${options?.conditions?.length || 0} 项${options?.exclusive ? ' · 独占' : ''}`;
+    if (summary) summary.textContent = `手动配置条件与独占 · ${options?.conditions?.length || 0} 项${options?.exclusive ? ' · 独占' : ''}`;
+    conditionValet?.paint();
     error.hidden = !entry?.error && !entry?.conflict;
     receipt.hidden = !ui.lastInputReceipt;
     errorText.textContent = entry?.error ? `保存/提交失败：${entry.error}。编辑仍在，站内离开已阻止；可重试或读取服务器版本整理。` : entry?.conflict ? '请对照服务器版本，明确选择整理方式；不会静默覆盖。' : '';
@@ -125,7 +129,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
     const entry = currentEdit(); if (!entry || bound === entry) return;
     generation++; bound = entry;
     form.insertBefore(details, target);
-    target.replaceChildren(); conditionHost.replaceChildren(); picker = null;
+    target.replaceChildren(); conditionHost.replaceChildren(); conditionValet?.node.remove(); conditionValet = null; picker = null;
     if (entry.mode === 'order') {
       target.insertBefore(details, null); details.hidden = false;
     } else {
@@ -168,10 +172,17 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
         target.append(picker.node, create, el('p', '可保存到忙碌管家；提交时必须真实可用且空闲。恢复和下一条默认普通权限。', 'hint'));
       }
     }
-    conditionHost.hidden = entry.mode === 'management';
+    conditionSection.hidden = entry.mode === 'management'; conditionHost.open = false;
     conditions = entry.mode === 'management' ? null : createEmissionConditions({ ...(entry.localOptions || entry.saved || {}), mode: entry.mode,
       ownsPage: () => owns() && currentEdit() === entry, onChange: () => { capture(); sync(); } });
-    if (conditions) conditionHost.append(el('summary', '执行条件'), conditions.node);
+    if (conditions) {
+      conditionHost.append(el('summary', '手动配置条件与独占'), conditions.node);
+      conditionValet = createDraftConditionValet({ entry: () => entry, session,
+        current: () => owns() && currentEdit() === entry && bound === entry,
+        composing: () => composing,
+        changed: () => { if (owns() && currentEdit() === entry) { capture(); rememberComposer(); sync(); } } });
+      conditionSection.insertBefore(conditionValet.node, conditionHost);
+    }
     history()?.restore(entry.undo); paintRecovery();
   }
   function retarget(entry) { retargetComposerEntry(entry); }
@@ -229,7 +240,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
       const token = ++hostGeneration, view = ui.view;
       const active = () => owns() && current() && ui.view === view && hostGeneration === token;
       if (!active() || record && !await activateComposerDraft(record, { current: active }) || !active()) return false;
-      bind(); detailHost = host; receiptPresenter = onReceipt; conditionHost.open = !embedded;
+      bind(); detailHost = host; receiptPresenter = onReceipt;
       if (embedded && !origin) origin = { hash: globalThis.location?.hash || '', scroll: $('detail').scrollTop };
       form.dataset.host = 'detail'; advanced.hidden = target.hidden = false;
       host.insertBefore(form, null); form.insertBefore(back, form.children[0] || null); form.hidden = false;

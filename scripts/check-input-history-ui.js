@@ -46,6 +46,7 @@ window.fetch=async(url,options={})=>{
   }
   const row=window.rows.find(row=>row.kind==='draft'&&row.id===(p.id??p.draft_id));
   if(body.method==='draft.update'){if(p.expected_revision!==row.revision) return Response.json({error:'draft revision conflict'},{status:409});Object.assign(row,p,{revision:row.revision+1});return json(row);}
+  if(body.method==='management.submit'&&p.instruction)return json({management:true,task:window.valet});
   if(body.method==='input.emit'||body.method==='management.submit'){
    if(p.expected_revision!==row.revision)return Response.json({error:'draft revision conflict'},{status:409});
    row.dispatch={kind:row.mode==='management'?'management':'order',state:row.mode==='management'?'succeeded':'waiting_conditions',conditions:row.conditions,worker_id:row.mode==='management'?9:undefined};
@@ -128,10 +129,14 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         const submit=doc.querySelector('#draft-commit'),agent=submit.classList.contains('agent-call')&&submit.hasAttribute('data-help');
         await win.ui.inputEditor.detail();
         const formal=doc.querySelector('#input')===before&&doc.querySelectorAll('#input').length===1&&doc.querySelector('#input-form').dataset.host==='detail';
-        const hierarchy=!doc.querySelector('.emission-conditions').hidden&&!doc.querySelector('.unified-editor-extras').open&&!doc.querySelector('.unified-editor-danger').open&&!doc.querySelector('#input-parent').disabled;
+        const manual=doc.querySelector('.unified-editor-conditions'),natural=doc.querySelector('.draft-condition-valet');
+        const hierarchy=!manual.open&&natural.getClientRects().length>0&&natural.querySelector('textarea').getClientRects().length>0
+          &&natural.querySelector('button').classList.contains('agent-call')&&natural.querySelector('button').hasAttribute('data-help')
+          &&!doc.querySelector('.unified-editor-extras').open&&!doc.querySelector('.unified-editor-danger').open&&!doc.querySelector('#input-parent').disabled;
+        manual.open=true;const manualAvailable=doc.querySelector('.emission-conditions').getClientRects().length>0;manual.open=false;
         const extras=doc.querySelector('.unified-editor-extras');extras.open=true;
         const runtimeVisible=doc.querySelector('.composer-run-settings').getClientRects().length>0;extras.open=false;
-        const formalFits=[doc.querySelector('#input-form'),doc.querySelector('.emission-conditions')].every(node=>node.scrollWidth<=node.clientWidth+1);
+        const formalFits=[doc.querySelector('#input-form'),natural].every(node=>node.scrollWidth<=node.clientWidth+1);
         submit.scrollIntoView({block:'center',behavior:'instant'});const submitRect=submit.getBoundingClientRect();
         const formalActions=submitRect.top>=0&&submitRect.bottom<=win.innerHeight+1&&[...doc.querySelector('#input-form').querySelectorAll('button')].filter(node=>node.getClientRects().length).every(node=>${width}>760||node.getBoundingClientRect().height>=44);
         box.value+=' · 详情修改';box.dispatchEvent(new win.Event('input'));
@@ -169,7 +174,22 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         doc.querySelector('#composer-reference-count').click();await until(()=>win.ui.inputEditor.inDetail&&doc.querySelector('.unified-editor-extras').open);
         const referenceEntry=win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
         doc.querySelector('.unified-editor-extras').open=false;await win.ui.inputEditor.continuePortable();
-        return {retained,basic,agent,formal,hierarchy,runtimeVisible,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
+        await win.workspace.collapseComposer();doc.querySelector('#composer-launcher').click();
+        await until(()=>[...doc.querySelectorAll('#composer-menu button')].every(node=>/\\d+ 份草稿/.test(node.textContent)));
+        const menu=doc.querySelector('#composer-menu'),categories=[...menu.querySelectorAll('button')];
+        const menuOnly=categories.length===3&&categories.every((node,index)=>node.firstElementChild.textContent===['新建工作','追加输入','管理 Lush'][index]);
+        const counts=categories.every((node,index)=>{
+          const mode=['order','append','management'][index],keys=new Set(win.rows.filter(row=>row.kind==='draft'&&row.mode===mode&&row.dispatch?.state!=='succeeded').map(row=>'draft:'+row.id));
+          for(const entry of win.ui.composerWorkspace.entries.values())if(entry.mode===mode&&(entry.content?.trim()||entry.references?.length||entry.saved))keys.add(entry.saved?'draft:'+entry.saved.id:entry.key);
+          return node.lastElementChild.textContent===keys.size+' 份草稿';
+        });
+        const menuFits=menu.scrollWidth<=menu.clientWidth+1&&categories.every(node=>{const r=node.getBoundingClientRect();return r.left>=0&&r.right<=win.innerWidth+1&&r.height>=44;});
+        doc.querySelector('#composer-menu-order').click();await until(()=>!doc.querySelector('#input-form').hidden&&doc.querySelector('#composer-menu').hidden);
+        const chooseVisible=doc.querySelector('#composer-choose-draft').getClientRects().length>0;
+        await win.workspace.resumeComposerDraft(false);const list=doc.querySelector('#composer-draft-list');
+        const chosen=[...list.querySelectorAll('button')].find(row=>row.dataset.editKey==='draft:'+id);chosen.click();await until(()=>list.hidden);
+        const picker=chooseVisible&&win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
+        return {retained,basic,agent,formal,hierarchy,manualAvailable,runtimeVisible,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,menuOnly,counts,menuFits,picker,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
       `);
       assert(layout.width === width && Object.entries(layout).filter(([key]) => !['width', 'errors', 'shellHeight'].includes(key)).every(([, value]) => value), `${scope}/${theme}/${width}: ${JSON.stringify(layout)}`);
       if (width === 390 || width === 1440) {
@@ -204,7 +224,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         const modes=[...doc.querySelectorAll('.input-mode-toggle')];if(modes.length!==3)throw Error('three draft categories missing');
         modes.find(node=>node.dataset.mode==='management').click();await until(()=>doc.querySelector('[data-input="draft:4"]'));
         doc.querySelector('[data-input="draft:4"] .input-row').click();await until(()=>win.ui.inputEditor.inDetail&&win.workspace.currentEdit().saved?.id===4);
-        const management=!doc.querySelector('#input-buffer').hidden&&doc.querySelector('.unified-editor-conditions').children.length===0;
+        const management=!doc.querySelector('#input-buffer').hidden&&doc.querySelector('.unified-editor-condition-section').hidden&&doc.querySelector('.unified-editor-conditions').children.length===0;
         doc.querySelector('#input').value='管理修改';doc.querySelector('#input').dispatchEvent(new win.Event('input'));
         await win.ui.inputEditor.submit();await until(()=>!win.ui.inputEditor.inDetail&&doc.querySelector('.input-original'));
         const exact=win.calls.findLast(call=>call.method==='management.submit').params;
@@ -231,6 +251,21 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
       console.log('PASS portable/detail share solid order, dashed append and double management borders; project management saving remains available');
     }
     if (scope === 'history') {
+      assert(await frame(`
+        await win.workspace.selectComposerMode('order');await win.workspace.newComposerEntry();const body=doc.querySelector('#input');
+        body.value='浏览器管家条件挂载';body.dispatchEvent(new win.Event('input'));await win.ui.inputEditor.detail();
+        const section=doc.querySelector('.draft-condition-valet'),text=section.querySelector('textarea'),send=section.querySelector('button');
+        text.value='等 W20 安全收尾后再提交';text.dispatchEvent(new win.Event('input'));const count=win.calls.length;
+        send.click();await until(()=>send.disabled&&section.querySelector('a'));
+        const request=win.calls.slice(count).find(call=>call.method==='management.submit'),saved=win.workspace.currentEdit().saved;
+        const exact=request.params.instruction.includes('"draft_id":'+saved.id+',"revision":'+saved.revision)&&request.params.instruction.includes(text.value);
+        const safe=win.calls.slice(count).every(call=>call.method!=='input.emit')&&!saved.dispatch&&body.value==='浏览器管家条件挂载';
+        const receipt=[...section.querySelectorAll('a')].map(link=>link.getAttribute('href'));
+        await win.ui.inputEditor.continuePortable();await win.ui.inputEditor.detail();
+        const retained=doc.querySelector('.draft-condition-valet textarea').value===text.value&&doc.querySelector('.draft-condition-valet button').disabled;
+        await win.ui.inputEditor.continuePortable();return exact&&safe&&retained&&receipt.includes('#worker-9')&&receipt.includes('#input-draft-'+saved.id);
+      `), 'natural condition entrance saves exact draft, creates ordinary Valet, retains state and distinguishes creation from mount');
+      console.log('PASS natural condition input saves exact draft then hands off once, preserves shared state, and shows V/draft links without claiming mount success');
       await frame(`await win.workspace.selectComposerMode('order');await win.workspace.newComposerEntry();win.calls=[];win.nativeKeyEvents=[];doc.querySelector('#input').focus();return true;`);
       await nativeInput('native-first', '\uE007');
       assert(await frame(`return doc.querySelector('#input').value==='native-first\\n'&&win.calls.length===0;`), 'native Enter must insert a newline without any draft/submission request');

@@ -44,7 +44,7 @@ async function submitFirst(task, content = 'first real user instruction') {
   await loadDetail(task.id);
   expect(button(dom.node('detail'), '开始')).toBeUndefined(); expect(button(dom.node('detail'), '继续')).toBeUndefined();
   const edit = button(dom.node('detail'), '输入工作指令'); expect(edit.classList.contains('agent-call')).toBe(false); await edit.onclick();
-  expect(deepText(dom.node('composer-menu-append'))).toContain('输入工作指令');
+  expect(deepText(dom.node('composer-menu-append'))).toContain('追加输入');
   expect(dom.node('composer-mode-title').textContent).toBe('输入工作指令');
   expect(dom.node('composer-target-status').textContent).not.toContain('需开始');
   expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(true);
