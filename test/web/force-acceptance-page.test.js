@@ -53,5 +53,18 @@ test('real shared detail/graph control -> authenticated HTTP/RPC -> preview -> e
     await forceButton.onclick(); await find(panel, '验收').onclick();
     expect(calls.filter(call => call.method === 'worker.accept_force')).toHaveLength(1);
     expect(dom.node('error').textContent).toContain('刷新失败');
+    // A pinned append editor can outlive acceptance; its next read must not offer an impossible reopen.
+    const { resetUiState } = await import('../../src/ui/web/assets/state.js');
+    const { initComposer } = await import('../../src/ui/web/assets/composer.js');
+    const { selectComposerMode } = await import('../../src/ui/web/assets/composer-workspace.js');
+    resetUiState(); await initComposer();
+    const { api } = await import('../../src/ui/web/assets/api.js');
+    const accepted = await api(`/api/worker/${parent.id}`);
+    expect(accepted.accepted).toBe(true);
+    expect(iterationControls(accepted)).toBeNull();
+    selectComposerMode('append', accepted);
+    expect(dom.node('composer-mode-behavior').textContent).toContain('已验收完成，不能恢复开发');
+    expect(dom.node('composer-mode-behavior').textContent).toContain('请新发指令');
+    expect(dom.node('input').disabled).toBe(true);
   } finally { dom.restore(); await f.close(); }
 });

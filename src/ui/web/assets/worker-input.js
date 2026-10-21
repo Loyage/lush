@@ -17,8 +17,18 @@ export function appendInputBlocker(task, workers = ui.lastSnapshot?.tasks || [])
   if (task.execution_retired === true) return '远端执行已退役，此 Worker 仅保留只读历史，不能追加输入。';
   if (isHistoricalDelivery(task) || !['order', 'child'].includes(workerKind(task))) return '此 Worker 不支持追加输入。';
   if (TERMINAL_STATUS.has(task.status) && task.creation?.waiting_first_input === true) return '空 Worker 已结束，不能开始或重试；请重新创建 Worker。';
-  if (TERMINAL_STATUS.has(task.status)) return task.status === 'completed'
-    ? 'Worker 已完成；请先显式恢复开发。' : 'Worker 已结束；请先重试。';
+  if (task.status === 'completed') {
+    if (task.acceptance_recovery === true) return '资源回收尚未完成；请在详情页续办验收，不能追加开发输入。';
+    if (task.accepted === true) return 'Worker 已验收完成，不能恢复开发；如有新要求，请新发指令。';
+    if (!task.branch || task.archived || task.branch_archive?.archived || task.branch_info?.archived)
+      return 'Worker 已完成，分支已归档或不可用，不能恢复开发；如有新要求，请新发指令。';
+    if (!task.workspace || task.workspace_state === 'missing')
+      return 'Worker 已完成，工作区未保留或缺失，不能恢复开发；如有新要求，请新发指令。';
+    return task.integration === 'merged'
+      ? 'Worker 已完成；请在详情页点击「继续开发」，恢复待验收后再追加输入。'
+      : 'Worker 已完成，当前不支持恢复开发；如有新要求，请新发指令。';
+  }
+  if (TERMINAL_STATUS.has(task.status)) return 'Worker 已结束；请先重试。';
   if (!task.branch || task.archived || task.branch_archive?.archived || task.branch_info?.archived)
     return '分支已归档或不可用；不会重建工作区。';
   if (task.workspace_state === 'missing') return 'worktree 缺失；请先检查现场。';
