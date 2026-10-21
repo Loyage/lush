@@ -20,7 +20,7 @@ const dom = installDom({ fetch: async (url, options) => {
 const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js');
 const { initComposer } = await import('../../src/ui/web/assets/composer.js');
 const { openInputs } = await import('../../src/ui/web/assets/render-inputs.js');
-const { selectComposerMode, resumeComposerDraft, currentEdit, collapseComposer } = await import('../../src/ui/web/assets/composer-workspace.js');
+const { selectComposerMode, currentEdit, collapseComposer } = await import('../../src/ui/web/assets/composer-workspace.js');
 const { action } = await import('../../src/ui/web/assets/api.js');
 const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
@@ -73,8 +73,24 @@ test('real composer resumes, updates and emits an order draft through HTTP/RPC a
     resetUiState(); input.value = ''; dom.node('input-parent').value = ''; editorDom(); await initComposer();
     dom.node('composer-launcher').click();
     await dom.node('composer-menu-order').click();
-    await resumeComposerDraft(false);
-    await dom.node('composer-draft-list').querySelectorAll('button').find(row => row.dataset.editKey === `draft:${draft.id}`).click();
+    const choose = dom.node('composer-choose-draft'), list = dom.node('composer-draft-list');
+    const label = () => choose.querySelector('.view-control-label').textContent;
+    expect(list.hidden).toBe(true); expect(label()).toBe('展开草稿');
+    expect(choose.getAttribute('aria-expanded')).toBe('false');
+    const opening = choose.click(); // Collapse while the lookup is still pending.
+    expect(label()).toBe('收起草稿'); expect(choose.getAttribute('aria-expanded')).toBe('true');
+    await choose.click(); await opening;
+    expect(list.hidden).toBe(true); expect(label()).toBe('展开草稿');
+    await choose.click();
+    expect(list.hidden).toBe(false); expect(label()).toBe('收起草稿');
+    const writes = requests.length, content = input.value, entry = currentEdit();
+    await choose.click();
+    expect(list.hidden).toBe(true); expect(choose.getAttribute('aria-expanded')).toBe('false');
+    expect(currentEdit()).toBe(entry); expect(input.value).toBe(content); expect(requests).toHaveLength(writes);
+    await choose.click();
+    await list.querySelectorAll('button').find(row => row.dataset.editKey === `draft:${draft.id}`).click();
+    expect(list.hidden).toBe(true); expect(label()).toBe('展开草稿');
+    expect(choose.getAttribute('aria-expanded')).toBe('false');
     expect(input.value).toBe('原位续写后的正文');
     await input.onkeydown({ key: 's', ctrlKey: true, preventDefault() {} }); expect(input.value).toBe('原位续写后的正文');
     expect(fixture.store.draft(draft.id).content).toBe('原位续写后的正文');

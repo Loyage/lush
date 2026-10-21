@@ -185,10 +185,21 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         });
         const menuFits=menu.scrollWidth<=menu.clientWidth+1&&categories.every(node=>{const r=node.getBoundingClientRect();return r.left>=0&&r.right<=win.innerWidth+1&&r.height>=44;});
         doc.querySelector('#composer-menu-order').click();await until(()=>!doc.querySelector('#input-form').hidden&&doc.querySelector('#composer-menu').hidden);
-        const chooseVisible=doc.querySelector('#composer-choose-draft').getClientRects().length>0;
-        await win.workspace.resumeComposerDraft(false);const list=doc.querySelector('#composer-draft-list');
-        const chosen=[...list.querySelectorAll('button')].find(row=>row.dataset.editKey==='draft:'+id);chosen.click();await until(()=>list.hidden);
-        const picker=chooseVisible&&win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
+        const choose=doc.querySelector('#composer-choose-draft'),list=doc.querySelector('#composer-draft-list');
+        const chooseVisible=choose.getClientRects().length>0,parent=choose.parentNode,next=choose.nextElementSibling;
+        const collapsed=()=>list.hidden&&choose.textContent==='展开草稿'&&choose.getAttribute('aria-expanded')==='false';
+        const initial=collapsed()&&choose.getAttribute('aria-controls')===list.id;
+        const row=()=>[...list.querySelectorAll('button')].find(node=>node.dataset.editKey==='draft:'+id);
+        choose.click();await until(row);
+        const expanded=!list.hidden&&choose.textContent==='收起草稿'&&choose.getAttribute('aria-expanded')==='true'
+          &&choose.querySelector('.view-disclosure-icon').dataset.expanded==='true'&&choose.parentNode===parent&&choose.nextElementSibling===next;
+        const content=before.value,entry=win.workspace.currentEdit(),writes=win.calls.length;
+        choose.click();
+        const folded=collapsed()&&before.value===content&&win.workspace.currentEdit()===entry&&win.calls.length===writes
+          &&choose.querySelector('.view-disclosure-icon').dataset.expanded==='false'&&choose.getClientRects().length>0
+          &&choose.parentNode===parent&&choose.nextElementSibling===next;
+        choose.click();await until(row);row().click();await until(()=>list.hidden);
+        const picker=chooseVisible&&initial&&expanded&&folded&&collapsed()&&win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
         return {retained,basic,agent,formal,hierarchy,manualAvailable,runtimeVisible,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,menuOnly,counts,menuFits,picker,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
       `);
       assert(layout.width === width && Object.entries(layout).filter(([key]) => !['width', 'errors', 'shellHeight'].includes(key)).every(([, value]) => value), `${scope}/${theme}/${width}: ${JSON.stringify(layout)}`);

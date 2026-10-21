@@ -10,9 +10,17 @@ import { draftLabel } from './draft-label.js';
 import { destinationKey, hasContent, loadComposerCache, cacheComposerWorkspace } from './composer-cache.js';
 import { projectApi } from './route.js';
 import { composerDrafts, composerDraftChoices } from './composer-drafts.js';
+import { paintDisclosure } from './view-controls.js';
 
 const workspace = () => ui.composerWorkspace;
 export const currentEdit = () => workspace()?.active;
+function setDraftListExpanded(expanded) {
+  $('composer-draft-list').hidden = !expanded;
+  paintDisclosure($('composer-choose-draft'), expanded, {
+    expand: '展开草稿', collapse: '收起草稿',
+    help: expanded ? '隐藏草稿列表，保留当前编辑内容，不保存或提交。' : '展开本项目同模式全部目标的草稿，明确恢复原目标；等待或结果未知仅查看原收据，不重复授权。',
+  });
+}
 function createEntry(spec) {
   const destination = destinationKey(spec);
   return { ...spec, key: destination, destination, content: '', references: [], request: {} };
@@ -43,7 +51,7 @@ export function applyEntry(entry) {
   $('input').scrollTop = entry.scroll || 0;
   if (entry.selection?.every(Number.isInteger)) $('input').setSelectionRange?.(...entry.selection);
   $('composer-shell').scrollTop = entry.panelScroll || 0;
-  $('composer-draft-list').hidden = true; ui.inputEditor?.bind?.(); ui.syncComposer?.();
+  setDraftListExpanded(false); ui.inputEditor?.bind?.(); ui.syncComposer?.();
   if (entry.target_id != null && entry.taskFresh === false) void refreshEntryTarget(space, entry);
 }
 async function refreshEntryTarget(space, entry) {
@@ -171,6 +179,7 @@ export function paintComposerWorkspace() {
   const management = active?.mode === 'management';
   $('composer-resume').hidden = Boolean(input.value.trim() || composerReferences().length || active?.saved);
   $('composer-choose-draft').hidden = false;
+  setDraftListExpanded(!$('composer-draft-list').hidden);
   $('composer-remove-draft-help').hidden = $('composer-remove-draft').hidden = !ui.inputEditor?.inDetail || !active?.saved;
   $('composer-remove-draft').disabled = Boolean(ui.composerSubmitting);
   $('composer-remove-draft-help').setAttribute('data-help', ui.composerSubmitting ? '请求正在处理，请稍后再删除；不会重复提交。' : '经确认后永久删除当前未发送草稿及对应浏览器恢复内容；请求期间的新编辑会保留，不删除已发送输入或 Worker。');
@@ -257,7 +266,7 @@ export async function resumeComposerDraft(latest = true) {
   const current = () => workspace() === space && projectApi('/api/') === project && space.read === read && space.active === entry
     && ui.composerEditRevision === revision && ui.composerReferenceRevision === refs && !ui.composerSubmitting;
   const target = targetOfEntry(entry), list = $('composer-draft-list');
-  list.hidden = false; list.replaceChildren(el('p', '正在检索本项目同模式全部目标的未发送草稿…', 'hint'));
+  setDraftListExpanded(true); list.replaceChildren(el('p', '正在检索本项目同模式全部目标的未发送草稿…', 'hint'));
   try {
     const { editableDraft, matchesDraft } = await import('./draft-editor.js');
     if (!current()) return;
@@ -306,7 +315,7 @@ export async function removeComposerDraft() {
   const revision = ui.composerEditRevision, refs = ui.composerReferenceRevision;
   const content = input.value, signature = JSON.stringify(composerReferences()), profile = ui.composerProfile;
   const current = () => workspace() === space && currentEdit() === entry;
-  space.history = null; $('composer-draft-list').hidden = true;
+  space.history = null; setDraftListExpanded(false);
   entry.operation = 'remove'; ui.composerSubmitting = true; ui.syncComposer?.();
   try {
     const { editableDraft, draftOptions } = await import('./draft-editor.js');
@@ -398,7 +407,12 @@ export function initComposerWorkspace({ resetEditor }) {
   $('composer-menu-append').onclick = () => selectComposerMode('append', menuWorker());
   $('composer-menu').onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); space.menu = false; paintComposerWorkspace(); $('composer-launcher').focus(); } };
   $('composer-resume').onclick = () => resumeComposerDraft(true);
-  $('composer-choose-draft').onclick = () => resumeComposerDraft(false);
+  $('composer-choose-draft').onclick = () => {
+    if (ui.composerSubmitting) return;
+    if ($('composer-draft-list').hidden) return resumeComposerDraft(false);
+    space.read++; // Invalidate an in-flight lookup before hiding its list.
+    setDraftListExpanded(false);
+  };
   $('composer-remove-draft').onclick = removeComposerDraft;
   paintComposerWorkspace();
 }
