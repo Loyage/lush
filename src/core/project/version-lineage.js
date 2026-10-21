@@ -1,26 +1,9 @@
 import { check, id as workerId } from '../types.js';
 import { graphOID } from '../workspaces/version-graph.js';
 import { lineageSnapshot, lineageTokens, readLineage } from '../workspaces/worker-version-lineage.js';
-import { graphWorker, successful, eventData, fixedRange, associations, bounded } from './version-graph.js';
+import { graphWorker, associations, bounded } from './version-graph.js';
+import { lineageReceipts as receipts, verifyLineageReceipt, lineageChildren } from './version-lineage-children.js';
 
-function receipts(project, value) {
-  // Every successful Event remains identifiable, including malformed legacy
-  // evidence and several Events with the same source or shared Squash landing.
-  const rows = successful(project, value.id, value.event_max + 1, 1001, true);
-  check(rows.length <= 1000, 'version lineage successful delivery evidence exceeds safe limit (1000 Events)');
-  return rows.map(row => {
-    const receipt = eventData(row);
-    const range = fixedRange(project, row, value.base);
-    if (row.parent_type !== 'integer' || row.parent_id !== value.parent.id) range.reason = '交付记录缺少匹配的真实直接父身份';
-    const resultOnly = row.type === 'task.delivered';
-    if (resultOnly) range.reason = '无改动的结果交付没有固定父侧落点证据，不推测对应节点';
-    const source = resultOnly ? receipt.commit : receipt.source_commit;
-    return { range, mapping: { delivery_id: row.event_id, source_commit: graphOID(source) ? source : null,
-      commit: !resultOnly && graphOID(receipt.commit) ? receipt.commit : null, parent_id: row.parent_type === 'integer' ? row.parent_id : null,
-      delivered_at: row.delivered_at, evidence: row.type, delivery_available: range.reason === null,
-      delivery_unavailable_reason: range.reason } };
-  });
-}
 function initial(project, task) {
   check(['order', 'child'].includes(task.task_kind) && typeof task.branch === 'string' && task.branch.length > 0
     && task.branch.length <= 4096 && graphOID(task.base_commit), 'Worker has no readable recorded version lineage');
@@ -28,9 +11,11 @@ function initial(project, task) {
   check(record && record.task_id === task.id && record.parent_relation === 'recorded'
     && record.parent === task.target_branch && record.parent === parent.branch && record.created_from_commit === task.base_commit,
   'version lineage is not traceable: branch ownership or creation baseline changed');
-  const event_max = project.store.get('SELECT COALESCE(MAX(id),0) AS id FROM events').id;
+  const { event_max, child_max } = project.store.get(`SELECT
+    (SELECT COALESCE(MAX(id),0) FROM events) AS event_max,
+    (SELECT COALESCE(MAX(id),0) FROM tasks) AS child_max`);
   return { value: { id: task.id, branch: task.branch, scope: 'lineage', range: 'first-parent', base: task.base_commit,
-    parent: { id: parent.id, worker_number: parent.worker_number, branch: parent.branch }, event_max,
+    parent: { id: parent.id, worker_number: parent.worker_number, branch: parent.branch }, event_max, child_max,
     tip_evidence: 'branch.ref', tip_delivery_id: null }, active: record.status === 'active' };
 }
 async function mappings(project, value, page, items, offset, deadline, verifyLatest = false) {
@@ -46,25 +31,7 @@ async function mappings(project, value, page, items, offset, deadline, verifyLat
     }
     if (!mapping.delivery_available) { untraceable_deliveries.push(mapping); continue; }
     if (!commits.has(mapping.source_commit)) continue;
-    try {
-      // Reuse the existing sterile fixed source/tree/parent/convergence verifier.
-      // delivery is non-null: this call never samples a mutable ref.
-      // Preserve every Event, but do not repeat the same object verification for
-      // identical receipts. Exact source/base/landing/parent/convergence scope
-      // is the key; sharing just a SHA is never enough to reuse verification.
-      const key = JSON.stringify(range);
-      if (!verifiedRanges.has(key)) {
-        await project.workspaces.versionGraphPage({ ...range, delivery: mapping.delivery_id, limit: 1,
-          event_max: value.event_max, deadline });
-        verifiedRanges.set(key, true);
-      }
-    } catch (error) {
-      check(Date.now() < deadline, 'version lineage read exceeded its 15 second budget');
-      if (/busy|安全大小上限|safe size/.test(error.message)) throw error;
-      mapping.delivery_available = false;
-      mapping.delivery_unavailable_reason = '固定源／父侧落点／收据对象核验失败；该成功 Event 保留但不可追溯';
-    }
-    check(Date.now() < deadline, 'version lineage read exceeded its 15 second budget');
+    await verifyLineageReceipt(project, value, range, mapping, deadline, verifiedRanges);
     deliveries.push(mapping);
   }
   if (value.tip_evidence === 'delivery.source') {
@@ -89,8 +56,12 @@ export default {
     let value, offset = 0, active = false;
     if (cursor !== undefined) {
       value = lineageSnapshot(this.workspaces, cursor, task.id, 'cursor');
+      check(value.page_limit === limit, 'version lineage page width changed; refresh the lineage');
       offset = value.offset; delete value.offset; delete value.kind;
-    } else ({ value, active } = initial(this, task));
+    } else {
+      ({ value, active } = initial(this, task));
+      value.page_limit = limit;
+    }
     const items = receipts(this, value), latest = items[0];
     const fallback = latest?.range.reason === null ? { tip: latest.range.tip, delivery_id: latest.mapping.delivery_id } : null;
     if (cursor === undefined && !active) {
@@ -99,9 +70,10 @@ export default {
     }
     const page = await readLineage(this.workspaces, value, { offset, limit, sample: cursor === undefined && active, fallback, deadline });
     const links = await mappings(this, value, page, items, offset, deadline, cursor === undefined);
+    const child_branches = await lineageChildren(this, value, page, offset, deadline);
     return bounded({ scope: 'lineage', range: value.range, worker: { id: task.id, worker_number: task.worker_number },
       branch: value.branch, parent: value.parent, origin: page.origin, tip: value.tip, tip_evidence: value.tip_evidence,
-      tip_delivery_id: value.tip_delivery_id, commits: nodes(this, value, page.commits), ...links,
+      tip_delivery_id: value.tip_delivery_id, commits: nodes(this, value, page.commits), ...links, child_branches,
       ...lineageTokens(this.workspaces, value, offset, limit, page.has_more), has_more: page.has_more });
   },
   async workerVersionLineageCommit({ id, snapshot, commit } = {}) {

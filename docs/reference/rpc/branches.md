@@ -63,7 +63,8 @@ main 精确关联沿用 history 的目标校验；delivery 图只关联明确交
  parent:{id,worker_number,branch},origin:{commit,short_commit,parents,subject,author,committed_at},
  tip:SHA,tip_evidence:'branch.ref'|'delivery.source',tip_delivery_id:EventID|null,
  snapshot:opaqueString,commits:[...紧凑节点...],deliveries:[...映射...],
- untraceable_deliveries:[...不可追溯映射...],cursor:opaqueString|null,has_more:boolean}
+ untraceable_deliveries:[...不可追溯映射...],child_branches:[...直接子支线...],
+ cursor:opaqueString|null,has_more:boolean}
 mapping = {delivery_id:成功EventID,source_commit:SHA|null,commit:父侧落点SHA|null,
            parent_id:integer|null,delivered_at,evidence,delivery_available,
            delivery_unavailable_reason:string|null}
@@ -79,11 +80,15 @@ active 登记分支存在时只取样其精确 ref；分支回收、归档或 re
 
 紧凑 commits 沿用下文 graph 的字段与精确子交付 associations，不读取 goal／原始 Input 正文；source 普通节点为 `worker.source`。origin 是父侧锚点而不是自身开发关联。父侧信息只提供 origin 与已核验的固定落点，外部历史由 UI 以省略边表达。
 
+`child_branches` 每项为 `{worker:{id,worker_number},origin:Endpoint,deliveries:[mapping & {landing:Endpoint}]}`，只列真实直接子 Worker（含已归档及尚未合入者）。仅当本页包含持久创建 base 或已记录 landing 时返回该子项；base 等于父 origin 时仅首屏相关。子项保留全部既有成功映射，包括多轮、同源／共享 landing、无新落点、旧记录及缺证据原因，不把映射伪造成 Git parents。`task.delivered/no_changes` 没有固定 landing，只保留为不可追溯结果交付；明确交付到别的父 Worker 的 Event 不计入。没有 child ref 也可读取，不读取子当前 HEAD。
+
+`Endpoint = {commit:SHA|null,page:零基页码|null,cursor:签名cursor|null,available:boolean,reason:string|null}`。起点仅信持久 base、登记 branch/task/recorded parent/created_from_commit 与真实直接父一致，且位于固定父 first-parent 链；无效起点仍保留原 SHA 与原因。合入映射必须复用固定源／树／父基线／landing／归并成员收据的实际 Git 核验，不能用普通 tasks association 的结构可读替代；landing 还须位于固定父来源链才可定位。缺证据或不在链的 endpoint 返回 `page/cursor:null,available:false`，不猜邻近节点。可用 endpoint 提供精确页码，`page:0` 的 cursor 为 null（客户端复用缓存首屏），其它页的 cursor 属于**同一个父 snapshot**，按首次请求的 limit 计算，不重新取样。子创建集合与成功 Event 分别以签名 task/Event 高水位冻结，分页不混入新子或新交付。直接子最多 1,000 个，全部直接子的成功 Event 合计最多 1,000 条；超限整个请求报错，不静默截断。
+
 ### worker.version_lineage_commit
 
 只接受 lineage 的同 Worker 签名 snapshot 和完整 commit SHA。范围为来源链节点及独立 origin，非 commit、短 SHA、ref／路径表达式、第二父外部历史及其它快照均拒绝。返回格式沿用 `worker.version_commit`：`{worker,scope:'lineage',delivery:null,tip,base:originSHA,commit:{...含message及按需goal/input}}`，另带该节点的 `deliveries` 与有界 `untraceable_deliveries`；origin 的 `association:'unassociated',tasks:[]`。不读取 diff、配置或凭证。
 
-lineage 的 snapshot／cursor 使用独立签名命名空间，固定 Worker、branch、parent 身份、origin、tip、tip 证据、第一父范围与 Event 高水位；cursor 另含拓扑偏移。不同页返回同一个 snapshot。分页／详情不重新取样可变 ref，不混入新成功事件；不可复用旧 graph／history 的 token，重启／项目或实例切换／篡改须显式刷新。共享隔离 reader 的最多4并发、每请求15秒 Git 截止、4 MiB stdout、512 KiB 响应及详情文本预算保持不变；超限完整报错。没有 Git／数据库写入，不迁移旧数据或改变旧 graph／deliveries／commit 的读语义。
+lineage 的 snapshot／cursor 使用独立签名命名空间，固定 Worker、branch、parent 身份、origin、tip、tip 证据、第一父范围、子创建与 Event 高水位及首次 limit；cursor 另含拓扑偏移。续页必须保持首次 limit，改变页宽须刷新。不同页返回同一个 snapshot。分页／详情不重新取样可变 ref，不混入新子或新成功事件；不可复用旧 graph／history 的 token，重启／项目或实例切换／篡改须显式刷新。共享隔离 reader 的最多4并发、每请求15秒 Git 截止、4 MiB stdout、512 KiB 响应及详情文本预算保持不变；超限完整报错。没有 Git／数据库写入，不迁移旧数据或改变旧 graph／deliveries／commit 的读语义。
 
 ### worker.version_graph
 

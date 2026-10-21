@@ -44,24 +44,8 @@
 .worker-versions [hidden]{display:none}
 /* Stable parent/current lanes; the gutter never competes with descriptions. */
 .lineage-page{--lineage-gutter:112px;--lineage-worker-left:56px;--lineage-delivery:var(--awaiting)}
-.lineage-overview{padding:10px 12px;margin:12px 0;border-left:3px solid var(--accent);border-radius:6px;background:var(--accent-soft);font-size:13px;overflow-wrap:anywhere}
-.lineage-overview p{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;margin:2px 0}
-.lineage-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11px;color:var(--muted)}
-.lineage-legend span{display:inline-flex;align-items:center;gap:6px}
-.lineage-legend span:before{content:'';width:20px;border-top:2px solid var(--accent)}
-.lineage-legend .lineage-legend-delivery:before{border-top:2px dashed var(--lineage-delivery)}
-.lineage-legend .lineage-legend-parent:before{border-top:2px dotted var(--dim)}
-.lineage-legend .lineage-direction:before{display:none}
-.lineage-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;margin:6px 0}
-.lineage-toolbar .lineage-tracks{border:0;padding:0}
-.lineage-toolbar .versions-controls{margin:0}
-.lineage-toolbar button{padding:6px 10px;font-size:11px}
-.lineage-technical{margin:12px 0;color:var(--muted);font-size:12px}
-.lineage-technical summary{cursor:pointer}
-.lineage-technical p{line-height:1.6}
-.lineage-tracks{display:flex;flex-wrap:wrap;gap:6px 16px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12px}
-.lineage-tracks .version-task-link:first-child:before{content:'父轨 · '}
-.lineage-tracks .version-task-link:last-child:before{content:'自身轨 · '}
+.lineage-page .section-title .versions-controls{margin:0 0 0 auto}
+.lineage-page .section-title .versions-controls button{padding:6px 10px;font-size:11px}
 .lineage-list{list-style:none;margin:16px 0;padding:0;min-width:0}
 .lineage-row{position:relative;min-width:0}
 .lineage-rail{position:relative;min-width:0}
@@ -70,7 +54,7 @@
 .lineage-card{display:grid;grid-template-columns:var(--lineage-gutter) minmax(0,1fr);position:relative;min-width:0;padding-bottom:6px}
 .lineage-node-heading{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:20px;font-size:12px}
 .lineage-kind{color:var(--muted);font-size:11px}
-.lineage-tip-badge{font-size:10px;padding:0 5px;border:1px solid var(--line);border-radius:4px;color:var(--accent)}
+.lineage-tip-badge,.lineage-delivery-badge{font-size:10px;padding:0 5px;border:1px solid var(--line);border-radius:4px;color:var(--accent)}
 .lineage-body{position:relative;min-width:0;padding:6px 10px;border-bottom:1px solid var(--line-soft)}
 .lineage-body h4{margin:2px 0;line-height:1.5;font-size:13px;font-weight:500;overflow-wrap:anywhere}
 .lineage-body .version-task-link{display:inline;line-height:inherit}
@@ -109,9 +93,25 @@
 .lineage-landing-receipts{margin-top:4px;min-width:0;font-size:11px}
 .lineage-landing-receipts .lineage-receipt{margin-top:8px}
 .lineage-untraceable{border-top:1px solid var(--line);padding-top:12px;min-width:0}
+.lineage-child-toggle{font-size:11px;padding:4px 8px;margin:4px 6px 0 0}
+.lineage-child-toggle[aria-expanded="true"]{color:var(--accent);background:var(--accent-soft)}
+.lineage-child-panel{min-width:0;margin:8px 0;padding:10px;border-left:2px solid var(--accent);background:var(--bg);scroll-margin-top:120px}
+.lineage-child-panel:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lineage-child-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px}
+.lineage-child-heading button,.lineage-child-locate{font-size:11px;padding:4px 8px}
+.lineage-child-panel .hint{font-size:11px;line-height:1.6;margin:6px 0;overflow-wrap:anywhere}
+.lineage-child-endpoints{list-style:none;margin:0;padding:0;font-size:12px}
+.lineage-child-endpoints>li{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;min-width:0;margin:6px 0;overflow-wrap:anywhere}
+.lineage-child-endpoints .lineage-receipt{flex-basis:100%;margin:0;border:0;padding:4px 0;background:transparent}
+.lineage-child-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.lineage-child-edge,.lineage-child-arrow{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:3 4;stroke-linecap:round;stroke-linejoin:round}
+.lineage-child-arrow{stroke-dasharray:none}
+.lineage-child-symbol{fill:var(--panel);stroke:var(--accent);stroke-width:2}
+.lineage-node.is-child-path .lineage-node-symbol{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:640px){.lineage-child-toggle,.lineage-child-heading button,.lineage-child-locate{min-height:44px}.lineage-child-panel{padding:8px;margin-top:8px}.lineage-child-heading{align-items:flex-start}.lineage-child-endpoints>li{align-items:center}}
 .lineage-page .version-node-detail{padding:10px;margin-top:10px;scroll-margin-top:120px}
 .lineage-page .version-node-detail h3{font-size:13px}
 .lineage-page .version-node-detail pre{font-size:12px}
 .lineage-page .version-input{padding:8px}
 @media(max-width:760px){#detail[data-view="task"]>.worker-versions>.section-title{top:var(--module-mobile-sticky-top,calc(var(--mobile-header-height,53px) + var(--versions-banner-height,0px)))}}
-@media(max-width:640px){.worker-versions{padding:12px}.version-body{padding:10px}.version-node-detail{padding:12px}.version-graph-lanes-3 .version-commit{grid-template-columns:60px minmax(0,1fr)}.lineage-page{--lineage-gutter:96px;--lineage-worker-left:48px}.lineage-body{padding:6px 8px}.lineage-body h4{font-size:12px}.lineage-body .version-task-link,.lineage-body time{font-size:11px}.lineage-page .version-node-detail{padding:8px}.lineage-tracks .version-task-link{font-size:11px}.lineage-toolbar button{min-height:44px}.lineage-mapping>summary,.lineage-landing-receipts>summary,.lineage-technical>summary{min-height:44px;box-sizing:border-box;padding:10px 0}}
+@media(max-width:640px){.worker-versions{padding:12px}.version-body{padding:10px}.version-node-detail{padding:12px}.version-graph-lanes-3 .version-commit{grid-template-columns:60px minmax(0,1fr)}.lineage-page{--lineage-gutter:96px;--lineage-worker-left:48px}.lineage-body{padding:6px 8px}.lineage-body h4{font-size:12px}.lineage-body .version-task-link,.lineage-body time{font-size:11px}.lineage-page .version-node-detail{padding:8px}.lineage-page .section-title .versions-controls button{min-height:44px}.lineage-mapping>summary,.lineage-landing-receipts>summary{min-height:44px;box-sizing:border-box;padding:10px 0}}

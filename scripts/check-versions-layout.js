@@ -96,14 +96,25 @@ async function mappingGeometry(context = 'document') {
     for(const edge of paths){const a=d.getElementById(edge.dataset.sourceNode),b=d.getElementById(edge.dataset.targetNode);if(!a?.classList.contains('lineage-node')||!b?.classList.contains('lineage-parent-node')){errors.push('missing real marker');continue}const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),start=edge.getPointAtLength(0),end=edge.getPointAtLength(edge.getTotalLength()),err=Math.max(Math.hypot(start.x-(ar.left+ar.width/2-base.left),start.y-(ar.top+ar.height/2-base.top)),Math.hypot(end.x-(br.left+br.width/2-base.left),end.y-(br.top+br.height/2-base.top)));maxError=Math.max(maxError,err);const box=edge.getBBox();if(err>1||edge.getTotalLength()<=0||box.x<-1||box.y<-1||box.x+box.width>gutter+1||box.y+box.height>base.height+1||getComputedStyle(edge).strokeDasharray==='none'||!edge.getAttribute('d').includes(' C ')||!edge.getAttribute('marker-end'))errors.push(edge.dataset.source+':'+edge.dataset.landing)}for(const edge of p.querySelectorAll('.lineage-git-edge')){const a=d.getElementById(edge.dataset.sourceNode).getBoundingClientRect(),b=d.getElementById(edge.dataset.targetNode).getBoundingClientRect(),start=edge.getPointAtLength(0),end=edge.getPointAtLength(edge.getTotalLength()),err=Math.max(Math.hypot(start.x-(a.left+a.width/2-base.left),start.y-(a.top+a.height/2-base.top)),Math.hypot(end.x-(b.left+b.width/2-base.left),end.y-(b.top+b.height/2-base.top)));if(err>1||getComputedStyle(edge).strokeDasharray!=='none'||edge.getBBox().x+edge.getBBox().width>gutter+1)errors.push('real Git '+edge.dataset.child)}return {count:paths.length,maxError,errors,pairs:paths.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries,sourceNode:e.dataset.sourceNode,targetNode:e.dataset.targetNode,d:e.getAttribute('d')}))};`);
   assert(result.errors.length === 0, `mapping endpoints/geometry: ${JSON.stringify(result)}`); return result;
 }
+async function childGeometry(context = 'document') {
+  await settle();
+  const value = await execute(`const d=${context},p=d.querySelector('.worker-versions'),base=p.querySelector('.lineage-canvas').getBoundingClientRect(),gutter=parseFloat(d.defaultView.getComputedStyle(p).getPropertyValue('--lineage-gutter')),edges=[...p.querySelectorAll('.lineage-child-edge')];return {count:edges.length,panels:p.querySelectorAll('.lineage-child-panel').length,errors:edges.flatMap(e=>{const a=d.getElementById(e.dataset.sourceNode).getBoundingClientRect(),start=e.getPointAtLength(0),errors=[],box=e.getBBox();if(Math.hypot(start.x-(a.left+a.width/2-base.left),start.y-(a.top+a.height/2-base.top))>1)errors.push('origin');if(e.dataset.targetNode){const b=d.getElementById(e.dataset.targetNode).getBoundingClientRect(),end=e.getPointAtLength(e.getTotalLength());if(Math.hypot(end.x-(b.left+b.width/2-base.left),end.y-(b.top+b.height/2-base.top))>1||!e.getAttribute('marker-end'))errors.push('landing')}if(box.x<-1||box.x+box.width>gutter+1||getComputedStyle(e).strokeDasharray==='none')errors.push('gutter/dash');return errors})};`);
+  assert(value.count === 1 && value.panels === 1 && value.errors.length === 0, `selected child geometry: ${JSON.stringify(value)}`); return value;
+}
 async function narrowCheck(theme, event, prefix) {
-  await execute(`window.narrowMappings?.dispose();document.querySelector('#narrow-check')?.remove();const frame=document.createElement('iframe');frame.id='narrow-check';frame.width=390;frame.height=844;frame.style.cssText='position:fixed;inset:0;z-index:99999;border:0';document.body.append(frame);const doc=frame.contentDocument;doc.open();doc.write('<!doctype html><html data-theme="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:12px"><div id="detail"></div></body></html>');doc.close();for(const sheet of document.querySelectorAll('link[rel="stylesheet"]'))doc.head.append(sheet.cloneNode(true));doc.querySelector('#detail').append(document.querySelector('.worker-versions').cloneNode(true));window.narrowReady=false;
-    import('/version-lineage-mappings.js').then(({createLineageMappings})=>{const p=doc.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),original=[...p.querySelectorAll('.lineage-delivery-edge')],git=[...p.querySelectorAll('.lineage-git-edge')],origin=p.querySelector('.lineage-origin [data-commit]').dataset.commit,sources=new Map(),targets=new Map(),cells=new Map();for(const marker of p.querySelectorAll('.lineage-node')){const sha=marker.closest('[data-commit]').dataset.commit;sources.set(sha,marker);cells.set(sha,marker.closest('.lineage-rail'))}for(const marker of p.querySelectorAll('.lineage-parent-node')){const card=marker.closest('.lineage-card');targets.set(card.dataset.landing||card.dataset.commit,marker)}const model={origin:{commit:{commit:origin}},rows:git.map(e=>({edges:[{child:e.dataset.child,parent:e.dataset.parent,external:e.dataset.secondary==='true'}]})),connections:original.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries.split(',').map(Number)}))};p.querySelector('.lineage-delivery-lines')?.remove();window.narrowMappings=createLineageMappings(p,canvas,()=>frame.isConnected);narrowMappings.present(model,sources,targets,cells);window.narrowReady=true}).catch(e=>browserErrors.push(String(e)));`);
+  await execute(`window.narrowMappings?.dispose();window.narrowChildPath?.dispose();document.querySelector('#narrow-check')?.remove();const frame=document.createElement('iframe');frame.id='narrow-check';frame.width=390;frame.height=844;frame.style.cssText='position:fixed;inset:0;z-index:99999;border:0';document.body.append(frame);const doc=frame.contentDocument;doc.open();doc.write('<!doctype html><html data-theme="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:12px"><div id="detail"></div></body></html>');doc.close();for(const sheet of document.querySelectorAll('link[rel="stylesheet"]'))doc.head.append(sheet.cloneNode(true));doc.querySelector('#detail').append(document.querySelector('.worker-versions').cloneNode(true));window.narrowReady=false;
+    Promise.all([import('/version-lineage-mappings.js'),import('/version-lineage-child-path.js')]).then(([{createLineageMappings},{createLineageChildPath}])=>{const p=doc.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),original=[...p.querySelectorAll('.lineage-delivery-edge')],git=[...p.querySelectorAll('.lineage-git-edge')],origin=p.querySelector('.lineage-origin [data-commit]').dataset.commit,sources=new Map(),targets=new Map(),cells=new Map();for(const marker of p.querySelectorAll('.lineage-node')){const sha=marker.closest('[data-commit]').dataset.commit;sources.set(sha,marker);cells.set(sha,marker.closest('.lineage-rail'))}for(const marker of p.querySelectorAll('.lineage-parent-node')){const card=marker.closest('.lineage-card');targets.set(card.dataset.landing||card.dataset.commit,marker)}const model={origin:{commit:{commit:origin}},rows:git.map(e=>({edges:[{child:e.dataset.child,parent:e.dataset.parent,external:e.dataset.secondary==='true'}]})),connections:original.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries.split(',').map(Number)}))};p.querySelector('.lineage-delivery-lines')?.remove();window.narrowMappings=createLineageMappings(p,canvas,()=>frame.isConnected);narrowMappings.present(model,sources,targets,cells);if(p.querySelector('.lineage-child-panel')){p.querySelector('.lineage-child-lines')?.remove();window.narrowChildPath=createLineageChildPath(p,canvas,()=>frame.isConnected);narrowChildPath.present(window.childBranchForCheck,sources,Number(p.dataset.pageIndex),p.querySelector('.lineage-child-panel'))}window.narrowReady=true}).catch(e=>browserErrors.push(String(e)));`);
   await waitFor(`window.narrowReady && [...document.querySelector('#narrow-check').contentDocument.querySelectorAll('link')].every(l=>!!l.sheet)`);
   const context = "document.querySelector('#narrow-check').contentDocument";
   const narrow = await execute(geometryScript(context));
   assert(narrow.width === 390 && narrow.module <= 1 && narrow.page <= 1 && narrow.dual && narrow.aligned && narrow.gutter===96 && narrow.descriptionWidth>96 && narrow.laneSpacing>=48 && narrow.touch>=44, `390px overflow/tracks ${theme}: ${JSON.stringify(narrow)}`);
-  narrow.mappings = await mappingGeometry(context); await screenshot(`${prefix}-${theme}-390-dual-track`);
+  narrow.mappings = await mappingGeometry(context);
+  if (await execute(`return !!${context}.querySelector('.lineage-child-panel')`)) narrow.child = await childGeometry(context);
+  await screenshot(`${prefix}-${theme}-390-dual-track`);
+  if (await execute(`return !!${context}.querySelector('.lineage-child-panel')`)) {
+    await execute(`${context}.querySelector('.lineage-child-panel').scrollIntoView({block:'center'});`);
+    await screenshot(`${prefix}-${theme}-390-child-selected`);
+  }
   if (event) {
     await execute(`${context}.querySelector('.lineage-mapping[data-delivery="${event}"]').scrollIntoView({block:'center'});`);
     await screenshot(`${prefix}-${theme}-390-delivery-mapping`);
@@ -111,7 +122,7 @@ async function narrowCheck(theme, event, prefix) {
   if (await execute(`return !${context}.querySelector('.version-node-detail').hidden`)) {
     await execute(`${context}.querySelector('.version-node-detail').scrollIntoView({block:'start'});`); await screenshot(`${prefix}-${theme}-390-node-detail`);
   }
-  await execute('window.narrowMappings.dispose();document.querySelector("#narrow-check").remove();');
+  await execute('window.narrowMappings.dispose();window.narrowChildPath?.dispose();document.querySelector("#narrow-check").remove();');
   console.log(`PASS genuine 390px mapping endpoints ${prefix}/${theme}`); return { theme, ...narrow };
 }
 try {
@@ -125,15 +136,19 @@ try {
   const c2 = await commit(task, 'second.txt', '第一轮开发二'); const first = await deliver(task);
   await git(task.workspace, 'merge', 'main', '-m', '同步上轮落点 · 真实第二父外部边');
   const syncCommit = await git(task.workspace, 'rev-parse', 'HEAD');
+  const child = await f.project.spawn(task.id, '跨页子 Worker 实际交付，保留持久编号');
   let head = syncCommit; const tree = await git(task.workspace, 'rev-parse', 'HEAD^{tree}');
   for (let i = 0; i < 95; i++) head = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', `自身来源提交 ${i}`);
   await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, head);
-  const child = await f.project.spawn(task.id, '子 Worker 实际交付，保留持久编号');
   await commit(child, 'child.txt', '子 Worker 开发一');
   await commit(child, 'child.txt', '子 Worker 开发二\n\n完整消息 <script>window.injected=true</script>');
+  await git(child.workspace, 'merge', task.branch, '-m', '交付前吸收固定父历史，保留较早创建起点');
   const childDelivery = await deliver(child), childLanding = childDelivery.commit;
+  const near = await f.project.spawn(task.id, '同页分叉合入的子 Worker');
+  await commit(near, 'near.txt', '同页子 Worker 开发'); const nearDelivery = await deliver(near);
   const second = await deliver(task);
   const currentTip = await commit(task, 'unpublished.txt', '两次交付后仍有未交付开发\n\n完整消息 <script>window.injected=true</script>');
+  const pending = await f.project.spawn(task.id, '尚未合入的子 Worker');
   const { task: undelivered } = await f.project.order('完全没有交付但来源链有commit');
   const unpublished = await commit(undelivered, 'unpublished.txt', '没有交付的自身提交');
   const { task: empty } = await f.project.order('只有创建起点，没有自身开发');
@@ -219,6 +234,12 @@ try {
   const focusReveal = await execute(`const r=document.activeElement.getBoundingClientRect(),h=savedVersions.querySelector('.section-title').getBoundingClientRect();return {expanded:savedVersions.classList.contains('module-expanded'),reads:versionReads.length,savedReads,top:r.top,bottom:r.bottom,headingBottom:h.bottom,composerTop:document.querySelector('.composer').getBoundingClientRect().top};`);
   assert(focusReveal.expanded&&focusReveal.reads===focusReveal.savedReads&&focusReveal.top>=focusReveal.headingBottom-1&&focusReveal.bottom<=focusReveal.composerTop+1, `clipped keyboard focus not visibly revealed: ${JSON.stringify(focusReveal)}`);
 
+  assert(await execute(`const p=document.querySelector('.worker-versions');return !p.querySelector('.lineage-overview,.lineage-legend,.lineage-tracks,.lineage-technical,.lineage-child-panel') && p.querySelector('.versions-feedback').hidden && p.querySelector('.lineage-source[data-commit="${childLanding}"] .lineage-kind').textContent==='子 Worker 合入'`), 'default graph is not compact/child integration is mislabeled');
+  const beforeChild = await execute('return versionReads.length');
+  await click(`.lineage-child-toggle[data-worker-id="${near.id}"]`);
+  await waitFor('!!document.querySelector(".lineage-child-edge")');
+  assert(await execute(`return versionReads.length===${beforeChild} && document.querySelectorAll('.lineage-child-panel').length===1 && document.querySelector('.lineage-child-panel').textContent.includes('${near.worker_number}') && document.querySelector('.lineage-child-panel').textContent.includes('${near.base_commit.slice(0,8)}') && document.querySelector('.lineage-child-panel').textContent.includes('${nearDelivery.commit.slice(0,8)}')`), 'child selection must expose exact endpoints without another read');
+  await execute(`window.childBranchForCheck=lineageResponses[0].child_branches.find(b=>b.worker.id===${near.id});`);
   // Both themes in real top-level page and a genuine 390px iframe using production DOM/CSS.
   const geometries = [];
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 500]) {
@@ -226,7 +247,7 @@ try {
     await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
     // Theme transitions must finish before recording colors/screenshots.
     await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>setTimeout(()=>done(true),250));' });
-    geometries.push({ theme, requestedWidth: width, ...await geometry(theme, width), ...await readability(theme), mappings: await mappingGeometry() });
+    geometries.push({ theme, requestedWidth: width, ...await geometry(theme, width), ...await readability(theme), mappings: await mappingGeometry(), child: await childGeometry() });
     await screenshot(`${theme}-${width}-dual-track`);
     geometries.at(-1).sticky = await stickyCheck(theme, width, 'lineage');
     await click('.worker-versions .module-toggle'); await screenshot(`${theme}-${width}-collapsed`);
@@ -237,14 +258,30 @@ try {
     geometries.at(-1).focusReveal = visibleFocus;
     await screenshot(`${theme}-${width}-keyboard-reveal`);
     await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`); await screenshot(`${theme}-${width}-expanded`);
+    await execute(`document.querySelector('.lineage-child-panel').scrollIntoView({block:'center'});`);
+    await screenshot(`${theme}-${width}-child-selected`);
     await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
     await screenshot(`${theme}-${width}-node-detail`); console.log(`PASS real Worker lineage layout ${theme}/${width}`);
   }
   await rpc(`/session/${session}/window/rect`, { width: 600, height: 1000 });
   for (const theme of ['light', 'dark']) geometries.push(await narrowCheck(theme, second.id, 'lineage'));
+  await click(`.lineage-child-toggle[data-worker-id="${pending.id}"]`);
+  assert(await execute(`return document.querySelectorAll('.lineage-child-panel').length===1 && document.querySelector('.lineage-child-panel').textContent.includes('尚未合入') && document.querySelector('.lineage-child-panel').textContent.includes('${pending.worker_number}')`), 'unmerged child is not selectable or old child remained');
+  await screenshot('selected-unmerged-child');
+  await click(`.lineage-child-toggle[data-worker-id="${child.id}"]`);
+  const crossPageReads = await execute('return versionReads.length');
+  await click(`.lineage-child-locate[data-commit="${child.base_commit}"]`);
+  await waitFor(`document.querySelector('.worker-versions').dataset.pageIndex==='3' && document.activeElement?.id==='lineage-node-${task.id}-${child.base_commit}'`);
+  assert(await execute(`return [...document.querySelectorAll('.lineage-child-edge')].every(e=>!e.getAttribute('marker-end')&&!e.dataset.landing) && document.querySelector('.lineage-child-panel').textContent.includes('${child.worker_number}') && versionReads.length===${crossPageReads + 1}`), 'off-page child must not draw across omitted history');
+  await screenshot('child-origin-same-snapshot-cross-page');
+  await click(`.lineage-child-locate[data-commit="${childLanding}"]`);
+  await waitFor(`document.querySelector('.worker-versions').dataset.pageIndex==='0' && document.activeElement?.id==='lineage-node-${task.id}-${childLanding}'`);
+  assert(await execute(`return versionReads.length===${crossPageReads + 1}`), 'landing locator re-sampled pinned first page');
+  await click(`.lineage-child-toggle[data-worker-id="${child.id}"]`);
+  assert(await execute(`return !document.querySelector('.lineage-child-panel,.lineage-child-lines')`), 'child hide failed');
   // Forward pagination replaces a segment instead of accumulating the graph.
   for (let page = 2; page <= 4; page++) {
-    await click('.versions-more'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${page} 页')`);
+    await click('.versions-more'); await waitFor(`document.querySelector('.worker-versions').dataset.pageIndex==='${page - 1}' && document.querySelector('.worker-versions').getAttribute('aria-busy')==='false'`);
     assert(await execute(`return document.querySelectorAll('.lineage-source').length<=30 && Number(document.querySelector('.worker-versions').dataset.cachedPages)<=3`), 'graph/cache accumulated unbounded nodes');
   }
   assert(await execute(`const m=document.querySelector('.lineage-mapping[data-delivery="${first.id}"]');return m?.dataset.source==='${c2}' && m.dataset.landing==='${first.commit}' && !!document.querySelector('.lineage-source[data-commit="${c1}"]') && !!document.querySelector('.lineage-fork') && !!document.querySelector('.lineage-git-boundary[data-child="${syncCommit}"][data-parent="${first.commit}"]')`), 'earliest source/first delivery/origin or real sync parent was lost');
@@ -254,7 +291,7 @@ try {
   await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
   await screenshot('earliest-origin-first-real-edge');
   const advancedTip = await commit(task, 'advanced.txt', '首屏固定后新增来源提交');
-  for (let page = 3; page >= 1; page--) { await click('.versions-newer'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${page} 页')`); }
+  for (let page = 3; page >= 1; page--) { await click('.versions-newer'); await waitFor(`document.querySelector('.worker-versions').dataset.pageIndex==='${page - 1}' && document.querySelector('.worker-versions').getAttribute('aria-busy')==='false'`); }
   assert(await execute(`return document.querySelector('.lineage-source[data-commit="${currentTip}"]') && !document.querySelector('.lineage-source[data-commit="${advancedTip}"]')`), 'return to pinned first page re-sampled moving ref');
   await click('.versions-refresh'); await waitFor(`!!document.querySelector('.lineage-source[data-commit="${advancedTip}"]')`);
   assert(await execute(`return lineageResponses.filter(p=>p.tip==='${currentTip}').every(p=>p.snapshot===lineageResponses[0].snapshot) && lineageResponses.at(-1).snapshot!==lineageResponses[0].snapshot`), 'page snapshot identity was not fixed until explicit refresh');
@@ -263,9 +300,9 @@ try {
   await click(`.lineage-source[data-commit="${childLanding}"] .version-task-link`);
   await waitFor(`location.hash==='#worker-${child.id}' && document.querySelector('#detail').dataset.taskId==='${child.id}'`);
   await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
-  await waitFor('document.querySelectorAll(".lineage-source").length===2');
+  await waitFor('document.querySelectorAll(".lineage-source").length===3');
   assert(await execute(`return document.querySelector('.task-hero').textContent.includes('${child.worker_number}') && !!document.querySelector('.lineage-mapping[data-delivery="${childDelivery.id}"]') && !document.querySelector('.version-delivery-choice')`), 'native child link did not reach real lineage detail');
-  assert(await execute(`const p=document.querySelector('.worker-versions');return p.querySelector('.lineage-overview').textContent.includes('${childDelivery.commit.slice(0,8)}') && p.querySelector('.lineage-overview').textContent.includes('${child.base_commit.slice(0,8)}') && p.querySelectorAll('.lineage-legend span:not(.lineage-direction)').length===3 && p.querySelectorAll('.lineage-source').length===2 && [...p.querySelectorAll('.lineage-mapping')].every(r=>!r.open&&!r.querySelector('summary').textContent.includes('Event')) && p.querySelector('.lineage-source .lineage-body').getBoundingClientRect().height<100 && !!p.querySelector('.lineage-tip-badge')`), 'confirmed default hierarchy/compact rows/receipt disclosure missing');
+  assert(await execute(`const p=document.querySelector('.worker-versions');return !p.querySelector('.lineage-overview,.lineage-legend,.lineage-tracks,.lineage-technical,.lineage-child-panel') && p.querySelector('.versions-feedback').hidden && p.querySelector('.module-summary').hidden && !p.textContent.includes('自身提交') && p.querySelectorAll('.lineage-source').length===3 && [...p.querySelectorAll('.lineage-mapping')].every(r=>!r.open&&!r.querySelector('summary').textContent.includes('Event')) && p.querySelector('.lineage-source .lineage-body').getBoundingClientRect().height<100 && !!p.querySelector('.lineage-tip-badge')`), 'confirmed compact graph/receipt disclosure missing');
   await mappingGeometry(); await screenshot('child-native-lineage-detail');
   // Retired #versions bookmark resolves the actual main identity; main remains Git graph/link-only.
   await execute(`location.hash='#versions';`);
@@ -288,10 +325,10 @@ try {
   assert(await execute(`return !!document.querySelector('.lineage-source[data-commit="${unpublished}"]') && document.querySelectorAll('.lineage-mapping').length===0 && !document.querySelector('.version-rounds')`), 'unpublished branch commit was hidden behind empty rounds');
   await screenshot('unpublished-source-without-deliveries');
   await openWorker(empty.id);
-  assert(await execute(`return document.querySelectorAll('.lineage-source').length===0 && !!document.querySelector('.lineage-origin') && document.querySelector('.versions-feedback').textContent.includes('尚无自身开发')`), 'empty Worker lost creation origin');
+  assert(await execute(`return document.querySelectorAll('.lineage-source').length===0 && !!document.querySelector('.lineage-origin') && document.querySelector('.versions-feedback').hidden`), 'empty Worker lost creation origin');
   await screenshot('origin-without-development');
   await openWorker(reclaimed.id);
-  assert(await execute(`return document.querySelectorAll('.lineage-source').length===2 && document.querySelector('.version-tip').textContent.includes('分支已回收') && !!document.querySelector('.lineage-mapping[data-delivery="${reclaimedDelivery.id}"]')`), 'reclaimed source history was not recovered from exact persistent source');
+  assert(await execute(`return document.querySelectorAll('.lineage-source').length===2 && lineageResponses.at(-1).tip_evidence==='delivery.source' && !!document.querySelector('.lineage-mapping[data-delivery="${reclaimedDelivery.id}"]')`), 'reclaimed source history was not recovered from exact persistent source');
   await screenshot('reclaimed-source-history');
   await openWorker(mapped.id);
   const expectedPairs = new Set(mappedRead.deliveries.filter(m=>m.delivery_available).map(m=>`${m.source_commit}:${m.commit}`));
@@ -321,10 +358,10 @@ try {
   for (const theme of ['light', 'dark']) specialGeometries.push(await narrowCheck(theme, sharedEvent, 'pairs'));
   assert((await f.project.workerVersionLineage({ id: task.id })).tip === advancedTip, 'browser reads wrote Git');
   assert(await execute('return browserErrors.length===0'), 'browser emitted errors');
-  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, origin, c1, c2, currentTip, advancedTip, first, second, childDelivery, reclaimedDelivery,
+  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, near: { worker: near.worker_number, origin: near.base_commit, delivery: nearDelivery }, pending: pending.worker_number, origin, c1, c2, currentTip, advancedTip, first, second, childDelivery, reclaimedDelivery,
     special, mappedOrigin, sourceOne, sourceTwo, landingOne, landingTwo, specialGeometries, geometries, repaint, focusReveal, reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
   passed = true;
-  console.log(`PASS real Web→RPC→SQLite/Git→Firefox: direct dual tracks, full source history/two delivery mappings/unpublished tip; origin/node details; paging/cache/snapshot/refresh; native child/main; no-delivery/empty/reclaimed; every verified shared/multiple/origin-target mapping and expanded-node endpoints; stable 112/96px gutter, curved directional mappings, compact rows and confirmed default hierarchy; shared previews/main, sticky headings, same-Worker repaint and keyboard reveal; two themes 1440/900/500/390. Screenshots: ${output}; logs: ${logs}`);
+  console.log(`PASS real Web→RPC→SQLite/Git→Firefox: direct dual tracks, full source history/two delivery mappings/unpublished tip; origin/node details; paging/cache/snapshot/refresh; native child/main; no-delivery/empty/reclaimed; every verified shared/multiple/origin-target mapping and expanded-node endpoints; stable 112/96px gutter, curved directional mappings, compact rows without preamble; selected child exact endpoints/one branch/unmerged/cross-page pinned snapshot and 112/96px path geometry; shared previews/main, sticky headings, same-Worker repaint and keyboard reveal; two themes 1440/900/500/390. Screenshots: ${output}; logs: ${logs}`);
 } catch (error) {
   if (session) {
     await screenshot('failure').catch(() => {});

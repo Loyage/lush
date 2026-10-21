@@ -8,6 +8,7 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { inputNumber } from './format.js';
 import { versionLineageLayout } from './version-lineage-layout.js';
 import { createLineageMappings } from './version-lineage-mappings.js';
+import { createLineageChildPath } from './version-lineage-child-path.js';
 import { enhanceVersionModule } from './version-module.js';
 
 const LIMIT = 30, CACHE_PAGES = 3;
@@ -16,6 +17,11 @@ const text = (v, fallback = '未知') => typeof v === 'string' && v ? v : fallba
 const short = v => oid(v) ? v.slice(0, 8) : '未知';
 function button(label, run, className = 'ghost') {
   const node = el('button', label, className); node.type = 'button'; node.onclick = run; return node;
+}
+function readControlHost(control) {
+  const host = el('span', undefined, 'help-host');
+  host.setAttribute('data-help', '正在读取版本图或快照已失效时不可定位；读取完成后重试，快照失效请刷新版本图。');
+  host.append(control); return host;
 }
 function workerLink(worker) {
   const link = el('a', `Worker ${workerLabel(worker)}`, 'worker-link version-task-link');
@@ -42,6 +48,18 @@ function checked(data, task) {
       || typeof m.delivery_available !== 'boolean' || (m.delivery_available && (!m.source_commit || !m.commit || m.parent_id !== data.parent.id))
       || (!m.delivery_available && !text(m.delivery_unavailable_reason, '')))
     || data.deliveries.some(m => ![data.origin.commit, ...nodes.map(c => c.commit)].includes(m.source_commit))) throw new Error('交付映射数据格式不兼容。');
+  const endpoint = e => e && (e.commit === null || oid(e.commit)) && typeof e.available === 'boolean'
+    && (e.available ? oid(e.commit) && Number.isSafeInteger(e.page) && e.page >= 0
+      && (e.page === 0 ? e.cursor === null : typeof e.cursor === 'string' && Boolean(e.cursor))
+      : e.page === null && e.cursor === null && Boolean(text(e.reason, '')));
+  const branches = data.child_branches;
+  if (!Array.isArray(branches) || branches.length > 1000 || new Set(branches.map(b => b.worker?.id)).size !== branches.length
+    || branches.some(b => !Number.isSafeInteger(b.worker?.id) || b.worker.id <= 0 || b.worker.id === task.id || !endpoint(b.origin)
+      || !Array.isArray(b.deliveries) || b.deliveries.some(m => !endpoint(m.landing) || m.landing.commit !== m.commit
+        || !Number.isSafeInteger(m.delivery_id) || m.delivery_id <= 0 || typeof m.delivery_available !== 'boolean'
+        || (m.delivery_available && (!oid(m.source_commit) || !oid(m.commit) || m.parent_id !== task.id))
+        || (m.landing.available && !m.delivery_available)))
+    || branches.reduce((sum, b) => sum + b.deliveries.length, 0) > 1000) throw new Error('子 Worker 分合路径格式不兼容，请更新后台与界面服务。');
   return data;
 }
 function receipt(mapping) {
@@ -62,41 +80,43 @@ export function createWorkerLineage(task, isMounted) {
   const ownerDocument = document, boot = ui.workerNumbers, project = projectApi('/api/'), view = ui.view;
   const root = el('section', undefined, 'worker-versions versions-page lineage-page'); root.dataset.workerId = String(task.id);
   const title = el('div', undefined, 'section-title'); title.append(el('h2', '版本迭代'));
-  const overview = el('div', undefined, 'lineage-overview'); overview.hidden = true;
-  const legend = el('div', undefined, 'lineage-legend');
-  for (const [kind, label] of [['git', '实线：Git 父边'], ['delivery', '虚线箭头：交付映射'], ['parent', '点线：父侧历史省略']]) {
-    legend.append(el('span', label, `lineage-legend-${kind}`));
-  }
-  const feedback = el('span', '滚入后读取已提交来源链，每段最多 30 个自身 commit。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
-  const tip = el('p', undefined, 'version-tip hint');
-  const tracks = el('div', undefined, 'lineage-tracks');
+  const feedback = el('span', '', 'versions-feedback hint'); feedback.setAttribute('role', 'status'); feedback.hidden = true;
   const list = el('ol', undefined, 'lineage-list'); list.setAttribute('aria-label', '双轨来源链 · 从上到下旧到新');
   const canvas = el('div', undefined, 'lineage-canvas'); canvas.append(list);
   const unavailable = el('section', undefined, 'lineage-untraceable'); unavailable.hidden = true;
   const panel = el('section', undefined, 'version-node-detail'); panel.hidden = true; panel.id = `version-node-detail-${task.id}`; panel.tabIndex = -1;
   panel.setAttribute('aria-label', '按需提交详情');
+  const childPanel = el('section', undefined, 'lineage-child-panel'); childPanel.id = `lineage-child-panel-${task.id}`; childPanel.tabIndex = -1;
+  childPanel.setAttribute('aria-label', '选中子 Worker 的分合路径');
   const cache = new Map(), cursors = [null];
+  let selectedChild = null, childButtons = [], markers = new Map();
   let module = null, disposed = false, started = false, observer = null, generation = 0, graphRead = null, nodeRead = null;
   let snapshot = null, identity = null, displayed = null, index = 0, retryTarget = null;
   const owns = () => !disposed && document === ownerDocument && ui.workerNumbers === boot && ui.view === view
     && projectApi('/api/') === project && !routeContext().invalid && isMounted(root);
   const current = () => owns() && root.isConnected;
   const mappingLines = createLineageMappings(root, canvas, current);
+  const childPath = createLineageChildPath(root, canvas, current);
   const cancelNode = () => {
     nodeRead?.abort(); nodeRead = null; panel.replaceChildren(); panel.hidden = true; panel.setAttribute('aria-busy', 'false'); (module?.content || root).insertBefore(panel, null);
     for (const marker of list.querySelectorAll('.lineage-node')) marker.setAttribute('aria-expanded', 'false');
-    mappingLines.changed();
+    mappingLines.changed(); childPath.changed();
   };
   const cancel = () => { generation++; graphRead?.abort(); graphRead = null; cancelNode(); };
   const status = (message, error = false) => {
     feedback.textContent = message; feedback.className = `versions-feedback ${error ? 'versions-error' : 'hint'}`;
+    feedback.hidden = !message; if (module) module.summary.hidden = !message;
     feedback.setAttribute('role', error ? 'alert' : 'status');
   };
   const sync = () => {
     start.hidden = started; retry.hidden = !retryTarget;
     newer.disabled = Boolean(graphRead) || !snapshot || index === 0;
     older.disabled = Boolean(graphRead) || !snapshot || displayed?.snapshot !== snapshot || !displayed?.has_more;
-    root.dataset.cachedPages = String(cache.size); root.setAttribute('aria-busy', String(Boolean(graphRead))); module?.measure();
+    root.dataset.cachedPages = String(cache.size); root.setAttribute('aria-busy', String(Boolean(graphRead)));
+    if (module) module.summary.hidden = feedback.hidden;
+    for (const { control } of childButtons) control.disabled = Boolean(graphRead) || displayed?.snapshot !== snapshot;
+    for (const control of childPanel.querySelectorAll('.lineage-child-locate')) control.disabled = Boolean(graphRead) || displayed?.snapshot !== snapshot;
+    module?.measure();
   };
   const remember = (i, data) => {
     cache.delete(i); cache.set(i, data);
@@ -114,31 +134,85 @@ export function createWorkerLineage(task, isMounted) {
     marker.setAttribute('aria-controls', panel.id); marker.setAttribute('aria-expanded', 'false');
     const body = el('div', undefined, 'lineage-body');
     const heading = el('div', undefined, 'lineage-node-heading');
-    heading.append(el('span', origin ? '从父轨分出' : '自身提交', 'lineage-kind'), el('code', short(commit.commit), 'version-short-sha'));
+    const incoming = commit.association === 'verified' && (commit.tasks || []).some(association => association.id !== task.id && association.delivery_id);
+    heading.append(el('span', origin ? '从父 Worker 引出' : incoming ? '子 Worker 合入' : '提交', 'lineage-kind'), el('code', short(commit.commit), 'version-short-sha'));
     body.append(heading, el('h4', text(commit.subject, '（无摘要）')));
     const metadata = el('div', undefined, 'version-metadata');
     const time = el('time', text(commit.committed_at).replace('T', ' ').slice(0, 16));
     if (commit.committed_at) time.setAttribute('datetime', commit.committed_at);
     metadata.append(time);
+    if (origin) metadata.append(workerLink(displayed.parent));
     for (const association of commit.association === 'verified' ? commit.tasks || [] : []) {
       if (association.id !== task.id) metadata.append(workerLink(association));
     }
     body.append(metadata);
+    for (const branch of displayed.child_branches) {
+      if (branch.origin.commit !== commit.commit && !branch.deliveries.some(m => m.commit === commit.commit)) continue;
+      const control = button(`查看 ${workerLabel(branch.worker)} 分合路径`, () => {
+        if (!current() || graphRead || displayed?.snapshot !== snapshot) return;
+        selectedChild = selectedChild?.worker.id === branch.worker.id ? null : branch;
+        paintChild(true);
+        if (!selectedChild) control.focus?.({ preventScroll: true });
+      }, 'ghost lineage-child-toggle');
+      control.dataset.workerId = String(branch.worker.id); control.setAttribute('aria-controls', childPanel.id);
+      control.setAttribute('data-help', '在当前版本图内显示这个子 Worker 的创建引出点与各次合入点，不调用 Agent；一次显示一条子支线。');
+      childButtons.push({ control, branch }); body.append(readControlHost(control));
+    }
     const rail = el('div', undefined, `lineage-rail ${origin ? 'lineage-parent' : 'lineage-worker'}`);
     rail.append(marker); card.append(rail, body); return card;
   }
+  function paintChild(focus = false) {
+    childPanel.remove();
+    for (const { control, branch } of childButtons) {
+      const on = selectedChild?.worker.id === branch.worker.id;
+      control.setAttribute('aria-expanded', String(on)); control.textContent = `${on ? '隐藏' : '查看'} ${workerLabel(branch.worker)} 分合路径`;
+    }
+    if (!selectedChild) { childPath.present(null, markers, index, childPanel); return; }
+    const branch = selectedChild, heading = el('div', undefined, 'lineage-child-heading');
+    heading.append(workerLink(branch.worker), button('隐藏分合路径', () => {
+      selectedChild = null; paintChild(); childButtons.find(b => b.branch.worker.id === branch.worker.id)?.control.focus?.({ preventScroll: true });
+    }));
+    childPanel.replaceChildren(heading, el('p', '虚线表示 Worker 来源／交付关系，不是 Git 父边。', 'hint'));
+    const points = el('ul', undefined, 'lineage-child-endpoints');
+    const addEndpoint = (label, endpoint, mapping = null) => {
+      const row = el('li'); row.append(el('span', label));
+      if (endpoint.available) {
+        const local = endpoint.page === index && markers.has(endpoint.commit);
+        const control = button(`${short(endpoint.commit)}${local ? '' : ` · 第 ${endpoint.page + 1} 段`}`, () => locate(endpoint), 'ghost lineage-child-locate');
+        control.dataset.commit = endpoint.commit; control.setAttribute('data-help', local
+          ? '在本段版本图中聚焦这个固定提交节点，不重新读取历史。'
+          : '在同一历史快照内切换到此节点所在分段并聚焦，不重新取样当前分支。');
+        row.append(readControlHost(control));
+      } else row.append(el('code', short(endpoint.commit)), el('span', text(endpoint.reason), 'versions-error'));
+      if (mapping) { const details = receipt(mapping); details.querySelector('summary').textContent = '查看子 Worker 交付收据'; row.append(details); }
+      points.append(row);
+    };
+    addEndpoint('引出点', branch.origin);
+    for (const mapping of branch.deliveries) addEndpoint('合入点', mapping.landing, mapping);
+    if (!branch.deliveries.length) points.append(el('li', '尚未合入'));
+    childPanel.append(points);
+    if (displayed.has_more && branch.origin.commit === displayed.origin.commit) childPanel.append(el('p', '引出点与本段之间有省略，不绘制跨省略区的完整支线。', 'hint'));
+    const local = [branch.origin, ...branch.deliveries.map(m => m.landing)].find(e => e.available && e.page === index && markers.has(e.commit));
+    const marker = local && markers.get(local.commit);
+    if (marker) marker.parentNode.parentNode.querySelector('.lineage-body').append(childPanel);
+    else { childPanel.append(el('p', '本段没有该子 Worker 的可定位端点。', 'hint')); canvas.append(childPanel); }
+    childPath.present(branch, markers, index, childPanel); mappingLines.changed();
+    if (focus) { childPanel.focus?.({ preventScroll: true }); childPanel.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); }
+    sync();
+  }
+  async function locate(endpoint) {
+    if (!current() || graphRead || !endpoint.available || displayed?.snapshot !== snapshot) return;
+    const fixed = snapshot;
+    if (endpoint.page > 0) cursors[endpoint.page] = endpoint.cursor;
+    if (endpoint.page !== index) await load(endpoint.page);
+    if (!current() || snapshot !== fixed || index !== endpoint.page || displayed?.snapshot !== fixed) return;
+    const marker = markers.get(endpoint.commit);
+    marker?.focus?.({ preventScroll: true }); marker?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+  }
   function present(data, pageIndex) {
-    displayed = data; index = pageIndex;
+    displayed = data; index = pageIndex; root.dataset.pageIndex = String(index); childButtons = [];
+    if (selectedChild) selectedChild = data.child_branches.find(b => b.worker.id === selectedChild.worker.id) || selectedChild;
     const model = versionLineageLayout(data);
-    tracks.replaceChildren(workerLink(data.parent), workerLink(data.worker));
-    const verified = data.deliveries.filter(m => m.delivery_available);
-    const latest = [...verified].sort((a, b) => b.delivery_id - a.delivery_id)[0];
-    const from = el('p'); from.append(el('strong', '从哪里分出 '), workerLink(data.parent), el('code', short(data.origin.commit)));
-    const to = el('p');
-    if (latest) to.append(el('strong', '本段最近交付 '), el('code', short(latest.source_commit)), el('span', ' → '), workerLink(data.parent), el('code', short(latest.commit)));
-    else to.append(el('span', '本段没有已核验的交付落点；不代表其他分段没有交付。'));
-    overview.replaceChildren(from, to); overview.hidden = false;
-    tip.textContent = `固定 tip ${short(data.tip)} · ${data.tip_evidence === 'delivery.source' ? `分支已回收／不可用，来源取自交付 Event ${data.tip_delivery_id}` : '分支已提交快照（不含未提交改动）'}`;
     const rows = [], sources = new Map(), targets = new Map();
     const renderRow = row => {
       const item = el('li', undefined, `lineage-row${row.origin ? ' lineage-origin' : ''}`);
@@ -148,7 +222,7 @@ export function createWorkerLineage(task, isMounted) {
       if (row.origin) targets.set(row.commit.commit, marker);
       if (row.deliveries.some(mapping => mapping.delivery_available)) {
         card.classList.add('lineage-delivery-source');
-        if (!row.origin) card.querySelector('.lineage-kind').textContent = '交付源';
+        card.querySelector('.lineage-node-heading').append(el('span', '交付源', 'lineage-delivery-badge'));
       }
       if (row.commit.commit === data.tip) card.querySelector('.lineage-node-heading').append(el('span', '快照末端', 'lineage-tip-badge'));
       for (const landing of row.landings) {
@@ -188,26 +262,24 @@ export function createWorkerLineage(task, isMounted) {
     }
     for (const row of model.rows) rows.push(renderRow(row));
     list.replaceChildren(prior, ...rows);
-    mappingLines.present(model, sources, targets);
+    mappingLines.present(model, sources, targets); markers = sources;
     const unknown = new Map(data.untraceable_deliveries.map(m => [m.delivery_id, m]));
     unavailable.replaceChildren(el('h4', `不可追溯交付 · ${unknown.size}`), ...[...unknown.values()].map(receipt)); unavailable.hidden = !unknown.size;
-    status(`第 ${index + 1} 页 · 本段从上到下旧到新 · ${data.commits.length} 个自身 commit${data.has_more ? '；尚有更早分段，创建起点到本段之间省略。' : '；已到创建起点。'}${index > 0 ? ' 本段之后还有较新版本。' : ''}`);
-    if (!data.commits.length) sourceEmpty();
     const missing = [...data.deliveries, ...data.untraceable_deliveries].filter(m => !m.delivery_available || data.untraceable_deliveries.includes(m));
-    if (missing.length) feedback.append(el('span', ` 不可追溯交付 ${missing.length} 条：${[...new Set(missing.map(m => text(m.delivery_unavailable_reason, '来源不在可追溯链中')))].join('；')}。`, 'versions-error'));
-    sync();
+    status(missing.length ? `不可追溯交付 ${missing.length} 条：${[...new Set(missing.map(m => text(m.delivery_unavailable_reason, '来源不在可追溯链中')))].join('；')}。` : '', missing.length > 0);
+    paintChild(); sync();
   }
-  function sourceEmpty() { status(`第 ${index + 1} 页 · 从上到下旧到新 · 尚无自身开发 commit，仍保留创建引出点与交付映射。`); }
   async function load(target = index, refresh = false) {
     if (!current() || target < 0) return;
     started = true; observer?.disconnect(); observer = null; cancel(); retryTarget = null;
-    if (refresh) { cache.clear(); cursors.length = 1; snapshot = identity = null; target = 0; }
+    if (refresh) { cache.clear(); cursors.length = 1; snapshot = identity = null; selectedChild = null; childPanel.remove(); childPath.present(null, markers, index, childPanel); target = 0; }
     const cached = cache.get(target);
     if (cached) { remember(target, cached); present(cached, target); return; }
     const reads = graphRead = new AbortController(), ticket = generation;
     const valid = () => current() && graphRead === reads && generation === ticket && !reads.signal.aborted;
     status('正在读取来源图…'); sync();
     try {
+      if (target > 0 && !cursors[target]) throw new Error('此分段缺少固定快照游标，请刷新版本图。');
       const query = new URLSearchParams({ limit: String(LIMIT) }); if (cursors[target]) query.set('cursor', cursors[target]);
       const data = checked(await api(`/api/worker/${task.id}/version-lineage?${query}`, { signal: reads.signal }), task);
       if (!valid()) return;
@@ -229,7 +301,7 @@ export function createWorkerLineage(task, isMounted) {
     const close = () => { cancelNode(); marker.focus?.({ preventScroll: true }); };
     body.insertBefore(panel, null); panel.hidden = false; marker.setAttribute('aria-expanded', 'true');
     panel.replaceChildren(el('p', '节点详情加载中…', 'hint')); panel.setAttribute('aria-busy', 'true');
-    panel.focus?.({ preventScroll: true }); panel.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); mappingLines.changed();
+    panel.focus?.({ preventScroll: true }); panel.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); mappingLines.changed(); childPath.changed();
     try {
       const query = new URLSearchParams({ snapshot: fixed, commit: commit.commit });
       const data = await api(`/api/worker/${task.id}/version-lineage-commit?${query}`, { signal: reads.signal });
@@ -252,7 +324,7 @@ export function createWorkerLineage(task, isMounted) {
       if (!valid()) return;
       const message = el('p', `节点读取失败：${error.message}`, 'versions-error'); message.setAttribute('role', 'alert');
       panel.replaceChildren(message, button('重试节点详情', () => loadCommit(commit, card)), button('关闭节点详情', close));
-    } finally { if (valid()) { panel.setAttribute('aria-busy', 'false'); mappingLines.changed(); } }
+    } finally { if (valid()) { panel.setAttribute('aria-busy', 'false'); mappingLines.changed(); childPath.changed(); } }
   }
   const start = button('加载来源图', () => load(0), 'ghost versions-load');
   const refresh = button('刷新版本图', () => load(0, true), 'ghost versions-refresh');
@@ -260,23 +332,19 @@ export function createWorkerLineage(task, isMounted) {
   const newer = button('较新版本', () => load(index - 1), 'ghost versions-newer');
   const older = button('较早版本', () => load(index + 1), 'ghost versions-more');
   const controls = el('div', undefined, 'versions-controls'); controls.append(refresh, retry);
-  const toolbar = el('div', undefined, 'lineage-toolbar'); toolbar.append(tracks, controls);
-  const technical = el('details', undefined, 'lineage-technical');
-  technical.append(el('summary', '图范围与快照说明'), tip,
-    el('p', '自身提交从上到下旧到新。父侧只显示引出点与交付锚点，点线省略外部历史，不证明落点之间的 Git 相邻关系。交付虚线依据已核验 Event，不是 Git merge 父边。', 'hint'));
-  legend.append(el('span', '旧 → 新（向下）', 'lineage-direction'));
+  title.append(controls);
   const paging = el('nav', undefined, 'versions-footer'); paging.setAttribute('aria-label', '来源图分段分页');
   for (const control of [newer, older]) {
     const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', '每段最多 30 个自身提交，固定首屏快照；没有对应页或读取中不可切换。'); host.append(control); paging.append(host);
   }
-  root.append(title, overview, toolbar, legend, start, feedback, canvas, unavailable, technical, panel, paging);
+  root.append(title, start, feedback, canvas, unavailable, panel, paging);
   module = enhanceVersionModule(root, feedback);
   sync();
   if (typeof IntersectionObserver === 'function') {
     observer = new IntersectionObserver(entries => { if (current() && !started && entries.some(e => e.isIntersecting)) void load(0); }, { threshold: 0 }); observer.observe(root);
   }
   const dispose = () => {
-    if (disposed) return; disposed = true; module?.dispose(); mappingLines.dispose(); cancel(); observer?.disconnect(); observer = null; cache.clear(); displayed = null;
+    if (disposed) return; disposed = true; module?.dispose(); mappingLines.dispose(); childPath.dispose(); cancel(); observer?.disconnect(); observer = null; cache.clear(); displayed = null;
     for (const control of root.querySelectorAll('button')) control.onclick = null;
   };
   return { root, owns, dispose };

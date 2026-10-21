@@ -13,9 +13,12 @@ export function lineageSnapshot(workspaces, token, id, kind = 'snapshot') {
     && Number.isSafeInteger(value.parent?.id) && value.parent.id > 0 && typeof value.parent.branch === 'string'
     && ['branch.ref', 'delivery.source'].includes(value.tip_evidence)
     && (value.tip_delivery_id === null || Number.isSafeInteger(value.tip_delivery_id) && value.tip_delivery_id > 0)
-    && Number.isSafeInteger(value.event_max) && value.event_max >= 0,
+    && Number.isSafeInteger(value.event_max) && value.event_max >= 0
+    && Number.isSafeInteger(value.child_max) && value.child_max >= 0
+    && Number.isSafeInteger(value.page_limit) && value.page_limit >= 1 && value.page_limit <= 100,
   'version lineage cursor or snapshot belongs to a different scope; refresh the lineage');
-  if (kind === 'cursor') check(Number.isSafeInteger(value.offset) && value.offset > 0, 'invalid version lineage cursor');
+  if (kind === 'cursor') check(Number.isSafeInteger(value.offset) && value.offset > 0
+    && value.offset % value.page_limit === 0, 'invalid version lineage cursor');
   return value;
 }
 export function lineageTokens(workspaces, value, offset, limit, has_more) {

@@ -16,6 +16,14 @@ test('code HTTP reader lists unchanged files and reads actual workspace content 
     expect(clean.availability).toBe('available'); expect(clean.summary.changed_total).toBe(0);
     expect((await read(task.id, 'code-tree')).entries.map(row => row.path)).toContain('file.txt');
     expect((await read(task.id, 'code-file?path=file.txt&view=content')).content.text).toBe('base\n');
+    // The same real user read boundary exposes a child's persisted creation
+    // endpoint even before it has commits or any successful delivery.
+    const child = await f.project.spawn(task.id, 'undelivered code child');
+    const lineage = await read(task.id, 'version-lineage?limit=1');
+    expect(lineage.origin.commit).toBe(task.base_commit);
+    expect(lineage.child_branches).toEqual([{ worker: { id: child.id, worker_number: child.worker_number },
+      origin: { commit: task.base_commit, page: 0, cursor: null, available: true, reason: null }, deliveries: [] }]);
+    expect((await read(task.id, `version-lineage-commit?snapshot=${encodeURIComponent(lineage.snapshot)}&commit=${task.base_commit}`)).commit.commit).toBe(task.base_commit);
     fs.writeFileSync(path.join(task.workspace, 'file.txt'), 'edited\n');
     const changed = await read(task.id, 'code-state');
     expect(changed.files[0]).toMatchObject({ path: 'file.txt', status: 'M', unstaged: true });

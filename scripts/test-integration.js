@@ -34,6 +34,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   ]),
   component: Object.freeze([
     'test/web/dom-navigation.test.js', // list -> detail -> back
+    'test/web/version-lineage.test.js', // compact lineage -> selected child endpoints -> same-snapshot page navigation
     'test/web/dom-inputs-api.test.js', // persisted draft editing and submission
     'test/web/dom-transcript-view.test.js', // single-button order, mixed/bulk fold and live tool results
     'test/web/dom-task-graph-integration.test.js', // compact node caret -> fold/reopen, both graph modes and delivery status
