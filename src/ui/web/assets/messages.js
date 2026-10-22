@@ -30,7 +30,11 @@ let kind = 'info';   // 'info' | 'error'
 let handle = null;   // 倒计时句柄；null 表示没在跑（隐藏或已暂停）
 let deadline = 0;    // 倒计时终点，暂停时据此算剩余时间
 let remaining = 0;   // 暂停时留下的剩余毫秒
-let paused = false;
+let hovered = false;
+let focused = false;
+let observer = null;
+let observedBox = null;
+const focusBound = new WeakSet();
 
 /** 把「显不显示、哪种类型、有没有关闭按钮」画到浮层上；不碰正文（正文由 paint 负责）。 */
 function render() {
@@ -43,9 +47,23 @@ function render() {
   box.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   box.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
   const close = node('toast-close');
-  if (close) { close.hidden = !(visible && kind === 'error'); close.onclick = clear; }
-  box.onmouseenter = pause;
-  box.onmouseleave = resume;
+  if (close) {
+    close.hidden = !(visible && kind === 'error'); close.onclick = clear;
+    if (close.hidden && globalThis.document?.activeElement === close) close.blur?.();
+  }
+  box.onmouseenter = () => { hovered = true; syncClock(); };
+  box.onmouseleave = () => { hovered = false; syncClock(); };
+  if (!focusBound.has(box)) {
+    box.addEventListener('focusin', syncFocus);
+    box.addEventListener('focusout', () => queueMicrotask(syncFocus));
+    focusBound.add(box);
+  }
+  // Removing/hiding a focused child need not dispatch focusout in every browser.
+  if (visible && observedBox !== box && globalThis.MutationObserver) {
+    observer?.disconnect(); observedBox = box;
+    observer = new MutationObserver(syncFocus);
+    observer.observe(box, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
+  }
 }
 
 /** 正文落点仍是 `#error`：调用点与 DOM 测试都按 textContent 读写它。 */
@@ -56,8 +74,7 @@ function stop() { if (handle !== null) { stopLater(handle); handle = null; } }
 /** 从「现在」起重新倒计时 ms。 */
 function arm(ms) {
   stop();
-  paused = false;
-  remaining = 0;
+  remaining = ms;
   deadline = now() + ms;
   handle = later(() => { handle = null; clear(); }, ms);
 }
@@ -69,29 +86,34 @@ export function show(value, nextKind = 'info') {
   const type = nextKind === 'error' ? 'error' : 'info';
   // 同一段文本（例如轮询反复报的同一条离线错误）不重置计时，避免一直闪。
   const same = next === text && type === kind;
+  if (!same) { stop(); remaining = durationFor(type); }
   text = next; kind = type;
   render();
   paint(text);
-  if (same) return;
-  arm(durationFor(type));
+  hovered = hovered || !!node('toast')?.matches?.(':hover');
+  syncFocus();
 }
 
 /** 立即隐藏并清空消息（动手前清场、恢复在线、手动关闭都走这里）。 */
 export function clear() {
   stop();
-  paused = false;
+  hovered = false; focused = false; remaining = 0;
+  observer?.disconnect(); observer = null; observedBox = null;
   text = ''; kind = 'info';
   render();
   paint('');
 }
 
-/** 鼠标悬停在浮层上时暂停倒计时。 */
-function pause() {
-  if (paused || handle === null) return;
-  remaining = Math.max(0, deadline - now());
-  stop();
-  paused = true;
+/** Pointer and keyboard independently hold the same countdown. */
+function syncClock() {
+  if (!text) return;
+  if (hovered || focused) {
+    if (handle !== null) { remaining = Math.max(0, deadline - now()); stop(); }
+  } else if (handle === null) arm(remaining);
 }
-
-/** 鼠标离开后从剩余时间继续。 */
-function resume() { if (paused) arm(remaining); }
+function syncFocus() {
+  const box = node('toast'), active = globalThis.document?.activeElement;
+  focused = !!(text && active && box?.contains?.(active)
+    && (typeof active.getClientRects !== 'function' || active.getClientRects().length));
+  syncClock();
+}

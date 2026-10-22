@@ -11,6 +11,8 @@
 .module-toggle{font-size:11px;white-space:normal}
 .module-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .module-body{min-width:0}
+/* Only opted-in short module/resource bodies get a temporary visual box. */
+.module-body[data-disclosure-motion],.side .side-body[data-disclosure-motion]{display:block!important;max-height:none!important;overflow:clip!important}
 .module-content{display:flow-root;min-width:0;overflow-wrap:anywhere}
 .module-content>.row{padding:9px 0;border-bottom:1px solid var(--line-soft)}
 .module-content>.row:last-child{border-bottom:0}

@@ -1,5 +1,6 @@
 import { SIDEBAR_SECTIONS } from './sidebar.js';
 import { paintDisclosure } from './view-controls.js';
+import { cancelDisclosureMotions, transitionDisclosure } from './disclosure-motion.js';
 import { ui } from './state.js';
 import { listSurface } from './list-surface.js';
 import { isValet } from './work-type.js';
@@ -48,6 +49,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
+  if (changed) cancelDisclosureMotions();
   if (changed) { ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null; ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.({ savedLeave: true }); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
@@ -114,11 +116,16 @@ export function openResource(id, { push = true } = {}) {
   return true;
 }
 
-export function paintCollapsed() {
+export function paintCollapsed(animate = false) {
   for (const section of SIDEBAR_SECTIONS) {
-    const collapsedNow = ui.collapsed.has(section.id);
-    ui.sideNodes.get(section.id)?.classList.toggle('collapsed', collapsedNow);
-    ui.sideHeads.get(section.id)?.setAttribute('aria-expanded', String(!collapsedNow));
+    const collapsedNow = ui.collapsed.has(section.id), root = ui.sideNodes.get(section.id), head = ui.sideHeads.get(section.id);
+    const body = root?.querySelector('.side-body'), changed = root?.classList.contains('collapsed') !== collapsedNow;
+    if (collapsedNow && body?.contains?.(globalThis.document?.activeElement)) head?.focus();
+    transitionDisclosure(body, () => {
+      root?.classList.toggle('collapsed', collapsedNow);
+      head?.setAttribute('aria-expanded', String(!collapsedNow));
+      head?.style.setProperty('--disclosure-duration', animate ? (collapsedNow ? '160ms' : '200ms') : '0s');
+    }, { animate: animate && changed, expanded: !collapsedNow });
   }
   node('side-nav')?.querySelector('.nav-fold')?.syncFold?.();
 }

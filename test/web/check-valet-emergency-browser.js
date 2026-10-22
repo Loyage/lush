@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { request } from 'node:http';
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const evidence = '/tmp/lush-w342-delivery/browser'; await mkdir(evidence, { recursive: true });
-const script = `<script type="module">
+const script = `<script>window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));</script><script type="module">
 import {renderTree} from '/render-tree.js';
 import {openResource} from '/sidebar-ui.js';
 import {registerNavigation} from '/navigate.js';
@@ -22,6 +22,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
   if (path === '/') return new Response('<html><body style="margin:0"><iframe id="viewport" src="/fixture" style="width:390px;height:844px;border:0"></iframe></body></html>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -52,16 +53,17 @@ try {
   assert(ready, 'driver startup timeout');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1100 }); await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
-  await resize(390); assert(await wait('window.ready'), 'fixture did not load');
+  await resize(390); assert(await wait('window.ready'), 'fixture did not load: ' + JSON.stringify(await execute('return window.browserErrors')));
   let writes = 0;
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await resize(width); await execute(`document.documentElement.dataset.theme='${theme}';window.mode='isolated';`);
-    assert(await execute(`const b=document.querySelector('.valet-emergency-control button');const r=b.getBoundingClientRect();return r.height>=44&&r.width>0&&r.right<=innerWidth&&!b.classList.contains('agent-call')&&b.dataset.help.includes('不停止开发 Worker');`), `permanent entry hidden/clipped ${theme}/${width}`);
+    assert(await execute(`const b=document.querySelector('.valet-emergency-control button');const r=b.getBoundingClientRect();return r.height>=(${width}<=760?44:32)&&r.width>0&&r.right<=innerWidth&&!b.classList.contains('agent-call')&&b.dataset.help.includes('不停止开发 Worker');`), `permanent entry hidden/clipped ${theme}/${width}`);
     await click('.valet-emergency-control button'); assert(await wait(`!document.querySelector('#modal').hidden`), 'dialog missing');
     assert(await execute(`return window.calls.length===${writes}&&!document.querySelector('.valet-emergency-details').open&&document.querySelector('.valet-emergency-form').textContent.includes('本次影响 105 个')&&document.querySelector('.valet-emergency-details').textContent.includes('前 100 个');`), 'default hierarchy or preview mutated');
-    const fits = await execute(`const card=document.querySelector('.valet-emergency-modal');return {overflow:card.scrollWidth-card.clientWidth,page:document.documentElement.scrollWidth-innerWidth,bad:[...card.querySelectorAll('button,summary')].filter(n=>n.getClientRects().length).filter(n=>{const r=n.getBoundingClientRect();return r.height<44||r.left<0||r.right>innerWidth+1}).map(n=>n.textContent)};`);
+    const fits = await execute(`const card=document.querySelector('.valet-emergency-modal');return {overflow:card.scrollWidth-card.clientWidth,page:document.documentElement.scrollWidth-innerWidth,bad:[...card.querySelectorAll('button,summary')].filter(n=>n.getClientRects().length).filter(n=>{const r=n.getBoundingClientRect();return r.height<(${width}<=760?44:32)||r.left<0||r.right>innerWidth+1}).map(n=>n.textContent)};`);
     assert(fits.overflow <= 1 && fits.page <= 1 && !fits.bad.length, `narrow overflow/targets ${theme}/${width}: ${JSON.stringify(fits)}`);
-    assert(await execute(`return document.activeElement===document.querySelector('.modal-confirm')&&!document.querySelector('.modal-confirm').classList.contains('agent-call');`), 'focus/Agent marking wrong');
+    assert(await execute(`return document.activeElement===document.querySelector('.modal-cancel')&&!document.querySelector('.modal-confirm').classList.contains('agent-call');`), 'focus/Agent marking wrong');
+    await key('\uE004'); assert(await execute(`return document.activeElement===document.querySelector('.modal-confirm');`), 'Tab did not move from cancel to confirm');
     await key('\uE004'); assert(await execute(`return document.activeElement===document.querySelector('.valet-emergency-details summary');`), 'Tab not trapped on details');
     await Bun.write(join(evidence, `${theme}-${width}-confirm.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
     await click('.valet-emergency-details summary'); assert(await execute(`return document.querySelector('.valet-emergency-details').open&&document.querySelector('.valet-emergency-modal').scrollWidth<=document.querySelector('.valet-emergency-modal').clientWidth+1;`), 'details overflow');
@@ -70,7 +72,7 @@ try {
     await click('.modal-confirm'); writes++;
     assert(await wait(`document.querySelector('#modal').hidden&&window.calls.length===${writes}`), 'confirmation did not finish');
     assert(await execute(`const c=window.calls.at(-1);return c.method==='management.emergency_stop'&&c.params.revision==='exact-r1'&&c.params.confirm===true&&document.querySelector('.valet-emergency-status').textContent.includes('历史占位已解除');`), 'exact request/isolation missing');
-    console.log(`PASS ${theme} ${width}px: permanent entry, exact preview/confirmation, collapsed full-scope details, 44px controls, Tab trap, cancellation, isolated result, no horizontal overflow`);
+    console.log(`PASS ${theme} ${width}px: permanent entry, exact preview/confirmation, collapsed full-scope details, 32px desktop/44px narrow controls, Tab trap, cancellation, isolated result, no horizontal overflow`);
   }
   await resize(320); await execute(`window.mode='stopping';`); await click('.valet-emergency-control button'); assert(await wait(`!document.querySelector('#modal').hidden`), 'stopping preview missing'); await key('\uE00C');
   assert(await execute(`return document.querySelector('#modal').hidden&&window.calls.length===${writes}`), 'Escape mutated');

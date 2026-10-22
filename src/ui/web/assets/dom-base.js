@@ -2,6 +2,7 @@
 import { ROLE, statusOf } from './format.js';
 import { show } from './messages.js';
 import { bindWorkerPreview } from './entity-preview.js';
+import { buttonFeedback } from './button-feedback.js';
 
 let nextSearchId = 0;
 
@@ -68,7 +69,26 @@ export function button(text, fn, className, options = {}) {
   if (options.help) node.setAttribute('data-help', options.help);
   if (options.agent) node.classList.add('agent-call');
   if (options.worker) bindWorkerPreview(node, options.worker);
-  node.onclick = async () => { node.disabled = true; try { await fn(); } catch (error) { show(error.message, 'error'); } finally { node.disabled = false; } };
+  const feedback = options.busyLabel ? buttonFeedback(node, options.busyLabel) : null;
+  let running = false;
+  node.onclick = async () => {
+    if (running || node.disabled || node.getAttribute('aria-disabled') === 'true') return;
+    running = true;
+    const priorDisabled = node.getAttribute('aria-disabled');
+    // Opt-in feedback locks activation without overwriting a caller's native disabled gate.
+    if (feedback) { node.setAttribute('aria-disabled', 'true'); feedback(true); }
+    else node.disabled = true;
+    try { await fn(); } catch (error) { show(error.message, 'error'); }
+    finally {
+      running = false;
+      if (feedback) {
+        feedback(false);
+        if (node.getAttribute('aria-disabled') === 'true') {
+          if (priorDisabled === null) node.removeAttribute('aria-disabled'); else node.setAttribute('aria-disabled', priorDisabled);
+        }
+      } else node.disabled = false;
+    }
+  };
   return node;
 }
 export function syncChildren(container, nodes) {

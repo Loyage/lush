@@ -5,15 +5,20 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { startWeb } from '../../src/ui/web/server.js';
+// The module-only scope reuses this fixture for disclosure work without unrelated conversation/copy checks.
+const modulesOnly = process.argv.includes('--modules-only');
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
 const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
 import { renderConversation } from '/render-conversation.js';
+import { OPERATION_CATEGORIES } from '/render-agent-operation.js';
+window.operationCategories=OPERATION_CATEGORIES;
 import { revealDetailPreview } from '/detail-preview.js';
 import { ui } from '/state.js';
 import { noticePanel } from '/render-notices.js';
-import { activateDetailView } from '/sidebar-ui.js';
+import { activateDetailView, paintCollapsed } from '/sidebar-ui.js';
+window.paintCollapsed=paintCollapsed;window.activateDetailView=activateDetailView;window.ui=ui;
 import { block, el } from '/dom.js';
 import { enhanceModule, observeModules, disposeModules, revealModule } from '/shared-module.js';
 import { enhanceVersionModule } from '/version-module.js';
@@ -162,13 +167,78 @@ try {
   assert(await wait(`document.querySelector('#fixture') && location.pathname==='/host'`), 'preview login did not restore fixture');
   await viewport(1440, 900);
   assert(await wait('window.ready'), 'fixture failed to load');
+  assert(await execute(`const card=document.createElement('div');card.className='task-graph-card task-graph-running';
+    card.innerHTML='<div class="graph-task-progress is-running"><span class="graph-task-progress-track"></span></div><span class="task-graph-usage is-live">运行中</span>';
+    document.body.append(card);const progress=card.firstChild,usage=card.lastChild;
+    const result=getComputedStyle(card).animationName==='none'&&getComputedStyle(progress).animationName==='none'&&
+      getComputedStyle(usage).animationName==='none'&&getComputedStyle(progress.firstChild,'::after').animationName==='graph-progress-sweep';
+    card.remove();return result;`),'one progress cue must replace repeated card/progress/usage pulses');
+  // One representative short fold exercises the real WAAPI path; long reading modules
+  // below deliberately keep immediate geometry rather than stretching several screens.
+  for (const [width,height] of [[1440,900],[320,560]]) {
+    await viewport(width,height);
+    await execute(`window.makeSharedModules();const f=window.sharedForm;
+      f.content.lastElementChild.style.height='100px';f.section.scrollIntoView({block:'center'});
+      window.sharedEditor.focus();window.sharedEditor.setSelectionRange(1,4);
+      window.motionNatural=f.body.getBoundingClientRect().height;f.toggle.click();`);
+    assert(await execute(`const f=window.sharedForm,a=f.body.getAnimations()[0];
+      return f.body.hidden&&f.toggle.getAttribute('aria-expanded')==='false'&&document.activeElement===f.toggle&&
+        a?.effect.getTiming().duration===160&&f.body.inert&&f.body.getAttribute('aria-hidden')==='true';`),'short collapse must animate while focus/aria already reflect the target');
+    assert(await rpc(`/session/${session}/execute/async`,{script:`const done=arguments[0],f=window.sharedForm;
+      const a=f.body.getAnimations()[0];a.currentTime=80;
+      requestAnimationFrame(()=>{const before=f.body.getBoundingClientRect().height;f.toggle.click();
+        const next=f.body.getAnimations()[0];done(before>0&&before<window.motionNatural&&
+          Math.abs(parseFloat(next.effect.getKeyframes()[0].height)-before)<1&&
+          next.effect.getTiming().duration===200&&!f.body.hidden&&!f.body.inert);});`,args:[]}), 'reverse must start from the visible height without queuing');
+    assert(await wait(`!window.sharedForm.body.hasAttribute('data-disclosure-motion')`),'opening never cleaned up');
+    assert(await execute(`const f=window.sharedForm;return Math.abs(f.body.getBoundingClientRect().height-window.motionNatural)<1&&
+      !f.body.hasAttribute('aria-hidden')&&window.sharedEditor.value==='未保存草稿'&&window.sharedEditor.selectionStart===1&&window.sharedEditor.selectionEnd===4;`),'opening lost natural layout, draft or selection');
+    await execute(`window.sharedForm.toggle.click();`);
+    assert(await wait(`!window.sharedForm.body.hasAttribute('data-disclosure-motion')`),'collapse never cleaned up');
+    assert(await execute(`return window.sharedForm.body.hidden&&window.sharedForm.body.getBoundingClientRect().height===0;`),'collapse must end at genuinely hidden content');
+    await execute(`window.sharedForm.toggle.click();window.sharedReveal(window.sharedEditor);window.sharedEditor.focus();`);
+    assert(await execute(`return !window.sharedForm.body.getAnimations().length&&document.activeElement===window.sharedEditor;`),'reference/focus reveal must settle geometry immediately');
+    await execute(`window.sharedForm.toggle.click();document.documentElement.dataset.reducedMotion='true';`);
+    assert(await wait(`!window.sharedForm.body.getAnimations().length`),'application reduced motion must cancel in-flight animation');
+    assert(await execute(`window.sharedForm.toggle.click();return !window.sharedForm.body.getAnimations().length&&!window.sharedForm.body.hidden;`),'application reduced motion must skip new animations');
+    await execute(`delete document.documentElement.dataset.reducedMotion;window.sharedForm.toggle.click();window.sharedDispose();`);
+    assert(await execute(`return !window.sharedForm.body.getAnimations().length&&!window.sharedForm.body.hasAttribute('data-disclosure-motion');`),'page disposal must release visual state');
+    await execute(`window.sharedForm.toggle.click();window.sharedForm.section.remove();`);
+    assert(await wait(`!window.sharedForm.body.getAnimations().length&&!window.sharedForm.body.hasAttribute('data-disclosure-motion')`),'detaching a module must cancel motion');
+    // Resource groups use the same helper, but preference repaint/initialization is instant.
+    await execute(`const root=document.querySelector('#side-tasks'),body=root.querySelector('.side-body'),head=root.querySelector('.side-head');
+      document.querySelector('#resource-panels').hidden=false;document.querySelector('#detail').hidden=true;root.hidden=false;
+      body.replaceChildren(Object.assign(document.createElement('textarea'),{value:'分组草稿'}));body.firstChild.style.height='100px';
+      window.ui.sideNodes.set('tasks',root);window.ui.sideHeads.set('tasks',head);window.ui.collapsed=new Set();window.paintCollapsed();
+      window.ui.collapsed.add('tasks');window.paintCollapsed(true);window.sideMotion={root,body,head};`);
+    assert(await execute(`return window.sideMotion.body.getAnimations().length===1&&window.sideMotion.head.getAttribute('aria-expanded')==='false';`),'resource group did not start closing');
+    await execute(`window.ui.collapsed.clear();window.paintCollapsed(true);`);
+    assert(await wait(`!window.sideMotion.body.getAnimations().length`),'resource group reversal never settled');
+    assert(await execute(`const {body,head}=window.sideMotion;return body.getBoundingClientRect().height>0&&head.getAttribute('aria-expanded')==='true'&&body.firstChild.value==='分组草稿';`),'resource group lost final state/draft');
+    await execute(`window.ui.collapsed.add('tasks');window.paintCollapsed(true);window.paintCollapsed();`);
+    assert(await execute(`return !window.sideMotion.body.getAnimations().length&&window.sideMotion.body.getBoundingClientRect().height===0;`),'preference repaint must settle without replaying');
+    await execute(`window.ui.collapsed.clear();window.paintCollapsed(true);window.activateDetailView({view:'task',key:'motion-exit-${width}',push:false});
+      document.querySelector('#resource-panels').hidden=true;document.querySelector('#detail').hidden=false;window.ui.sideNodes.clear();window.ui.sideHeads.clear();`);
+    assert(await execute(`return !window.sideMotion.body.getAnimations().length;`),'navigation must cancel resource motion');
+    console.log('PASS reversible short folds/resource groups, focus, draft/selection, reduced motion and disposal',width,height);
+  }
+  await rpc(`/session/${session}/frame`, { id: null });
+  await rpc(`/session/${session}/refresh`, {});
+  await viewport(1440,900);
+  assert(await wait('window.ready'), 'fixture failed to reset after motion checks');
+  if (!modulesOnly) {
   for (const [width, height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
     await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
     assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),timeline=document.querySelector('.worker-timeline-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
-      if(filters.map(n=>n.dataset.conversationFilter).join('/')!=='input/output/decision/operation/unknown'||filters.some(n=>n.getAttribute('aria-pressed')!==String(n.dataset.conversationFilter!=='unknown'))||root.querySelector('[data-conversation-filter="lifecycle"]')||root.textContent.includes('来自子 Worker 的通信'))throw new Error('input/output boundaries');
+      const expected=[['input',true],['output',true],['decision',true],...window.operationCategories.map(([key,,enabled])=>[key,enabled]),['unknown',false]];
+      if(filters.length!==expected.length||filters.some((n,i)=>n.dataset.conversationFilter!==expected[i][0]||n.getAttribute('aria-pressed')!==String(expected[i][1]))||root.querySelector('[data-conversation-filter="lifecycle"]')||root.textContent.includes('来自子 Worker 的通信'))throw new Error('input/output boundaries');
+      if(root.querySelector('.conversation-operation')||window.operationCategories.some(([key])=>root.querySelector('[data-conversation-filter="'+key+'"]').getAttribute('aria-pressed')!=='false'))throw new Error('Agent operation categories must be hidden by default');
+      root.querySelector('[data-conversation-filter="progress"]').click();
       if(!root.querySelector('[data-conversation-key="operation:84"]')||root.querySelector('.conversation-operation.conversation-long')||document.querySelector('.progress-history-panel'))throw new Error('Agent operations must share input/output without restoring the retired plan history');
+      await Promise.resolve();root.querySelector('[data-conversation-filter="progress"]').click();
+      if(root.querySelector('[data-conversation-key="operation:84"]')||root.querySelector('[data-conversation-filter="progress"]').getAttribute('aria-pressed')!=='false')throw new Error('deselecting progress must hide its records again');
       if(!filters[0].textContent.includes('输入指令')||root.querySelector('[data-conversation-key="input:message:1"] .conversation-sender')?.textContent!=='管家 V42')throw new Error('input submitter identity');
       const advanced=timeline.querySelector('.lifecycle-advanced');if(advanced.open)throw new Error('advanced open by default');
       if(!timeline.querySelector('.lifecycle-current')||!timeline.querySelector('[data-lifecycle-key="point:83"]')?.textContent.includes('合并失败诊断'))throw new Error('lifecycle default facts');
@@ -207,7 +277,7 @@ try {
       assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
     assert(await execute(`const root=document.querySelector('.conversation-panel');
-      return root.querySelector('.conversation-filters').querySelectorAll('button').length===5&&
+      return root.querySelector('.conversation-filters').querySelectorAll('button').length===4+window.operationCategories.length&&
         !['只看 Agent 回复','只看我的输入','恢复默认内容'].some(text=>[...root.querySelectorAll('button')].some(n=>n.textContent===text));`), 'duplicate filter shortcuts retained');
     const previewReading = await execute(`const root=document.querySelector('.conversation-panel'),body=root.querySelector('.detail-preview-body').getBoundingClientRect(),
       prose=root.querySelector('.conversation-prose').getBoundingClientRect();
@@ -407,6 +477,7 @@ try {
       })&&document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'copy controls overflow or raw-view entry retained');
     console.log('PASS exact raw/code clipboard payloads and responsive copy controls',width,height,theme);
   }
+  }
   for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
     await viewport(width,height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.makeSharedModules();`);
@@ -520,6 +591,23 @@ try {
       if(kind==='conversation')assert(Math.abs(geometry.meta-geometry.headBottom)<2,'project message header separated from module');
     }
   console.log('PASS project scrollport sticky headings: ordinary/Worker/version/conversation/Notice, desktop/mobile, themes and project colors');
+  // Exercise the real media query, not a JS matchMedia stub. A separate browser preference
+  // represents the OS setting and proves that application opt-out cannot override it.
+  await rpc(`/session/${session}`, undefined, 'DELETE');session=null;
+  session=(await rpc('/session',{capabilities:{alwaysMatch:{browserName:'firefox',
+    'moz:firefoxOptions':{args:['-headless'],prefs:{'ui.prefersReducedMotion':1}}}}})).sessionId;
+  await rpc(`/session/${session}/url`,{url:origin+'/host'});
+  assert(await wait(`document.querySelector('form[action="/login"]')`),'reduced-motion session login missing');
+  await execute(`document.querySelector('[name="username"]').value=${JSON.stringify(username)};
+    document.querySelector('[name="password"]').value=${JSON.stringify(password)};`);
+  await click('form[action="/login"] button[type="submit"]');
+  assert(await wait(`document.querySelector('#fixture')`),'reduced-motion fixture missing');
+  await viewport(1440,900);assert(await wait('window.ready'),'reduced-motion fixture not ready');
+  assert(await execute(`window.makeSharedModules();document.documentElement.dataset.reducedMotion='false';
+    const f=window.sharedForm;f.content.lastElementChild.style.height='100px';f.toggle.click();
+    return matchMedia('(prefers-reduced-motion:reduce)').matches&&f.body.hidden&&!f.body.getAnimations().length&&
+      getComputedStyle(f.toggle.viewIcon,'::before').transitionDuration==='0s';`),'system reduced motion must disable height and arrow transitions');
+  console.log('PASS real system reduced-motion preference');
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});

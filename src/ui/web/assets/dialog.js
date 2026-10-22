@@ -1,5 +1,6 @@
 /** Application dialogs, independent of #detail repaint and native confirm/prompt blocking. */
 import { $, button, el } from './dom.js';
+import { buttonFeedback } from './button-feedback.js';
 let active = null;
 const updates = new WeakMap();
 /** Re-evaluate caller-owned async gates only while this exact dialog content is mounted. */
@@ -8,7 +9,7 @@ export function syncDialog(content) { updates.get(content)?.(); }
 export function closeDialog() { active?.(null); }
 
 function open({ title, message = null, detail = null, confirmLabel, cancelLabel, danger = false, field = null,
-  content = null, cardClass = '', agent = false, confirmHelp = null, onConfirm = null, canConfirm = null, initialFocus = null }) {
+  content = null, cardClass = '', agent = false, confirmHelp = null, onConfirm = null, canConfirm = null, initialFocus = null, busyLabel = '处理中…' }) {
   active?.(null);
   const previous = globalThis.document?.activeElement ?? null, root = $('modal');
   let settle, closed = false, busy = false;
@@ -46,6 +47,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   const actions = el('div', undefined, 'modal-actions');
   const cancel = button(cancelLabel, cancelRequest, 'ghost'); cancel.classList.add('modal-cancel');
   const confirm = button(confirmLabel, submit, danger ? 'danger' : undefined, { agent, help: confirmHelp }); confirm.classList.add('modal-confirm');
+  const feedback = onConfirm ? buttonFeedback(confirm, busyLabel) : null;
   // The dialog owns disabling; button()'s generic finally-unlock would erase a caller retry gate.
   cancel.onclick = cancelRequest; confirm.onclick = async () => { await submit(); };
   const cancelHost = el('span', undefined, 'help-host'), confirmHost = el('span', undefined, 'help-host');
@@ -64,7 +66,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   async function submit() {
     if (closed || active !== finish || busy || !allowed()) return;
     if (!onConfirm) { finish(field ? String(input.value) : true); return; }
-    busy = true; sync(); error.hidden = true;
+    busy = true; feedback?.(true); sync(); error.hidden = true;
     try {
       const accepted = await onConfirm();
       if (!closed && active === finish && accepted === true) finish(true);
@@ -72,7 +74,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
       if (!closed && active === finish) {
         error.textContent = '保存未完成，请检查设置后重试。'; error.hidden = false;
       }
-    } finally { busy = false; if (!closed && active === finish) sync(); }
+    } finally { busy = false; feedback?.(false); if (!closed && active === finish) sync(); }
   }
   root.onkeydown = event => {
     if (event.key === 'Escape') { event.preventDefault?.(); cancelRequest(); return; }
@@ -87,7 +89,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   };
   root.onclick = event => { if (event.target === root) cancelRequest(); };
   if (content) updates.set(content, sync);
-  root.replaceChildren(card); sync(); (initialFocus ?? input ?? (confirm.disabled ? card : confirm))?.focus?.();
+  root.replaceChildren(card); sync(); (initialFocus ?? input ?? (danger ? cancel : confirm.disabled ? card : confirm))?.focus?.();
   return done;
 }
 
@@ -103,7 +105,7 @@ export function promptDialog({ title, message = null, value = '', label = '内�
  * While submitting, duplicate clicks/Esc/backdrop cannot dismiss the request. canConfirm preserves
  * caller-owned failure gates after the request. Programmatic replacement/navigation remains safe. */
 export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', danger = false, cardClass = '', agent = false, confirmHelp = null,
-  onConfirm = null, canConfirm = null, initialFocus = null }) {
-  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null, agent, confirmHelp, onConfirm, canConfirm, initialFocus })
+  onConfirm = null, canConfirm = null, initialFocus = null, busyLabel = '处理中…' }) {
+  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null, agent, confirmHelp, onConfirm, canConfirm, initialFocus, busyLabel })
     .then(value => value === true);
 }

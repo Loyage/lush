@@ -42,14 +42,14 @@ export function initSidebar() {
   // 兼容已有的折叠偏好；控制项保持低调，主要导航仍然只负责打开右侧页面。
   const folds = el('span', undefined, 'nav-fold');
   const foldControl = batchDisclosure({ getItems: () => SIDEBAR_SECTIONS, isExpanded: section => !ui.collapsed.has(section.id),
-    setExpanded: open => { ui.collapsed = new Set(open ? [] : SIDEBAR_SECTIONS.map(section => section.id)); paintCollapsed(); saveCollapsedPref(); },
+    setExpanded: open => { ui.collapsed = new Set(open ? [] : SIDEBAR_SECTIONS.map(section => section.id)); paintCollapsed(true); saveCollapsedPref(); },
     scope: '作用于侧栏资源列表区块；保存当前项目折叠偏好，不切换页面或读取历史。' });
   folds.syncFold = foldControl.sync; folds.append(foldControl.root);
   nav.append(folds);
   for (const section of SIDEBAR_SECTIONS) {
     ui.sideHeads.get(section.id)?.addEventListener('click', () => {
       ui.collapsed = toggleCollapsed(ui.collapsed, section.id);
-      paintCollapsed(); saveCollapsedPref();
+      paintCollapsed(true); saveCollapsedPref();
     });
   }
   // 行动任务：状态 / 角色 / 合并 / 只看待我处理 / 关键字

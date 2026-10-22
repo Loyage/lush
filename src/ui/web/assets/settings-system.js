@@ -58,7 +58,7 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
       show(`${scopeLabel()}${note}已保存；所有项目后续准入读取新配置，不打断当前调用。`);
       if (draft === draftFingerprint(box)) repaint(saved);
     } catch (error) { if (ownsPage()) fail(error.message); }
-  }, 'primary settings-runtime-save');
+  }, 'primary settings-runtime-save', { busyLabel: '保存中…' });
   save.dataset.runtimeAction = 'save';
   const reset = button('恢复环境默认', async () => {
     if (!ownsPage()) return;
@@ -70,7 +70,7 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
       if (!ownsPage()) return;
       show(`${note}已恢复环境默认。`); if (draft === draftFingerprint(box)) repaint(saved);
     } catch (error) { if (ownsPage()) fail(error.message); }
-  }, 'ghost settings-runtime-reset', { help: `只清除设备设置中${note}的这些键，回到环境／内置默认；不删除历史或中断调用` });
+  }, 'ghost settings-runtime-reset', { busyLabel: '恢复中…', help: `只清除设备设置中${note}的这些键，回到环境／内置默认；不删除历史或中断调用` });
   reset.dataset.runtimeAction = 'reset';
   actions.append(save, reset);
   box.append(grid, actions, errorBox);
@@ -111,7 +111,7 @@ export function createSystemSettings({ isActive }) {
       if (state.loaded) return Promise.resolve(); if (state.pending) return state.pending;
       state.node.replaceChildren(el('p', '正在读取设备运行设置…', 'hint'));
       const pending = client.read('/api/settings/runtime').then(value => { if (owns()) { paint(value); return state.migration.ready; } })
-        .catch(error => { if (owns()) state.node.replaceChildren(el('p', `读取设置失败：${error.message}`, 'settings-error'), button('重新读取设置', load, 'ghost')); })
+        .catch(error => { if (owns()) state.node.replaceChildren(el('p', `读取设置失败：${error.message}`, 'settings-error'), button('重新读取设置', load, 'ghost', { busyLabel: '读取中…' })); })
         .finally(() => { state.pending = null; });
       state.pending = pending; return pending;
     }

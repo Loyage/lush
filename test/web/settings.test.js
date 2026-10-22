@@ -1,6 +1,7 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
+import { until } from '../helpers.js';
 
 const world = makeWorld(), dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
@@ -22,6 +23,26 @@ test('root settings route changes theme and reading order through authoritative 
   await panel.querySelector('[data-settings-tab="system"]').onclick();
   expect(panel.querySelector('input[data-runtime-input="result_notice"]')).toBeNull();
   expect(panel.querySelectorAll('a').some(node => node.href === '/#skills')).toBe(true);
+  await until(() => panel.querySelector('[data-runtime-input="call_timeout"]'));
+  const timeout = panel.querySelector('[data-runtime-input="call_timeout"]'); timeout.value = '180';
+  const save = panel.querySelector('.settings-runtime-save'), fetch = globalThis.fetch;
+  let rejectSave, writes = 0;
+  globalThis.fetch = (url, options) => {
+    if (options?.body && JSON.parse(options.body).method === 'system.configure') {
+      writes++; return new Promise((_, reject) => { rejectSave = reject; });
+    }
+    return fetch(url, options);
+  };
+  try {
+    const saving = save.onclick(); await until(() => rejectSave);
+    expect(save.textContent).toBe('保存中…'); expect(save.getAttribute('aria-busy')).toBe('true');
+    expect(save.getAttribute('aria-disabled')).toBe('true'); await save.onclick(); expect(writes).toBe(1);
+    rejectSave(new Error('controlled save failure')); await saving;
+    expect(save.textContent).toBe('保存'); expect(save.getAttribute('aria-busy')).toBeNull();
+    expect(save.getAttribute('aria-disabled')).toBeNull(); expect(timeout.value).toBe('180');
+    expect(panel.querySelector('[data-runtime-error=""]').textContent).toContain('controlled save failure');
+  } finally { globalThis.fetch = fetch; }
+  await save.onclick(); expect(world.state.runtimeSettings.call_timeout.value).toBe(180);
   dom.location.hash = '#skills'; await dom.fire('hashchange');
   expect(panel.dataset.view).toBe('skills');
   expect(dom.node('skills-open').getAttribute('aria-current')).toBe('page');

@@ -1,5 +1,6 @@
-import { button, el, headingActions } from './dom-base.js';
+import { el, headingActions } from './dom-base.js';
 import { paintDisclosure } from './view-controls.js';
+import { cancelDisclosureMotion, transitionDisclosure } from './disclosure-motion.js';
 import { captureModuleReading, restoreModuleReading } from './module-reading.js';
 
 // Allocate registries only on first use; importing the common UI base has no eager state work.
@@ -30,7 +31,9 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary,
     for (const child of [...section.childNodes]) if (child !== head) content.insertBefore(child, null);
     body.append(content);
     const status = el('p', undefined, 'hint module-summary'); status.setAttribute('role', 'status');
-    const top = button('', () => view.setExpanded(!view.expanded), 'ghost module-toggle');
+    // A local synchronous view action must stay focusable during collapse/reversal.
+    const top = el('button', '', 'ghost module-toggle'); top.type = 'button';
+    top.onclick = () => view.setExpanded(!view.expanded);
     top.setAttribute('aria-controls', body.id);
     top.setAttribute('data-help', '只改变本模块的展示长度，不删除内容，也不调用 Agent；当前页面刷新时保留选择。');
     headingActions(head, top); section.append(status, body);
@@ -44,20 +47,22 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary,
     }
     const changes = new Set(), disposers = new Set();
     view = { section, head, body, content, summary: status, toggle: top, gauge, footer, mode, expanded: false,
-      setExpanded(value, user = true) {
+      setExpanded(value, user = true, animate = user) {
+        const changed = this.expanded !== Boolean(value);
         this.expanded = Boolean(value);
-        section.classList.toggle('module-expanded', this.expanded);
-        if (section.classList.contains('detail-preview')) section.classList.toggle('detail-preview-expanded', this.expanded);
-        if (mode === 'fold') body.hidden = !this.expanded;
-        paintDisclosure(top, this.expanded, { expand: mode === 'preview' ? '展开完整内容' : '展开', compact: true });
-        top.setAttribute('aria-label', `${top.textContent}：${title}`);
-        if (note) note.hidden = this.expanded;
-        if (user) this.states.set(this.key, this.expanded);
-        this.measure();
-        if (user && !this.expanded) {
-          if (inside(body, globalThis.document?.activeElement)) top.focus?.();
-          top.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
-        }
+        if (user && !this.expanded && inside(body, globalThis.document?.activeElement)) top.focus?.();
+        transitionDisclosure(body, () => {
+          section.classList.toggle('module-expanded', this.expanded);
+          if (section.classList.contains('detail-preview')) section.classList.toggle('detail-preview-expanded', this.expanded);
+          if (mode === 'fold') body.hidden = !this.expanded;
+          paintDisclosure(top, this.expanded, { expand: mode === 'preview' ? '展开完整内容' : '展开', compact: true });
+          top.style.setProperty('--disclosure-duration', animate ? (this.expanded ? '200ms' : '160ms') : '0s');
+          top.setAttribute('aria-label', `${top.textContent}：${title}`);
+          if (note) note.hidden = this.expanded;
+          if (user) this.states.set(this.key, this.expanded);
+          this.measure();
+        }, { animate: animate && changed, expanded: this.expanded });
+        if (user && !this.expanded) top.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
         if (user) for (const callback of changes) callback();
       },
       measure() {
@@ -74,12 +79,14 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary,
       },
       onChange(callback) { changes.add(callback); return () => changes.delete(callback); },
       onDispose(callback) { disposers.add(callback); return () => disposers.delete(callback); },
-      dispose() { this.active = false; for (const callback of [...disposers]) callback(); changes.clear(); },
+      dispose() { this.active = false; cancelDisclosureMotion(body); for (const callback of [...disposers]) callback(); changes.clear(); },
     };
     // Never leave an invisible keyboard focus target in a clipped reading body.
     body.addEventListener('focusin', event => {
-      if (!view.active || view.expanded) return;
-      view.setExpanded(true);
+      if (!view.active) return;
+      // Focus/reference reveal must settle even an in-flight opening before scrolling.
+      if (view.expanded) { cancelDisclosureMotion(body); return; }
+      view.setExpanded(true, true, false);
       // Firefox may scroll focus against the old clipped box before expansion.
       // Reveal the actual destination too, not just its previously hidden ancestors.
       if (section.classList.contains('module-long')) event?.target?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
@@ -101,7 +108,7 @@ export function revealModule(node) {
     if (at.tagName === 'DETAILS') at.open = true;
     at.revealReadingContent?.();
     const view = modules?.get(at);
-    if (view) { view.setExpanded(true); revealed = true; }
+    if (view) { view.setExpanded(true, true, false); revealed = true; }
   }
   return revealed;
 }
@@ -134,6 +141,7 @@ export function observeModules(panel, views, { capture = captureModuleReading, r
     panel.removeEventListener?.('scroll', rememberPosition);
     panel.removeEventListener?.('click', afterInteraction);
     ownerWindow?.removeEventListener?.('scroll', rememberPosition);
+    for (const view of views) cancelDisclosureMotion(view.body);
     for (const unsubscribe of [...changed, ...releases]) unsubscribe();
   };
   for (const view of views) releases.push(view.onDispose(dispose));

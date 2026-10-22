@@ -63,6 +63,8 @@ code,pre,.mono,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monosp
 button{background:var(--accent);color:var(--accent-ink);border:1px solid transparent;border-radius:9px;min-height:var(--control-height);padding:var(--control-padding-y) var(--control-padding-x);cursor:pointer;font:inherit;font-size:12px;font-weight:600;line-height:1.5}
 button:hover{filter:brightness(1.05);box-shadow:0 3px 9px #132d2110}button:active:not(:disabled){transform:translateY(1px)}
 button:disabled{opacity:.46;cursor:not-allowed;box-shadow:none}
+/* Opt-in async actions remain focusable while their handler holds the activation lock. */
+button[aria-busy="true"][aria-disabled="true"]{opacity:.65;cursor:progress;filter:none;box-shadow:none;transform:none}
 button.ghost{background:transparent;color:var(--muted);border-color:var(--line)}button.ghost:hover{background:var(--panel-2);color:var(--text);border-color:var(--dim)}
 button.danger{background:var(--red-soft);color:var(--failed);border-color:color-mix(in srgb,var(--failed) 25%,transparent)}button.danger:hover{border-color:var(--failed)}
 /* Inline/row/tree affordances keep their own geometry, not the standalone button baseline. */
@@ -324,10 +326,11 @@ button.step-head{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-siz
 .graph-task-progress-caption{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:10px;color:var(--muted)}.graph-task-progress-duration{flex:none;font-size:10px}.graph-task-progress-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.graph-task-progress-count{margin-left:auto;flex:none;color:var(--dim);font-variant-numeric:tabular-nums}
 .graph-task-progress-track{position:relative;height:10px;overflow:hidden;border-radius:999px;background:var(--line-soft)}.graph-task-progress-meter{position:absolute;inset:0;width:100%;height:10px;border:0;border-radius:999px;overflow:hidden;background:transparent;accent-color:var(--running)}.graph-task-progress-meter::-webkit-progress-bar{background:transparent}.graph-task-progress-meter::-webkit-progress-value{border-radius:999px;background:var(--running)}.graph-task-progress-meter::-moz-progress-bar{border-radius:999px;background:var(--running)}
 .graph-task-progress.is-indeterminate .graph-task-progress-meter{opacity:.25}
-.graph-task-progress.is-running{border-color:color-mix(in srgb,var(--running) 35%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--running) 10%,transparent);animation:graph-progress-pulse 1.7s ease-in-out infinite}.graph-task-progress.is-running .graph-task-progress-label{color:var(--running);font-weight:650}
+.graph-task-progress.is-running{border-color:color-mix(in srgb,var(--running) 35%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--running) 10%,transparent)}.graph-task-progress.is-running .graph-task-progress-label{color:var(--running);font-weight:650}
 .graph-task-progress.is-running .graph-task-progress-track::after{content:'';position:absolute;z-index:2;top:-4px;bottom:-4px;left:-32%;width:28%;pointer-events:none;background:linear-gradient(90deg,transparent,color-mix(in srgb,#fff 75%,transparent),transparent);filter:blur(1px);animation:graph-progress-sweep 1.25s linear infinite}
-.graph-task-progress.is-running .graph-task-progress-meter::-webkit-progress-value{background:repeating-linear-gradient(115deg,var(--running) 0 9px,color-mix(in srgb,var(--running) 65%,#fff) 9px 17px);background-size:34px 100%;animation:graph-progress-stripes .7s linear infinite}.graph-task-progress.is-running .graph-task-progress-meter::-moz-progress-bar{background:repeating-linear-gradient(115deg,var(--running) 0 9px,color-mix(in srgb,var(--running) 65%,#fff) 9px 17px);background-size:34px 100%;animation:graph-progress-stripes .7s linear infinite}
-@keyframes graph-progress-sweep{to{left:108%}}@keyframes graph-progress-stripes{to{background-position:34px 0}}@keyframes graph-progress-pulse{50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--running) 20%,transparent),0 5px 18px color-mix(in srgb,var(--running) 16%,transparent)}}
+.graph-task-progress.is-running .graph-task-progress-meter::-webkit-progress-value{background:repeating-linear-gradient(115deg,var(--running) 0 9px,color-mix(in srgb,var(--running) 65%,#fff) 9px 17px);background-size:34px 100%}.graph-task-progress.is-running .graph-task-progress-meter::-moz-progress-bar{background:repeating-linear-gradient(115deg,var(--running) 0 9px,color-mix(in srgb,var(--running) 65%,#fff) 9px 17px);background-size:34px 100%}
+/* One moving progress cue, not a pulsing container plus moving stripes. */
+@keyframes graph-progress-sweep{to{left:108%}}
 /* 快速路由：一个高饱和徽章 + 整行一层淡底色。底色用 background-image 叠在现有 background-color 上，
    不覆盖状态色，也不抢状态左边条。放在状态与工作态规则之后，保证不被它们的 background 简写清掉。 */
 .route-badge{color:var(--route);font-weight:650;letter-spacing:.02em;background:color-mix(in srgb,var(--route) 10%,transparent);border-color:color-mix(in srgb,var(--route) 45%,transparent)}
@@ -682,8 +685,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-node{margin:10px 0;min-width:300px}.task-graph-children{margin-left:10px;padding-left:10px;border-left:2px solid var(--line)}
 .task-graph-children>.task-graph-node{position:relative}.task-graph-children>.task-graph-node::before{content:'';position:absolute;left:-10px;top:24px;width:9px;border-top:2px solid var(--line)}
 .task-graph-card{padding:13px 15px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--dim);border-radius:10px;overflow-wrap:anywhere}
-.task-graph-card.task-graph-running{border-left-color:var(--running);box-shadow:0 0 0 1px color-mix(in srgb,var(--running) 22%,transparent);animation:task-graph-breathe 2.4s ease-in-out infinite}
-@keyframes task-graph-breathe{50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--running) 30%,transparent)}}
+.task-graph-card.task-graph-running{border-left-color:var(--running);box-shadow:0 0 0 1px color-mix(in srgb,var(--running) 22%,transparent)}
 .task-graph-card.task-graph-queued{border-left-color:var(--queued)}
 .task-graph-card.task-graph-paused{border-left-color:var(--violet)}
 .task-graph-card.task-graph-waiting{border-left-color:var(--waiting)}
@@ -709,6 +711,8 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-usage-runtime,.task-graph-usage-incomplete{color:var(--muted)}
 .task-graph-usage.is-aggregate{font-weight:700}
 .task-graph-usage.is-live{animation:task-usage-live 1.8s ease-in-out infinite}
+/* A running progress sweep already marks activity in this card. */
+.task-graph-card:has(.graph-task-progress.is-running) .task-graph-usage.is-live{animation:none}
 @keyframes task-usage-live{0%,100%{opacity:1}50%{opacity:.55}}
 .task-graph-head,.task-graph-facts{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.task-graph-head{gap:4px;margin-bottom:8px}
 .task-graph-title{text-align:left;font-weight:700;min-width:0;overflow-wrap:anywhere}.task-graph-facts{padding-top:8px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--muted)}
