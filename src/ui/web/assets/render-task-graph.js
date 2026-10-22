@@ -131,8 +131,8 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
     toggle.setAttribute('aria-label', `${expanded ? '收起' : '展开'} ${workerLabel(node)} 的子 Worker`);
     head.append(toggle);
   }
-  const title = button(`${workerLabel(node)} ${node.title}`, () => detail(node.id), 'ghost', { worker: node });
-  title.classList.add('task-graph-title');
+  const title = button('', () => detail(node.id), 'ghost task-graph-title', { worker: node });
+  title.append(el('span', `${workerLabel(node)} ${node.title}`, 'task-graph-link-label'));
   title.dataset.graphFocus = `title-${node.id}`;
   head.append(title, ...(minimal || node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active && !interruptReason(node) ? '静息' : statusOf(node).label,
     `b-${node.status}`));

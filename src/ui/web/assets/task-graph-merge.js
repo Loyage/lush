@@ -24,8 +24,9 @@ export function mergePriority(node) {
 function taskLink(task, key, number = undefined) {
   const id = typeof task === 'object' ? task.id : task;
   const label = workerLabel(task, number);
-  const link = button(label, () => detail(id), 'ghost task-graph-merge-link',
+  const link = button('', () => detail(id), 'ghost task-graph-merge-link',
     { worker: task });
+  link.append(el('span', label, 'task-graph-link-label'));
   link.dataset.graphFocus = key;
   return link;
 }

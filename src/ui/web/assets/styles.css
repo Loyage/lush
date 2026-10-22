@@ -767,7 +767,16 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-merge-incoming,.task-graph-merge-group,.task-graph-merge-own{display:inline;line-height:inherit}
 .task-graph-merge-group+.task-graph-merge-group::before{content:' · '}
 .task-graph-merge-relations .task-graph-merge-link{display:inline;min-height:0;padding:0 3px;font-size:inherit;line-height:1.4;color:var(--accent);vertical-align:baseline}
-@media(max-width:760px),(pointer:coarse){.task-graph-merge-relations .task-graph-merge-link{min-height:44px}}
+/* Keep the visible label compact; the transparent button still owns the touch target. */
+@media(max-width:760px),(pointer:coarse){
+  .task-graph-head>button.task-graph-title,.task-graph-merge-relations .task-graph-merge-link{min-height:44px;padding:0;border-color:transparent;background:transparent}
+  .task-graph-head>button.task-graph-title:hover,.task-graph-merge-relations .task-graph-merge-link:hover{box-shadow:none}
+  .task-graph-title>.task-graph-link-label,.task-graph-merge-link>.task-graph-link-label{border:1px solid var(--line);border-radius:5px;padding:1px 4px}
+  .task-graph-title>.task-graph-link-label{display:block;overflow:hidden;text-overflow:ellipsis;line-height:18px}
+  .task-graph-merge-relations .task-graph-merge-link{display:inline-flex;align-items:center;vertical-align:middle}
+  .task-graph-merge-link>.task-graph-link-label{line-height:1.4;padding:0 3px}
+  .task-graph-title:hover>.task-graph-link-label,.task-graph-merge-link:hover>.task-graph-link-label{background:var(--panel-2);border-color:var(--dim)}
+}
 .task-graph-merge-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:task-graph-merge-pulse 2.4s ease-in-out infinite}
 @keyframes task-graph-merge-pulse{50%{opacity:.4}}
 .task-graph-minimal-progress>.task-graph-merge-relations{display:block;flex:1;min-width:0;white-space:nowrap;overflow-x:auto;scrollbar-width:none;margin:0;font-size:11px;line-height:20px}

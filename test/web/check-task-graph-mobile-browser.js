@@ -78,10 +78,12 @@ try{
       return {chips:[...hero.querySelectorAll('.task-graph-summary>.badge')].map(n=>n.getBoundingClientRect().height),
         archived:hero.querySelector('.task-graph-archived-toggle').textContent,blank:hero.textContent.includes('空白创建'),
         indent:parseFloat(s.marginLeft)+parseFloat(s.paddingLeft)+parseFloat(s.borderLeftWidth),
+        titleHeight:t.height,titleLabelHeight:title.querySelector('.task-graph-link-label').getBoundingClientRect().height,
         foldWidth:f.width,foldHeight:f.height,foldInside:f.left>=c.left&&f.right<=t.left,gap:t.left-f.right};`);
     assert(compact.chips.every(height=>height<=17)&&compact.archived==='已回收 2'&&!compact.blank,`filter/entry density: ${JSON.stringify(compact)}`);
     assert(compact.indent===(width<=640?10:22),`tree indentation: ${JSON.stringify(compact)}`);
     assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
+    assert(width>760||(compact.titleHeight>=44&&compact.titleLabelHeight<=22),`compact title label/clear touch target: ${JSON.stringify(compact)}`);
     assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
     const management=await execute(`const section=document.querySelector('[data-task-id="1"]>.project-management');return {text:section.textContent,rows:[...section.querySelectorAll('.project-management-row')].map(row=>{const r=row.getBoundingClientRect();return {overflow:row.scrollWidth>row.clientWidth+1,buttons:[...row.querySelectorAll('button')].map(b=>b.getBoundingClientRect().height),contained:r.right<=section.getBoundingClientRect().right};})};`);
     assert(management.rows.length===3&&management.text.includes('V21')&&management.text.includes('V22')&&management.text.includes('V23')&&management.text.includes('结果未知')&&management.text.includes('资源回收未完成')&&management.text.includes('待决'), 'management identities or alerts hidden');
@@ -122,12 +124,12 @@ try{
       const c=card.getBoundingClientRect(),s=status.getBoundingClientRect();
       const relations=card.querySelector('.task-graph-merge-relations'),r=relations.getBoundingClientRect();
       return {height:c.height,text:status.textContent,tracking:!!card.querySelector('.source-delivery'),contained:s.left>=c.left&&s.right<=c.right&&s.bottom<=c.bottom,relationHeight:r.height,
-        links:[...relations.querySelectorAll('button')].map(link=>{const b=link.getBoundingClientRect();return {height:b.height,contained:b.top>=r.top&&b.bottom<=r.bottom&&b.bottom<=c.bottom};})};`);
+        links:[...relations.querySelectorAll('button')].map(link=>{const b=link.getBoundingClientRect();return {height:b.height,labelHeight:link.querySelector('.task-graph-link-label').getBoundingClientRect().height,contained:b.top>=r.top&&b.bottom<=r.bottom&&b.bottom<=c.bottom};})};`);
     assert(card.height<=baselineHeight&&!card.tracking&&card.contained,`active delivery adds a row/overflows (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
-    assert((width<=760||card.relationHeight<=20)&&card.links.length===2&&card.links.every(link=>link.contained&&(width<=760?link.height>=44:link.height<=20)),`merge target/conflict link height (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
+    assert((width<=760||card.relationHeight<=20)&&card.links.length===2&&card.links.every(link=>link.contained&&(width<=760?link.height>=44&&link.labelHeight<=20:link.height<=20)),`merge target/conflict link height (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
     assert(card.text===({requested:'冻结 · 等待合并',executing:'合并中 · 尚未完成',resolving:'合并中 · 源侧分歧修复'})[stage],'delivery stage lost');
   }
-  console.log('PASS merge target/conflict links fit the 20px desktop row, retain 44px mobile targets, and active delivery adds no height in both themes at 320–1440px');
+  console.log('PASS merge target/conflict labels stay below 20px, retain 44px mobile targets, and active delivery adds no height in both themes at 320–1440px');
   await execute(`window.graph=normalGraph;window.paint();`);
   await resize(390);
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();`);
@@ -140,7 +142,8 @@ try{
   for(const width of [390,1440]){
     await resize(width);await execute(`window.paint();`);
     assert(await execute(`const fold=document.querySelector('.task-graph-fold'),f=fold.getBoundingClientRect(),t=fold.nextElementSibling.getBoundingClientRect(),c=fold.closest('.task-graph-card').getBoundingClientRect();
-      return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/filter spacing');
+      const title=document.querySelector('.task-graph-title'),label=title.querySelector('.task-graph-link-label').getBoundingClientRect();
+      return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&(innerWidth>760||(t.height>=44&&label.height<=22))&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/title/filter spacing');
   }
   console.log('PASS compact detail-mode caret and filter badges at mobile/desktop widths');
   await execute(`window.graph=structuredClone(normalGraph);window.graph.nodes.push({id:7,parent_id:1,worker_number:'V24',title:'可收起的已收口管理记录',role:'manager',task_kind:'management',status:'completed',management:{state:'succeeded'}});window.graph.management_count=4;window.graph.total++;window.paint();`);
