@@ -229,6 +229,21 @@ try {
     assert(layout.metrics.includes('14 秒') && layout.order[0] === 'sleep 12', 'command timing/failure ranking missing'); layouts.push({ theme, performance: layout });
     await screenshot(`performance-${theme}-${width}`);
   }
+  await execute(`window.performanceFetch=window.fetch;window.performanceRefreshReads=0;
+    window.savedCommand=document.querySelector('.performance-slow .performance-command');
+    const range=document.createRange();range.selectNodeContents(window.savedCommand);getSelection().removeAllRanges();getSelection().addRange(range);
+    window.selectedCommand=getSelection().toString();
+    window.fetch=(url,options)=>String(url).includes('/api/worker/${worker.id}')?new Promise(resolve=>{window.performanceRefreshReads++;window.failPerformanceRefresh=()=>resolve(Response.json({error:'controlled analysis failure'},{status:500}));}):window.performanceFetch(url,options);
+    document.querySelector('.performance-controls button').click();document.querySelector('.performance-controls button').click();`);
+  assert(await execute(`return window.performanceRefreshReads===1&&document.querySelector('.performance-status').textContent.includes('正在读取')&&window.savedCommand===document.querySelector('.performance-slow .performance-command')&&getSelection().toString()===window.selectedCommand;`),'analysis refresh must retain old sample and selection while reading');
+  await execute(`window.failPerformanceRefresh();window.fetch=window.performanceFetch;`);
+  await wait(`document.querySelector('.performance-status').textContent.includes('controlled analysis failure')&&!document.querySelector('.performance-controls button').disabled`);
+  assert(await execute(`return window.savedCommand===document.querySelector('.performance-slow .performance-command')&&getSelection().toString()===window.selectedCommand&&document.querySelectorAll('.performance-slow .performance-command-row').length===3;`),'failed analysis refresh erased its old sample/selection');
+  await click('.performance-controls button');
+  await wait(`!document.querySelector('.performance-controls button').disabled&&document.querySelector('.performance-status').textContent.includes('尚非全部历史')`);
+  assert(await execute(`return window.savedCommand!==document.querySelector('.performance-slow .performance-command')&&!document.querySelector('.performance-status').textContent.includes('controlled analysis failure');`),'successful analysis refresh did not replace the prior sample');
+  await click('.performance-controls button:nth-child(2)');
+  await wait(`document.querySelector('.performance-status').textContent.includes('当前采样范围已扫描完')`);
   await execute(`document.querySelector('.performance-retries .performance-attempts').open=true`);
   await click('.performance-retries .performance-source');
   await wait(`document.querySelector('[role="tab"][aria-selected="true"]').textContent==='执行记录'&&document.querySelector('.step-located')`);

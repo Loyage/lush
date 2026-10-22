@@ -3,7 +3,7 @@ import { installDom, deepText, findByText } from '../dom-stub.js';
 import { openTranscriptView, closeTranscriptView } from '../../src/ui/web/assets/transcript-view.js';
 import { detailActions } from '../../src/ui/web/assets/detail-actions.js';
 import { appendTranscriptSteps, paintTranscript } from '../../src/ui/web/assets/render-transcript.js';
-import { resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
+import { resetTranscriptReaders, openTranscriptStep } from '../../src/ui/web/assets/transcript-reader.js';
 import { ui, transcriptCache } from '../../src/ui/web/assets/state.js';
 import { writePref, readPref, refreshDevicePreferences } from '../../src/ui/web/assets/prefs.js';
 import { until } from '../helpers.js';
@@ -54,6 +54,15 @@ test('execution reader switches order, pairs live results and returns to Worker 
     expect(sort.disabled).toBe(true); expect(sort.parentNode.getAttribute('data-help')).toContain('搜索结果');
     expect(sort.parentNode.tabIndex).toBe(0);
     ui.transcriptView.filtered = false;
+    const originalFetch = globalThis.fetch; let finishOriginal;
+    globalThis.fetch = () => new Promise(resolve => { finishOriginal = resolve; });
+    try {
+      const reading = openTranscriptStep(taskId, 2, { root: panel });
+      const raw = panel.querySelector('.transcript-full-original');
+      expect(deepText(raw)).toContain('正在读取原文…'); expect(raw.querySelector('button').disabled).toBe(true);
+      finishOriginal(Response.json({ step: { body: '精确原文' }, next_offset: 4, has_more: false })); await reading;
+      expect(deepText(raw)).toContain('已读取完整原文。'); expect(raw.querySelector('pre').textContent).toBe('精确原文');
+    } finally { globalThis.fetch = originalFetch; }
     transcriptCache.get(taskId).steps = []; paintTranscript(taskId);
     const emptyFold = panel.querySelector('[data-live="transcript-fold"]');
     expect(emptyFold.disabled).toBe(true); expect(emptyFold.parentNode.getAttribute('data-help')).toContain('没有可展开');

@@ -9,8 +9,29 @@ import { draftFingerprint } from './settings-scope.js';
 import { field, selectOptions, thinkingLabel } from './settings-controls.js';
 import { createProfileResources } from './settings-profile-resources.js';
 import { createManagementProfileForm } from './management-profile-form.js';
+import { buttonFeedback } from './button-feedback.js';
 
 const modelCatalogs = new Map();
+/** Keep failures beside the edited form; never repaint over edits made during a write. */
+function profileWriter(card, settings, client, repaint, ownsPage) {
+  const feedback = el('p', undefined, 'settings-error agent-profile-feedback'); feedback.hidden = true; feedback.setAttribute('role', 'alert');
+  let pending = false;
+  const current = () => ownsPage() && card.isConnected !== false;
+  const fail = message => { if (current()) { feedback.textContent = message; feedback.hidden = false; } };
+  return { feedback, fail, async save(config, message) {
+    if (!current() || pending) return;
+    pending = true; feedback.hidden = true;
+    const draft = draftFingerprint(card);
+    try {
+      const saved = await client.action('agent.configure', { config });
+      if (!current()) return;
+      show(message);
+      if (draft === draftFingerprint(card)) repaint(saved);
+      else { Object.assign(settings, saved); show('配置已保存；保留你随后输入的未保存修改。'); }
+    } catch (error) { fail(`配置保存未完成：${error.message}；草稿保留，请核对后重试。`); }
+    finally { pending = false; }
+  } };
+}
 export function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage, savedSummary = null, names = new Map()) {
   if (target === 'manager') return valetProfileEditor(settings, profile, repaint, ownsPage);
   const client = settingsClientFor(settings);
@@ -48,9 +69,12 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
     input.placeholder = '关闭'; input.disabled = ['explainer','butler'].includes(target); budgetControls[key] = input;
   }
 
+  let modelsReading = false;
   const loadModels = el('button', '读取 CLI 模型', 'ghost model-load'); loadModels.type = 'button';
+  const modelFeedback = el('p', undefined, 'settings-error'); modelFeedback.hidden = true; modelFeedback.setAttribute('role', 'alert');
+  const modelBusy = buttonFeedback(loadModels, '读取中…');
   loadModels.setAttribute('data-help', '只读取执行机器的 Codex CLI 模型目录，不调用模型；保留当前名称输入。');
-  connectionPicker.actions.append(loadModels);
+  connectionPicker.actions.append(loadModels); connectionPicker.node.append(modelFeedback);
 
   const paintModels = () => {
     const agent = backend.value;
@@ -67,7 +91,7 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
       connectionPicker.modelExtras.replaceChildren();
       loadModels.disabled = true; return;
     }
-    loadModels.disabled = false;
+    loadModels.disabled = modelsReading;
     const values = new Map((settings.options.models[agent] || []).map(id => [id, id]));
     const catalog = modelCatalogs.get(`${client.key}:${agent}`);
     for (const entry of catalog?.models || []) values.set(entry.id, entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
@@ -100,15 +124,15 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
   };
   backend.addEventListener('change', () => syncBackend(true));
   loadModels.onclick = async () => {
-    if (!ownsPage() || backend.value === 'pi' || connectionPicker.value()) return;
+    if (!ownsPage() || modelsReading || backend.value === 'pi' || connectionPicker.value()) return;
     const agent = backend.value;
-    loadModels.disabled = true; loadModels.textContent = '读取中…';
+    modelsReading = true; loadModels.disabled = true; modelBusy(true); modelFeedback.hidden = true;
     try {
       const catalog = await client.read(`/api/agent/models?agent=${encodeURIComponent(agent)}`);
-      if (!ownsPage()) return;
+      if (!ownsPage() || card.isConnected === false || backend.value !== agent) return;
       modelCatalogs.set(`${client.key}:${agent}`, catalog); paintModels();
-    } catch (error) { if (ownsPage()) show(error.message, 'error'); }
-    finally { if (ownsPage()) { paintModels(); loadModels.textContent = '重新读取'; } }
+    } catch (error) { if (ownsPage() && card.isConnected !== false && backend.value === agent) { modelFeedback.textContent = `模型目录读取失败：${error.message}；当前模型输入保留。`; modelFeedback.hidden = false; } }
+    finally { modelsReading = false; modelBusy(false); if (ownsPage()) paintModels(); }
   };
 
   // 来源与模型共用一组，不能再包在含多个控件的 label 内。
@@ -184,6 +208,7 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
   card.append(form); syncBackend(false); syncMode(normalizeConfigMode(profile.config_mode) === 'pi');
   void connectionPicker.load();
 
+  const writer = profileWriter(card, settings, client, repaint, ownsPage);
   const actions = el('div', undefined, 'agent-profile-actions');
   actions.append(button('保存配置', async () => {
     if (!ownsPage()) return;
@@ -191,7 +216,7 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
     let nextDefaultPrompt = '';
     if (selectedMode === 'lush') {
       const connectionError = connectionPicker.validate();
-      if (connectionError) { show(connectionError, 'error'); return; }
+      if (connectionError) { writer.fail(connectionError); return; }
       const enteredDefaultPrompt = defaultPrompt.value.trim();
       nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
       if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
@@ -216,21 +241,14 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
     const config = target === 'default'
       ? { version: 1, default: next, roles }
       : { version: 1, default: settings.default, roles: { ...roles, [target]: next } };
-    const draft = draftFingerprint(card);
-    const saved = await client.action('agent.configure', { config });
-    if (!ownsPage()) return;
-    show(`${title}已保存；正在运行的调用不受影响，下一次调用使用新配置。`);
-    if (draft === draftFingerprint(card)) repaint(saved);
-    else { Object.assign(settings, saved); show('配置已保存；保留你随后输入的未保存修改。'); }
-  }));
+    await writer.save(config, `${title}已保存；正在运行的调用不受影响，下一次调用使用新配置。`);
+  }, undefined, { busyLabel: '保存中…' }));
   if (target !== 'default') actions.append(button('恢复继承默认', async () => {
     const roles = { ...settings.roles }; delete roles[target];
     if (!ownsPage()) return;
-    const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default, roles } });
-    if (!ownsPage()) return;
-    show(`${title}已恢复继承设备默认配置。`); repaint(saved);
-  }, 'ghost', { help: '删除这个角色的单独配置，立即改回继承当前编辑层的默认 Agent 配置' }));
-  card.append(actions);
+    await writer.save({ version: 1, default: settings.default, roles }, `${title}已恢复继承设备默认配置。`);
+  }, 'ghost', { busyLabel: '恢复中…', help: '删除这个角色的单独配置，立即改回继承当前编辑层的默认 Agent 配置' }));
+  card.append(writer.feedback, actions);
   return card;
 }
 
@@ -239,22 +257,17 @@ function valetProfileEditor(settings, profile, repaint, ownsPage) {
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = 'manager';
   card.append(el('h3', 'Valet'), el('p', '管理调用的默认来源与模型；使用独立提示词和受限工具，不继承开发 Prompt、扩展或环境变量。已创建的 Valet 保留其固定配置。', 'settings-note'));
   const form = createManagementProfileForm(settings, { profile, ownsPage, read: client.read });
-  card.append(form.node, button('保存配置', async () => {
+  const writer = profileWriter(card, settings, client, repaint, ownsPage);
+  card.append(form.node, writer.feedback, button('保存配置', async () => {
     if (!ownsPage()) return;
-    const issue = form.validate(); if (issue) { show(issue, 'error'); return; }
-    const draft = draftFingerprint(card);
-    const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default,
-      roles: { ...settings.roles, manager: form.collect() } } });
-    if (!ownsPage()) return;
-    show('Valet 默认配置已保存；仅新建管理工作生效。');
-    if (draft === draftFingerprint(card)) repaint(saved);
-    else Object.assign(settings, saved);
-  }), button('恢复继承默认', async () => {
+    const issue = form.validate(); if (issue) { writer.fail(issue); return; }
+    await writer.save({ version: 1, default: settings.default,
+      roles: { ...settings.roles, manager: form.collect() } }, 'Valet 默认配置已保存；仅新建管理工作生效。');
+  }, undefined, { busyLabel: '保存中…' }), button('恢复继承默认', async () => {
     if (!ownsPage()) return;
     const roles = { ...settings.roles }; delete roles.manager;
-    const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default, roles } });
-    if (ownsPage()) repaint(saved);
-  }, 'ghost', { help: '删除 Valet 单独默认配置；已创建的管理工作保持其固定配置。' }));
+    await writer.save({ version: 1, default: settings.default, roles }, 'Valet 已恢复继承默认；已创建的管理工作保持其固定配置。');
+  }, 'ghost', { busyLabel: '恢复中…', help: '删除 Valet 单独默认配置；已创建的管理工作保持其固定配置。' }));
   return card;
 }
 
@@ -269,12 +282,11 @@ export function inheritedRole(settings, role, repaint, names = new Map(), ownsPa
   const summary = normalizeConfigMode(resolved.config_mode) === 'pi' ? 'Pi 默认配置（执行机器 Pi）'
     : `${resolved.agent} · ${source} · ${resolved.model || (resolved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${thinkingLabel(resolved.thinking)}`;
   copy.append(el('h3', role === 'manager' ? 'Valet' : meta.label), el('p', summary, 'settings-note'));
+  const writer = profileWriter(card, settings, client, repaint, ownsPage);
+  copy.append(writer.feedback);
   card.append(copy, el('span', '继承默认', 'badge b-neutral'), button('单独配置', async () => {
-    if (!ownsPage()) return;
-    const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default,
-      roles: { ...settings.roles, [role]: { ...resolved } } } });
-    if (!ownsPage()) return;
-    repaint(saved);
-  }, 'ghost', { help: '为这个角色建立独立配置；保存后不再跟随默认配置一起变化' }));
+    await writer.save({ version: 1, default: settings.default,
+      roles: { ...settings.roles, [role]: { ...resolved } } }, '已建立独立配置。');
+  }, 'ghost', { busyLabel: '建立中…', help: '为这个角色建立独立配置；保存后不再跟随默认配置一起变化' }));
   return card;
 }

@@ -39,6 +39,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   }
   if (path === '/fixture' || path === '/full') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -104,6 +105,15 @@ try {
     assert(layout.view === 'notice' && layout.hash === '#notices-9' && layout.listHidden && !layout.detailHidden && !layout.inline && layout.writes === 0 && layout.scroll <= layout.width, 'detail navigation/layout failed: '+JSON.stringify(layout));
     await execute(`window.reply=document.querySelector('#notice-record-detail textarea');reply.value='保留未提交答复';poll();`);
     assert(await execute(`return document.querySelector('#notice-record-detail textarea')===reply&&reply.value==='保留未提交答复';`), 'poll erased the reply');
+    if (theme==='light'&&width===1440) {
+      await execute(`window.noticeFetch=window.fetch;window.noticeReads=0;window.refreshRecord=[...document.querySelectorAll('.notice-detail-page button')].find(n=>n.textContent==='刷新记录');
+        window.fetch=(url,options)=>String(url).startsWith('/api/notices?')?new Promise(resolve=>{window.noticeReads++;window.failNoticeRefresh=()=>resolve(Response.json({error:'controlled notice failure'},{status:500}));}):window.noticeFetch(url,options);
+        window.refreshRecord.click();window.refreshRecord.click();`);
+      assert(await execute(`return window.noticeReads===1&&window.refreshRecord.textContent==='刷新中…'&&window.refreshRecord.getAttribute('aria-busy')==='true'&&document.querySelector('#notice-record-detail textarea')===reply;`),'notice refresh missing busy state or duplicate read');
+      await execute(`window.failNoticeRefresh();window.fetch=window.noticeFetch;`);
+      assert(await wait(`document.querySelector('.notice-detail-page').textContent.includes('controlled notice failure')&&!window.refreshRecord.hasAttribute('aria-busy')`),'notice failure must restore control');
+      assert(await execute(`return document.querySelector('#notice-record-detail textarea')===reply&&reply.value==='保留未提交答复';`),'notice failure erased existing reply');
+    }
     if (mobile) await click('.notice-detail-page a[href="#notices"]');
     else await rpc(`/session/${session}/back`, {});
     assert(await wait('ui.view.id==="notices"&&!document.querySelector("#resource-panels").hidden'), 'return/back did not restore list');

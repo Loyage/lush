@@ -32,12 +32,9 @@ export function createPerformanceView(taskId, { onStep = async () => {} } = {}) 
   }
   const slowSort = sort('慢指令排序', [['max_ms', '单次最长'], ['total_ms', '累计尝试耗时']], 'slow');
   const retrySort = sort('重复失败排序', [['failed_ms', '失败尝试累计耗时'], ['failure_count', '明确失败次数']], 'retries');
-  const refresh = button('刷新分析', () => {
-    cancel(); collector = createPerformanceData(taskId, { commandsOnly: true }); initialized = false;
-    limits.clear(); openAttempts.clear(); expandedCommands.clear(); return load(false);
-  }, 'ghost');
+  const refresh = button('刷新分析', () => load(false, true), 'ghost');
   const scan = button('分析全部历史', () => load(true), 'ghost', { help: '显式分批读取当前 Worker 的全部执行记录，仅统计实际 Bash 命令；到预算或失败时保留局部结果，不分析计划，不读取子 Worker，也不调用 Agent。' });
-  const cancelButton = button('取消读取', () => { cancel(); message = '读取已取消，保留当前范围；可继续分析全部历史。'; paint(); }, 'ghost');
+  const cancelButton = button('取消读取', () => { cancel(); message = '读取已取消，保留当前范围；可继续分析全部历史。'; paint(true); }, 'ghost');
   controls.append(refresh, scan, cancelButton);
   root.append(el('h2', '性能分析'), el('p', '仅统计实际 Bash 命令；定位慢指令与反复失败的时间浪费。', 'hint'), controls, status, summary, ranks, advanced);
   function cancel() { generation++; reading?.abort(); reading = null; loading = false; }
@@ -91,11 +88,12 @@ export function createPerformanceView(taskId, { onStep = async () => {} } = {}) 
     for (const group of rows.slice(0, limit)) list.append(commandCard(group, scope)); host.append(list);
     if (rows.length > limit) host.append(button(`再显示 ${Math.min(20, rows.length - limit)} 条指令`, () => { limits.set(scope, limit + 20); paint(); }, 'ghost'));
   }
-  function paint() {
+  function paint(statusOnly = false) {
     if (!current()) return;
     const scroll = root.scrollTop, data = collector.snapshot(), complete = data.coverage.steps;
     status.textContent = `${loading ? '正在读取… ' : ''}${message ? `${message} ` : ''}${complete ? '当前采样范围已扫描完；缺失记录仍保持未知。' : '仅分析已读取范围，尚非全部历史。'} 已读取 ${data.steps.length} 条执行记录${data.sampled_at ? ` · 采样 ${stamp(data.sampled_at)}` : ''}`;
     refresh.disabled = loading; scan.disabled = loading || complete || data.exhausted; cancelButton.hidden = !loading;
+    if (statusOnly) return; // Keep the last sample's nodes/selection until a refresh succeeds.
     if (!data.task) { summary.replaceChildren(); slow.replaceChildren(); retries.replaceChildren(); notes.replaceChildren(); return; }
     const model = analyzeShellCommands(data); summary.replaceChildren();
     for (const [label, value, extra] of [['实际 Shell 尝试', `${model.summary.attempts} 次`, `${model.summary.commands} 组指令`],
@@ -108,19 +106,27 @@ export function createPerformanceView(taskId, { onStep = async () => {} } = {}) 
     notes.replaceChildren(...model.notes.map(note => el('li', note)), el('li', '仅统计当前 Worker；运行中记录不会自动替换。需要新采样时点击刷新分析。'));
     root.scrollTop = scroll;
   }
-  async function load(all) {
+  async function load(all, replace = false) {
     if (!current() || loading) return;
-    cancel(); const ticket = generation, controller = new AbortController(); reading = controller; loading = true; message = ''; initialized = true; paint();
+    cancel(); const ticket = generation, controller = new AbortController(); reading = controller; loading = true; message = ''; initialized = true;
+    const next = replace ? createPerformanceData(taskId, { commandsOnly: true }) : collector;
+    let committed = false;
+    paint(replace);
     const valid = () => current() && ticket === generation && !controller.signal.aborted;
-    try { await collector.load({ all, signal: controller.signal, onProgress: () => { if (valid()) paint(); } }); }
-    catch (error) { if (valid()) message = `读取未完成：${error.message}`; }
-    finally { if (valid()) { loading = false; reading = null; paint(); } }
+    try {
+      await next.load({ all, signal: controller.signal, onProgress: () => { if (valid()) paint(replace); } });
+      if (valid() && replace) {
+        collector = next; committed = true;
+        limits.clear(); openAttempts.clear(); expandedCommands.clear();
+      }
+    } catch (error) { if (valid()) message = `读取未完成：${error.message}${replace ? '；保留上次分析，可重试刷新。' : ''}`; }
+    finally { if (valid()) { loading = false; reading = null; paint(replace && !committed); } }
   }
   return { root,
     async setActive(value) {
       if (disposed) return; active = value;
       if (!value) { const interrupted = loading; cancel(); if (interrupted) { message = '读取已暂停，范围尚未完成；可继续分析全部历史。'; needsPaint = true; } return; }
-      if (!initialized) await load(false); else if (needsPaint) { needsPaint = false; paint(); }
+      if (!initialized) await load(false); else if (needsPaint) { needsPaint = false; paint(true); }
     },
     dispose() { disposed = true; active = false; cancel(); },
   };

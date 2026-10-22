@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { setup, fetch } from './harness.js';
-import { repo } from '../helpers.js';
+import { repo, until } from '../helpers.js';
 import { installDom, dialogButton, deepText } from '../dom-stub.js';
 import { mountCard, workerHooks } from '../../src/ui/web/assets/render-hooks.js';
 import { openProjectAutomation } from '../../src/ui/web/assets/render-project-automation.js';
@@ -13,15 +13,23 @@ test('real automation DOM saves project defaults through HTTP/RPC and applies th
   try {
     await repo(f.root); f.project.kick = () => {};
     const old = (await f.project.order('existing', 'main', [], null, false)).task;
-    const writes = [];
+    const writes = []; let releaseSave;
     dom = installDom({ fetch: (url, options = {}) => {
-      if (options.body) writes.push(JSON.parse(options.body));
-      return fetch(f.url + url, { ...options, headers: { ...options.headers, Origin: f.url } });
+      const write = options.body ? JSON.parse(options.body) : null;
+      if (write) writes.push(write);
+      const response = fetch(f.url + url, { ...options, headers: { ...options.headers, Origin: f.url } });
+      if (write?.method === 'hooks.automation_settings') return new Promise(resolve => { releaseSave = () => resolve(response); });
+      return response;
     } });
     await openProjectAutomation({ feature: 'completion' });
     const root = dom.node('detail'); await root.querySelector('[data-level="accept"]').onclick();
-    const saving = root.querySelectorAll('button').find(item => item.textContent === '保存项目设置').onclick();
-    await dialogButton(dom, '授权并保存').onclick(); await saving;
+    const save = root.querySelectorAll('button').find(item => item.textContent === '保存项目设置');
+    const saving = save.onclick();
+    await dialogButton(dom, '授权并保存').onclick(); await until(() => releaseSave);
+    expect(save.textContent).toBe('保存中…'); expect(save.disabled).toBe(true);
+    expect(root.querySelector('.automation-settings-status').textContent).toBe('正在保存项目设置…');
+    await save.onclick(); expect(writes).toHaveLength(1); releaseSave(); await saving;
+    expect(save.textContent).toBe('保存项目设置'); expect(save.disabled).toBe(true); // clean draft remains gated
     expect(writes[0].method).toBe('hooks.automation_settings');
     expect(f.project.automationSettings().completion_defaults).toEqual({ enabled: true, level: 'accept' });
     expect(f.project.taskHooks(old.id).completion.level).toBe('off');

@@ -327,8 +327,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   }
   const addConnection = button('添加连接', () => { if (current()) paintEditor(null, addConnection); }, 'primary');
   toolbar.append(addConnection,
-    button('刷新全部资源', () => query(), 'ghost'),
-    button('重新读取本地连接', () => load(true), 'ghost'),
+    button('刷新全部资源', () => query(), 'ghost', { busyLabel: '刷新中…' }),
+    button('重新读取本地连接', () => load(true), 'ghost', { busyLabel: '读取中…' }),
     button('后台采样设置', () => { if (current()) { closeEditor(); openPanel('sampling'); archive.focusSampling(); } }, 'ghost', { help: sharedSampling ? '编辑设备采样配置，所有项目统一使用；各项目独立执行和保存历史，Host 不运行采样。' : '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
     button('历史与已删除来源', () => { if (current()) { closeEditor(); openPanel('history'); archive.focusHistory(); } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
   if (!projectHistory) {

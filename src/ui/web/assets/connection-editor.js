@@ -136,7 +136,7 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
         if (current()) message(refreshed === false ? '连接已保存；自动查询失败或未知，旧值仅供参考（非零余额）。' : refreshed === true ? '连接已保存，资源已自动刷新。' : '连接已保存；此连接不触发自动资源查询。', refreshed === false);
       } catch { if (current() && generation === operations.generation()) { localFeedback.textContent = '保存连接失败；密钥输入已清空，请确认配置后重新提交。'; localFeedback.setAttribute('role', 'alert'); } }
       finally { saving = false; operations.endSave(savedEditId); }
-    }), button('取消编辑', () => {
+    }, undefined, { busyLabel: '保存中…' }), button('取消编辑', () => {
       if (current()) { dirty = false; drafts.delete(editId || ''); closeEditor(); panel.back(); }
     }, 'ghost'));
     editorHost.replaceChildren(form, localFeedback, actions);

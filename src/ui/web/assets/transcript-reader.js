@@ -38,14 +38,14 @@ export async function openTranscriptStep(taskId, seq, { root: scopedRoot } = {})
   if (raw) { raw.open = true; raw.hidden = false; raw.scrollIntoView?.({ block: 'nearest' }); return; }
   raw = el('details', undefined, 'transcript-full-original'); raw.open = true;
   raw.append(el('summary', `完整原文 · #${seq}`));
-  const content = el('div'), status = el('p', '', 'hint');
+  const content = el('div'), status = el('p', '', 'hint'); status.setAttribute('role', 'status');
   let offset = 0;
   const more = button('继续读取原文', load, 'ghost');
   const pagination = el('div'); pagination.append(status, more);
   listSurface({ pagination });
   raw.append(content, pagination); target.append(raw);
   async function load() {
-    more.disabled = true;
+    more.disabled = true; status.textContent = '正在读取原文…';
     try {
       const data = await api(`/api/worker/${taskId}/transcript-step?seq=${seq}&offset=${offset}`);
       if (!data.step) throw new Error('步骤不存在，记录可能已被清理');

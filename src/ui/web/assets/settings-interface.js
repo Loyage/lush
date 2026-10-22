@@ -178,6 +178,7 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
       if (ui.view !== view || !ui.settingsOpen || resetButton.disabled) return;
       if (epoch !== preferenceEpoch) return;
       resetButton.dataset.preferencePending = 'true'; resetButton.disabled = true;
+      preferenceFeedback('正在恢复设备偏好默认…', false, view);
       try {
         if (typeof actions.resetDevicePreferences !== 'function') throw new Error('界面尚不支持设备偏好重置，请更新 Host');
         await actions.resetDevicePreferences(); if (epoch === preferenceEpoch) preferenceFeedback('设备偏好已恢复默认；项目工作状态保留。', false, view);

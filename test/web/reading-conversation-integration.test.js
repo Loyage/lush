@@ -116,7 +116,12 @@ test('copy raw output follows real HTTP reading-record pagination and preserves 
   const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'copy integration' });
   const source = '# 完整原文\n\n' + '  保留空格与换行\n'.repeat(6500) + '\n```\n末尾代码\n```\n';
   const eventId = f.store.event(task.id, 'invocation.completed', { run_id: 88, result: source });
-  const dom = installDom({ fetch: (url, options) => { calls.push(String(url)); return httpFetch(new URL(String(url), f.url).href, options); } });
+  let holdRead = false, releaseRead;
+  const dom = installDom({ fetch: async (url, options) => {
+    calls.push(String(url));
+    if (holdRead && String(url).includes('/reading-record?')) await new Promise(resolve => { releaseRead = resolve; });
+    return httpFetch(new URL(String(url), f.url).href, options);
+  } });
   const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async text => copied.push(text) } } });
   resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
@@ -125,6 +130,12 @@ test('copy raw output follows real HTTP reading-record pagination and preserves 
     await findByText(root, '加载更早输入输出').click();
     const output = root.querySelector('[data-conversation-key="run:88"]');
     expect(deepText(output)).toContain('正文尚未读完');
+    holdRead = true;
+    const more = output.querySelector('.conversation-read-more'), continuing = more.onclick(), count = calls.length;
+    expect(deepText(output)).toContain('正在读取正文…'); expect(more.disabled).toBe(true);
+    await more.onclick(); expect(calls).toHaveLength(count);
+    holdRead = false; releaseRead(); await continuing;
+    expect(deepText(output)).not.toContain('正在读取正文…');
     await output.querySelector('.conversation-copy').click();
     expect(copied).toEqual([source]);
     const reads = calls.filter(url => url.includes('/reading-record?'));

@@ -138,6 +138,16 @@ try {
     assert(await execute(`return detail.textContent.includes('离线草稿')&&Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认全部选择并继续 Worker').classList.contains('agent-call');`), 'source-scoped draft or Agent label was lost');
     console.log(`PASS ${theme} ${width}x${height}: layout, source links/preview, offline guard, accessible help, draft restoration`);
   }
+  await execute(`window.inboxFetch=window.fetch;window.detailReads=0;window.savedDraft=document.querySelector('textarea');window.savedDetail=document.querySelector('.global-inbox-detail');
+    window.refreshButton=[...document.querySelectorAll('button')].find(n=>n.textContent==='刷新记录');
+    window.fetch=(url,options)=>String(url).includes('/notice?')?new Promise(resolve=>{window.detailReads++;window.failInboxRefresh=()=>resolve(Response.json({error:'controlled inbox failure'},{status:500}));}):window.inboxFetch(url,options);
+    window.refreshButton.click();window.refreshButton.click();`);
+  assert(await execute(`return window.detailReads===1&&window.refreshButton.textContent==='刷新中…'&&window.refreshButton.getAttribute('aria-busy')==='true';`),'inbox refresh must show one in-flight read');
+  await execute(`window.failInboxRefresh();window.fetch=window.inboxFetch;`);
+  assert(await wait(`detail.textContent.includes('controlled inbox failure')&&!window.refreshButton.hasAttribute('aria-busy')`),'inbox refresh failure missing/restoration stuck');
+  assert(await execute(`return window.savedDetail&&window.savedDetail===document.querySelector('.global-inbox-detail')&&window.savedDraft===document.querySelector('textarea')&&detail.textContent.includes('离线草稿')&&writes.length===0;`),'inbox refresh failure destroyed the draft or performed writes');
+  await click('.global-inbox .error button');
+  assert(await wait(`!detail.textContent.includes('controlled inbox failure')`),'inbox retry did not clear its local error');
   // Existing browser main flow now also exercises the real read-side HTTP route,
   // user-services and GlobalInboxService against a controlled notice.sync source.
   await asyncExecute('const done=arguments[0];window.liveSearch=true;paint(true).then(done);');
@@ -174,7 +184,11 @@ try {
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'paging-keyboard', actions: [{ type: 'keyDown', value: '\uE004' }, { type: 'keyUp', value: '\uE004' }] }] });
   await execute(`document.querySelector('.ui-list-pagination button').focus();`);
   assert(await execute(`const b=document.querySelector('.ui-list-pagination button');return getComputedStyle(b).outlineStyle==='solid'&&getComputedStyle(b).outlineWidth==='2px';`), 'pagination keyboard focus is not visible');
+  await execute(`window.pagingFetch=window.fetch;window.pagingReads=0;window.pagingButton=document.querySelector('.ui-list-pagination button');
+    window.fetch=(url,options)=>String(url).includes('&before=older')?new Promise(resolve=>{window.pagingReads++;window.finishPaging=()=>resolve(window.pagingFetch(url,options));}):window.pagingFetch(url,options);`);
   await click('.ui-list-pagination button');
+  assert(await execute(`window.pagingButton.click();return window.pagingReads===1&&window.pagingButton===document.querySelector('.ui-list-pagination button')&&window.pagingButton.textContent==='读取中…'&&window.pagingButton.getAttribute('aria-busy')==='true';`), 'paging must retain mounted feedback and suppress duplicate reads');
+  await execute(`window.finishPaging();window.fetch=window.pagingFetch;`);
   assert(await wait(`requests.some(url=>url.includes('&before=older'))&&!document.querySelector('.ui-list-pagination button')`), 'load earlier must retain its cursor semantics');
   assert(await execute(`return document.querySelectorAll('.global-inbox-row').length===2&&writes.length===0&&detail.textContent.includes('离线草稿');`), 'paging must retain records/draft and stay read-only');
   console.log('PASS shared inbox search/paging dimensions, visible focus and load-earlier cursor');

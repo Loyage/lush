@@ -186,13 +186,27 @@ try {
   await click('#execution-tab-code-101');
   await waitFor('document.querySelectorAll(".code-file-entry").length>=5', 'tree restored after records');
   assert(await execute(`return window.savedFile===document.querySelector('.code-content-segment')`), 'path search roundtrip replaced selected file body');
+  // Hold an explicit refresh at the browser boundary; background probes stay unlabelled.
+  await execute(`window.originalFetch=window.fetch;window.refreshReads=0;
+    window.refreshControl=document.querySelector('.code-toolbar>button');
+    window.fetch=(url,options)=>String(url).includes('/code-state?')?new Promise(resolve=>{window.refreshReads++;window.failRefresh=()=>resolve(Response.json({error:'controlled refresh failure'},{status:500}));}):window.originalFetch(url,options);
+    window.refreshControl.click();window.refreshControl.click();`);
+  assert(await execute(`return window.refreshReads===1&&window.refreshControl.textContent==='稍候'&&window.refreshControl.getAttribute('aria-busy')==='true'&&window.savedFile===document.querySelector('.code-content-segment');`), 'refresh must show busy once and retain current code');
+  await execute(`window.failRefresh();window.fetch=window.originalFetch;`);
+  await waitFor(`document.querySelector('.code-update-banner').textContent.includes('controlled refresh failure')&&!window.refreshControl.hasAttribute('aria-busy')`, 'failed refresh restores feedback');
+  assert(await execute(`return window.refreshControl.textContent==='刷新'&&window.savedFile===document.querySelector('.code-content-segment');`),'failed refresh lost existing file nodes');
   const beforeFileReads = counts.file;
   fs.writeFileSync(codePath, newCode.replace('return page;', 'return page.items;'));
-  await waitFor('document.querySelector(".code-update-banner")?.hidden===false', 'state probe noticed real file mutation');
+  await waitFor('document.querySelector(".code-update-banner")?.textContent.includes("工作区有新变化")', 'state probe noticed real file mutation');
   assert(counts.file === beforeFileReads, 'probe downloaded file body');
   assert(await execute(`return window.savedFile===document.querySelector('.code-content-segment')&&!document.querySelector('.code-file-body').textContent.includes('page.items')`), 'probe silently replaced selected content');
   await clickText('加载最新');
   await waitFor('document.querySelector(".code-file-body")?.textContent.includes("page.items")', 'explicit latest loaded real mutation');
+  await execute(`window.savedIndexRow=document.querySelector('.code-tree-entries .code-file-entry');
+    window.fetch=(url,options)=>String(url).includes('/code-tree?')?Promise.resolve(Response.json({error:'controlled index failure'},{status:500})):window.originalFetch(url,options);
+    window.refreshControl.click();`);
+  await waitFor(`document.querySelector('.code-tree-entries').textContent.includes('controlled index failure')&&!window.refreshControl.hasAttribute('aria-busy')`, 'index refresh failure');
+  assert(await execute(`window.fetch=window.originalFetch;return window.savedIndexRow===document.querySelector('.code-tree-entries .code-file-entry');`),'failed index refresh erased the old file rows');
   await click('.code-tree-entries [data-path="README.md"]');
   await waitFor('document.querySelector(".code-file-body")?.textContent.includes("Untouched project file")', 'unchanged full file readable');
   await click('.code-change-group [data-path="long.txt"]'); await clickText('文件内容');
@@ -200,6 +214,17 @@ try {
   await clickText('继续读取文件');
   await waitFor('document.querySelector(".code-file-body")?.textContent.includes("second line")', 'continued long line body');
   assert(await execute(`return document.querySelectorAll('.code-content-line[data-line="1"]').length===1`), 'continued line duplicated source line number');
+  assert(await execute(`return import('/assets/code-tree.js').then(async({createCodeTree})=>{
+    window.changePages=0;window.pagingTree=createCodeTree({onSelect:()=>{},onStale:()=>{},request:async endpoint=>{
+      if(endpoint==='code-tree')return {availability:'available',revision:'fixture',entries:[]};
+      window.changePages++;return new Promise(resolve=>{window.finishChanges=()=>resolve({availability:'available',revision:'fixture',files:[{path:'after.js'}],has_more:false});});
+    }});
+    await window.pagingTree.reset({availability:'available',revision:'fixture',scope:'task',base_commit:'base',files:[{path:'before.js'}],has_more:true,next:1});
+    const more=window.pagingTree.root.querySelector('.code-tree-more');more.click();more.click();
+    return window.changePages===1&&window.pagingTree.root.textContent.includes('正在读取更多改动…')&&!!window.pagingTree.root.querySelector('[data-path="before.js"]');
+  });`),'change-list pagination lacks pending feedback or duplicated its read');
+  await execute(`window.finishChanges();`);
+  await waitFor(`window.pagingTree.root.querySelector('[data-path="after.js"]')&&!window.pagingTree.root.textContent.includes('正在读取更多改动…')`, 'change-list pagination clears busy feedback');
   assert(fs.readFileSync(indexPath).equals(originalIndex), 'read-only viewer rewrote original Git index');
   assert((await git(workspace, 'rev-parse', 'HEAD')) === commit, 'read-only viewer moved HEAD');
   await clickText('返回 Worker');

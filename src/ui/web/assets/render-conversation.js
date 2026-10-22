@@ -221,9 +221,10 @@ export function renderConversation(task, history = {}, previous = null) {
       if (entry.limitations?.length) content.append(el('p', `附属字段采用有界预览或来源证据不完整：${entry.limitations.join('、')}；正文完整性另行标注。`, 'hint conversation-limitations'));
       if (entry.truncated) {
         content.append(el('p', `正文尚未读完：已加载 ${entry.text.length} / ${entry.totalChars ?? '未知'} 字；本地筛选不判定此记录无命中。`, 'hint conversation-incomplete'));
-        const recordStatus = el('p', '', 'hint');
+        const recordStatus = el('p', '', 'hint'); recordStatus.setAttribute('role', 'status');
         const readMore = button('继续读取正文', async () => {
           const read = beginRead(), saved = node.entry; readMore.disabled = true;
+          recordStatus.textContent = '正在读取正文…';
           try {
             const page = await loadReadingRecord(current.id, saved.recordKind, saved.recordId, saved.text.length, { signal: read.signal });
             if (!read.valid()) return;
@@ -233,7 +234,10 @@ export function renderConversation(task, history = {}, previous = null) {
             const map = saved.side === 'input' ? inputs : saved.side === 'output' ? outputs : others;
             map.set(saved.key, saved); paint(); node.revealReadingContent();
           } catch (error) { if (read.valid()) { recordStatus.textContent = `正文读取失败：${error.message}；可重试。`; readMore.disabled = false; } }
-          finally { readMore.disabled = false; finishRead(read); }
+          finally {
+            if (recordStatus.textContent === '正在读取正文…') recordStatus.textContent = '';
+            readMore.disabled = false; finishRead(read);
+          }
         }, 'ghost conversation-read-more'); content.append(readMore, recordStatus);
       }
       node.classList.toggle('conversation-failed', Boolean(content.querySelector('.message-failed')));

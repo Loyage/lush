@@ -99,6 +99,7 @@ export function createCodeTree({ request, onSelect, onStale }) {
   }
   async function moreChanges(after) {
     const version = epoch;
+    const loading = el('p', '正在读取更多改动…', 'hint'); loading.setAttribute('role', 'status'); changeList.append(loading);
     try {
       const data = await request('code-state', { scope: snapshot.scope, after, limit: 100 });
       if (!isCurrent(version) || !ensureAvailable(data)) return;
@@ -106,6 +107,7 @@ export function createCodeTree({ request, onSelect, onStale }) {
       for (const entry of data.files || []) changeList.append(fileRow(entry, true));
       pageTail(changeList, data, () => moreChanges(data.next));
     } catch (error) { if (isCurrent(version) && error.name !== 'AbortError') changeList.append(el('p', `改动读取失败：${error.message}`, 'error')); }
+    finally { loading.remove(); }
   }
   function renderChanges() {
     changeTitle.textContent = `改动与未提交文件 · ${snapshot.summary?.changed_total ?? '?'} 项净变化 / ${snapshot.summary?.pending_total ?? '?'} 项未提交`;
@@ -131,9 +133,11 @@ export function createCodeTree({ request, onSelect, onStale }) {
     root,
     async reset(data) {
       snapshot = data; epoch++;
-      renderChanges(); tree.replaceChildren();
+      renderChanges();
+      // loadDirectory replaces the index only after a successful read; failed refreshes
+      // must leave the old rows available alongside the in-place error/retry control.
       if (data.availability === 'available') await loadDirectory('', tree);
-      else tree.append(el('p', data.reason || '没有可读取的项目文件。', 'hint'));
+      else tree.replaceChildren(el('p', data.reason || '没有可读取的项目文件。', 'hint'));
     },
     select(path) { selected = path; mark(); },
     invalidate() { epoch++; },

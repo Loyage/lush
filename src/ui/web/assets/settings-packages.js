@@ -45,7 +45,7 @@ export const cachedPackagesCatalog = client => packagesCatalogs.get(client.key);
 
 /** 禁用按钮不派发事件，提示必须由外层 `.help-host` 承载；可点按钮直接返回原按钮。 */
 function guardedButton(label, enabled, reason, fn, className = 'ghost') {
-  const node = button(label, fn, className);
+  const node = button(label, fn, className, { busyLabel: label === '更新' ? '更新中…' : label === '移除' ? '移除中…' : '安装中…' });
   if (enabled) return node;
   node.disabled = true;
   const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', reason); host.append(node);
@@ -118,7 +118,7 @@ export function packagesManager(ownsPage, client) {
     const value = source.value.trim();
     const invalid = fixedSourceError(value);
     if (invalid) { fail(invalid); return; }
-    if (await mutate('agent.packages.install', { source: value }, `已安装 ${value}；安装不会自动启用，请在 Agent 配置的「工作方式」里勾选。`)) source.value = '';
+    if (await mutate('agent.packages.install', { source: value }, `已安装 ${value}；安装不会自动启用，请在 Agent 配置的「工作方式」里勾选。`) && source.value.trim() === value) source.value = '';
   };
   const packageRow = entry => {
     const row = el('div', undefined, 'agent-package-row');
@@ -161,7 +161,7 @@ export function packagesManager(ownsPage, client) {
     state.textContent = `${catalog.installable ? '已安装包管理可用' : '只读目录发现'} · ${packages.length} 个包`;
     list.replaceChildren(...(packages.length ? packages.map(packageRow) : [el('p', '未发现已安装的 Pi 包。', 'settings-note')]));
     installRow.append(catalog.installable
-      ? button('安装', install, 'primary agent-package-install', { help: `${scopeLabel(client.scope)}：${PACKAGE_SOURCE_HELP}` })
+      ? button('安装', install, 'primary agent-package-install', { busyLabel: '安装中…', help: `${scopeLabel(client.scope)}：${PACKAGE_SOURCE_HELP}` })
       : guardedButton('安装', false, '当前 daemon 没有提供安装管理接口；升级 daemon 后再试。', () => {}, 'primary agent-package-install'));
   };
   paint();

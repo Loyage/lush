@@ -189,7 +189,7 @@ function paintRows(state) {
         : state.listError ? '匹配记录读取失败，不能判断是否有结果；可重试。'
           : !state.page ? '匹配记录尚未读取完成。'
             : 'Host 当前已同步／缓存记录中没有匹配；不代表来源项目全库无结果，可刷新补齐记录。', 'hint'));
-  if (state.page?.has_more) state.footer.append(button('加载更早记录', () => loadRows(state, true), 'ghost'));
+  if (state.page?.has_more) state.footer.append(button('加载更早记录', () => loadRows(state, true), 'ghost', { busyLabel: '读取中…' }));
 }
 function paintSources(state, projects, complete) {
   if (!state.current()) return;
@@ -206,7 +206,9 @@ async function loadRows(state, more = false) {
   const params = new URLSearchParams({ categories: JSON.stringify(state.categories), status: state.status, q: state.query, limit: '30' });
   if (state.projectId) params.set('project_id', state.projectId);
   if (more) params.set('before', state.page.cursor);
-  state.message.textContent = '正在读取匹配记录…'; state.listError = false; paintRows(state);
+  state.message.textContent = '正在读取匹配记录…'; state.listError = false;
+  // Keep the active paging button mounted while its feedback owns the pending state.
+  if (!state.page) paintRows(state);
   try {
     const page = validateInboxPage(await api(`/api/host/inbox?${params}`, { signal: state.listController.signal }));
     if (!state.current() || request !== state.listRequest) return;
@@ -228,7 +230,7 @@ async function loadRows(state, more = false) {
     if (state.current() && request === state.listRequest && error.name !== 'AbortError') {
       state.listBusy = false; state.listError = true; paintRows(state);
       state.message.textContent = `记录加载失败：${error.message}；已有内容和输入已保留。`;
-      state.footer.append(button('重试加载', () => loadRows(state, more), 'ghost'));
+      state.footer.append(button('重试加载', () => loadRows(state, more), 'ghost', { busyLabel: '读取中…' }));
     }
   } finally { if (request === state.listRequest) state.listBusy = false; }
 }
@@ -240,9 +242,16 @@ async function loadSelected(state, noticeId) {
     if (!state.current() || request !== state.focusRequest) return;
     if (item.project_id !== state.projectId || item.notice.id !== noticeId
       || (state.page && !state.page.projects.some(source => source.id === item.project_id))) throw new Error('事项来源不匹配或已移除');
+    state.focusError?.remove(); state.focusError = null;
     state.selected = item; paintSelected(state); paintRows(state);
   } catch (error) {
-    if (state.current() && error.name !== 'AbortError') state.focus.replaceChildren(el('p', `事项读取失败：${error.message}`, 'error'), button('重试读取', () => loadSelected(state, noticeId), 'ghost'));
+    if (state.current() && request === state.focusRequest && error.name !== 'AbortError') {
+      // A refresh failure is not an empty detail: keep the selected record and its editing DOM.
+      state.focusError?.remove(); state.focusError = el('span', undefined, 'error');
+      state.focusError.append(el('span', `事项读取失败：${error.message}；已有内容和输入已保留。`),
+        button('重试读取', () => loadSelected(state, noticeId), 'ghost', { busyLabel: '读取中…' }));
+      state.message.append(state.focusError);
+    }
   }
 }
 
@@ -292,7 +301,7 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
   statusSelect.onchange = () => { state.status = statusSelect.value; return filterNow(); };
   statusField.append(statusSelect);
   if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status: state.status, query: state.query, categories: state.categories }), 'ghost'));
-  const refresh = button('刷新记录', () => Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]), 'ghost');
+  const refresh = button('刷新记录', () => Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]), 'ghost', { busyLabel: '刷新中…' });
   const search = searchField({ label: '搜索收件箱', placeholder: '项目、标题、正文、答复或编号', value: query,
     scope: '范围：Host 已同步／缓存记录，按分类、状态和关键词分页检索；离线、容量限制或尚未同步完整时，不代表来源项目全库',
     onSubmit: value => { state.query = value.trim().toLowerCase(); return filterNow(); } });

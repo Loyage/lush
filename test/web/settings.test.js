@@ -16,10 +16,11 @@ const world = makeWorld(), dom = installDom({ fetch: (route, options) => String(
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const prefs = await import('../../src/ui/web/assets/prefs.js');
 const { openSettings } = await import('../../src/ui/web/assets/render-settings.js');
+const { openAgentStatus } = await import('../../src/ui/web/assets/render-agent-status.js');
 await boot(); await prefs.refreshDevicePreferences();
 afterAll(async () => { dom.restore(); await web.stop(true); fs.rmSync(device, { recursive: true, force: true }); });
 
-test('root settings route saves reading and reminder preferences through the real Host', async () => {
+test('device settings saves real Host preferences and reminders, profiles and environment with feedback and retained drafts', async () => {
   await openSettings();
   const panel = dom.node('detail');
   expect(dom.location.hash).toBe('#settings'); expect(panel.dataset.view).toBe('settings');
@@ -85,4 +86,52 @@ test('root settings route saves reading and reminder preferences through the rea
   expect(world.state.runtimeSettings.result_notice.value).toBe(true);
   expect(report.checked).toBe(true);
   dom.location.hash = ''; await dom.fire('hashchange'); expect(panel.dataset.view).toBe('projects');
+
+  // Continue the same device settings workflow into editable Agent defaults and environment.
+  await openAgentStatus();
+  const profile = panel.querySelector('[data-agent-target="default"]');
+  const profileSave = profile.querySelectorAll('button').find(node => node.textContent === '保存配置');
+  await profileSave.onclick();
+  expect(profile.querySelector('.agent-profile-feedback').hidden).toBe(false); // missing managed source
+  const backend = profile.querySelector('[data-agent-field="agent"]'); backend.value = 'codex'; backend.listeners.change[0]();
+  const prompt = profile.querySelector('[data-agent-field="append_prompt"]'); prompt.value = 'profile draft';
+  let release, reject, pendingMethod = '', count = 0;
+  globalThis.fetch = (url, options) => {
+    if ((options?.body && JSON.parse(options.body).method === pendingMethod) || String(url).includes(pendingMethod) && pendingMethod === 'agent/environment') {
+      count++; return new Promise((resolve, fail) => { release = () => resolve(fetch(url, options)); reject = fail; });
+    }
+    return fetch(url, options);
+  };
+  try {
+    pendingMethod = 'agent.configure';
+    let pending = profileSave.onclick(); await until(() => reject);
+    expect(profileSave.textContent).toBe('保存中…'); await profileSave.onclick(); expect(count).toBe(1);
+    reject(Error('profile request failure')); await pending;
+    expect(profile.querySelector('.agent-profile-feedback').textContent).toContain('profile request failure');
+    expect(prompt.value).toBe('profile draft'); expect(profileSave.textContent).toBe('保存配置');
+    pending = profileSave.onclick(); prompt.value = 'edited during save'; release(); await pending;
+    expect(profile.querySelector('[data-agent-field="append_prompt"]')).toBe(prompt);
+    expect(prompt.value).toBe('edited during save'); expect(world.state.agentConfig.default.append_prompt).toBe('profile draft');
+
+    pendingMethod = 'agent/environment';
+    let env = panel.querySelector('.agent-env-block'), load = env.querySelector('.agent-env-load');
+    pending = load.onclick(); expect(load.textContent).toBe('读取中…'); reject(Error('environment read failure')); await pending;
+    expect(env.querySelector('[data-env-error=""]').textContent).toContain('environment read failure');
+    pending = load.onclick(); release(); await pending;
+    env = panel.querySelector('.agent-env-block');
+    const name = env.querySelector('[data-env-name="0"]'), value = env.querySelector('[data-env-value="0"]');
+    const envSave = env.querySelector('[data-env-action="save"]');
+    name.value = 'INVALID-NAME'; name.listeners.input[0](); await envSave.onclick();
+    expect(name.getAttribute('aria-invalid')).toBe('true'); expect(env.querySelector('[data-env-error=""]').hidden).toBe(false);
+    expect(name.getAttribute('aria-describedby')).toBe(env.querySelector('[data-env-error=""]').id);
+    name.value = 'HTTP_PROXY'; name.listeners.input[0]();
+    pendingMethod = 'agent.environment.configure'; pending = envSave.onclick();
+    expect(envSave.textContent).toBe('保存中…'); expect(env.querySelector('[data-env-action="add"]').disabled).toBe(true);
+    expect(env.querySelector('.module-toggle').disabled).toBe(false);
+    reject(Error('environment save failure')); await pending;
+    expect(env.querySelector('[data-env-error=""]').textContent).toContain('environment save failure'); expect(value.type).toBe('password');
+    pending = envSave.onclick(); value.value = 'draft after request'; value.listeners.input[0](); release(); await pending;
+    expect(panel.querySelector('[data-env-value="0"]')).toBe(value); expect(value.value).toBe('draft after request');
+    expect(env.querySelector('[data-env-error=""]').textContent).toContain('未保存修改');
+  } finally { globalThis.fetch = fetch; }
 });

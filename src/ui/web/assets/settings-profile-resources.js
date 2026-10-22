@@ -1,6 +1,6 @@
 /** Explicit profile resource selection, independent from installing/removing packages. */
 import { el } from './dom.js';
-import { show } from './messages.js';
+import { buttonFeedback } from './button-feedback.js';
 import { cachedPackagesCatalog, loadPackagesCatalog } from './settings-packages.js';
 
 export function createProfileResources({ profile, backend, mode, ownsPage, client }) {
@@ -10,7 +10,9 @@ export function createProfileResources({ profile, backend, mode, ownsPage, clien
   const resourcesBox = el('div', undefined, 'agent-resources-box');
   const resourcesHead = el('div', undefined, 'agent-resources-head');
   const loadResources = el('button', '读取已安装项', 'ghost resource-load'); loadResources.type = 'button';
-  const resourcesNote = el('span', undefined, 'settings-note');
+  const resourcesNote = el('span', undefined, 'settings-note'); resourcesNote.setAttribute('role', 'status');
+  const feedback = buttonFeedback(loadResources, '读取中…');
+  let reading = false;
   const resourceChoices = el('div', undefined, 'resource-choices');
   resourcesHead.append(loadResources, resourcesNote); resourcesBox.append(resourcesHead, resourceChoices);
 
@@ -33,7 +35,7 @@ export function createProfileResources({ profile, backend, mode, ownsPage, clien
   };
   const paintResources = () => {
     const pi = backend.value === 'pi' && mode.value === 'lush';
-    loadResources.disabled = !pi;
+    loadResources.disabled = !pi || reading;
     if (mode.value === 'pi') {
       resourcesNote.textContent = 'Pi 默认配置由执行机器的 Pi 目录自行决定资源，这里不注入 Lush 的扩展与 Skills。';
     } else if (!pi) {
@@ -48,10 +50,11 @@ export function createProfileResources({ profile, backend, mode, ownsPage, clien
     ] : []));
   };
   loadResources.onclick = async () => {
-    loadResources.disabled = true; loadResources.textContent = '读取中…';
+    if (!ownsPage() || reading || backend.value !== 'pi' || mode.value === 'pi') return;
+    reading = true; loadResources.disabled = true; feedback(true);
     try { packagesCatalog = await loadPackagesCatalog(true, client); if (ownsPage()) paintResources(); }
-    catch (error) { if (ownsPage()) show(error.message, 'error'); }
-    finally { if (ownsPage()) { loadResources.textContent = '重新读取'; loadResources.disabled = backend.value !== 'pi' || mode.value === 'pi'; } }
+    catch (error) { if (ownsPage()) resourcesNote.textContent = `资源目录读取失败：${error.message}；已选项保留。`; }
+    finally { reading = false; feedback(false); if (ownsPage()) loadResources.disabled = backend.value !== 'pi' || mode.value === 'pi'; }
   };
 
   return { node: resourcesBox, paint: paintResources,

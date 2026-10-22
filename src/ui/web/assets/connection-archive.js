@@ -74,13 +74,14 @@ export function createConnectionArchive({ read, post, current, getData, load, in
       if (!accepted || !current()) return;
     }
     samplingSaving = true; const revision = samplingRevision; invalidateList();
+    samplingFeedback.textContent = '正在保存采样设置…'; samplingFeedback.setAttribute('role', 'status');
     try {
       await post('agent.connections.sampling', { sampling }); if (!current()) return;
       if (revision === samplingRevision) samplingDirty = false;
       await load(true); if (current()) { samplingFeedback.textContent = sharedSampling ? '设备采样配置已保存；所有项目后续读取时刷新调度，历史各归项目。' : '采样设置已保存；开启后关闭页面仍运行，daemon 停机期间留空。'; samplingFeedback.setAttribute('role', 'status'); }
     } catch { if (current()) { samplingFeedback.textContent = '采样设置保存失败；修改保留，请重试。'; samplingFeedback.setAttribute('role', 'alert'); } }
     finally { samplingSaving = false; }
-  }));
+  }, undefined, { busyLabel: '保存中…' }));
   historyConnection.onchange = () => { historyId.value = ''; return loadHistory(); };
   days.onchange = loadHistory;
   historyControls.append(button('读取历史', loadHistory, 'ghost'));

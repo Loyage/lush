@@ -108,7 +108,7 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
     if (ui.noticeRecords === state && request === state.request) {
       paintNoticeFooter(state);
       $('notice-pagination').append(el('p', `记录加载失败：${error.message}`, 'error'),
-        button('重试', () => loadNoticeRecords({ more, preserve, reload }), 'ghost'));
+        button('重试', () => loadNoticeRecords({ more, preserve, reload }), 'ghost', { busyLabel: '读取中…' }));
     }
   } finally { if (request === state.request) state.pending = false; }
 }
@@ -123,10 +123,10 @@ function paintNoticeFooter(state) {
     const warning = el('p', '列表可能已过期；旧页未自动重查，打开事项时会核验当前状态。', 'hint');
     warning.setAttribute('role', 'status');
     footer.append(warning, button('刷新已加载记录', () => loadNoticeRecords({ reload: true }), 'ghost', {
-      help: '只读重载当前已加载页数，保留当前答复；不会提交答案或调用 Agent。',
+      busyLabel: '刷新中…', help: '只读重载当前已加载页数，保留当前答复；不会提交答案或调用 Agent。',
     }));
   }
-  if (state.page?.has_more) footer.append(button('加载更早记录', () => loadNoticeRecords({ more: true }), 'ghost'));
+  if (state.page?.has_more) footer.append(button('加载更早记录', () => loadNoticeRecords({ more: true }), 'ghost', { busyLabel: '读取中…' }));
 }
 
 async function loadButlerChoices(state, { more, preserve }) {
@@ -143,7 +143,7 @@ async function loadButlerChoices(state, { more, preserve }) {
     $('notices').replaceChildren(...state.choices.map(sleepChoiceCard));
     const footer = $('notice-pagination');
     footer.replaceChildren(el('p', `已显示 ${state.choices.length} 条管家选择；代理决定不等于你亲自确认。`, 'hint'));
-    if (state.page.has_more) footer.append(button('加载更早选择', () => loadNoticeRecords({ more: true }), 'ghost'));
+    if (state.page.has_more) footer.append(button('加载更早选择', () => loadNoticeRecords({ more: true }), 'ghost', { busyLabel: '读取中…' }));
   } catch (error) {
     if (request === state.request) $('notice-pagination').replaceChildren(el('p', `管家选择加载失败：${error.message}`, 'error'));
   } finally { if (request === state.request) state.pending = false; }
@@ -325,7 +325,7 @@ export async function openNotice(noticeId, { record = false, push = true } = {})
       if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
       event?.preventDefault(); return detail(state.notice.task_id);
     };
-    tools.append(back, state.worker, button('刷新记录', () => openNotice(noticeId, { record: true }), 'ghost'));
+    tools.append(back, state.worker, button('刷新记录', () => openNotice(noticeId, { record: true }), 'ghost', { busyLabel: '刷新中…' }));
     state.focus = el('div', undefined, 'notice-record-detail'); state.focus.id = 'notice-record-detail';
     state.message = el('p', '正在读取事项…', 'hint'); state.message.setAttribute('role', 'status');
     root.append(tools, state.message, state.focus); $('detail').replaceChildren(root);
@@ -342,7 +342,7 @@ export async function openNotice(noticeId, { record = false, push = true } = {})
   } catch (error) {
     if (current() && error.name !== 'AbortError') {
       state.message.replaceChildren(el('span', `事项读取失败：${error.message}`, 'error'),
-        button('重试读取', () => openNotice(noticeId, { record: true }), 'ghost'));
+        button('重试读取', () => openNotice(noticeId, { record: true }), 'ghost', { busyLabel: '读取中…' }));
     }
   }
 }

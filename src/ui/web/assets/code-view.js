@@ -26,7 +26,7 @@ export function createCodeView(taskId, { onSearch } = {}) {
   sampling.hidden = true;
   const warning = el('p', '', 'code-snapshot-warning'); warning.hidden = true;
   metadata.append(summaryLine, provenance, sampling, warning);
-  const refreshButton = button('刷新', () => refresh(), 'ghost', { help: '重新采样当前 Worker 工作区，并显式更新文件列表和选中文件；不会修改文件或调用 Agent。' });
+  const refreshButton = button('刷新', () => refresh(), 'ghost', { busyLabel: '稍候', help: '重新采样当前 Worker 工作区，并显式更新文件列表和选中文件；不会修改文件或调用 Agent。' });
   const toggleFiles = button('收起文件栏', () => {
     const collapsed = root.classList.toggle('code-files-collapsed');
     paintFiles(!collapsed);
@@ -36,7 +36,7 @@ export function createCodeView(taskId, { onSearch } = {}) {
   toolbar.append(scopeSelect, refreshButton, toggleFiles, metadata);
   const banner = el('div', undefined, 'code-update-banner'); banner.hidden = true;
   const bannerText = el('span'); bannerText.setAttribute('role', 'status');
-  const latest = button('加载最新', () => refresh(), 'ghost'); banner.append(bannerText, latest);
+  const latest = button('加载最新', () => refresh(), 'ghost', { busyLabel: '读取中…' }); banner.append(bannerText, latest);
   const layout = el('div', undefined, 'code-layout');
   const viewport = el('div', undefined, 'code-viewport'); viewport.tabIndex = 0; viewport.setAttribute('aria-label', '代码文件正文');
   let active = false, disposed = false, generation = 0, timer = null, scope = 'task';

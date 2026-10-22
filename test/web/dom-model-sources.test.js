@@ -8,8 +8,10 @@ const source = id => ({ id, label: `来源 ${id}`, provider: 'deepseek', auth_ty
 
 test('model source overview opens details and the editor on demand', async () => {
   const requests = [];
-  const dom = installDom({ fetch: async url => {
+  let rejectSave, writes = 0;
+  const dom = installDom({ fetch: async (url, options) => {
     requests.push(String(url));
+    if (options?.body) { writes++; return new Promise((_, reject) => { rejectSave = reject; }); }
     return Response.json({ version: 1, sampling: { enabled: false, interval_minutes: 5, retention_days: 90 }, connections: [source('a'), source('b')],
       configuration_scope: { selected: 'device', source: 'device', project_override: false } });
   } });
@@ -27,5 +29,14 @@ test('model source overview opens details and the editor on demand', async () =>
     await button(root, '后台采样设置').onclick();
     expect(root.querySelector('[data-connection-field="sampling-enabled"]').parentNode.parentNode.parentNode.hidden).toBe(false);
     expect(requests).toHaveLength(1);
+    await button(root, '添加连接').onclick();
+    const editor = root.querySelector('.agent-connection-editor-feedback');
+    const save = button(root, '保存连接'); await save.onclick(); expect(editor.textContent).toContain('连接名称');
+    const name = root.querySelector('[data-connection-field="label"]'), key = root.querySelector('[data-connection-field="api_key"]');
+    name.value = 'retained public draft'; name.oninput(); key.value = 'temporary test secret';
+    const saving = save.onclick(); expect(save.textContent).toBe('保存中…'); expect(key.value).toBe('');
+    await save.onclick(); expect(writes).toBe(1); rejectSave(Error('controlled connection failure')); await saving;
+    expect(editor.textContent).toContain('保存连接失败'); expect(name.value).toBe('retained public draft');
+    expect(key.value).toBe(''); expect(save.textContent).toBe('保存连接');
   } finally { dom.restore(); }
 });

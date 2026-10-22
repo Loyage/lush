@@ -87,6 +87,7 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
     if (dirty() && !await confirmDialog({ title: '放弃未保存设置并重新读取？', message: '重新读取本项目的权威策略，当前未保存选择会丢失；不会重发任何操作。', confirmLabel: '放弃并读取' })) return;
     if (!owns()) return;
     const request = ++generation; controller = new AbortController(); busy = true; sync();
+    status.textContent = '正在读取项目设置…'; status.className = 'hint automation-settings-status';
     try { const value = await api('/api/hooks', { signal: controller.signal }); if (owns() && request === generation) receive(value); }
     catch (error) { if (owns() && request === generation && error.name !== 'AbortError') { status.textContent = `设置读取失败：${error.message}；草稿及原 revision 保留。`; status.className = 'error automation-settings-status'; } }
     finally { if (request === generation) { busy = false; controller = null; sync(); } }
@@ -100,7 +101,7 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
         && !await confirmDialog({ title: '授权本项目未来 Worker 自动到验收？', message: acceptanceHelp,
           confirmLabel: '授权并保存', danger: true, confirmHelp: acceptanceHelp })) return;
       if (!owns()) return;
-      submitted = true;
+      submitted = true; status.textContent = '正在保存项目设置…'; status.className = 'hint automation-settings-status';
       const result = await action('hooks.automation_settings', params, { refresh: false });
       if (!owns() || request !== generation) { uncertain = true; late = true; return; }
       const value = result?.automation_settings;
@@ -111,9 +112,9 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
       uncertain = submitted;
       if (owns() && request === generation) { status.textContent = `${error.message}；草稿及原 revision 保留，请重新读取核查，不自动重发。`; status.className = 'error automation-settings-status'; }
     } finally { if (request === generation) { busy = false; sync(); } }
-  }, 'primary');
+  }, 'primary', { busyLabel: '保存中…' });
   const saveHost = el('span', undefined, 'help-host'); saveHost.append(save);
-  const reload = button('重新读取项目设置', load, 'ghost'), reloadHost = el('span', undefined, 'help-host'); reloadHost.append(reload);
+  const reload = button('重新读取项目设置', load, 'ghost', { busyLabel: '读取中…' }), reloadHost = el('span', undefined, 'help-host'); reloadHost.append(reload);
   for (const control of [save, reload, ...choices.map(item => item.control)]) { const click = control.onclick; control.onclick = async () => { await click(); sync(); }; }
   scope.onchange = () => { if (owns() && !scope.disabled && draft) { draft.scope = scope.value; sync(); } };
   const actions = el('div', undefined, 'actions hook-actions'); actions.append(saveHost, reloadHost);
