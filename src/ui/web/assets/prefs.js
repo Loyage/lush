@@ -16,6 +16,8 @@ import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, parseFilters, serializeColl
 import { SORT_MODES } from './tree-order.js';
 import { STATUS } from './format.js';
 import { preferenceScope } from './route.js';
+import { normalizeNoticeChannels } from './notice-channels.js';
+export { normalizeNoticeChannels } from './notice-channels.js';
 
 export const MARKDOWN_KEY = 'lush.markdown';
 export const THEME_KEY = 'lush.theme';
@@ -96,12 +98,6 @@ const parseTaskGraphStatuses = raw => {
  * 全部受管偏好。`legacy` 是升级前的旧键，只在当前键缺失时读取。
  * `default` 可以是值或工厂（集合 / 对象每次都要新的，避免调用方改到共享默认值）。
  */
-export function normalizeNoticeChannels(value) {
-  return Object.fromEntries(['created', 'idle', 'analysis', 'failed'].map(type => [type,
-    Object.fromEntries(['banner', 'system'].map(channel => [channel,
-      typeof value?.[type]?.[channel] === 'boolean' ? value[type][channel] : true]))]));
-}
-
 export const PREF_DEFS = {
   noticeChannels: { key: 'lush.noticeChannels', default: () => normalizeNoticeChannels(),
     parse: raw => { try { return normalizeNoticeChannels(JSON.parse(raw)); } catch { return normalizeNoticeChannels(); } },

@@ -73,6 +73,7 @@ test('child auto-delivery, explicit parent Squash and batch acceptance preserve 
     expect(await git(f.root, 'show', 'main:parallel.txt')).toBe('independent code');
     expect(await git(f.root, 'rev-list', '--count', `${repairBaseline}..main`)).toBe('2');
     expect(f.store.task(parent.id).status).toBe('awaiting_acceptance');
+    expect(f.project.inspect(parent.id).notices.find(row => row.title.includes('待验收'))).toMatchObject({ lifecycle_type: 'idle', read_at: null });
     await f.project.acceptTask(parallel.id);
     await f.project.acceptTask(independent.id);
     const temporary = f.project.createTemporaryAutomation({ hook: { name: '验收告知', trigger: 'worker.accepted', mode: 'persistent', enabled: true,

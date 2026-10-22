@@ -44,7 +44,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
 window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
 import {openSkills} from '/assets/render-skills.js';window.openSkills=openSkills;
-import {ensureProject} from '/assets/project-picker.js';import {openSettings} from '/assets/render-settings.js';await ensureProject();window.ensureProject=ensureProject;window.openSystem=async()=>{openSettings();return document.querySelector('[data-settings-tab=system]').onclick()};window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
+import {ensureProject} from '/assets/project-picker.js';import {openSettings} from '/assets/render-settings.js';await ensureProject();window.ensureProject=ensureProject;window.openInterface=async()=>{openSettings();return document.querySelector('[data-settings-tab=interface]').onclick()};window.openSystem=async()=>{openSettings();return document.querySelector('[data-settings-tab=system]').onclick()};window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
 </script></body></html>`;
 let server, driver, session, base, passed = false, diagnosisFails = false, noProjectMode = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -163,6 +163,9 @@ try {
     await execute(`return document.querySelector('[data-agent-tab=settings]').onclick()`);
     assert(await execute(`return document.querySelector('[data-agent-field=append_prompt]').value==='device-draft'`), 'Agent tab switch lost draft');
     await layout(`agent-${theme}-${width}`,width);
+    await execute('return window.openInterface()'); await waitFor('document.querySelector("[data-notice-type=reported]")');
+    assert(await execute(`return document.querySelector('.settings-view').textContent.includes('提醒方式')&&document.querySelector('.settings-view').textContent.includes('Worker 待验收')&&document.querySelectorAll('[data-notice-type]').length===10&&[...document.querySelectorAll('[data-notice-type]')].every(n=>n.checked&&!n.disabled)`), 'Reminder categories or default channels missing');
+    await layout(`interface-${theme}-${width}`,width);
     await execute('return window.openSystem()'); await waitFor('document.querySelector("[data-runtime-input=call_timeout]")');
     assert(await execute(`return [...document.querySelectorAll('.settings-scope-pane>.block')].every(n=>n.classList.contains('module-fold')&&!n.classList.contains('module-preview'));`), 'runtime forms are not explicit folds');
     assert(await execute(`return !document.querySelector('[data-runtime-input="concurrency"],[data-runtime-input="control_concurrency"]') && !document.querySelector('.settings-view').textContent.includes('并发额度')`), 'Removed concurrency settings remain visible');

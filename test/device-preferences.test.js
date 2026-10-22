@@ -20,5 +20,18 @@ test('preferences are device-authoritative, private and backend revisions preven
     expect(JSON.parse(fs.readFileSync(path.join(config.deviceHome, 'preferences.json')))).toEqual({
       version: 1, values: { theme: 'dark', polling: 'power', sidebarSort: 'id' },
     });
+    // A historical four-category preference stays readable without rewriting its private file.
+    const file = path.join(config.deviceHome, 'preferences.json');
+    const legacy = Object.fromEntries(['created', 'idle', 'analysis', 'failed'].map(type => [type, { banner: false, system: false }]));
+    fs.writeFileSync(file, JSON.stringify({ version: 1, values: { noticeChannels: legacy } }));
+    const original = fs.readFileSync(file, 'utf8'), restored = readDevicePreferences(config);
+    expect(restored.values.noticeChannels.idle).toEqual({ banner: false, system: false });
+    expect(restored.values.noticeChannels.reported).toEqual({ banner: true, system: true });
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    const channels = { ...restored.values.noticeChannels, reported: { banner: false, system: true } };
+    const changed = saveDevicePreferences(config, { noticeChannels: channels }, restored.revision);
+    const olderClient = saveDevicePreferences(config, { noticeChannels: legacy }, changed.revision);
+    expect(olderClient.values.noticeChannels.reported).toEqual(channels.reported);
+    expect(() => saveDevicePreferences(config, { noticeChannels: { ...channels, reported: { banner: 'off', system: true } } }, olderClient.revision)).toThrow();
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

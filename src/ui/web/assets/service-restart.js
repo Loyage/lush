@@ -3,7 +3,6 @@ import { block, el } from './dom.js';
 import { confirmDialog } from './dialog.js';
 import { projectHref } from './route.js';
 import { agentHelp } from './help.js';
-import { readPref } from './prefs.js';
 import { safeRestartFlow, safeRestartHelp } from './safe-restart-flow.js';
 import { QUICK_ACTIONS, DEFAULT_QUICK_ACTION_BUTTONS, normalizeQuickActionButtons } from '../../../shared/dashboard-quick-actions.js';
 
@@ -110,10 +109,9 @@ export function serviceRestartControls({ mode = 'management', buttons = DEFAULT_
   };
   const paintObservation = ready => {
     const complete = ready === batch.planned.length;
-    // Muting reminders does not hide the operation's factual status or mutate source Notices.
-    const remind = readPref('noticeChannels').idle?.banner !== false;
-    status.className = complete && remind ? 'settings-note maintenance-ready' : 'settings-note';
-    status.setAttribute('aria-live', remind ? 'polite' : 'off');
+    // This is operation status, not a Worker acceptance Notice; device category filters do not apply.
+    status.className = complete ? 'settings-note maintenance-ready' : 'settings-note';
+    status.setAttribute('aria-live', 'polite');
     // Do not announce an unchanged completion every two seconds.
     if (complete && batch.readyCount !== ready) batch.readyObservedAt = now();
     batch.readyCount = ready;

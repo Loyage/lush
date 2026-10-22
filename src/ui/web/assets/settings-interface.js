@@ -8,6 +8,7 @@ import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
 import { row } from './settings-controls.js';
+import { NOTICE_CATEGORIES } from './notice-channels.js';
 
 export function createInterfaceSettings({ renderSettings, isInterface }) {
   let preferenceActions = devicePreferences;
@@ -166,14 +167,9 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
     behavior.append(row('系统通知总开关', '设备统一开关，默认关闭；浏览器仍需单独授权通知权限。窗口打开期间提醒新事项，关闭期间不补发。', notificationControl()));
     content.append(behavior);
 
-    const notices = block('告知渠道');
-    notices.append(el('p', '所有项目统一使用这些页面告知条与系统通知偏好；系统通知还需设备总开关及当前浏览器权限。所有记录保留，不改变历史或未读列表计数。待决事项始终独立显示，不能用「已知」消除。', 'settings-note'));
-    for (const [type, label, note] of [
-      ['created', 'Worker 待开始', '仅创建 Worker 后等待手动开始；尚未调用 Agent。'],
-      ['idle', 'Worker 本轮结束', 'Worker 已静息，不代表验收完成或已合并。'],
-      ['analysis', '只读分析完成', '用户发起的只读分析已完成。'],
-      ['failed', '异常停止', '超时、调用失败或后台中断等异常。'],
-    ]) notices.append(row(label, note, noticeChannelControl(type, label)));
+    const notices = block('提醒方式');
+    notices.append(el('p', '所有项目共用这些提醒方式，只控制页面告知条与系统通知；是否生成待验收告知由项目自动化及具体 Worker 设置决定。系统通知还需设备总开关及当前浏览器权限。关闭提醒不删除记录、不改变未读计数；未知来源保持可见，待决事项独立显示，不能用「已知」消除。', 'settings-note'));
+    for (const { id, label, note } of NOTICE_CATEGORIES) notices.append(row(label, note, noticeChannelControl(id, label)));
     content.append(notices);
 
     const reset = block('恢复界面默认');

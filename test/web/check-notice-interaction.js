@@ -16,7 +16,7 @@ import {ui} from '/assets/state.js';
 import {setPref,normalizeNoticeChannels} from '/assets/prefs.js';
 import {registerNavigation} from '/assets/navigate.js';
 window.requests=[]; window.opened=[]; window.failRead=false; window.hold=false;
-window.info=id=>({id,task_id:4,kind:'info',status:'sent',lifecycle_type:'idle',source_event_id:id,read_at:null,title:'Worker '+id+' '+('长标题确认截断 '.repeat(20)),created_at:'2026-10-02T12:00:00Z'});
+window.info=(id,type='idle')=>({id,task_id:4,kind:'info',status:'sent',lifecycle_type:type,source_event_id:id,read_at:null,title:'Worker '+id+' '+('长标题确认截断 '.repeat(20)),created_at:'2026-10-02T12:00:00Z'});
 window.paint=()=>{ui.lastSnapshot={notices:window.rows,status:{project:'/tmp/browser-notice'}};renderNotices(ui.lastSnapshot);renderNoticeBanner(ui.lastSnapshot);};
 window.reset=()=>{ui.noticeReadRows=new Map();ui.noticeReadPending=new Map();window.rows=[info(1),info(2)];window.requests=[];window.opened=[];window.failRead=false;window.hold=false;setPref('noticeChannels',normalizeNoticeChannels());paint();};
 registerNavigation({refresh:async()=>paint(),detail:async id=>{window.opened.push(id);return false;}});
@@ -76,8 +76,8 @@ try {
   assert(await asyncExecute('const done=arguments[0];let n=0;const check=()=>window.ready?done(true):++n>100?done(false):setTimeout(check,30);check();'), 'fixture did not load');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [390, 844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height }); await execute(`reset();document.documentElement.dataset.theme='${theme}';`);
-    const layout = await execute(`const row=document.querySelector('.notice-banner-row'),known=row.querySelector('.notice-banner-known'),r=known.getBoundingClientRect();return {viewport:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,width:r.width,height:r.height,right:r.right,visible:getComputedStyle(known).display!=='none',touch:getComputedStyle(row).touchAction,live:document.querySelector('#notice-banner').getAttribute('aria-live')};`);
-    assert(!layout.overflow && layout.visible && layout.width >= 44 && layout.height >= 44 && layout.right <= layout.viewport && layout.touch.includes('pan-y') && layout.live === 'polite', `invalid layout ${JSON.stringify(layout)}`);
+    const layout = await execute(`const row=document.querySelector('.notice-banner-row'),known=row.querySelector('.notice-banner-known'),r=known.getBoundingClientRect();return {viewport:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,width:r.width,height:r.height,minimum:matchMedia('(max-width:760px), (pointer:coarse)').matches?44:32,right:r.right,visible:getComputedStyle(known).display!=='none',touch:getComputedStyle(row).touchAction,live:document.querySelector('#notice-banner').getAttribute('aria-live')};`);
+    assert(!layout.overflow && layout.visible && layout.width >= 44 && layout.height >= layout.minimum && layout.right <= layout.viewport && layout.touch.includes('pan-y') && layout.live === 'polite', `invalid layout ${JSON.stringify(layout)}`);
     await click('.notice-banner-known');
     await asyncExecute('const done=arguments[0];setTimeout(()=>done(true),30);');
     assert(await execute(`return requests.length===1&&requests[0].method==='notice.read'&&requests[0].params.id===2&&opened.length===0&&document.querySelector('.notice-banner-row').dataset.noticeId==='1'&&rows.length===2;`), 'known navigation/scope/history violation');
@@ -95,6 +95,9 @@ try {
   assert(await asyncExecute(`const done=arguments[0];reset();pointer('pointerdown',20);pointer('pointermove',23,100);pointer('pointerup',120,110);pointer('pointerdown',20);pointer('pointermove',45);pointer('pointerup',45);pointer('pointerdown',20);pointer('pointermove',140);pointer('pointercancel',140);const title=document.querySelector('.notice-banner-title');const range=document.createRange();range.selectNodeContents(title);getSelection().addRange(range);pointer('pointerdown',20);pointer('pointermove',140);pointer('pointerup',140);getSelection().removeAllRanges();setTimeout(()=>done(requests.length===0),20);`), 'vertical/short/cancel/selection triggered ACK');
   await execute(`reset();setChannels({idle:{banner:false}});`);
   assert(await execute(`return document.querySelector('#notice-banner').hidden&&document.querySelector('#notice-count').textContent.includes('2 告知')&&requests.length===0;`), 'channel filtering changed unread facts');
+  await execute(`reset();window.rows=[info(1,'reported'),info(2,'idle'),info(3,null)];setChannels({idle:{banner:false},reported:{banner:false}});paint();`);
+  const filtered = await execute(`return {id:document.querySelector('.notice-banner-row')?.dataset.noticeId,count:document.querySelector('#notice-count').textContent,requests,rows};`);
+  assert(filtered.id==='3'&&filtered.count.includes('3 告知')&&filtered.requests.length===0, `known category filtering hid unknowns or changed unread records: ${JSON.stringify(filtered)}`);
   await execute(`reset();setReduced();`);
   assert(await execute(`return getComputedStyle(document.querySelector('.notice-banner-dot')).animationName==='none';`), 'reduced motion failed');
   console.log('PASS keyboard/focus, failure retry, PointerEvents/polling/selection/click guards, preferences and reduced motion under CSP');

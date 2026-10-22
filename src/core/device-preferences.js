@@ -4,9 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { check, isPlainObject } from './types.js';
 import { validateConfigurationDirectory, withConfigurationWriteLock } from './device-config.js';
 
+import { NOTICE_CATEGORIES, NOTICE_CHANNELS as CHANNELS, normalizeNoticeChannels } from '../ui/web/assets/notice-channels.js';
+
 const MAX_BYTES = 16384;
-const TYPES = ['created', 'idle', 'analysis', 'failed'];
-const CHANNELS = ['banner', 'system'];
+const TYPES = NOTICE_CATEGORIES.map(category => category.id);
 const freeze = value => {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); }
   return value;
@@ -14,7 +15,7 @@ const freeze = value => {
 export const PREFERENCE_DEFAULTS = freeze({
   markdown: true, theme: 'system', sidebarSort: 'smart', taskGraphMinimal: true,
   reduceMotion: false, polling: 'standard', toastDuration: 'standard', transcriptOrder: 'desc',
-  noticeChannels: Object.fromEntries(TYPES.map(type => [type, { banner: true, system: true }])),
+  noticeChannels: normalizeNoticeChannels(),
   noticeNotifications: false,
 });
 const ENUMS = { theme: ['system', 'light', 'dark'], sidebarSort: ['smart', 'updated', 'id'],
@@ -37,8 +38,9 @@ function normalize(patch) {
     const value = patch[key];
     if (key === 'noticeChannels') {
       fields(value, TYPES);
-      check(TYPES.every(type => Object.hasOwn(value, type)), 'notice channels must include every category');
-      values[key] = Object.fromEntries(TYPES.map(type => {
+      // Four-category clients/files remain valid. An omitted new category preserves its saved value.
+      check(TYPES.filter(type => type !== 'reported').every(type => Object.hasOwn(value, type)), 'notice channels must include every category');
+      values[key] = Object.fromEntries(TYPES.filter(type => Object.hasOwn(value, type)).map(type => {
         fields(value[type], CHANNELS);
         check(CHANNELS.every(channel => typeof value[type][channel] === 'boolean'), 'notice channels must be boolean');
         return [type, Object.fromEntries(CHANNELS.map(channel => [channel, value[type][channel]]))];
@@ -73,7 +75,7 @@ function load(config) {
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 function model(stored) {
-  const values = { ...copy(PREFERENCE_DEFAULTS), ...stored };
+  const values = { ...copy(PREFERENCE_DEFAULTS), ...stored, noticeChannels: normalizeNoticeChannels(stored.noticeChannels) };
   return { version: 1, revision: createHash('sha256').update(JSON.stringify(values)).digest('hex'), values };
 }
 
@@ -87,7 +89,9 @@ export function saveDevicePreferences(config, patch, expectedRevision) {
   return withConfigurationWriteLock(selected, 'project', lock => {
     const before = load(selected), current = model(before);
     check(current.revision === expectedRevision, 'device preference revision changed; reload before saving');
-    const value = { ...before, ...normalized }, file = path.join(selected.home, 'preferences.json');
+    const value = { ...before, ...normalized };
+    if (normalized.noticeChannels) value.noticeChannels = { ...before.noticeChannels, ...normalized.noticeChannels };
+    const file = path.join(selected.home, 'preferences.json');
     const source = JSON.stringify({ version: 1, values: value }, null, 2) + '\n';
     check(Buffer.byteLength(source) <= MAX_BYTES, 'device preferences are too large');
     const temporary = `${file}.${randomUUID()}.tmp`;

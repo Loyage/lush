@@ -35,7 +35,7 @@ console.log('result provider continued normally');
     expect(result.error).toBeNull(); expect(result.status).toBe('waiting');
     expect(result.result).toContain('result provider continued normally');
     const notice = JSON.parse(fs.readFileSync(path.join(root, '.lush', 'info-receipt.json'), 'utf8')).data;
-    expect(notice).toMatchObject({ task_id: task.id, kind: 'info', status: 'sent', lifecycle_type: null, read_at: null });
+    expect(notice).toMatchObject({ task_id: task.id, kind: 'info', status: 'sent', lifecycle_type: 'reported', read_at: null });
     expect(notice.source_event_id).toBeGreaterThan(0);
     expect((await client.request('notice.page', { status: 'unread' })).notices.some(row => row.id === notice.id)).toBe(true);
     expect((await client.request('notice.read', { id: notice.id })).read_at).toBeTruthy();

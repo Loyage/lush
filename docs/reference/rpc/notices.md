@@ -30,7 +30,7 @@ Valet 自身决策问题通过受控 `manager.call` 发布；问题答复只恢�
 
 `bun run lushw self notice notify '结果已就绪' --body '实际结论、验证与限制'`（Agent 子进程使用固定的 `lushw`，调用 `context.notice`）。notify 固定 info；发送决策须先 `question create`，再 `self notice ask --question-file FILE`，发布后结束本轮。ask/notify 都不接受 --kind；notify 不夹带问卷。旧 post 与 `lushw notice example/check` 不保留可执行别名。self 从有效 invocation token 绑定自身，不接受 task／--worker 或显式目标；项目写门和既有权限不变。底层 RPC 的参数与默认 question 保留兼容，历史记录不改写；Valet 仍只可内联结构化输入。--json 返回版本化外壳，实际 Notice 结果在 data 中，不把外壳返回当用户已看到。
 
-info 在同一事务保存 `notice.reported` 来源 Event 与 `kind=info / status=sent` Notice，进入现有未读告知与来源同步，不暂停／中止调用，不进入 open、不自动答复、不改变 Worker 状态、合并或验收。其 lifecycle_type 为 NULL（非 runtime 生命周期分类）；普通未知分类展示规则保持可见。可按既有 notice.read 标已读，不能 answer/dismiss。返回成功只证明已保存，不保证系统提醒送达；接口不提供强幂等，断连或未知结果不能盲目重发。
+info 在同一事务保存 `notice.reported` 来源 Event 与 `kind=info / status=sent` Notice，进入现有未读告知与来源同步，不暂停／中止调用，不进入 open、不自动答复、不改变 Worker 状态、合并或验收。其 lifecycle_type 为 `reported`，对应设备“Agent 主动告知”提醒类别；这只是来源分类，不代表 runtime 生命周期转换。可按既有 notice.read 标已读，不能 answer/dismiss。返回成功只证明已保存，不保证系统提醒送达；接口不提供强幂等，断连或未知结果不能盲目重发。
 
 ## 全局来源同步与记录身份
 
@@ -50,7 +50,7 @@ Host 全局收件箱使用用户专属 `notice.sync`，不通过首页 200 条�
 
 告知固定 `kind='info' / status='sent'`，不进入 open 问题口径，不阻塞调度、合并或验收。Notice 的可空 `source_event_id INTEGER` 指向来源 Event，并以唯一索引去重；`read_at TEXT` 保存已读时间。Worker状态、来源事件和告知同事务写入，旧 Notice 的新字段保持 NULL，不回填、不补发历史完成通知。
 
-Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event：`task.start_pending` → `created`，`task.idle` → `idle`，`completed` → `analysis`，`failed` / `merge.repair_interrupted` / `analysis.fork_failed` → `failed`。只对带来源的 info 告知分类，旧普通 info、丢失或未知来源为 NULL；新待验收来源可能为 task.delivered、task.merge_integrated、task.parent_synced 等，未在原分类表中的保留 NULL 并保持可见，不凭标题猜类别。不修改存储、不按当前 Worker 状态猜测。`notice.list/page`、Worker 详情与生命周期生成/已读返回使用相同投影。
+Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event：`task.start_pending` → `created`；`task.idle`、`task.delivered`、`task.merge_integrated`、`task.parent_synced`、`task.reopened` → `idle`（待验收，含待父确认；沿用历史键）；`completed` → `analysis`；`failed` / `merge.repair_interrupted` / `analysis.fork_failed` → `failed`；`notice.reported` → `reported`。分类、设备偏好和设置选项共用 `notice-channels.js`。只对带来源的 info 告知分类，旧普通 info、丢失或未知来源为 NULL 并保持可见，不凭标题猜类别。不修改存储、不按当前 Worker 状态猜测；历史 `task.idle` 告知保持原正文，不冒充新待验收事实。`notice.list/page`、Worker 详情与生命周期生成/已读返回使用相同投影。
 
 `notice.read` 用户专属、幂等，只允许 info/sent；首次记录 `notice.read` Event，不产生收件箱消息，不答复问题、批准合并、验收或唤醒 Agent。已读后 Notice 仍是 sent，正文及来源永久保留在历史里。Web 在点击告知并成功加载所属 Worker 后调用它，打开失败不标已读；告知条的「已知」及手机横滑直接调用它，无需打开 Worker，写入失败保留告知并允许重试。
 
@@ -117,9 +117,9 @@ HTML 通过已认证的只读预览路由渲染，不读取 agent 提供的本�
 
 ### 页面告知条与分类设置
 
-「设置 → 界面」分别为 **Worker 待开始、Worker 本轮结束、只读分析完成、异常停止** 设置「页面告知条」与「系统通知」；各类各渠道默认允许，系统通知还需总开关与授权。未知分类的生命周期告知保持可见。待决问题独立保留，不能用「已知」或横滑消除。设计取舍见[通知与告知理念](../../design/notices.md)。
+「设备设置 → 界面 → 提醒方式」分别为 **Worker 待开始、Worker 待验收、只读分析完成、异常停止、Agent 主动告知** 设置「页面告知条」与「系统通知」；待验收含 child 待父确认。各类各渠道默认允许，系统通知还需总开关与授权。未知分类的生命周期告知保持可见。待决问题独立保留，不能用「已知」或横滑消除。设计取舍见[通知与告知理念](../../design/notices.md)。
 
-类别／渠道偏好由 Host 保存为后台机器同一系统用户的设备设置，各客户端同步；localStorage 只缓存首帧。关闭类别不阻止告知生成、不删记录、不改未读数。已读事实仍由来源项目保存，不是浏览器偏好。
+类别／渠道偏好由 Host 保存为后台机器同一系统用户的设备设置，各客户端同步；localStorage 只缓存首帧。旧“本轮结束”的 `idle` 偏好沿用到待验收，新增 `reported` 缺失时默认允许；旧四类文件只读兼容、不因读取改写文件，旧四类保存也不覆盖已设置的 `reported`。关闭类别不阻止告知生成、不删记录、不改未读数；是否生成待验收告知仍由项目／Worker 自动化控制。已读事实仍由来源项目保存，不是浏览器偏好。
 
 页面告知条展示可见类别的最新未读告知及数量，提供查看 Worker 与「已知」两个入口。「已知」只标记当前展示的一条，下一条依次显示。手机可水平滑动执行同一动作，同时保留按钮；垂直滚动、短滑、文本选择或取消手势不消除。
 
