@@ -3,6 +3,7 @@ import { check } from '../types.js';
 import { hookObject, hookRevision, HOOK_LIMITS } from '../hooks.js';
 import { builtinAutomationMounted } from '../automation-scopes.js';
 import { HOOK_MOUNT_KEYS } from '../hook-registration.js';
+import { iterationViews } from './iteration.js';
 
 const KEY = 'hook_templates';
 export const SYSTEM_AUTOMATIONS = Object.freeze([
@@ -91,6 +92,11 @@ export function automationHookEvent(project, taskId, type, data) {
     return eventId;
   });
 }
+/** Acceptance ends mounts, not their retained configuration or execution audit. */
+export function retiredAutomationOwners(project, tasks) {
+  return new Set([...iterationViews(project.store, tasks.filter(task => task.status === 'completed'))]
+    .filter(([, view]) => view.accepted).map(([taskId]) => taskId));
+}
 // Never infer completion from an absent mount or a hidden command history.
 export function temporaryUsage(project, item) {
   const rows = project.store.all(`SELECT json_extract(data,'$.usage_type') AS type,count(*) AS n FROM events
@@ -99,8 +105,13 @@ export function temporaryUsage(project, item) {
   const uncertain = project.store.get(`SELECT count(DISTINCT coalesce(json_extract(data,'$.execution_id'),json_extract(data,'$.hook_id'),id)) AS n
     FROM events WHERE type='hook.temporary_usage' AND json_extract(data,'$.registry_id')=?
     AND (json_extract(data,'$.usage_type')='hook.execution_unknown' OR json_extract(data,'$.effects_unknown')=1)`, item.id).n;
-  const live = project.store.all('SELECT id,hooks FROM tasks WHERE hooks IS NOT NULL').flatMap(task =>
+  const tasks = project.store.all('SELECT id,status,task_kind,hooks FROM tasks WHERE hooks IS NOT NULL');
+  const retired = retiredAutomationOwners(project, tasks);
+  const live = tasks.flatMap(task =>
     JSON.parse(task.hooks).mounts.filter(mount => mount.registry_id === item.id).map(mount => ({ task, mount })));
+  const mounted = live.filter(({ task }) => !retired.has(task.id)).length;
+  // Retired configuration is no longer a mount, but unsettled/unknown effects
+  // still block definition reclamation, including acceptance-triggered actions.
   const pending = live.filter(({ mount }) => mount.maintenance_pending || mount.pending_due_at || mount.command_pending > 0).length;
   const runningIds = new Set(live.filter(({ mount }) => mount.state === 'running').map(({ task, mount }) => `${task.id}:${mount.id}`));
   const owners = new Set([...(project.lifecycleHookRunning ?? []), ...(project.lifecycleHookQueued ?? []),
@@ -117,10 +128,10 @@ export function temporaryUsage(project, item) {
     WHERE type='hook.temporary_usage' AND json_extract(data,'$.registry_id')=? AND json_extract(data,'$.hook_id')=?
     AND (json_extract(data,'$.usage_type')='hook.execution_unknown' OR json_extract(data,'$.effects_unknown')=1) LIMIT 1`, item.id, mount.id)).length;
   const unknown = uncertain + unrecorded;
-  return { mount_count: live.length, pending_count: pending, running_count: running, unknown_count: unknown,
+  return { mount_count: mounted, pending_count: pending, running_count: running, unknown_count: unknown,
     attached_total: counts['hook.attached'] ?? 0, succeeded_total: counts['hook.execution_succeeded'] ?? 0,
     failed_total: counts['hook.execution_failed'] ?? 0, skipped_total: counts['hook.execution_skipped'] ?? 0,
-    reclaimable: !item.reclaimed_at && !live.length && !pending && !running && !unknown,
+    reclaimable: !item.reclaimed_at && !mounted && !pending && !running && !unknown,
     coverage: 'retained_definition_and_usage_audit', history_complete: false };
 }
 export function registryPage(data, options = {}) {
@@ -143,7 +154,10 @@ export function automationRegistry(project, options = {}) {
     list.count++;
     if (list.items.length < 100) list.items.push({ worker_id: task.id, worker_number: task.worker_number ?? null, hook_id: hookId, version });
   };
-  for (const task of project.store.all('SELECT id,worker_number,task_kind,status,branch,auto_merge,hooks FROM tasks ORDER BY id')) {
+  const tasks = project.store.all('SELECT id,worker_number,task_kind,status,branch,auto_merge,hooks FROM tasks ORDER BY id');
+  const retired = retiredAutomationOwners(project, tasks);
+  for (const task of tasks) {
+    if (retired.has(task.id)) continue;
     const mergeConditions = JSON.parse(task.auto_merge ?? '{}').merge_conditions;
     if (mergeConditions && mergeConditions.state !== 'consumed') add('system:merge-conditions', task, 'merge-conditions', 1);
     if (builtinAutomationMounted(task, 'completion')) add('builtin:completion', task, 'auto-merge', 1);

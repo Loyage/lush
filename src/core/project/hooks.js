@@ -7,7 +7,7 @@ import { nextHookRun } from '../hook-schedule.js';
 import { hasCommand } from './command-hooks.js';
 import { builtinAutomationMounted } from '../automation-scopes.js';
 import { HOOK_REGISTER_CAPABILITY, TEMPORARY_AUTOMATION_CAPABILITIES, validateTemporaryAutomation } from '../hook-registration.js';
-import { registryData, writeRegistry, registerDefinition, resolveRegisteredMount, automationRegistry, systemRegistration, pinCommands, registryVersion, registryPage, temporaryUsage, automationHookEvent } from './automation-registry.js';
+import { registryData, writeRegistry, registerDefinition, resolveRegisteredMount, automationRegistry, systemRegistration, pinCommands, registryVersion, registryPage, temporaryUsage, automationHookEvent, retiredAutomationOwners } from './automation-registry.js';
 import { temporaryAutomationReceipt, saveTemporaryAutomationReceipt } from './hook-install.js';
 
 const empty = () => ({ version: 1, mounts: [], observed: {} });
@@ -23,6 +23,7 @@ function writeDefinitions(project, state) {
   writeRegistry(project, state);
 }
 function mountedFeatures(project, task, data = parse(task), convergence = project.taskConvergenceView(task)) {
+  if (retiredAutomationOwners(project, [task]).has(task.id)) return { completion: false, acceptance_notice: false, push: false, convergence: false };
   const push = project.commandHookExampleIdentity();
   return { completion: builtinAutomationMounted(task, 'completion'),
     acceptance_notice: builtinAutomationMounted(task, 'acceptance_notice'),
@@ -216,8 +217,12 @@ export default {
       const index = data.templates.findIndex(t => t.id === templateId); check(index >= 0, 'Hook template not found');
       check(!data.templates[index].protected, 'system automation is read-only');
       check(!data.templates[index].temporary, 'temporary automation cannot be deleted; use explicit temporary reclaim');
-      check(!this.store.all('SELECT hooks FROM tasks WHERE hooks IS NOT NULL').some(task => JSON.parse(task.hooks).mounts
-        .some(mount => mount.registry_id === templateId)), 'registered automation is still mounted; remove its mounts before deleting');
+      const tasks = this.store.all('SELECT id,status,task_kind,hooks FROM tasks WHERE hooks IS NOT NULL');
+      const retired = retiredAutomationOwners(this, tasks);
+      check(!tasks.some(task => JSON.parse(task.hooks).mounts.some(mount => mount.registry_id === templateId
+        && (!retired.has(task.id) || ['running','waiting','unknown'].includes(mount.state)
+          || mount.maintenance_pending || mount.pending_due_at || mount.command_pending))),
+      'registered automation is still mounted or has unsettled effects; inspect its mounts before deleting');
       data.templates.splice(index, 1); writeDefinitions(this, data);
     });
     return this.hooksList();
@@ -318,10 +323,10 @@ export default {
       actions: [{ type: 'request_merge' }], state: mergeConditions.state === 'stale' ? 'failed' : 'waiting',
       reason: mergeConditions.reason ?? '本轮 AND 条件已满足；仍须通过来源就绪与父合并安全门。通过 worker.merge_conditions 读取精确条件。',
       last_execution: null });
-    const pushIdentity = this.commandHookExampleIdentity();
-    return { version: 1, worker_id: task.id, revision: revision(this, task), mounted_features: mountedFeatures(this, task, data, convergence), completion, convergence,
+    const pushIdentity = this.commandHookExampleIdentity(), retired = retiredAutomationOwners(this, [task]).has(task.id);
+    return { version: 1, worker_id: task.id, revision: revision(this, task), mounted_features: mountedFeatures(this, task, data, convergence), completion, convergence: retired ? null : convergence,
       push: pushIdentity ? { worker_id: pushIdentity.worker_id, hook_id: pushIdentity.hook_id } : null,
-      acceptance_notice: this.acceptanceNoticeView(task), automation_settings: { version: 1, display_principles: this.automationSettings().display_principles }, can_attach: ownerAvailable(this, task, true), mounts };
+      acceptance_notice: this.acceptanceNoticeView(task), automation_settings: { version: 1, display_principles: this.automationSettings().display_principles }, can_attach: ownerAvailable(this, task, true), mounts: retired ? [] : mounts };
   },
 
   attachTaskHook(taskId, raw, expectedRevision) {
@@ -458,6 +463,9 @@ export default {
     if (trigger === 'time.scheduled' || this.stopping || this.clearing || this.workerDeleteIds?.size || this.store.executionRetired(taskId)) return;
     if (this.recoveringHooks) { (this.hookRecoveryEvents ??= []).push([taskId, trigger, sourceId]); return; }
     const task = this.store.task(taskId); if (!task.hooks) return;
+    // The acceptance boundary itself still runs its authorized notifications.
+    // Retained historical configuration grants no later lifecycle authorization.
+    if (trigger !== 'worker.accepted' && retiredAutomationOwners(this, [task]).has(task.id)) return;
     const data = parse(task), mounts = data.mounts.filter(m => !m.input_signal && m.trigger === trigger && (hasCommand(m)
       ? m.enabled && !['failed','unknown'].includes(m.state) && !(m.mode === 'once' && m.state === 'succeeded') : eligible(m)) && hookConditionsMatch(m, task)
       && (!m.signal_binding || (sourceId && m.signal_binding.invocation_id === JSON.parse(this.store.get('SELECT data FROM events WHERE id=?', sourceId)?.data ?? '{}').invocation_id))
