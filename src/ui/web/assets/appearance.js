@@ -1,6 +1,7 @@
 /** Device theme and project identity color are separate authorities (decision #411). */
 import { devicePreferencesStatus, onDevicePreferences, readPref, saveDevicePreference } from './prefs.js';
 import { show } from './messages.js';
+import { initMotion } from './motion.js';
 import { PROJECT_COLORS } from './project-colors.js';
 export { PROJECT_COLORS };
 const listeners = new Set();
@@ -143,4 +144,4 @@ export function saveAppearance(patch, projectId = appearanceSnapshot().projectId
 }
 export function reloadAppearance() { return appearance?.load(true); }
 export function refreshTheme() { appearance?.paint(); }
-if (globalThis.document?.documentElement?.dataset) initAppearance();
+if (globalThis.document?.documentElement?.dataset) { initMotion(); initAppearance(); }

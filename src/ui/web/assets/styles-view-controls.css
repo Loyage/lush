@@ -26,7 +26,7 @@ button.view-control:disabled { opacity: .55; cursor: not-allowed; }
 :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head)::before {
   content: ''; position: absolute; width: 6px; height: 6px; left: 1px; top: 2px;
   border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg);
-  transition: transform var(--disclosure-duration, 180ms) cubic-bezier(.2, 0, .2, 1);
+  transition: transform calc(var(--disclosure-duration, 180ms) * var(--motion-factor, 1)) cubic-bezier(.2, 0, .2, 1);
 }
 .view-disclosure-icon[data-expanded="true"]::before { transform: translate(1px,-2px) rotate(45deg); }
 .side-head::before { position: relative; left: auto; top: 0; flex: 0 0 6px; }

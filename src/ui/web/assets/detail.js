@@ -1,4 +1,5 @@
 import { $ } from './dom.js';
+import { reducedMotion } from './motion.js';
 import { api, isReadAbort, loadConnectionNames, loadHistory, projectApi, withReadSignal } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
 import { loadWorkerRelations } from './render-worker-relations.js';
@@ -124,7 +125,7 @@ export async function loadDetail(taskId) {
   if (navigated) $('detail').scrollTop = 0;
   if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {
     toggleMobileNavigation(false);
-    $('detail').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    $('detail').scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
   }
   for (const container of [$('tasks'), $('valets')]) {
     if (!container) continue;

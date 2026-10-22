@@ -1,6 +1,7 @@
 /** Application dialogs, independent of #detail repaint and native confirm/prompt blocking. */
 import { $, button, el } from './dom.js';
 import { buttonFeedback } from './button-feedback.js';
+import { cancelMotions, showSurface, hideSurface } from './motion.js';
 let active = null;
 const updates = new WeakMap();
 /** Re-evaluate caller-owned async gates only while this exact dialog content is mounted. */
@@ -19,8 +20,10 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
     closed = true;
     if (active === finish) active = null;
     if (content) updates.delete(content);
-    root.hidden = true; root.replaceChildren(); settle(value); previous?.focus?.();
+    hideSurface(root, () => root.replaceChildren());
+    root.onkeydown = root.onclick = null; settle(value); previous?.focus?.();
   };
+  cancelMotions(root);
   active = finish; root.hidden = false;
   const card = el('div', undefined, `modal-card${cardClass ? ` ${cardClass}` : ''}`);
   card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true'); card.setAttribute('tabindex', '-1');
@@ -89,7 +92,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   };
   root.onclick = event => { if (event.target === root) cancelRequest(); };
   if (content) updates.set(content, sync);
-  root.replaceChildren(card); sync(); (initialFocus ?? input ?? (danger ? cancel : confirm.disabled ? card : confirm))?.focus?.();
+  root.replaceChildren(card); showSurface(root, { slide: false }); showSurface(card); sync(); (initialFocus ?? input ?? (danger ? cancel : confirm.disabled ? card : confirm))?.focus?.();
   return done;
 }
 

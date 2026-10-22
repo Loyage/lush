@@ -11,6 +11,13 @@ const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
 const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
+import { openSettings } from '/render-settings.js';
+import { refreshDevicePreferences, readPref, setPref, onPrefChange } from '/prefs.js';
+import { refreshTheme } from '/appearance.js';
+onPrefChange('theme',refreshTheme);
+import { promptDialog, closeDialog } from '/dialog.js';
+import { captureGraph, restoreGraph } from '/task-graph-motion.js';
+window.motionFixture={openSettings,refreshDevicePreferences,readPref,setPref,promptDialog,closeDialog,captureGraph,restoreGraph};
 import { renderConversation } from '/render-conversation.js';
 import { OPERATION_CATEGORIES } from '/render-agent-operation.js';
 window.operationCategories=OPERATION_CATEGORIES;
@@ -92,7 +99,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), path = url.pathname;
   const headers = new Headers(req.headers); headers.delete('host');
   const upstream = `http://127.0.0.1:${authServer.port}`;
-  if (['/login', '/logout', '/api/host/session'].includes(path)) return fetch(upstream + path + url.search, {
+  if (['/login', '/logout', '/api/host/session', '/api/host/preferences', '/api/host/push/config', '/api/host/push/status'].includes(path)) return fetch(upstream + path + url.search, {
     method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer(), redirect: 'manual',
   });
   const gate = await fetch(upstream + '/api/host', { headers, redirect: 'manual' });
@@ -102,7 +109,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (!gate.ok) return gate;
   if (path === '/host') return new Response('<!doctype html><iframe id="fixture" src="/" style="border:0;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
-  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
+  if (['/administrator/project-protocol.js', '/shared/web-push-protocol.js'].includes(path)) return new Response(Bun.file(new URL('../../src' + path, import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -173,23 +180,70 @@ try {
     const result=getComputedStyle(card).animationName==='none'&&getComputedStyle(progress).animationName==='none'&&
       getComputedStyle(usage).animationName==='none'&&getComputedStyle(progress.firstChild,'::after').animationName==='graph-progress-sweep';
     card.remove();return result;`),'one progress cue must replace repeated card/progress/usage pulses');
+  // Reuse the authenticated Host and real settings page: no mocked preference saves.
+  for (const [width, theme, speed] of [[1440,'light','0.5'],[320,'dark','2']]) {
+    await viewport(width, 900);
+    await rpc(`/session/${session}/execute/async`, { script:`const done=arguments[0];window.motionFixture.openSettings().then(()=>done(true));`, args:[] });
+    await execute(`const theme=document.querySelector('.pref-radio[data-value="${theme}"]');theme.checked=true;theme.dispatchEvent(new Event('change'));`);
+    assert(await wait(`window.motionFixture.readPref('theme')==='${theme}'&&document.documentElement.dataset.theme==='${theme}'&&!document.querySelector('[data-pref="motionSpeed"]').disabled`), 'theme save failed');
+    await execute(`const s=document.querySelector('[data-pref="motionSpeed"]');
+      s.scrollIntoView({block:'center'});s.focus();window.speedControl=s;s.value='${speed}';s.dispatchEvent(new Event('change'))`);
+    assert(await wait(`document.querySelector('[data-device-preference-feedback]').textContent.includes('已保存')&&!speedControl.disabled`), 'real Host speed save failed');
+    assert(await rpc(`/session/${session}/execute/async`, {script:`const done=arguments[0];window.motionFixture.refreshDevicePreferences().then(()=>{
+      const s=window.speedControl,root=document.documentElement;done(window.motionFixture.readPref('motionSpeed')==='${speed}'&&
+        s===document.querySelector('[data-pref="motionSpeed"]')&&document.activeElement===s&&
+        Math.abs(parseFloat(getComputedStyle(s).transitionDuration)-.18/${speed})<.001&&root.scrollWidth<=innerWidth&&s.getBoundingClientRect().height>=(innerWidth<=760?44:32));
+    });`,args:[]}), 'readback, CSS speed, focus or narrow layout failed: '+JSON.stringify(await execute(`return {speed:window.motionFixture.readPref('motionSpeed'),same:speedControl===document.querySelector('[data-pref="motionSpeed"]'),focus:document.activeElement.tagName,duration:getComputedStyle(speedControl).transitionDuration,width:document.documentElement.scrollWidth,innerWidth}`)));
+    await rpc(`/session/${session}/execute/async`, {script:`const done=arguments[0];Promise.allSettled(document.getAnimations().filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)).then(()=>done(true));`,args:[]});
+    if (process.env.BROWSER_EVIDENCE_DIR) await writeFile(join(process.env.BROWSER_EVIDENCE_DIR, `motion-settings-${width}-${theme}.png`),
+      Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+    // A graph reorder uses the same speed, an unchanged polling paint has no motion.
+    assert(await execute(`return (async()=>{const {captureGraph,restoreGraph,setPref}=window.motionFixture;
+      const host=document.createElement('div');host.innerHTML='<div class="task-graph" data-layout-key="same"><div class="task-graph-card" data-task-id="1">A</div><div class="task-graph-card" data-task-id="2">B</div></div>';
+      document.body.prepend(host);window.scrollTo(0,0);const box=host.firstChild,before=captureGraph(host);restoreGraph(host,box,before);
+      const quiet=box.getAnimations({subtree:true}).length===0;box.append(box.firstChild);restoreGraph(host,box,before);
+      const effects=box.getAnimations({subtree:true}),moving=effects.length===2&&effects.every(a=>a.playbackRate===${speed});
+      effects.forEach(a=>a.pause());await Promise.all(effects.map(a=>a.ready));
+      setPref('motionSpeed','${speed === '2' ? '0.5' : '2'}');await Promise.all(effects.map(a=>a.ready));
+      const retimed=effects.every(a=>a.playbackRate===${speed === '2' ? '0.5' : '2'});setPref('motionSpeed','${speed}');
+      setPref('reduceMotion',true);const stopped=box.getAnimations({subtree:true}).length===0;setPref('reduceMotion',false);host.remove();
+      return quiet&&moving&&retimed&&stopped;})();`), 'graph speed, polling or live reduction failed');
+    assert(await execute(`const {promptDialog,closeDialog}=window.motionFixture;window.dialogSettled=false;
+      promptDialog({title:'动效验证',value:'保留草稿'}).then(()=>window.dialogSettled=true);
+      const root=document.querySelector('#modal'),input=root.querySelector('input');input.setSelectionRange(1,3);
+      window.dialogInput=input;return root.getAnimations({subtree:true}).filter(a=>a.effect.getTiming().duration===180).every(a=>a.playbackRate===${speed})&&document.activeElement===input;`), 'dialog entrance stole focus or ignored speed');
+    await execute(`window.motionFixture.closeDialog();`);
+    assert(await execute(`return window.dialogSettled&&document.querySelector('#modal').hidden&&document.activeElement===window.speedControl;`), 'dialog exit delayed business result or focus restoration');
+    assert(await execute(`window.motionFixture.promptDialog({title:'快速重开',value:'新草稿'});const r=document.querySelector('#modal');
+      const good=!r.hidden&&!r.inert&&!r.hasAttribute('data-motion-exit')&&r.querySelector('input').value==='新草稿';
+      window.motionFixture.setPref('reduceMotion',true);window.motionFixture.closeDialog();
+      const clean=!r.getAnimations({subtree:true}).length&&!r.children.length;window.motionFixture.setPref('reduceMotion',false);return good&&clean;`), 'rapid dialog replacement or live reduction cleanup failed');
+    console.log('PASS real settings→Host→readback, CSS/WAAPI speed, graph polling, dialog focus/exit/reversal',width,theme,speed);
+  }
+  // Restore the default through the UI before the existing fold timing assertions.
+  await execute(`const s=document.querySelector('[data-pref="motionSpeed"]');s.value='1';s.dispatchEvent(new Event('change'));`);
+  assert(await wait(`window.motionFixture.readPref('motionSpeed')==='1'&&!document.querySelector('[data-pref="motionSpeed"]').disabled`), 'default restore failed');
   // One representative short fold exercises the real WAAPI path; long reading modules
   // below deliberately keep immediate geometry rather than stretching several screens.
-  for (const [width,height] of [[1440,900],[320,560]]) {
+  for (const [width,height,speed] of [[1440,900,0.5],[320,560,2]]) {
     await viewport(width,height);
-    await execute(`window.makeSharedModules();const f=window.sharedForm;
+    await execute(`window.motionFixture.setPref('motionSpeed','${speed}');window.makeSharedModules();const f=window.sharedForm;
+      window.initialArrowDuration=getComputedStyle(f.toggle.viewIcon,'::before').transitionDuration;
       f.content.lastElementChild.style.height='100px';f.section.scrollIntoView({block:'center'});
       window.sharedEditor.focus();window.sharedEditor.setSelectionRange(1,4);
       window.motionNatural=f.body.getBoundingClientRect().height;f.toggle.click();`);
     assert(await execute(`const f=window.sharedForm,a=f.body.getAnimations()[0];
       return f.body.hidden&&f.toggle.getAttribute('aria-expanded')==='false'&&document.activeElement===f.toggle&&
-        a?.effect.getTiming().duration===160&&f.body.inert&&f.body.getAttribute('aria-hidden')==='true';`),'short collapse must animate while focus/aria already reflect the target');
+        a?.effect.getTiming().duration===160&&a.playbackRate===${speed}&&window.initialArrowDuration==='0s'&&
+        Math.abs(parseFloat(getComputedStyle(f.toggle.viewIcon,'::before').transitionDuration)-.16/${speed})<.001&&
+        f.body.inert&&f.body.getAttribute('aria-hidden')==='true';`),'initialization must be instant; user collapse arrow/body must share speed while focus/aria reflect the target');
     assert(await rpc(`/session/${session}/execute/async`,{script:`const done=arguments[0],f=window.sharedForm;
       const a=f.body.getAnimations()[0];a.currentTime=80;
       requestAnimationFrame(()=>{const before=f.body.getBoundingClientRect().height;f.toggle.click();
         const next=f.body.getAnimations()[0];done(before>0&&before<window.motionNatural&&
           Math.abs(parseFloat(next.effect.getKeyframes()[0].height)-before)<1&&
-          next.effect.getTiming().duration===200&&!f.body.hidden&&!f.body.inert);});`,args:[]}), 'reverse must start from the visible height without queuing');
+          next.effect.getTiming().duration===200&&next.playbackRate===${speed}&&
+          Math.abs(parseFloat(getComputedStyle(f.toggle.viewIcon,'::before').transitionDuration)-.2/${speed})<.001&&!f.body.hidden&&!f.body.inert);});`,args:[]}), 'reverse must start from the visible height without queuing');
     assert(await wait(`!window.sharedForm.body.hasAttribute('data-disclosure-motion')`),'opening never cleaned up');
     assert(await execute(`const f=window.sharedForm;return Math.abs(f.body.getBoundingClientRect().height-window.motionNatural)<1&&
       !f.body.hasAttribute('aria-hidden')&&window.sharedEditor.value==='未保存草稿'&&window.sharedEditor.selectionStart===1&&window.sharedEditor.selectionEnd===4;`),'opening lost natural layout, draft or selection');
@@ -197,7 +251,8 @@ try {
     assert(await wait(`!window.sharedForm.body.hasAttribute('data-disclosure-motion')`),'collapse never cleaned up');
     assert(await execute(`return window.sharedForm.body.hidden&&window.sharedForm.body.getBoundingClientRect().height===0;`),'collapse must end at genuinely hidden content');
     await execute(`window.sharedForm.toggle.click();window.sharedReveal(window.sharedEditor);window.sharedEditor.focus();`);
-    assert(await execute(`return !window.sharedForm.body.getAnimations().length&&document.activeElement===window.sharedEditor;`),'reference/focus reveal must settle geometry immediately');
+    assert(await execute(`return !window.sharedForm.body.getAnimations().length&&document.activeElement===window.sharedEditor&&
+      getComputedStyle(window.sharedForm.toggle.viewIcon,'::before').transitionDuration==='0s';`),'non-user reference/focus reveal must settle body and arrow immediately');
     await execute(`window.sharedForm.toggle.click();document.documentElement.dataset.reducedMotion='true';`);
     assert(await wait(`!window.sharedForm.body.getAnimations().length`),'application reduced motion must cancel in-flight animation');
     assert(await execute(`window.sharedForm.toggle.click();return !window.sharedForm.body.getAnimations().length&&!window.sharedForm.body.hidden;`),'application reduced motion must skip new animations');
@@ -210,17 +265,22 @@ try {
       document.querySelector('#resource-panels').hidden=false;document.querySelector('#detail').hidden=true;root.hidden=false;
       body.replaceChildren(Object.assign(document.createElement('textarea'),{value:'分组草稿'}));body.firstChild.style.height='100px';
       window.ui.sideNodes.set('tasks',root);window.ui.sideHeads.set('tasks',head);window.ui.collapsed=new Set();window.paintCollapsed();
+      window.initialSideArrowDuration=getComputedStyle(head,'::before').transitionDuration;
       window.ui.collapsed.add('tasks');window.paintCollapsed(true);window.sideMotion={root,body,head};`);
-    assert(await execute(`return window.sideMotion.body.getAnimations().length===1&&window.sideMotion.head.getAttribute('aria-expanded')==='false';`),'resource group did not start closing');
-    await execute(`window.ui.collapsed.clear();window.paintCollapsed(true);`);
+    assert(await execute(`const {body,head}=window.sideMotion;return body.getAnimations().length===1&&body.getAnimations()[0].playbackRate===${speed}&&
+      head.getAttribute('aria-expanded')==='false'&&window.initialSideArrowDuration==='0s'&&
+      Math.abs(parseFloat(getComputedStyle(head,'::before').transitionDuration)-.16/${speed})<.001;`),'resource initialization must be instant and user collapse arrow/body must share speed');
+    assert(await execute(`window.ui.collapsed.clear();window.paintCollapsed(true);return Math.abs(parseFloat(getComputedStyle(window.sideMotion.head,'::before').transitionDuration)-.2/${speed})<.001;`), 'resource expansion arrow ignored speed');
     assert(await wait(`!window.sideMotion.body.getAnimations().length`),'resource group reversal never settled');
     assert(await execute(`const {body,head}=window.sideMotion;return body.getBoundingClientRect().height>0&&head.getAttribute('aria-expanded')==='true'&&body.firstChild.value==='分组草稿';`),'resource group lost final state/draft');
     await execute(`window.ui.collapsed.add('tasks');window.paintCollapsed(true);window.paintCollapsed();`);
-    assert(await execute(`return !window.sideMotion.body.getAnimations().length&&window.sideMotion.body.getBoundingClientRect().height===0;`),'preference repaint must settle without replaying');
+    assert(await execute(`return !window.sideMotion.body.getAnimations().length&&window.sideMotion.body.getBoundingClientRect().height===0&&
+      getComputedStyle(window.sideMotion.head,'::before').transitionDuration==='0s';`),'preference repaint must settle body and arrow without replaying');
     await execute(`window.ui.collapsed.clear();window.paintCollapsed(true);window.activateDetailView({view:'task',key:'motion-exit-${width}',push:false});
       document.querySelector('#resource-panels').hidden=true;document.querySelector('#detail').hidden=false;window.ui.sideNodes.clear();window.ui.sideHeads.clear();`);
     assert(await execute(`return !window.sideMotion.body.getAnimations().length;`),'navigation must cancel resource motion');
-    console.log('PASS reversible short folds/resource groups, focus, draft/selection, reduced motion and disposal',width,height);
+    await execute(`window.motionFixture.setPref('motionSpeed','1');`);
+    console.log('PASS reversible short folds/resource groups, synchronized arrow speed, instant non-user updates, focus, draft/selection, reduced motion and disposal',width,height,speed);
   }
   await rpc(`/session/${session}/frame`, { id: null });
   await rpc(`/session/${session}/refresh`, {});

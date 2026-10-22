@@ -3,7 +3,7 @@ import { check, isPlainObject } from '../core/types.js';
 import { launcherStateDir } from './registry.js';
 import { normalizeInboxQuery } from '../ui/web/assets/inbox-query.js';
 
-const PREFERENCES = ['markdown', 'theme', 'sidebarSort', 'taskGraphMinimal', 'reduceMotion',
+const PREFERENCES = ['markdown', 'theme', 'sidebarSort', 'taskGraphMinimal', 'reduceMotion', 'motionSpeed',
   'polling', 'toastDuration', 'transcriptOrder', 'noticeChannels', 'noticeNotifications'];
 const NOTICE_ACTIONS = ['notice.answer', 'notice.dismiss', 'notice.read'];
 function fields(value, allowed, name, required = []) {

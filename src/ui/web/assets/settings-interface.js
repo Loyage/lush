@@ -10,6 +10,8 @@ import { notificationControl } from './notice-notifications.js';
 import { backgroundPushControl } from './push-controls.js';
 import { row } from './settings-controls.js';
 import { NOTICE_CATEGORIES } from './notice-channels.js';
+import { MOTION_SPEED_MODES } from './motion-values.js';
+import { systemMotionMedia } from './motion.js';
 
 export function createInterfaceSettings({ renderSettings, isInterface }) {
   let preferenceActions = devicePreferences;
@@ -71,6 +73,7 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
   async function savePreference(name, value, input, view) {
     if (!ui.settingsOpen || ui.view !== view || input.disabled) return;
     const actions = preferenceActions, epoch = preferenceEpoch;
+    const owner = globalThis.document, focused = owner.activeElement === input;
     input.dataset.preferencePending = 'true'; input.disabled = true; preferenceFeedback('正在保存设备偏好…', false, view);
     try {
       if (typeof actions.saveDevicePreference !== 'function') throw new Error('界面尚不支持设备偏好保存，请更新 Host');
@@ -79,7 +82,12 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
     } catch (error) { if (epoch === preferenceEpoch) preferenceFeedback(`保存失败：${error.message}；未保存修改保留，未退回浏览器本地写入。`, true, view); }
     finally {
       delete input.dataset.preferencePending; input.disabled = false;
-      if (epoch === preferenceEpoch && ui.view === view && ui.settingsOpen) updatePreferenceStatus($('detail'), actions.devicePreferencesStatus?.());
+      if (epoch === preferenceEpoch && ui.view === view && ui.settingsOpen) {
+        updatePreferenceStatus($('detail'), actions.devicePreferencesStatus?.());
+        // Disabling a select during its ACK blurs it in real browsers. Restore only if
+        // it still belongs to this page and the user has not focused another control.
+        if (focused && input.isConnected && !input.disabled && owner.activeElement === owner.body) input.focus();
+      }
     }
   }
 
@@ -155,7 +163,8 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
     const system = systemThemeMedia();
     const appearance = block('外观');
     appearance.append(row('设备主题', `所有项目共用。系统当前${system?.matches ? '深色' : '浅色'}，实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}。`, themeControl()));
-    appearance.append(row('减少动态效果', `覆盖系统偏好（系统当前${system?.matches ? '已要求减少' : '未要求'}）。`, toggleControl('reduceMotion')));
+    appearance.append(row('动画速度', '所有项目共用；倍数越大越快，1× 为默认。不改变刷新频率或消息停留时长。', selectControl('motionSpeed', MOTION_SPEED_MODES, '动画速度')));
+    appearance.append(row('减少动态效果', `系统要求或此开关开启时优先减少动效，保留速度选择（系统当前${systemMotionMedia()?.matches ? '已要求减少' : '未要求'}）。`, toggleControl('reduceMotion')));
     content.append(appearance);
 
     const navigation = block('导航');
@@ -196,7 +205,20 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
     return content;
   }
 
-  for (const name of PREF_NAMES) onPrefChange(name, () => { if (globalThis.document === settingsDocument && ui.settingsOpen && isInterface()) renderSettings(); });
+  for (const name of PREF_NAMES) onPrefChange(name, () => {
+    if (globalThis.document !== settingsDocument || !ui.settingsOpen || !isInterface()) return;
+    if (name === 'motionSpeed' || name === 'reduceMotion') {
+      // A speed ACK must not replace the focused control, an open select or a text selection.
+      const control = $('detail').querySelector(`[data-pref="${name}"]`);
+      if (!control) return;
+      if (name === 'motionSpeed') control.value = readPref(name);
+      else {
+        control.checked = readPref(name);
+        const label = control.parentNode?.querySelector('span');
+        if (label) label.textContent = control.checked ? '开启' : '关闭';
+      }
+    } else renderSettings();
+  });
 
   return { open: openSettings, render: interfaceTab };
 }

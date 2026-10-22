@@ -18,6 +18,7 @@ import { STATUS } from './format.js';
 import { preferenceScope } from './route.js';
 import { normalizeNoticeChannels } from './notice-channels.js';
 export { normalizeNoticeChannels } from './notice-channels.js';
+import { MOTION_SPEEDS, MOTION_SPEED_DEFAULT } from './motion-values.js';
 
 export const MARKDOWN_KEY = 'lush.markdown';
 export const THEME_KEY = 'lush.theme';
@@ -123,6 +124,7 @@ export const PREF_DEFS = {
     format: value => JSON.stringify([...value]) },
   filters: { key: FILTERS_KEY, default: () => parseFilters(null), parse: parseFilters, format: value => JSON.stringify(value), scope: true },
   reduceMotion: boolPref(REDUCED_MOTION_KEY, false),
+  motionSpeed: enumPref('lush.motionSpeed', MOTION_SPEEDS, MOTION_SPEED_DEFAULT),
   polling: enumPref(POLLING_KEY, [...POLLING_IDS], 'standard'),
   toastDuration: enumPref(TOAST_DURATION_KEY, [...TOAST_IDS], 'standard'),
   transcriptOrder: enumPref(TRANSCRIPT_ORDER_KEY, [...TRANSCRIPT_ORDER_IDS], 'desc'),
@@ -227,7 +229,7 @@ export function prefsSnapshot() {
   return Object.fromEntries(PREF_NAMES.map(name => [name, readPref(name)]));
 }
 
-export const DEVICE_PREF_NAMES = ['markdown', 'theme', 'sidebarSort', 'taskGraphMinimal', 'reduceMotion',
+export const DEVICE_PREF_NAMES = ['markdown', 'theme', 'sidebarSort', 'taskGraphMinimal', 'reduceMotion', 'motionSpeed',
   'polling', 'toastDuration', 'transcriptOrder', 'noticeChannels', 'noticeNotifications'];
 const DEVICE_PREFS = new Set(DEVICE_PREF_NAMES);
 const DEVICE_REVISION_KEY = 'lush.device-preferences-revision';

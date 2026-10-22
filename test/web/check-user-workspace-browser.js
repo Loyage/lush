@@ -109,6 +109,9 @@ try {
   for (let i = 0; i < 100; i++) { try { await rpc('/status', undefined, 'GET'); ready = true; break; } catch {} if (driver.exitCode !== null) throw Error('geckodriver exited'); await Bun.sleep(100); }
   assert(ready, 'geckodriver startup timed out');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
+  // The 1440×900 iframe must fit the actual browser viewport; otherwise Firefox can
+  // report a successful WebDriver click below the outer viewport without dispatching it.
+  await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1100 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
   assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled&&document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'root boot failed');
   const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['skills', 'skills'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
@@ -122,6 +125,13 @@ try {
       await execute(`document.getElementById('${id}-open').click()`);
       assert(await wait(`document.getElementById('detail').dataset.view==='${view}'&&!document.getElementById('detail').textContent.includes('正在加载页面')`), `global ${id} chunk failed`);
       if (view === 'projects') assert(await wait(`document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'dashboard initial read not settled');
+      if (view === 'settings') {
+        assert(await wait(`document.querySelector('[data-pref="motionSpeed"]')&&!document.querySelector('[data-pref="motionSpeed"]').disabled`), 'speed setting not ready');
+        const speed = theme === 'light' ? '2' : '0.5';
+        await execute(`const s=document.querySelector('[data-pref="motionSpeed"]');s.value='${speed}';s.dispatchEvent(new Event('change'));`);
+        assert(await wait(`!document.querySelector('[data-pref="motionSpeed"]').disabled&&document.documentElement.style.getPropertyValue('--motion-factor')==='${1 / Number(speed)}'`), 'lazy settings did not share motion preferences with the compiled entry');
+        assert(world.state.devicePreferences.values.motionSpeed === speed, 'motion speed did not ACK to Host fixture');
+      }
       assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&!document.querySelector('button a')&&document.getElementById('composer-shell').hidden&&document.documentElement.dataset.lushSpace==='global'`), `global ${id} layout or partition failed at ${width}/${theme}`);
     }
     await execute(`document.getElementById('projects-open').click()`);

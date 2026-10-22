@@ -3,6 +3,7 @@ import { show } from './messages.js';
 import { detail, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
 import { revealDetailPreview } from './detail-preview.js';
+import { reducedMotion, showSurface, hideSurface } from './motion.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -178,15 +179,12 @@ export function clearLocateFlash() {
   flashNode?.classList?.remove?.('locate-flash');
   flashNode = null;
 }
-const prefersReducedMotion = () => Boolean(
-  globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
-  || globalThis.document?.documentElement?.dataset?.reducedMotion === 'true');
 function flashLocated(node) {
   revealDetailPreview(node);
   clearLocateFlash();
   node.classList?.add?.('locate-flash');
   flashNode = node;
-  node.scrollIntoView?.({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  node.scrollIntoView?.({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
   flashTimer = globalThis.setTimeout?.(() => {
     if (flashNode === node) { node.classList?.remove?.('locate-flash'); flashNode = null; }
     flashTimer = null;
@@ -242,7 +240,7 @@ export async function locateReference(reference) {
   flashLocated(found);
   return true;
 }
-function hideMenu() { const menu = $('context-menu'); if (menu) menu.hidden = true; }
+function hideMenu() { const menu = $('context-menu'); if (menu) hideSurface(menu); }
 function showMenu(event, values) {
   const menu = $('context-menu');
   if (!menu || !values.length) return;
@@ -252,7 +250,7 @@ function showMenu(event, values) {
   const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 268)) : (event.clientY ?? 0);
   // Keep the source selection intact when clicking an action with the mouse.
   menu.onmousedown = event => event.preventDefault?.();
-  menu.style.left = `${Math.max(8, left)}px`; menu.style.top = `${Math.max(8, top)}px`; menu.hidden = false;
+  menu.style.left = `${Math.max(8, left)}px`; menu.style.top = `${Math.max(8, top)}px`; showSurface(menu);
   event.preventDefault?.();
 }
 function onContextMenu(event) {

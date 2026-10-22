@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { loadHostSession } from './host-session.js';
 import { setProjectIdentity } from './project-identity.js';
 import { initAppearance, refreshTheme } from './appearance.js';
+import { initMotion } from './motion.js';
 import { show } from './messages.js';
 import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
@@ -51,10 +52,6 @@ async function onSidebarSortChange() {
   try { await saveDevicePreference('sidebarSort', $('sidebar-sort').value); }
   catch (error) { if (owner === globalThis.document) { show(`排序偏好未保存：${error.message}`, 'error'); syncSidebarSortSelect(); } }
 }
-function applyReducedMotion(value) {
-  const root = globalThis.document?.documentElement; if (!root?.dataset) return;
-  if (value) root.dataset.reducedMotion = 'true'; else delete root.dataset.reducedMotion;
-}
 onPrefChange('sidebarSort', value => { ui.sidebarSortMode = value; syncSidebarSortSelect(); if (workbenchStatus().projectUsable) applySort(); });
 onPrefChange('collapsed', value => { ui.collapsed = value; paintCollapsed(); });
 onPrefChange('filters', value => { ui.filters = value; if (workbenchStatus().projectUsable) applyFilters({ persist: false }); });
@@ -65,7 +62,6 @@ onDevicePreferences(status => {
   const host = sort.parentElement || sort.parentNode;
   host?.setAttribute('data-help', !status.ready || status.error ? `设备偏好尚不可用，不能保存排序。${status.error || '等待权威配置读取。'}` : status.saving ? '正在保存设备偏好。' : '设备统一排序；项目的过滤、折叠与选择仍独立。');
 });
-onPrefChange('reduceMotion', applyReducedMotion);
 onPrefChange('theme', () => refreshTheme());
 onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null) startTimers(); });
 
@@ -261,7 +257,7 @@ export async function boot() {
     return true;
   };
   void loadHostSession(); // Host-only, non-blocking; details reuse the same single-flight read.
-  initAppearance(); setProjectIdentity(); applyReducedMotion(readPref('reduceMotion')); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
+  initAppearance(); initMotion(); setProjectIdentity(); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
   renderAutoSelectBanner(null); renderGlobalInboxSummary(null); resetProjectMaintenance();
   disposePreferences = startDevicePreferencesSync();
   disposeAutomationView = onDeviceAutomation(status => {

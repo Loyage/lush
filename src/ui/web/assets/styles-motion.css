@@ -1,0 +1,27 @@
+/* Visual durations only. --motion-factor is 1 / device motionSpeed, applied before paint.
+   Highlight/notice residence, polling and gesture thresholds intentionally stay independent. */
+:root{
+  --motion-fast:calc(180ms * var(--motion-factor,1));
+  --motion-open:calc(200ms * var(--motion-factor,1));
+  --motion-page:calc(240ms * var(--motion-factor,1));
+  --motion-breathe:calc(2s * var(--motion-factor,1));
+}
+/* WAAPI exit remnants are already hidden to accessibility and inert, with no input capture. */
+.modal-root[hidden][data-motion-exit]{display:flex!important;pointer-events:none}
+.help-tip[hidden][data-motion-exit],.context-menu[hidden][data-motion-exit]{display:block!important;pointer-events:none}
+
+/* Persistent panels opt into a discrete display transition: toggling visibility animates,
+   updating their children during polling does not. Unsupported engines simply show/hide. */
+#composer-shell .composer-menu,.task-graph-actions-popover{
+  opacity:0;transform:translateY(4px);
+  transition:opacity var(--motion-fast) var(--ease),transform var(--motion-fast) var(--ease),display var(--motion-fast) allow-discrete,overlay var(--motion-fast) allow-discrete;
+}
+#composer-shell .composer-menu:not([hidden]),.task-graph-actions-popover:popover-open{opacity:1;transform:translateY(0)}
+@starting-style{
+  #composer-shell .composer-menu:not([hidden]),.task-graph-actions-popover:popover-open{opacity:0;transform:translateY(4px)}
+}
+@media(max-width:760px){
+  #sidebar #navigation-menu{opacity:0;transform:translateY(-4px);transition:opacity var(--motion-fast) var(--ease),transform var(--motion-fast) var(--ease),display var(--motion-fast) allow-discrete}
+  #sidebar.mobile-open #navigation-menu{opacity:1;transform:translateY(0)}
+  @starting-style{#sidebar.mobile-open #navigation-menu{opacity:0;transform:translateY(-4px)}}
+}

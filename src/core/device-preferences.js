@@ -6,6 +6,8 @@ import { validateConfigurationDirectory, withConfigurationWriteLock } from './de
 
 import { NOTICE_CATEGORIES, NOTICE_CHANNELS as CHANNELS, normalizeNoticeChannels } from '../ui/web/assets/notice-channels.js';
 
+import { MOTION_SPEEDS, MOTION_SPEED_DEFAULT } from '../ui/web/assets/motion-values.js';
+
 const MAX_BYTES = 16384;
 const TYPES = NOTICE_CATEGORIES.map(category => category.id);
 const freeze = value => {
@@ -14,11 +16,11 @@ const freeze = value => {
 };
 export const PREFERENCE_DEFAULTS = freeze({
   markdown: true, theme: 'system', sidebarSort: 'smart', taskGraphMinimal: true,
-  reduceMotion: false, polling: 'standard', toastDuration: 'standard', transcriptOrder: 'desc',
+  reduceMotion: false, motionSpeed: MOTION_SPEED_DEFAULT, polling: 'standard', toastDuration: 'standard', transcriptOrder: 'desc',
   noticeChannels: normalizeNoticeChannels(),
   noticeNotifications: false,
 });
-const ENUMS = { theme: ['system', 'light', 'dark'], sidebarSort: ['smart', 'updated', 'id'],
+const ENUMS = { motionSpeed: MOTION_SPEEDS, theme: ['system', 'light', 'dark'], sidebarSort: ['smart', 'updated', 'id'],
   polling: ['fast', 'standard', 'power'], toastDuration: ['short', 'standard', 'long'], transcriptOrder: ['asc', 'desc'] };
 const keys = Object.keys(PREFERENCE_DEFAULTS);
 const copy = value => JSON.parse(JSON.stringify(value));

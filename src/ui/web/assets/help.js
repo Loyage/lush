@@ -11,6 +11,7 @@
  * 重复装配前会先摘掉上一轮监听。计时器可注入（`setHelpTimers`），DOM 测试用假时钟推进长按判定。
  */
 import { entityPreviewTarget, previewPlaceholder, loadEntityPreview } from './entity-preview.js';
+import { cancelMotions, showSurface, hideSurface } from './motion.js';
 
 export const AGENT_NOTE = '会调用 Agent：需要较长时间并消耗 token';
 
@@ -83,6 +84,7 @@ function ensureTip(target) {
   tip.id = TIP_ID;
   if (tip.className !== 'help-tip') tip.className = 'help-tip';
   tip.setAttribute?.('role', 'tooltip');
+  cancelMotions(tip);
   if (tip.hidden !== true) tip.hidden = true;
   // 顶层 popover/dialog 会盖住 body 的任何 z-index；提示必须跟随目标进入同一顶层。
   let host = doc.body;
@@ -134,6 +136,7 @@ export function showHelp(target) {
   tip.textContent = text;
   tip.hidden = false;
   place(target, tip);
+  showSurface(tip);
   if (described && described.node !== target) restoreDescribed();
   if (!described) described = { node: target, previous: target.getAttribute?.('aria-describedby') ?? null };
   target.setAttribute?.('aria-describedby', TIP_ID);
@@ -160,7 +163,7 @@ export function hideHelp() {
   clearSuppress(); // 提示都收了，再扣着下一次 click 只会误伤后续正常操作。
   const tip = node(TIP_ID);
   if (tip) {
-    tip.hidden = true;
+    hideSurface(tip);
     // 浮层可以随卡片卸载；把唯一提示还回 body，避免留下失效的顶层子节点。
     if (tip.parentNode !== globalThis.document?.body && globalThis.document?.body?.append) {
       tip.remove?.(); globalThis.document.body.append(tip);

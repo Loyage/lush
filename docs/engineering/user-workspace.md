@@ -36,7 +36,8 @@ W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入
 - 显式迁移扩展到旧项目私有 common／受支持角色 Markdown：固定来源与目标、只读预检、私有备份、revision／内容／身份复核与冲突检查；同内容可复用，不同内容阻止覆盖。预检说明仓库专属内容可能传播到所有项目，正文不进入预检／审计／错误。成功导入后旧 Markdown 原文件仍保留但不参与新调用；不自动迁移，不将 `.lush-agent/` 或 AGENTS.md 复制到设备。
 - 其余迁移继续读取旧项目文件、预检、稳定 ID／冲突校验、备份、跨进程锁和 OAuth guard；不得因收敛有效读取而让迁移错误读取设备文件当来源。JSON／env／凭证仍沿原发布后退役与恢复协议，不能因 Markdown 扩展破坏 OAuth 单活安全。安装相对路径归一、旧历史保留。迁移只由用户显式执行，不操作真实项目。
 - 新 `src/core/device-preferences.js`：导出 `PREFERENCE_DEFAULTS`、`readDevicePreferences(config)`、`saveDevicePreferences(config,patch,expectedRevision)`。config 的 deviceHome 优先，设备服务的 home 可作设备根。
-- 偏好读模型 `{version:1,revision,values}`；严格白名单 partial patch，revision 乐观锁、原子私有文件和跨进程 settings-write 锁。允许键：`markdown`、`theme`、`sidebarSort`、`taskGraphMinimal`、`reduceMotion`、`polling`、`toastDuration`、`transcriptOrder`、`noticeChannels`、`noticeNotifications`。值／默认与现有 prefs 一致；折叠、具体筛选和当前选区不加入。
+- 偏好读模型 `{version:1,revision,values}`；严格白名单 partial patch，revision 乐观锁、原子私有文件和跨进程 settings-write 锁。允许键：`markdown`、`theme`、`sidebarSort`、`taskGraphMinimal`、`reduceMotion`、`motionSpeed`、`polling`、`toastDuration`、`transcriptOrder`、`noticeChannels`、`noticeNotifications`。值／默认与现有 prefs 一致；折叠、具体筛选和当前选区不加入。
+- `motionSpeed` 是字符串枚举 `0.5`／`0.75`／`1`／`1.5`／`2`，默认 `1`，倍数越大越快；旧文件缺项只读补默认，不迁移文件。设置→界面→外观直接选择，Host 设备权威保存，项目共享、浏览器仅缓存。CSS 与 WAAPI 共用速度；系统减少动态效果或 `reduceMotion` 任一开启时优先停止动效，保留速度选择。只改变视觉时间，不改变业务响应、提示／定位高亮停留、长按阈值或轮询；浏览器原生平滑滚动时长仍由浏览器决定。进退场按显式显示／隐藏触发，不因轮询重绘播放；退出立即结束交互与业务等待，视觉残留不可聚焦，离页或减动效立即清理。
 - localStorage 首帧缓存不自动覆盖后端；设备配置缺失时使用规范默认，需要显式保存才能成为持久设置。读取不创建根，不联网。每页记住自己最后应用的权威快照；同源其它标签先更新共享缓存时，本页后续读取仍应发布变化，不能把缓存相同误当作页面已经同步。
 
 ## 项目外观兼容（决定 #411）

@@ -1,4 +1,4 @@
-import { readPref } from './prefs.js';
+import { animateMotion, reducedMotion } from './motion.js';
 
 const motions = new WeakMap();
 export function graphMotionRunning(box) {
@@ -17,7 +17,7 @@ export function captureGraph(host) {
     windowY: globalThis.window?.scrollY || 0, windowX: globalThis.window?.scrollX || 0 };
 }
 
-/** No rAF, timers, or global listeners: finite WAAPI effects die with their cards. */
+/** Shared motion lifetime cancels detached cards and reacts to speed/reduced-motion changes. */
 export function restoreGraph(host, box, before) {
   box.scrollLeft = before.scrollLeft;
   host.scrollTop = before.scrollTop;
@@ -39,8 +39,7 @@ export function restoreGraph(host, box, before) {
     if (host.scrollHeight > host.clientHeight) host.scrollTop += delta;
     else globalThis.window?.scrollTo?.({ top: before.windowY + delta, left: before.windowX, behavior: 'instant' });
   }
-  if (readPref('reduceMotion') || document.documentElement.dataset.reducedMotion === 'true'
-    || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  if (reducedMotion()) return;
   const viewport = rect(host);
   const top = Math.max(0, viewport?.top || 0);
   const bottom = Math.min(globalThis.innerHeight || Infinity, viewport?.bottom ?? Infinity);
@@ -51,8 +50,9 @@ export function restoreGraph(host, box, before) {
     if ((first.bottom <= top || first.top >= bottom) && (last.bottom <= top || last.top >= bottom)) continue;
     const x = first.left - last.left, y = first.top - last.top;
     if (Math.abs(x) < 1 && Math.abs(y) < 1) continue;
-    animations.push(node.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
-      { duration: 250, easing: 'ease-out' }));
+    const animation = animateMotion(node, [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
+      { duration: 250 });
+    if (animation) animations.push(animation);
   }
   motions.set(box, animations);
 }

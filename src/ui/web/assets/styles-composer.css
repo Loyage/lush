@@ -5,12 +5,12 @@
 #composer-shell #input-form[data-mode="append"], #composer-menu-append { --composer-mode-color:var(--composer-append); }
 #composer-shell #input-form[data-mode="management"], #composer-menu-management { --composer-mode-color:var(--composer-management); }
 #composer-shell .composer-category { color:var(--composer-mode-color); background:color-mix(in srgb,var(--composer-mode-color) 9%,var(--panel)); }
-#composer-shell .composer-mode-icon, #composer-shell .composer-mode strong { color:var(--composer-mode-color); transition:color .18s var(--ease); }
+#composer-shell .composer-mode-icon, #composer-shell .composer-mode strong { color:var(--composer-mode-color); transition:color var(--motion-fast) var(--ease); }
 #composer-shell #input-form .composer-input textarea { border-color:var(--composer-mode-color); }
 #composer-shell #input-form .composer-input textarea:focus { box-shadow:0 0 0 3px color-mix(in srgb,var(--composer-mode-color) 15%,transparent); }
 /* Animate only appearance, never layout height or hide: collapsing immediately returns reading space.
    Global reduced-motion rules disable both animations and color/focus transitions. */
-#composer-shell #input-form:not([hidden]), #composer-shell .composer-menu:not([hidden]) { animation:composer-reveal .18s var(--ease); }
+#composer-shell #input-form:not([hidden]) { animation:composer-reveal var(--motion-fast) var(--ease); }
 @keyframes composer-reveal { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
 
 /* Non-modal dock: its grid row reserves reading space. Collapsed means zero form footprint. */

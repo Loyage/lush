@@ -10,7 +10,7 @@
 .management-call-head:hover { background: var(--panel-2); }
 .management-call-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .management-call-head > * { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.management-call-head .management-call-caret { flex: none; width: 10px; transition: transform .1s; }
+.management-call-head .management-call-caret { flex: none; width: 10px; transition: transform var(--motion-fast) var(--ease); }
 .management-call-head .management-call-caret { transform: none; }
 .management-call-id { flex: 0 1 90px; }
 .management-call-head time { flex: 1 1 130px; }

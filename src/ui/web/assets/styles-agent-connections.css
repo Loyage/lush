@@ -84,7 +84,7 @@
 .agent-connection-window{font-size:10px;color:var(--muted);border:1px solid var(--line-soft);border-radius:999px;padding:1px 7px}
 .agent-quota-row{display:flex;align-items:center;gap:10px;margin:6px 0 4px}
 .agent-quota-bar{flex:1 1 auto;height:10px;border-radius:999px;background:var(--line-soft);overflow:hidden}
-.agent-quota-fill{height:100%;border-radius:999px;background:var(--completed);transition:width .2s var(--ease)}
+.agent-quota-fill{height:100%;border-radius:999px;background:var(--completed);transition:width var(--motion-open) var(--ease)}
 .agent-quota-bar.is-mid .agent-quota-fill{background:var(--awaiting)}
 .agent-quota-bar.is-high .agent-quota-fill{background:var(--failed)}
 .agent-quota-percent{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);min-width:46px;text-align:right}
