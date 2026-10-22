@@ -89,7 +89,10 @@ test('real project graph keeps serial branches, pages Valets inside main, and is
     f.store.update(task.id, { status: 'completed', management: JSON.stringify({ version: 1, config_revision: 1, enabled: false, consumed: true, state: 'succeeded', mode: 'once' }) });
     return task;
   }).concat(native);
-  const accepted = managers[0], unknown = managers[1];
+  const accepted = managers[0], unknown = managers[1], latest = managers[100];
+  f.store.run('UPDATE tasks SET agent_last_seen_at=? WHERE id=?', '2099-01-02T00:00:00.000Z', latest.id);
+  f.store.run('UPDATE tasks SET agent_last_seen_at=? WHERE id=?', '2099-01-01T00:00:00.000Z', unknown.id);
+  f.store.run('UPDATE tasks SET updated_at=? WHERE id=?', '2099-01-03T00:00:00.000Z', managers[203].id);
   f.store.event(accepted.id, 'task.accepted', { resources_reclaimed: true });
   f.store.update(unknown.id, { management: JSON.stringify({ version: 1, enabled: false, state: 'unknown', reason: '未知结果不能隐藏' }) });
   let hold = false, release, held;
@@ -113,21 +116,30 @@ test('real project graph keeps serial branches, pages Valets inside main, and is
     expect(panel.querySelector('.task-graph-integration-status')).toBeNull();
     expect(deepText(panel)).toContain('合并中');
     expect(deepText(panel.querySelector('.project-management-head'))).toContain('/ 204');
-    expect(deepText(panel)).toContain('未知结果不能隐藏');
+    const visibleValets = () => panel.querySelectorAll('.project-management-row').filter(row => !row.hidden);
+    const managementToggle = () => panel.querySelector('.project-management-head').querySelector('button');
+    expect(managementToggle().getAttribute('aria-expanded')).toBe('false');
+    expect(visibleValets().map(row => row.dataset.valetId)).toEqual([String(latest.id)]);
+    expect(ui.taskGraphPage.graph.nodes.find(row => row.id === latest.id).agent_last_seen_at).toBe('2099-01-02T00:00:00.000Z');
     expect(ui.taskGraphPage.graph.edges.some(edge => managers.some(row => row.id === edge.to))).toBe(false);
     await loadNextTaskGraph();
     expect(ui.taskGraphPage.graph.nodes.length).toBe(206);
     expect(panel.querySelectorAll('.project-management-row')).toHaveLength(204);
     expect(ui.taskGraphPage.graph.has_more).toBe(false);
-    expect(deepText(panel)).toContain('未知结果不能隐藏');
+    expect(visibleValets().map(row => row.dataset.valetId)).toEqual([String(latest.id)]);
     const fold = panel.querySelector('.project-management-head').querySelector('button');
-    await fold.onclick();
     expect(fold.getAttribute('aria-expanded')).toBe('false');
-    expect(panel.querySelector(`[data-valet-id="${managers[2].id}"]`).hidden).toBe(true);
-    expect(panel.querySelector(`[data-valet-id="${unknown.id}"]`).hidden).toBe(false);
+    expect(panel.querySelector(`[data-valet-id="${unknown.id}"]`).hidden).toBe(true);
     await fold.onclick();
     expect(fold.getAttribute('aria-expanded')).toBe('true');
-    expect(panel.querySelector(`[data-valet-id="${managers[2].id}"]`).hidden).toBe(false);
+    expect(visibleValets()).toHaveLength(204);
+    expect(deepText(panel)).toContain('未知结果不能隐藏');
+    renderTaskGraph({ ...ui.taskGraphPage.graph, sampled_at: 'new sample' });
+    expect(managementToggle().getAttribute('aria-expanded')).toBe('true');
+    expect(visibleValets()).toHaveLength(204);
+    await managementToggle().onclick();
+    expect(visibleValets().map(row => row.dataset.valetId)).toEqual([String(latest.id)]);
+    await managementToggle().onclick();
     expect(ui.taskGraphPage.graph.nodes.find(row => row.id === managers[2].id)).toMatchObject({ parent_id: null, project_parent_id: main.id });
     expect(f.store.task(managers[2].id).parent_id).toBeNull();
     expect(ui.taskGraphPage.graph.nodes.some(row => row.id === accepted.id)).toBe(false);
@@ -163,5 +175,18 @@ test('real project graph keeps serial branches, pages Valets inside main, and is
     await loadTaskGraph(); await loadNextTaskGraph();
     expect(panel.querySelector(`[data-valet-id="${native.id}"]`)).toBeNull();
     expect(deepText(panel)).toContain('未知结果不能隐藏');
+    await managementToggle().onclick();
+    ui.taskGraphLocator = unknown.id; ui.taskGraphLocated = false;
+    renderTaskGraph(ui.taskGraphPage.graph);
+    expect(managementToggle().getAttribute('aria-expanded')).toBe('true');
+    expect(panel.querySelector(`[data-valet-id="${unknown.id}"]`).hidden).toBe(false);
+    expect(ui.taskGraphLocated).toBe(true);
+    // A fresh visit returns to the collapsed default, and a resumed old Valet wins.
+    ui.view = { id: 'task-graph' }; ui.taskGraphLocator = null;
+    const resumed = ui.taskGraphPage.graph.nodes.map(node => node.id === unknown.id
+      ? { ...node, agent_last_seen_at: '2099-01-04T00:00:00.000Z' } : node);
+    renderTaskGraph({ ...ui.taskGraphPage.graph, nodes: resumed });
+    expect(managementToggle().getAttribute('aria-expanded')).toBe('false');
+    expect(visibleValets().map(row => row.dataset.valetId)).toEqual([String(unknown.id)]);
   } finally { release?.(); resetUiState(); dom.restore(); await f.close(); }
 });

@@ -179,7 +179,7 @@ export default {
       : page.filtered.slice(page.offset, page.offset + pageLimit).map(row => row.id);
     const rows = windowIds.length ? this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, display_title, auto_title, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
-      reservation, auto_merge, interrupt_state, progress_plan, management, substr(error,1,2000) AS error, created_at, updated_at, calls, agent_wakes,
+      reservation, auto_merge, interrupt_state, progress_plan, management, substr(error,1,2000) AS error, created_at, updated_at, calls, agent_wakes, agent_last_seen_at,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
       (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch,
       (SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
@@ -331,7 +331,8 @@ export default {
         return { id: row.id, worker_number: row.worker_number, parent_id: row.parent_id,
           project_parent_id: main?.id ?? null, layout_parent_id: null, role: row.role, task_kind: row.task_kind, kind: 'task',
           title: row.display_title || row.auto_title || summarize(goal) || row.name || 'Valet', name: row.name,
-          status: row.status, created_at: row.created_at, updated_at: row.updated_at, has_result: Boolean(row.has_result),
+          status: row.status, created_at: row.created_at, updated_at: row.updated_at, agent_last_seen_at: row.agent_last_seen_at,
+          has_result: Boolean(row.has_result),
           ...iterations.get(row.id),
           accepted: binding?.accepted ?? iterations.get(row.id)?.accepted ?? false,
           archived: binding?.archived ?? iterations.get(row.id)?.archived ?? metadata.find(item => item.id === row.id)?.archived === true,

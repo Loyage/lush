@@ -20,7 +20,7 @@ resources:{own,subtree:{...own,input:242000,cost:448.48}}},
 progress:{total:3,completed:1,current:{label:'验证较长的进度说明和移动端布局，不应被消耗信息挤走'}},resources:{own}},
 {id:3,parent_id:2,worker_number:'W2-1',title:'等待中的子 Worker',role:'agent',task_kind:'child',status:'waiting',integration:'merged',delivery_summary:{stage:'integrated'},
 waiting_reason:'等待父 Worker 确认接口，保留完整的等待原因',input_queue:{buffered:2},freeze:{task_id:1},resources:{own}},
-{id:4,parent_id:1,worker_number:'V21',title:'运行中的项目管家',role:'manager',task_kind:'management',status:'running',management_attention:true,management:{state:'running',reason:'正在管理本项目，不进入开发分支'}},
+{id:4,parent_id:1,worker_number:'V21',title:'运行中的项目管家',role:'manager',task_kind:'management',status:'running',agent_last_seen_at:'2026-10-22T12:00:00.000Z',management_attention:true,management:{state:'running',reason:'正在管理本项目，不进入开发分支'}},
 {id:5,parent_id:null,worker_number:'V22',title:'历史无父记录只读投影到 main 的管理区',role:'manager',task_kind:'management',status:'completed',management_attention:true,management:{state:'unknown',reason:'结果未知，必须保留完整异常摘要，不能因极简或窄屏被省略'}},
 {id:6,parent_id:1,worker_number:'V23',title:'资源回收未完成的管家',role:'manager',task_kind:'management',status:'failed',acceptance_recovery:true,management_attention:true,notice_count:1,management:{state:'failed',reason:'具体失败与资源回收异常须保持可见',acceptance_recovery:true,can_accept:false,acceptance_reason:'资源回收异常，请核对记录'}}
 ]};
@@ -85,8 +85,8 @@ try{
     assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
     assert(width>760||(compact.titleHeight>=44&&compact.titleLabelHeight<=22),`compact title label/clear touch target: ${JSON.stringify(compact)}`);
     assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
-    const management=await execute(`const section=document.querySelector('[data-task-id="1"]>.project-management');return {text:section.textContent,rows:[...section.querySelectorAll('.project-management-row')].map(row=>{const r=row.getBoundingClientRect();return {overflow:row.scrollWidth>row.clientWidth+1,buttons:[...row.querySelectorAll('button')].map(b=>b.getBoundingClientRect().height),contained:r.right<=section.getBoundingClientRect().right};})};`);
-    assert(management.rows.length===3&&management.text.includes('V21')&&management.text.includes('V22')&&management.text.includes('V23')&&management.text.includes('结果未知')&&management.text.includes('资源回收未完成')&&management.text.includes('待决'), 'management identities or alerts hidden');
+    const management=await execute(`const section=document.querySelector('[data-task-id="1"]>.project-management');return {expanded:section.querySelector('button').getAttribute('aria-expanded'),rows:[...section.querySelectorAll('.project-management-row')].filter(row=>!row.hidden).map(row=>{const r=row.getBoundingClientRect();return {id:row.dataset.valetId,overflow:row.scrollWidth>row.clientWidth+1,buttons:[...row.querySelectorAll('button')].map(b=>b.getBoundingClientRect().height),contained:r.right<=section.getBoundingClientRect().right};})};`);
+    assert(management.expanded==='false'&&management.rows.length===1&&management.rows[0].id==='4', 'management should default to only the most recently run Valet');
     assert(management.rows.every(row=>!row.overflow&&row.contained&&(width>760||row.buttons.every(h=>h>=44))),`management overflow/touch targets: ${JSON.stringify(management)}`);
     for(const card of geometry){
       if(width<=640){
@@ -149,12 +149,12 @@ try{
   await execute(`window.graph=structuredClone(normalGraph);window.graph.nodes.push({id:7,parent_id:1,worker_number:'V24',title:'可收起的已收口管理记录',role:'manager',task_kind:'management',status:'completed',management:{state:'succeeded'}});window.graph.management_count=4;window.graph.total++;window.paint();`);
   for(const width of [390,1440]){
     await resize(width);
-    await execute(`document.querySelector('.project-management-head button').click();window.paint();`);
-    assert(await execute(`const section=document.querySelector('.project-management'),ordinary=section.querySelector('[data-valet-id="7"]');return section.querySelector('button').getAttribute('aria-expanded')==='false'&&getComputedStyle(ordinary).display==='none'&&[...section.querySelectorAll('.project-management-row')].filter(row=>row!==ordinary).every(row=>getComputedStyle(row).display!=='none');`),'management collapse hid alerts or did not persist across repaint');
-    await execute(`document.querySelector('.project-management-head button').click();`);
-    assert(await execute(`return getComputedStyle(document.querySelector('[data-valet-id="7"]')).display!=='none';`),'management records did not reopen');
+    await execute(`document.querySelector('.project-management-head button').click();window.graph.sample='expanded-'+innerWidth;window.paint();`);
+    assert(await execute(`const section=document.querySelector('.project-management');return section.querySelector('button').getAttribute('aria-expanded')==='true'&&[...section.querySelectorAll('.project-management-row')].every(row=>getComputedStyle(row).display!=='none')&&section.textContent.includes('结果未知')&&section.textContent.includes('资源回收未完成');`),'expanded management records or diagnostics unavailable after repaint');
+    await execute(`document.querySelector('.project-management-head button').click();window.graph.sample='collapsed-'+innerWidth;window.paint();`);
+    assert(await execute(`const section=document.querySelector('.project-management'),visible=[...section.querySelectorAll('.project-management-row')].filter(row=>getComputedStyle(row).display!=='none');return section.querySelector('button').getAttribute('aria-expanded')==='false'&&visible.length===1&&visible[0].dataset.valetId==='4';`),'management collapse should retain only the most recently run Valet after repaint');
   }
-  console.log('PASS management collapse preserves alerts, survives repaint and reopens at mobile/desktop widths');passed=true;
+  console.log('PASS management defaults to one recent Valet, survives repaint and expands all diagnostics at mobile/desktop widths');passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});
   driver.kill();await driver.exited;server.stop(true);

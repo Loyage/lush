@@ -379,15 +379,20 @@ function projectManagement(graph) {
   section.setAttribute('aria-label', '项目管理 · Valet');
   const head = el('div', undefined, 'project-management-head');
   head.append(el('strong', '项目管理 · Valet'), el('span', `已加载 ${records.length} / ${graph.management_count ?? records.length}`, 'hint'));
+  // A resumed older Valet can be newer than the highest ID. Status/acceptance
+  // updates are not executions; historical rows without a run time sort last.
+  const latest = [...records].sort((a, b) => (Date.parse(b.agent_last_seen_at) || 0) - (Date.parse(a.agent_last_seen_at) || 0)
+    || (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0) || b.id - a.id)[0];
+  if (!ui.taskGraphLocated && records.some(node => node.id === ui.taskGraphLocator)) managementFoldByView.set(ui.view, false);
   const rows = [];
   const paintFold = () => {
-    const folded = managementFoldByView.get(ui.view) === true;
+    const folded = managementFoldByView.get(ui.view) !== false;
     paintDisclosure(toggle, !folded, { expand: '展开管理记录', collapse: '收起管理记录', compact: true,
-      help: '仅展开或收起已加载的普通管理记录；运行、待决、失败、未知结果和回收异常仍保持可见，不读取更多历史或调用 Agent。' });
-    for (const [row, attention] of rows) row.hidden = folded && !attention;
+      help: '收起时仅显示已加载范围内最近运行的一个 Valet；展开查看其余记录及待决、异常，不读取更多历史或调用 Agent。' });
+    for (const [row, node] of rows) row.hidden = folded && node !== latest;
   };
   const toggle = button('', () => {
-    managementFoldByView.set(ui.view, managementFoldByView.get(ui.view) !== true);
+    managementFoldByView.set(ui.view, managementFoldByView.get(ui.view) === false);
     paintFold();
   }, 'ghost');
   head.append(toggle); section.append(head);
@@ -415,7 +420,7 @@ function projectManagement(graph) {
     const iteration = iterationControls(node, { refresh: () => loadTaskGraph({ retry: true }) });
     if (iteration) actions.append(iteration);
     row.append(actions); section.append(row);
-    rows.push([row, node.management_attention || node.acceptance_recovery || binding?.acceptance_blocked]);
+    rows.push([row, node]);
   }
   paintFold();
   if (!records.length) section.append(el('p', graph.management_count ? '尚未读到匹配的 Valet；请继续加载项目分页。' : '当前筛选没有管理记录。', 'hint'));

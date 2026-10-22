@@ -64,6 +64,8 @@ function unavailable(node) {
     parent_task_kind: node.parent_task_kind, kind: 'task', task_kind: node.task_kind, role: node.role,
     project_parent_id: node.project_parent_id, accepted: node.accepted, acceptance_recovery: node.acceptance_recovery,
     management_attention: node.management_attention,
+    ...(node.task_kind === 'management' || node.role === 'manager'
+      ? { agent_last_seen_at: node.agent_last_seen_at, created_at: node.created_at } : {}),
     worker_number: String(node.worker_number ?? '').slice(0, 100) || null,
     status: node.status, archived: node.archived, integration: node.integration,
     ...(node.execution_retired ? { execution_retired: true } : {}),
