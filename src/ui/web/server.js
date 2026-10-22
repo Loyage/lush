@@ -5,10 +5,11 @@ import { check } from '../../core/types.js';
 import { loadAuth, createAuthHandler } from './server-auth.js';
 import { createHostRoutes } from './server-host-routes.js';
 import { projectRoutes } from './server-project-routes.js';
+import { pwaResponse } from './server-pwa.js';
 import { PROJECT_ELEVATION_HTTP, PROJECT_ELEVATION_HTTP_BYTES } from '../../administrator/project-protocol.js';
 
 const WEB_HOSTS = new WeakMap();
-const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
@@ -36,6 +37,10 @@ export function startWeb(config, port = 4318, options = {}) {
       if (request.method === 'POST' && !administratorInput && (await request.clone().arrayBuffer()).byteLength > 128 * 1024)
         return json({ error: 'request body exceeds 128 KiB' }, 413);
       const context = { request, server, url, headers, json };
+      // Only explicit, code-only PWA assets may bypass login. All other paths retain
+      // the existing Host/Origin/session checks, including project-prefixed lookalikes.
+      const pwa = pwaResponse(context);
+      if (pwa) return pwa;
       const guarded = await authenticate(context);
       if (guarded) return guarded;
       try {
@@ -49,6 +54,9 @@ export function startWeb(config, port = 4318, options = {}) {
   server.stop = async closeActiveConnections => {
     await hostRoutes.close(stop(closeActiveConnections));
   };
+  // Resume persisted subscriptions without waiting for any browser request. Keep startWeb
+  // synchronous; startup failures expose no private paths, endpoints or credentials.
+  hostRoutes.start().catch(() => console.warn('[web] 后台推送启动未确认；请检查私有配置权限，重新启用当前浏览器推送并发送测试通知。'));
   WEB_HOSTS.set(server, projectHost);
   if (auth.version === 1) console.warn('[web] 旧版 version:1 web.json 保留全接口监听；改为 version:2 可默认仅监听回环，公网需显式 listen:"public"。');
   if (auth.hostname === '0.0.0.0') console.warn('[web] 公网 HTTP 监听已启用；直接通过 HTTP 访问会明文传输账号密码、会话和项目数据，存在窃听与篡改风险。建议由用户配置 HTTPS 反向代理或 SSH 端口转发；HTTP 不会因此被拒绝。');

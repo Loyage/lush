@@ -25,6 +25,13 @@ test('device settings saves real Host preferences and reminders, profiles and en
   const panel = dom.node('detail');
   expect(dom.location.hash).toBe('#settings'); expect(panel.dataset.view).toBe('settings');
   expect(dom.intervalFor(1500)).toBeUndefined();
+  const push = panel.querySelector('.push-notification-control');
+  expect(push.querySelectorAll('button')).toHaveLength(5);
+  expect(push.querySelectorAll('.agent-call')).toHaveLength(0);
+  expect(deepText(panel)).toContain('iPhone／iPad 16.4+ 请先添加到主屏幕');
+  expect(deepText(panel)).toContain('服务器更新后可重新加载');
+  expect(push.querySelector('[data-push-action="enable"]').disabled).toBe(true);
+  expect(push.querySelectorAll('.help-host').every(node => node.getAttribute('data-help'))).toBe(true);
   const dark = panel.querySelector('input.pref-radio[data-value="dark"]'); dark.checked = true; await dark.listeners.change[0]();
   expect(readDevicePreferences(config).values.theme).toBe('dark'); expect(dom.document.documentElement.dataset.theme).toBe('dark');
   const order = panel.querySelector('select.pref-select[data-pref="transcriptOrder"]');

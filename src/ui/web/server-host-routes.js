@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { check, isPlainObject } from '../../core/types.js';
+import { WEB_PUSH_PATHS } from '../../shared/web-push-protocol.js';
 import { projectRouteId } from '../../host/registry.js';
 import { cliCatalog } from '../../rpc/cli-catalog.js';
 import { capabilitySource } from '../../agent/capabilities.js';
@@ -14,9 +16,20 @@ export function createHostRoutes(projectHost, auth, options, env) {
   let hostRestarting = false;
   let deviceSettings = null, userServices = null;
   const getDeviceSettings = () => deviceSettings ||= options.deviceSettingsService || new DeviceSettingsService(env, options.deviceSettingsOptions);
-  const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env });
+  // Bind persisted subscriptions to the loaded authentication policy, not an expiring login session.
+  const pushAuthScope = createHash('sha256').update(JSON.stringify([auth.username, auth.password_hash,
+    auth.origins, auth.projects, auth.config_home])).digest('hex');
+  const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env, pushAuthScope });
+  const pushRequestOrigin = ({ request, url, user }) => {
+    check(user?.kind === 'user_session', 'Web Push requires a logged-in user');
+    const value = request.headers.get('origin') || (auth.origins?.length === 1 ? auth.origins[0] : url.origin);
+    check(value !== 'null' && (value === url.origin || auth.origins?.includes(value)), 'invalid Web Push request origin');
+    return value;
+  };
   const administrator = createAdministratorHostRoutes(administratorControl(env, options.administratorOptions));
   return {
+    // startWeb owns this lifecycle hook; subscription POST also starts a newly enabled sender.
+    async start() { await getUserServices().start(); },
     async handle(context) {
       const { request, url, headers, json } = context;
       const privileged = await administrator(context);
@@ -57,6 +70,20 @@ export function createHostRoutes(projectHost, auth, options, env) {
           return json(await getUserServices()[methods[1]](body));
         }
         return json({ error: 'not found' }, 404);
+      }
+      if (url.pathname === WEB_PUSH_PATHS.config) {
+        if (request.method !== 'GET') return json({ error: 'not found' }, 404);
+        userQuery(url, []); pushRequestOrigin(context);
+        return json(await getUserServices().readPushConfig());
+      }
+      const pushAction = {
+        [WEB_PUSH_PATHS.subscribe]: 'subscribePush', [WEB_PUSH_PATHS.unsubscribe]: 'unsubscribePush',
+        [WEB_PUSH_PATHS.status]: 'pushStatus', [WEB_PUSH_PATHS.test]: 'testPush',
+      }[url.pathname];
+      if (pushAction) {
+        if (request.method !== 'POST') return json({ error: 'not found' }, 404);
+        const origin = pushRequestOrigin(context);
+        return json(await getUserServices()[pushAction](await userBody(request, url), origin));
       }
       if (url.pathname === '/api/host/diagnostics') {
         if (request.method !== 'GET') return json({ error: 'not found' }, 404);

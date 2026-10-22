@@ -31,6 +31,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/merge-conditions-bridge.test.js', // real new merge syntax -> fixed parent queue
     'test/project/input-emission-protocol.test.js', // Dispatcher -> runtime -> Input/Message
     'test/project/merge-queue.test.js', // child delivery -> parent Squash -> acceptance
+    'test/web/web-push.test.js', // authenticated Host -> source RPC/SQLite -> encrypted push and real Host restart
     'test/web/code-reader-api.test.js', // HTTP -> RPC -> Git tree/content/diff
     'test/web/automation-registry-api.test.js', // HTTP -> permanent/temporary definitions, pinned mounts and safe reclamation
   ]),

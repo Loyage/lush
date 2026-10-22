@@ -7,6 +7,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
+import { backgroundPushControl } from './push-controls.js';
 import { row } from './settings-controls.js';
 import { NOTICE_CATEGORIES } from './notice-channels.js';
 
@@ -164,7 +165,8 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
     const behavior = block('刷新与提示');
     behavior.append(row('轮询频率', '控制页面快照与实时状态刷新；修改后立即生效。', selectControl('polling', POLLING_MODES, '页面自动刷新频率')));
     behavior.append(row('消息停留时长', '控制顶部信息与错误提示自动消失的速度。', selectControl('toastDuration', TOAST_MODES, '消息提示停留时长')));
-    behavior.append(row('系统通知总开关', '设备统一开关，默认关闭；浏览器仍需单独授权通知权限。窗口打开期间提醒新事项，关闭期间不补发。', notificationControl()));
+    behavior.append(row('系统通知总开关', '设备统一开关，默认关闭；当前浏览器仍需单独授权，后台提醒还需显式订阅。重新开启不补发积压。', notificationControl()));
+    behavior.append(row('手机与后台推送', '仅管理此浏览器。iPhone／iPad 16.4+ 请先添加到主屏幕；远程访问需 HTTPS。界面在线加载，服务器更新后可重新加载，不需更新安装包。', backgroundPushControl()));
     content.append(behavior);
 
     const notices = block('提醒方式');

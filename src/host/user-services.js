@@ -71,6 +71,12 @@ export function createUserServices(projectHost, options = {}) {
     const { GlobalInboxService } = await import('./global-inbox.js');
     return new GlobalInboxService(projectHost, { ...options.inboxOptions, env });
   });
+  const push = lazy(async () => {
+    if (options.pushService) return options.pushService;
+    const { WebPushService } = await import('./web-push-service.js');
+    return new WebPushService(projectHost, { ...options.pushOptions, config, authScope: options.pushAuthScope,
+      preferences: async () => (await service(preferences)).get() });
+  });
   async function service(store) {
     const instance = await store.get();
     check(!closed, 'user workspace services are stopping');
@@ -86,14 +92,38 @@ export function createUserServices(projectHost, options = {}) {
   const managementPermissionsError = '设备管家权限操作未确认，可能版本已变更；请保留草稿，重新读取权限并检查私有文件权限后重试。';
   const automationError = '全局自动化操作未确认，请重新读取策略并检查私有文件权限后重试。';
   const inboxError = '收件箱操作未确认，请刷新记录并检查来源项目的后台状态；已提交的动作不能据此视为未执行。';
+  const pushError = '后台推送操作未确认；请核对 HTTPS、浏览器订阅、推送服务网络及私有配置权限后重试。';
   return {
+    async start() { return (await service(push)).start(); },
+    async readPushConfig() { return invoke(push, 'config', [], pushError); },
+    async subscribePush(body, origin) {
+      fields(body, ['subscription'], 'push subscription request', ['subscription']);
+      return invoke(push, 'subscribe', [body.subscription, origin], pushError);
+    },
+    async pushStatus(body, origin) {
+      fields(body, ['endpoint'], 'push status request', ['endpoint']);
+      return invoke(push, 'status', [body.endpoint, origin], pushError);
+    },
+    async unsubscribePush(body, origin) {
+      fields(body, ['endpoint'], 'push unsubscribe request', ['endpoint']);
+      return invoke(push, 'unsubscribe', [body.endpoint, origin], pushError);
+    },
+    async testPush(body, origin) {
+      fields(body, ['endpoint'], 'push test request', ['endpoint']);
+      return invoke(push, 'test', [body.endpoint, origin], pushError);
+    },
     async readPreferences() { return invoke(preferences, 'get', [], preferenceError); },
     async savePreferences(body) {
       fields(body, ['patch', 'expected_revision'], 'preferences request', ['patch', 'expected_revision']);
       fields(body.patch, PREFERENCES, 'preferences patch');
       check(Object.keys(body.patch).length > 0, 'preferences patch cannot be empty');
       revision(body.expected_revision);
-      return invoke(preferences, 'save', [body.patch, body.expected_revision], preferenceError);
+      const model = await invoke(preferences, 'save', [body.patch, body.expected_revision], preferenceError);
+      if (options.pushAuthScope && (Object.hasOwn(body.patch, 'noticeNotifications') || Object.hasOwn(body.patch, 'noticeChannels'))) {
+        // The preference has already committed. A failed transport update must not misreport that write.
+        try { (await service(push)).preferencesChanged(model, body.patch); } catch { /* Sender rechecks authority before every delivery. */ }
+      }
+      return model;
     },
     async readDashboard() { return invoke(dashboard, 'get', [], dashboardError); },
     async saveDashboard(body) {
@@ -151,7 +181,7 @@ export function createUserServices(projectHost, options = {}) {
     },
     close() {
       closed = true;
-      return closing ||= Promise.allSettled([preferences.close(), dashboard.close(), managementPermissions.close(), automation.close(), inbox.close()]);
+      return closing ||= Promise.allSettled([push.close(), preferences.close(), dashboard.close(), managementPermissions.close(), automation.close(), inbox.close()]);
     },
   };
 }

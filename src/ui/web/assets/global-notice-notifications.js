@@ -7,22 +7,25 @@ import { inboxProjectHref, inboxIdentity, inboxNotificationKey, pendingNotice, v
 export async function sendGlobalNotification(item, { isCurrent = () => true } = {}) {
   validateInboxItem(item);
   const enabled = () => isCurrent() && readPref('noticeNotifications') && noticeChannelEnabled(item.notice, 'system');
-  if (!enabled() || !item.online) return;
-  const key = inboxNotificationKey(item);
-  const run = () => {
+  if (!enabled() || !item.online || !globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
+  const [{ backgroundPushActive }, { showPageNotification, sourceNotificationTag }] = await Promise.all([
+    import('./push-subscriptions.js'), import('./page-notifications.js'),
+  ]);
+  const key = sourceNotificationTag(item.project_id, item.notice, inboxNotificationKey(item));
+  const run = async () => {
     if (!enabled() || !globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
+    if (await backgroundPushActive() || !enabled()) return;
     try { if (localStorage.getItem(key)) return; } catch { /* private browsing */ }
-    const notification = new Notification(`Lush · ${item.project_name}`, { body: item.notice.title.slice(0, 500), tag: key });
     const target = inboxProjectHref(item.project_id, item.notice.id);
-    notification.onclick = () => {
-      // Keep both the global workbench and any project's unsubmitted input intact.
-      globalThis.window?.open?.(target, '_blank', 'noopener');
-      notification.close();
-    };
-    try { localStorage.setItem(key, '1'); } catch { /* OS tag and this observer's baseline still deduplicate */ }
+    const sent = await showPageNotification(`Lush · ${item.project_name}`, { body: item.notice.title.slice(0, 500), tag: key,
+      url: target, enabled, onClick: () => {
+        // Keep both the global workbench and any project's unsubmitted input intact.
+        globalThis.window?.open?.(target, '_blank', 'noopener');
+      } });
+    if (sent) try { localStorage.setItem(key, '1'); } catch { /* OS tag and this observer's baseline still deduplicate */ }
   };
   if (globalThis.navigator?.locks?.request) await navigator.locks.request(key, run);
-  else run();
+  else await run();
 }
 
 /**

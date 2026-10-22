@@ -555,7 +555,7 @@ button.context-action{display:block;width:100%;background:transparent;color:var(
 @media(max-width:360px){.transcript-identity strong{font-size:10px}.transcript-search-toggle{font-size:11px;padding:6px}}
 
 /* Notice records and opt-in system alerts. */
-.notice-notification-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.notice-notification-control .hint{max-width:320px}
+.notice-notification-control,.push-notification-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}.notice-notification-control .hint,.push-notification-control .hint{max-width:320px;overflow-wrap:anywhere}
 #side-notices .filters{display:flex;gap:6px;flex-wrap:wrap}#side-notices .filters button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 #notice-record-detail:not(:empty){margin-top:20px}#notice-pagination{margin-top:10px}#notice-record-detail textarea{width:100%}
 

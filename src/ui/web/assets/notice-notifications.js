@@ -1,7 +1,7 @@
 import { button, el } from './dom.js';
 import { devicePreferencesStatus, onDevicePreferences, onPrefChange, readPref, saveDevicePreference } from './prefs.js';
 import { unreadNotice, noticeHash, noticeChannelEnabled } from './notice-kind.js';
-
+import { projectRoute } from './route.js';
 let failure = '';
 const paintControls = () => {
   for (const root of globalThis.document?.querySelectorAll?.('.notice-notification-control') || []) paintControl(root);
@@ -97,25 +97,29 @@ export function createNoticeNotifier({ send, enabled = () => readPref('noticeNot
 }
 
 async function deliver(notice, project) {
-  if (!readPref('noticeNotifications') || !noticeChannelEnabled(notice, 'system')) return;
-  const key = `lush.notice-delivered:${project}:${notice.id}:${notice.created_at}`;
+  if (!readPref('noticeNotifications') || !noticeChannelEnabled(notice, 'system')
+    || !globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
+  const [{ backgroundPushActive }, { showPageNotification, sourceNotificationTag }, { pushNoticeUrl }] = await Promise.all([
+    import('./push-subscriptions.js'), import('./page-notifications.js'), import('../../../shared/web-push-protocol.js'),
+  ]);
+  const key = sourceNotificationTag(projectRoute(), notice, `lush.notice-delivered:${project}:${notice.id}:${notice.created_at}`);
   const run = async () => {
     // A tab-lock wait must not send a notification after the user disabled its channel.
     if (!readPref('noticeNotifications') || !noticeChannelEnabled(notice, 'system')) return;
+    if (!globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
+    if (await backgroundPushActive() || !readPref('noticeNotifications') || !noticeChannelEnabled(notice, 'system')) return;
     try { if (localStorage.getItem(key)) return; } catch { /* private browsing */ }
     const title = `Lush · ${project.split('/').filter(Boolean).at(-1) || project}`;
-    const body = notice.title.slice(0, 500);
-    if (!globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
-    const notification = new Notification(title, { body, tag: key });
-    const hash = noticeHash(notice);
-    const pathname = location.pathname;
-    notification.onclick = () => {
-      globalThis.window?.focus?.();
-      if (location.pathname === pathname) location.hash = hash;
-      else location.href = `${pathname}${hash}`;
-      notification.close();
-    };
-    try { localStorage.setItem(key, '1'); } catch { /* session baseline still deduplicates */ }
+    const hash = noticeHash(notice), pathname = location.pathname;
+    const sent = await showPageNotification(title, { body: notice.title.slice(0, 500), tag: key,
+      url: projectRoute() ? pushNoticeUrl(projectRoute(), notice.id) : '/#notices',
+      enabled: () => readPref('noticeNotifications') && noticeChannelEnabled(notice, 'system'),
+      onClick: () => {
+        globalThis.window?.focus?.();
+        if (location.pathname === pathname) location.hash = hash;
+        else location.href = `${pathname}${hash}`;
+      } });
+    if (sent) try { localStorage.setItem(key, '1'); } catch { /* session baseline still deduplicates */ }
   };
   // Serialize across same-origin tabs when available; tag also replaces duplicate OS banners.
   if (globalThis.navigator?.locks?.request) await navigator.locks.request(key, run);

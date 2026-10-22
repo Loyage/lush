@@ -75,6 +75,7 @@ export function loadAuth(config, { launcher = false } = {}) {
     } finally { fs.rmSync(temporary, { force: true }); }
   } else check(/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(password_hash), `${file} has an invalid password_hash`);
   return { username: value.username, password_hash, origins, projects, hostname, version: value.version,
+    config_home: path.resolve(config.home),
     config_hint: launcher ? '全局 Web 配置 web.json' : '.lush/web.json' };
 }
 function cookieValue(request, name) {
@@ -164,7 +165,7 @@ export function createAuthHandler(auth) {
     if (token && expires && expires <= Date.now()) sessions.delete(token);
 
     if (request.method === 'GET' && url.pathname === '/login') {
-      if (authenticated) return new Response(null, { status: 303, headers: { Location: '/', ...headers } });
+      if (authenticated) return new Response(null, { status: 303, headers: { Location: safeNext(url.searchParams.get('next')), ...headers } });
       return new Response(loginPage('', url.searchParams.get('next')), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
     }
     if (request.method === 'POST' && url.pathname === '/login') {

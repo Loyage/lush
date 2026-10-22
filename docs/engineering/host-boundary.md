@@ -14,7 +14,7 @@ flowchart LR
 
 - **UI**（`src/ui/web/assets/`）：不读取本机 socket、项目数据库或 Git。项目操作必须使用当前页面 `/p/<id>/` 的身份；宿主级列表和文档不带项目身份。
 - **Host**（`bin/lush-host`、`src/host/`、HTTP 适配器 `src/ui/web/server.js`）：处理浏览器认证、项目登记、路由、连接缓存和有界状态读取。`GET /api/host/projects` 只检查已登记目录对应的 socket，不启动 daemon；显式选择/启动项目时才按需启动；项目 API 附着不会启动 daemon，避免旧标签页轮询撤销停止操作。`launcher.json` 是界面缓存，不是Worker数据库。浏览器直接访问目标 Host，关闭页面不停止任何项目 lushd。服务器 Host 与 SSH/转发/IP/域名由用户自行配置，见[远程 Host 部署](../deployment/remote-host.md)。
-- **lushd**（`bin/lushd`、`src/daemon/`、`src/core/`、`src/persistence/`、`src/rpc/`）：一项目一进程，绑定 canonical 路径，事实仅在 `<project>/.lush/`，执行 Agent 与项目内调度。Host 不复制事实、不做跨项目调度。UI 当前通过有界轮询读取项目消息与状态，Host 只把响应转交相应页面；尚无后台推送通道。CLI `lush` 也可直接通过项目 socket 访问 lushd。
+- **lushd**（`bin/lushd`、`src/daemon/`、`src/core/`、`src/persistence/`、`src/rpc/`）：一项目一进程，绑定 canonical 路径，事实仅在 `<project>/.lush/`，执行 Agent 与项目内调度。Host 不复制事实、不做跨项目调度。UI 通过有界轮询读取项目消息与状态；显式订阅的 Web Push 由 Host 后台只读派生来源 Notice 并投递，不需要页面在线，不启动离线项目，也不执行跨项目任务。推送订阅与派生游标不是项目权威事实，见[用户工作台契约](user-workspace.md#手机与后台推送)。CLI `lush` 也可直接通过项目 socket 访问 lushd。
 
 W363／D738 的[项目管家密码提权](administrator-valet.md)由当前项目原生 management Worker 执行：Host 重新验证当前 Web 登录密码，签发精确项目／内容绑定 proof；授权、调用、审计和真实执行 owner 仍归来源项目 daemon，Host 不持有 Worker。权限仅本条、仅当前项目，下一条默认普通；旧设备级 ADM 不再接受创建／输入／执行，历史和安全停止保留。
 

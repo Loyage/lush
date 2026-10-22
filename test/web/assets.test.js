@@ -1,5 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fetch, setup } from './harness.js';
+import { projectRouteId } from '../../src/host/registry.js';
+import { WEB_PUSH_PATHS } from '../../src/shared/web-push-protocol.js';
 
 const scriptEntries = html => [...html.matchAll(/<script[^>]+src="([^"\n]+)"/g)].map(row => row[1]);
 const styleEntries = html => [...html.matchAll(/<link rel="stylesheet" href="([^"\n]+)"/g)].map(row => row[1]);
@@ -10,6 +12,44 @@ test('production startup and complete lazy module graph are served within the co
   const f = await setup();
   try {
     const page = await fetch(f.url), html = await page.text();
+    expect(page.headers.get('cache-control')).toBe('no-store');
+    expect(page.headers.get('content-security-policy')).toContain("worker-src 'self'");
+    expect(page.headers.get('content-security-policy')).toContain("manifest-src 'self'");
+    const manifestLink = `<link rel="manifest" href="${WEB_PUSH_PATHS.manifest}">`;
+    expect(html).toContain(manifestLink);
+    expect(html).toContain('<link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">');
+    const projectPage = await fetch(`${f.url}/p/${projectRouteId(f.config.project)}/`);
+    expect(projectPage.status).toBe(200); expect(await projectPage.text()).toContain(manifestLink);
+    // Only these fixed, data-free install assets stay available after login expires.
+    const manifestResponse = await fetch(f.url + WEB_PUSH_PATHS.manifest, { anonymous: true });
+    expect(manifestResponse.status).toBe(200);
+    expect(manifestResponse.headers.get('content-type')).toContain('application/manifest+json');
+    const manifest = await manifestResponse.json();
+    expect([manifest.id, manifest.start_url, manifest.scope]).toEqual(['/', '/', '/']);
+    expect(manifest.display).toBe('standalone'); expect(manifest.name).toBe('Lush');
+    for (const [file, size] of [...manifest.icons.map(icon => [icon.src, Number(icon.sizes.split('x')[0])]), ['/pwa/apple-touch-icon.png', 180]]) {
+      const response = await fetch(f.url + file, { anonymous: true });
+      expect(response.status).toBe(200); expect(response.headers.get('content-type')).toBe('image/png');
+      const bytes = Buffer.from(await response.arrayBuffer());
+      expect(bytes.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([size, size]);
+    }
+    const workerResponse = await fetch(f.url + WEB_PUSH_PATHS.worker, { anonymous: true });
+    expect(workerResponse.status).toBe(200);
+    expect(workerResponse.headers.get('content-type')).toContain('text/javascript');
+    expect(workerResponse.headers.get('cache-control')).toBe('no-store');
+    expect(workerResponse.headers.get('service-worker-allowed')).toBe('/');
+    const worker = await workerResponse.text();
+    expect(worker).toMatch(/addEventListener\(['"]push['"]/); expect(worker).toMatch(/addEventListener\(['"]notificationclick['"]/);
+    expect(worker).not.toMatch(/addEventListener\(['"]fetch['"]/); expect(worker).not.toContain('caches.');
+    const workerHead = await fetch(f.url + WEB_PUSH_PATHS.worker, { method: 'HEAD', anonymous: true });
+    expect(workerHead.status).toBe(200); expect(await workerHead.text()).toBe('');
+    expect(Number(workerHead.headers.get('content-length'))).toBe(Buffer.byteLength(worker));
+    for (const route of ['/', '/app.js', `/p/${projectRouteId(f.config.project)}/sw.js`, '/pwa/unknown.png']) {
+      expect((await fetch(f.url + route, { anonymous: true })).status).toBe(303);
+    }
+    expect((await fetch(f.url + WEB_PUSH_PATHS.config, { anonymous: true })).status).toBe(401);
+    expect((await fetch(f.url + WEB_PUSH_PATHS.worker, { method: 'POST', anonymous: true })).status).toBe(303);
     const scripts = scriptEntries(html), styles = styleEntries(html);
     expect(scripts).toHaveLength(2); expect(styles).toHaveLength(1);
     const seen = new Map(), pending = [...scripts, ...styles], lazy = new Set();
