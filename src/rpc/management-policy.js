@@ -20,6 +20,7 @@ const reads = new Set([
   'notice.list','notice.page','branch.convergence','branch.convergence_list','branch.convergence_runs',
   'branch.convergence_defaults','branch.history','branch.version_graph','worker.delete_preview',
   'agent.connections.list','agent.connections.history','agent.connections.models','agent.usage.config','agent.usage.history',
+  'agent.registered_models.list','agent.registered_models.resolve',
   'agent.models','agent.resources','agent.selection.resources','agent.packages.list','agent.status','system.settings',
 ]);
 const automatic = new Set(['draft.add','draft.update','draft.remove','input.emit','order.submit','worker.message',
@@ -43,6 +44,7 @@ const unavailable = new Set([
   'worker.create','worker.spawn','worker.integrate','worker.resolve_child_divergence','notice.post',
   'agent.config','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'agent.connections.save','agent.connections.login.start','agent.connections.login.finish',
+  'agent.registered_models.save','agent.registered_models.remove',
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',
   'settings.migration.preview','settings.migration.apply','settings.clear_override',
   'worker.run_settings','worker.code_state','worker.code_tree','worker.code_file',

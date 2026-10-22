@@ -1,7 +1,7 @@
 import { api } from './api.js';
 
-const READS = /^\/api\/(?:settings\/runtime|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
-const ACTIONS = /^(?:system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
+const READS = /^\/api\/(?:settings\/runtime|agent\/(?:config|status|registered-models|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
+const ACTIONS = /^(?:system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.registered_models\.(?:list|save|remove|resolve)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
 
 /** Device configuration always belongs to Host, even when the current project is offline. */
 export function settingsClient(scope = 'device') {
@@ -23,6 +23,10 @@ export function settingsClient(scope = 'device') {
         && (value?.configuration_scope?.selected !== 'device' || value.configuration_scope.project_override === true
           || !['device', 'default', 'mixed'].includes(value.configuration_scope.source))) {
         throw new Error('Host 未确认设备设置来源，请更新界面服务；未修改任何配置');
+      }
+      if (path === '/api/agent/registered-models' && (value?.storage_scope !== 'device'
+        || value.models?.some(row => row.storage_scope !== 'device'))) {
+        throw new Error('Host 未确认设备模型登记来源；请更新 Host，当前配置保持不变');
       }
       if (path === '/api/agent/connections' && value.connections?.some(row => row.storage_scope === 'project')) {
         throw new Error('Host 返回了旧项目来源；设备来源页拒绝展示，请先更新 Host 或显式迁移');

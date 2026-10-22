@@ -25,7 +25,7 @@ const PAGES = {
   settings: ['设备设置', '用户工作台', '设备唯一偏好、运行参数与网络'],
   skills: ['Skills', '用户工作台', 'Lush 内置能力介绍 · 设备统一启停'],
   'agent-status': ['Agent 配置', '用户工作台', '设备统一的执行后端、模型来源、Prompt 与工作方式'],
-  'model-sources': ['模型来源', '用户工作台', '设备 API、账号登录、模型范围与余额额度'],
+  'model-sources': ['模型和来源', '用户工作台', '设备命名模型、来源登录与余额额度'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],
 };
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }

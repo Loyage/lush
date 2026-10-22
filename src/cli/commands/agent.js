@@ -14,8 +14,12 @@ export async function run(command, args, { client, json }) {
   check(verb === 'model', 'agent requires status, model or source');
   const action = args.shift();
   if (action === 'choices') return runResources(args, client, { json });
-  check(action === 'list', 'agent model requires list or choices');
+  if (action === 'resolve') {
+    exact(args, 1); return client.request('agent.registered_models.resolve', { selector: args[0] });
+  }
+  check(action === 'list', 'agent model requires list, resolve or choices');
   const backend = option(args, '--backend'); exact(args, 0);
-  check(['pi', 'codex'].includes(backend), 'agent model list requires --backend pi|codex');
+  if (backend === null) return client.request('agent.registered_models.list', {});
+  check(['pi', 'codex'].includes(backend), 'agent model list --backend expects pi|codex');
   return client.request('agent.models', { agent: backend });
 }

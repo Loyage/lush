@@ -14,7 +14,7 @@
 
 Lush Pi 必须选择托管来源，使用设备独立基础配置与项目私有调用快照，只携本次凭证，不复制机器默认 Pi 的设置／全局 Prompt／凭证；OAuth refresh 由设备连接管理器协调。`--no-approve` 保持项目信任边界，项目 .pi 不能重定向托管端点，项目 AGENTS.md 与显式资源仍按 Lush 上下文规则保留。Pi 模式不读连接、不参与托管来源策略/被动观测。隔离的 explainer/butler 仍要求 Lush 模式，不能绕过无工具边界。模式切换必须避免从既有 session/fork 恢复另一模式旧模型，启动参数/会话恢复应实际测试。Pi 默认模式会话使用 `_lush-task-ID-pi.jsonl`；执行记录、项目/Worker 用量统计及明确确认删除的资源归属均识别此后缀和原 `_lush-task-ID.jsonl`，两种会话仍属于同一 Worker，不因运行隔离而遗漏历史/消耗。
 
-`order.submit` 支持可选 `profile`，由现有用户 Web／RPC 提交；CLI order／input draft submit 使用 `--data JSON` 承载同一 profile，不再提供本地文件参数，Worker configure/retry/resume 保持既有准入。设备 CLI 仅保留 `config agent replace --data JSON` 完整显式配置，细项编辑使用既有设置页面。安全 next-call 摘要添加 config_mode，不泄漏完整 profile。
+`order.submit` 支持可选 `profile`，由现有用户 Web／RPC 提交；CLI order／input draft submit 使用 `--data JSON` 承载同一 profile；order 另支持[已注册模型选择](agent-connections.md#cli-与管家选择)，解析后冻结具体来源和模型，不再提供本地文件参数，Worker configure/retry/resume 保持既有准入。设备 CLI 仅保留 `config agent replace --data JSON` 完整显式配置，细项编辑使用既有设置页面。安全 next-call 摘要添加 config_mode，不泄漏完整 profile。
 
 ## 模型目录
 
@@ -32,7 +32,7 @@ USER_ONLY `agent.connections.models {id}` / `agent.connections.models.refresh {i
 
 ## CLI
 
-`config agent replace --data JSON --scope device` 提交明确的完整设备配置，不先读取私有 `agent.config`；先读后改的 config agent set/reset 便利流程已删除，用户细项编辑使用现有 Web 设置。`worker config set ID --data JSON` 保存完整下一次覆盖，与 `--connection/--model` 窄更新互斥。管家只可经固定 CLI bridge 按已审核权限提交，不能借这些命令读取私有配置或提供 env／私有 Prompt；不得从安全摘要重建未知完整配置。
+`config agent replace --data JSON --scope device` 提交明确的完整设备配置，不先读取私有 `agent.config`；先读后改的 config agent set/reset 便利流程已删除，用户细项编辑使用现有 Web 设置。`worker config set ID --data JSON` 保存完整下一次覆盖，与 `--connection/--model` 或 `--registered-model` 窄更新互斥。管家只可经固定 CLI bridge 按已审核权限提交，不能借这些命令读取私有配置或提供 env／私有 Prompt；不得从安全摘要重建未知完整配置。
 
 agent source 的精确参数以同源 help 为准；list/show/models list 只读缓存，models refresh 是独立联网写入口，不接受旧 --refresh 变体。login start/poll/cancel/finish 分开；start 显式选择 device/callback，poll 可能写入认证，不是只读查询。登录可提供设备流和回调备用，凭证通过私有输入文件（不放命令行明文），所有输出安全且支持全局 --json。`agent model choices` 返回共享模型选择的连接/额度/模型读面（不是已安装资源列表），只读本地。
 
@@ -40,7 +40,7 @@ agent source 的精确参数以同源 help 为准；list/show/models list 只读
 
 ## Web
 
-Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先展示配置模式。Pi 默认模式隐藏托管选项并解释由执行机器 Pi 决定；Lush 模式展示来源、匹配模型、受支持思考深度、已安装扩展/Skills启用、Prompt/预算高级设置。来源使用缓存目录，无目录则明确未知/手动补充。安装资源管理放 Agent 配置，不建顶级实体。保存不调用 Agent；发射/重试/继续仍带 agent-call 与 agentHelp。子 Worker 不弹用户确认。
+Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先展示配置模式。Pi 默认模式隐藏托管选项并解释由执行机器 Pi 决定；Lush Pi 直接选择已注册模型，下方只读展示具体来源／模型，思考深度独立，已安装扩展/Skills启用、Prompt/预算按需展开。模型注册使用来源的手填范围／缓存目录；无候选时引导显式补充或刷新，不自动联网。未注册旧配置及固定绑定保留规则见[模型和来源](../design/agent-model-settings.md#模型和来源)。Codex CLI 仍使用自身认证与模型目录。安装资源管理放 Agent 配置，不建顶级实体。保存不调用 Agent；发射/重试/继续仍带 agent-call 与 agentHelp。子 Worker 不弹用户确认。
 
 ## 验证
 

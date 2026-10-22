@@ -12,7 +12,7 @@
 
 ## 选择与默认兼容
 
-- 设备默认／角色配置保留现有 connection_id + model 字段。Web 从本地连接列表展示匹配模型供选择；可填写内置服务商未限定的模型。
+- 设备默认／角色配置保留现有 connection_id + model 字段。Web 通过[已注册模型](agent-connections.md#设备共享命名模型登记w392--d770)复制具体绑定，不保存动态别名；来源范围与模型登记分开管理，旧未注册配置可保持原样。底层仍允许内置服务商未限定的物理模型，不因新增登记索引改写既有配置。
 - 单 Worker 的暂停配置、继续与失败重试复用既有 profile 接口，补全显式连接选择和匹配模型。保存配置不调用 Agent；继续/重试才调用，必须沿用 agent-call 标识。不切换进行中的 invocation。
 - Worker 的 task-local 覆盖跨交付、验收、无参数重试与合并轮次保留（`config_mode`、来源/模型与其它覆盖）；只有用户显式 `worker.clear_override {id}` 或重新保存完整覆盖才改变，不因交付自动切回项目默认或另一个模式。`worker.inspect.model_selection.explicit` 标明是否存在覆盖，Web 据此显示「清除运行覆盖」入口。该持续语义以[项目 Agent 配置与双模式运行](agent-configuration-v2.md)为准。
 - Lush 模式（`config_mode` 缺省/lush）的 Pi 调用必须绑定托管来源；未绑定时在创建 Run 与启动进程之前被拦截：Worker 保持非终态并写 `invocation.blocked` 与 info 提醒，提示去「Agent 配置」选择来源或在本 Worker 切换为 Pi 默认配置；输入与工作区不丢，不读取外部凭证。`config_mode:'pi'` 不算缺来源，不拦截。

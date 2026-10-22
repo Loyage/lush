@@ -102,6 +102,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，version 2 Pi/Codex 软件路径、版本与可用性；显式诊断/刷新时读取，不读取配置/认证、不联网或启动模型，详见 [Agent 状态](rpc/agents.md) |
 | `GET /api/agent/selection/resources` | 用户专属 `agent.selection.resources {}`；本地托管 API/模型范围、执行后端能力、余额状态与观测时间，不含秘密、不联网；不接受查询参数 |
+| `GET /api/agent/registered-models` | 设备命名模型本地安全列表；Host 对应 `/api/host/settings/agent/registered-models`，状态／操作见[登记契约](../engineering/agent-connections.md#设备共享命名模型登记w392--d770) |
 | `GET /api/agent/connections` | 用户专属 `agent.connections.list {}`；只读取项目托管连接及缓存，不导入 Pi 登录 |
 | `GET /api/agent/connections/history?id=&days=` | 用户专属 `agent.connections.history`；本地连接历史，不访问上游 |
 | `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；旧配置只读兼容，页面不调用；旧配置写入明确退役，见 [Agent 状态](rpc/agents.md) |

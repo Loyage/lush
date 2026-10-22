@@ -2,7 +2,7 @@ import { PARAMS, AGENT_ONLY, assertAllowed } from '../rpc/registry.js';
 import { RETIRED_MANAGEMENT_METHODS } from '../rpc/management-policy.js';
 import { check, isPlainObject, LushError } from '../core/types.js';
 
-const excluded = new Set(['administrator.dispatch', 'management.permissions_update', 'agent.usage.configure', 'agent.connections.login.start', 'agent.connections.login.finish',
+const excluded = new Set(['agent.registered_models.save', 'agent.registered_models.remove', 'administrator.dispatch', 'management.permissions_update', 'agent.usage.configure', 'agent.connections.login.start', 'agent.connections.login.finish',
   'agent.connections.device.start', 'agent.connections.device.poll', 'agent.connections.device.cancel', 'agent.environment', 'agent.connections.save']);
 /** Legacy catalogue helper, not a grant. Native project execution imposes its stricter project scope. */
 export function administratorProjectMethods() {

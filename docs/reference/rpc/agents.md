@@ -73,6 +73,10 @@ Codex 等套餐窗口主显示“约多久后重置”，绝对本地时间与�
 | RPC | HTTP / 参数 |
 |---|---|
 | `agent.selection.resources {}` | GET `/api/agent/selection/resources`，本地安全资源摘要 |
+| `agent.registered_models.list {scope?}` | GET `/api/agent/registered-models`；设备命名模型安全列表 |
+| `agent.registered_models.save {model,scope?}` | POST action；用户专属保存登记，不修改已有运行绑定 |
+| `agent.registered_models.remove {id,scope?}` | POST action；用户专属删除登记，不级联修改配置 |
+| `agent.registered_models.resolve {selector,scope?}` | POST action；精确名称／稳定 ID 解析为具体来源与模型 |
 | `agent.connections.list {}` | GET `/api/agent/connections`，本地列表/缓存 |
 | `agent.connections.save {connection,credential?}` | POST action，credential 可选 `{api_key}`，省略保留秘密 |
 | `agent.connections.remove {id}` | POST action，保留历史 |
@@ -89,6 +93,8 @@ Codex 等套餐窗口主显示“约多久后重置”，绝对本地时间与�
 | `agent.usage.configure {config}` | 旧协议接缝，明确返回退役错误，不改写配置 |
 | `agent.usage.history {provider?,account_key?,days?}` | GET `/api/agent/usage/history`，只读旧存档，不联网或清理 |
 | `worker.configure {id,model_selection}` | POST action，窄更新；与 profile 互斥 |
+
+命名模型登记的字段、容量、状态、权限与 Host 对应入口以[设备共享登记契约](../../engineering/agent-connections.md#设备共享命名模型登记w392--d770)为准；list/resolve 可经受控管家桥读取，仍要求设备授权与显式 scope，写入不向管家开放。
 
 受信调用前策略仍默认关闭，不执行用户脚本；Worker 显式覆盖优先。`agent.selection.resources` 的顶层时间是读面生成时间，额度新鲜度须看各观测时间。没有策略不做自动付费切换。
 

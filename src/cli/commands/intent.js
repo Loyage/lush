@@ -4,6 +4,7 @@ import { validateInputEmissionRequest } from '../../core/input-emission-protocol
 import { exact, option } from '../args.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { takeJsonInput } from '../private-json.js';
+import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.js';
 
 // main owns the -- boundary. Its argv keeps literal strings for exact()/body,
 // while option/includes/indexOf see only the option-bearing prefix. Do not copy
@@ -83,9 +84,24 @@ export async function run(command, args, ctx) {
   check(command === 'order', 'unknown order command');
   const { client } = ctx;
   check(!client.token || client.management, 'agents cannot submit orders');
+  const registered = cliOption(args, '--registered-model'), scope = takeConfigurationScope(args);
+  check(scope === null || registered !== null, '--scope is only used with --registered-model');
   const parsed = inputOptions(args, { profile: true });
+  if (registered !== null) {
+    const profile = parsed.profile ?? {};
+    check(profile && typeof profile === 'object' && !Array.isArray(profile)
+      && !Object.hasOwn(profile, 'connection_id') && !Object.hasOwn(profile, 'model')
+      && (!Object.hasOwn(profile, 'agent') || profile.agent === 'pi')
+      && (!Object.hasOwn(profile, 'config_mode') || profile.config_mode === 'lush'),
+    '--registered-model requires Pi lush and cannot be combined with profile connection_id/model or conflicting agent/config_mode');
+    parsed.profile = { ...profile, agent: 'pi', config_mode: 'lush' };
+  }
   positionalArguments(args, 1);
   check(args[0].length <= 32000 && args[0].trim().length > 0, 'input must be non-blank text of at most 32000 characters');
+  if (registered !== null) {
+    const { connection_id, model } = await scopedSettingsClient(client, scope).request('agent.registered_models.resolve', { selector: registered });
+    parsed.profile = { ...parsed.profile, connection_id, model };
+  }
   const params = { content: args[0], ...await resolveInputOptions(parsed, client),
     ...(parsed.profile === null ? {} : { profile: parsed.profile }) };
   validateInputEmissionRequest(params);

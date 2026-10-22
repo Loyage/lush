@@ -58,9 +58,13 @@ export const COMMANDS = defineCommands(add => {
     }, { sources: { METHOD: '已注册且审核的 management 权限方法名', '--revision': 'config.valet-permission.show' },
       preconditions: ['显式 --scope device；Valet 还须真实用户本轮明确设备授权。', ...(action === 'set' ? ['真实用户批准精确 METHOD、旧值、新值与 revision；不继承或复制其它方法授权。'] : [])] });
   declare('agent status', '[--scope device]', '执行软件安装、路径和版本诊断；不是额度、认证或调用状态。', '', ['agent.status']);
-  declare('agent model list', '--backend pi|codex [--scope device]', '读取指定后端的模型候选，不冒充来源缓存或可用额度。', '--backend pi', ['agent.models'], 'read', {
-    options: { ...scope, '--backend': { ...enumeration(['pi', 'codex']), required: true } },
-  });
+  declare('agent model list', '[--backend pi|codex] [--scope device]', '默认列设备已注册命名模型（含不可选原因），不联网；显式 --backend 另查后端候选，不是登记清单。', '--scope device', ['agent.registered_models.list', 'agent.models'], 'read', {
+    options: { ...scope, '--backend': enumeration(['pi', 'codex']) },
+  }, { modes: [{ name: 'registered', when: '省略 --backend', rpc: ['agent.registered_models.list'] },
+    { name: 'backend-candidates', when: '显式 --backend pi|codex', rpc: ['agent.models'] }] });
+  declare('agent model resolve', 'NAME_OR_ID [--scope device]', '精确解析已注册名称或稳定 ID 为具体来源和模型；失效或未找到拒绝，不猜选、不联网。', 'astra --scope device', ['agent.registered_models.resolve'], 'read', {
+    positionals: [position('NAME_OR_ID')], options: scope,
+  }, { sources: { NAME_OR_ID: 'agent model list 返回的精确 name 或 id；名称设备唯一。' } });
   declare('agent model choices', '[--scope device]', '读取托管来源、模型及额度缓存，不联网或探测模型。', '', ['agent.selection.resources']);
   for (const action of ['list', 'show', 'remove', 'refresh']) {
     const targeted = ['show', 'remove'].includes(action), optionalTarget = action === 'refresh';

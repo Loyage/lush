@@ -6,7 +6,7 @@ export const WIDGET_SECTIONS = {
 };
 export const WIDGET_NAMES = { status: '项目状态', messages: '消息', workers: 'Worker', accounts: '额度与余额', shortcuts: '常用入口' };
 export const WIDGET_SIZES = { status: { w: 4, h: 10 }, messages: { w: 4, h: 10 }, workers: { w: 4, h: 10 }, accounts: { w: 6, h: 14 }, shortcuts: { w: 4, h: 8 } };
-export const GLOBAL_LINKS = [['notices', '收件箱'], ['project-management', '项目管理'], ['model-sources', '模型来源'], ['settings', '设置'], ['agent-status', 'Agent 状态'], ['automation', '自动化'], ['docs', '文档']];
+export const GLOBAL_LINKS = [['notices', '收件箱'], ['project-management', '项目管理'], ['model-sources', '模型和来源'], ['settings', '设置'], ['agent-status', 'Agent 状态'], ['automation', '自动化'], ['docs', '文档']];
 export const PROJECT_LINKS = [['workers', '工作列表'], ['inputs', '历史输入'], ['notices', '待我处理']];
 export const widgetId = value => typeof value === 'string' && /^widget:[a-z0-9][a-z0-9-]{0,79}$/.test(value);
 const projectId = value => typeof value === 'string' && /^[a-f0-9]{16}$/.test(value);

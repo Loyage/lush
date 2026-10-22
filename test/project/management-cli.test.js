@@ -4,6 +4,8 @@ import { test, expect } from 'bun:test';
 import { fixture, repo, until } from '../helpers.js';
 import { managementToolCLI } from '../agent/management-tool-cli-fixture.js';
 import { AgentProvider } from '../../src/agent/provider.js';
+import { CLI_COMMANDS } from '../../src/cli/catalog.js';
+import { PARAMS } from '../../src/rpc/registry.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { Store } from '../../src/persistence/store.js';
 import { Project } from '../../src/core/project.js';
@@ -18,9 +20,9 @@ async function harness() {
   const cli = managementToolCLI(f.root, 'node'); f.config.env.LUSH_PI_COMMAND = cli.command;
   f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
   const dispatcher = new Dispatcher(f.project, createSignal(), {}), rpc = new RPCServer(f.config.socket, dispatcher); await rpc.start();
-  return { ...f, dispatcher, async invoke(plan) {
+  return { ...f, dispatcher, async invoke(plan, instruction = '管理当前项目') {
     cli.plan(plan);
-    const manager = (await f.project.submitManagementInstruction({ instruction: '管理当前项目', profile: { agent: 'pi', config_mode: 'pi' } })).task;
+    const manager = (await f.project.submitManagementInstruction({ instruction, profile: { agent: 'pi', config_mode: 'pi' } })).task;
     f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
     const task = f.store.task(manager.id), result = JSON.parse(task.result);
     for (const key of ['registered','cliActive','sessionActive','modelActive']) expect(result[key]).toEqual(['lush_cli']);
@@ -146,6 +148,74 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
       store.update(inline.task.id, { management: null });
       expect((await rpc.dispatch('worker.inspect', { id: dispatched.worker_id })).goal_input_source).toEqual({ kind: 'unknown', worker_id: null, worker_number: null });
     } finally { await resumed.shutdown(); store.close(); }
+  } finally { await f.close(); }
+});
+
+// Existing CLI flows never selected a registered model. Keep one representative
+// real Provider chain for discovery, frozen bindings, scope and write permission.
+test('registered model discovery through the real Provider CLI freezes order and narrow Worker bindings', async () => {
+  const f = await harness(), network = [], calls = [];
+  try {
+    const manager = f.project.agentConnections.getManager();
+    manager.options.fetch = async () => { network.push(true); throw Error('unexpected network'); };
+    const source = manager.save({ label: 'CLI source', provider: 'deepseek', auth_type: 'api_key', models: ['deepseek-chat','deepseek-reasoner'] }, { api_key: 'PRIVATE-FIXTURE-KEY' });
+    const registered = await f.project.saveRegisteredModel({ name: 'astra', connection_id: source.id, model: 'deepseek/deepseek-chat' });
+    const target = (await f.project.order('configured target','main',[],null,false)).task;
+    f.project.configureTask(target.id, { agent: 'pi', config_mode: 'lush', connection_id: source.id, model: 'deepseek/deepseek-reasoner',
+      thinking: 'high', append_prompt: 'PRIVATE-PROMPT', env: { KEEP: 'PRIVATE-ENV' }, soft_budget: { responses: 17 } });
+    const before = JSON.parse(f.store.task(target.id).retry_profile);
+    const dispatch = f.project.managementDispatch.bind(f.project);
+    f.project.managementDispatch = (method, params, ...rest) => { calls.push({ method, params }); return dispatch(method, params, ...rest); };
+    const choose = argv => ({ ...command(argv), registeredModel: { reply: 0, name: 'astra' } });
+    const result = await f.invoke([
+      command(['agent','model','list','--scope','device']),
+      command(['agent','model','resolve',registered.id,'--scope','device']),
+      choose(['order','named model goal','--registered-model','$registered-model','--scope','device','--data','{"thinking":"high","soft_budget":{"responses":9}}']),
+      choose(['worker','config','set',target.worker_number,'--registered-model','$registered-model','--scope','device']),
+    ], '使用设备已注册模型 astra 创建工作并更新指定 Worker');
+    expect(result.replies.flatMap((reply, index) => reply.error ? [{ index, error: reply.error }] : [])).toEqual([]);
+    expect(result.values[0]).toMatchObject({ storage_scope: 'device', models: [{ name: 'astra', selectable: true }] });
+    expect(result.values[1]).toEqual({ id: registered.id, name: 'astra', connection_id: source.id, model: registered.model });
+    expect(result.values[2]).toMatchObject({ method: 'order.submit', status: 'succeeded' });
+    expect(result.values[3]).toMatchObject({ method: 'worker.configure', status: 'succeeded' });
+    await f.project.drainInputEmissions();
+    const delivered = f.project.inputEmissionResult(result.values[2].result.draft_id).dispatch;
+    expect(delivered.state).toBe('succeeded');
+    const created = f.store.task(delivered.worker_id);
+    f.store.update(created.id, { status: 'paused' }); // Do not execute a development model in later management invocations.
+    const createdProfile = JSON.parse(created.retry_profile);
+    expect(createdProfile).toMatchObject({ agent: 'pi', connection_id: source.id, model: registered.model, thinking: 'high', soft_budget: { responses: 9 } });
+    expect(calls.find(call => call.method === 'order.submit').params.profile.config_mode).toBe('lush');
+    expect(f.project.inspect(created.id).model_selection.config_mode).toBe('lush');
+    expect(createdProfile).not.toHaveProperty('registered_model');
+    expect(JSON.parse(f.store.task(target.id).retry_profile)).toEqual({ ...before, model: registered.model });
+    expect(calls.filter(call => call.method === 'worker.configure')).toEqual([{ method: 'worker.configure', params: { id: target.id, model_selection: { connection_id: source.id, model: registered.model } } }]);
+    expect(calls.filter(call => ['worker.configure','order.submit'].includes(call.method)).every(call => !Object.hasOwn(call.params, 'scope'))).toBe(true);
+    const audit = await f.dispatcher.dispatch('worker.management_calls', { id: result.task.id, after: 0 });
+    for (const item of audit.items.filter(item => item.phase === 'finished')) {
+      expect(CLI_COMMANDS.find(entry => entry.path === item.cli_command)?.rpc).toContain(item.method);
+      expect(PARAMS[item.method]).toBeDefined();
+    }
+    expect(audit.items.some(item => item.method === 'agent.config')).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE-FIXTURE-KEY|PRIVATE-PROMPT|PRIVATE-ENV/);
+    await f.project.saveRegisteredModel({ id: registered.id, name: 'astra', connection_id: source.id, model: 'deepseek/deepseek-reasoner' });
+    expect(JSON.parse(f.store.task(created.id).retry_profile)).toEqual(createdProfile);
+    const denied = await f.invoke([command(['order','no device authorization','--registered-model','astra','--scope','device'])], '用 astra 做工作');
+    expect(JSON.parse(denied.replies[0].error)).toMatchObject({ kind: 'authorization_required', execution: 'not_started' });
+    let permission = f.project.managementPermissionGet('worker.configure','device');
+    f.project.managementPermissionSet(permission.method,'unavailable',permission.revision,'device');
+    const refused = await f.invoke([command(['worker','config','set',target.worker_number,'--registered-model','astra','--scope','device'])], '用设备模型 astra 更新 Worker');
+    expect(JSON.parse(refused.replies[0].error).diagnostic).toMatchObject({ code: 'permission_denied', effect: 'not_started' });
+    expect(JSON.parse(f.store.task(target.id).retry_profile)).toEqual({ ...before, model: registered.model });
+    manager.remove(source.id);
+    const invalid = await f.invoke([command(['agent','model','list','--scope','device']),
+      command(['order','invalid must not start','--registered-model','astra','--scope','device'])], '用设备模型 astra 创建工作');
+    expect(invalid.values[0].models[0]).toMatchObject({ selectable: false, reason: 'source_missing' });
+    expect(invalid.replies[1].error).toBeTruthy();
+    await f.project.removeRegisteredModel(registered.id);
+    expect(JSON.parse(f.store.task(created.id).retry_profile)).toEqual(createdProfile);
+    expect(calls.filter(call => call.method === 'order.submit')).toHaveLength(1);
+    expect(network).toHaveLength(0);
   } finally { await f.close(); }
 });
 

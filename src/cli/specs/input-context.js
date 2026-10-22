@@ -26,6 +26,13 @@ const saveOptions = {
   '--exclusive': { type: 'boolean', description: '仅新建：独占开发意愿，隐含静息等待，不提高合并授权。' },
 };
 const profileData = { ...json(INPUT_EMIT_SCHEMA.properties.profile), description: '显式运行配置，仅本次新建授权使用；追加不能覆盖，Valet 私有字段仍由后台拒绝。' };
+// The order convenience fills the explicit Pi/lush identity before submitting
+// the canonical profile; it never reads or merges a private saved profile.
+const registeredOrderProfile = { ...INPUT_EMIT_SCHEMA.properties.profile.anyOf[0], required: [],
+  properties: Object.fromEntries(Object.entries(INPUT_EMIT_SCHEMA.properties.profile.anyOf[0].properties)
+    .filter(([key]) => !['connection_id','model'].includes(key)).map(([key, value]) => [key,
+      key === 'agent' ? { const: 'pi' } : key === 'config_mode' ? { const: 'lush' } : value])),
+  'x-lush-validator': undefined, description: '仅与 --registered-model 使用：补充 Pi lush 运行参数，不包含来源／模型。' };
 const listOptions = {
   '--cursor': { ...text, description: '上页 page.next_cursor；版本化绑定 view、筛选及原底层续读来源，不能跨视图使用。' },
   '--limit': { type: 'integer', minimum: 1, maximum: 100, default: 50 },
@@ -68,12 +75,18 @@ const contextContract = (positionals = [], options = {}, extra = {}) => ({ param
   preconditions: ['有效 invocation 绑定自身，parent由服务端确定，child必须真实直接后代；不接受自身ID、不枚举全项目。'], recovery, ...extra });
 
 export const COMMANDS = defineCommands(add => {
-  add('order', "'目标' [--branch NAME] [--data JSON] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON]",
-    '一步提交新建开发指令；可靠挂载，不承诺立即创建或调用。', "'实现登录' --branch main", ['order.submit','input.emit','worker.lookup'], 'agent',
+  add('order', "'目标' [--branch NAME] [--registered-model NAME_OR_ID [--scope device]] [--data JSON] [--when-idle] [--exclusive] [--after-settled ID] [--after-merged ID] [--conditions JSON] [--references JSON]",
+    '一步提交新建开发指令；可靠挂载，不承诺立即创建或调用。', "'实现登录' --branch main", ['order.submit','input.emit','worker.lookup','agent.registered_models.resolve'], 'agent',
     '只新建。直接追加用 worker message；需保留条件／可靠发射收据的追加用 input draft create → submit。不支持 management/buffer/append/defer/quiet。',
-    userContract([positional('goal', INPUT_EMIT_SCHEMA.properties.content)], { ...Object.fromEntries(Object.entries(saveOptions).filter(([key]) => key !== '--append-to')), '--data': profileData }, {
+    userContract([positional('goal', INPUT_EMIT_SCHEMA.properties.content)], { ...Object.fromEntries(Object.entries(saveOptions).filter(([key]) => key !== '--append-to')), '--data': { ...profileData, schema: { anyOf: [...INPUT_EMIT_SCHEMA.properties.profile.anyOf, registeredOrderProfile] },
+        description: '完整显式 profile；仅 --registered-model 模式可省略 agent/config_mode 并补其它合法参数，不能覆盖登记绑定。' },
+      '--registered-model': { ...text, description: 'agent model list 中的精确 name/id；冻结具体绑定为 Pi lush profile。--data 可补其它合法运行参数，不能含 connection_id/model 或冲突 agent/config_mode。' },
+      '--scope': { type: 'string', enum: ['device'], description: '仅与 --registered-model 使用，只传登记解析；Valet 须显式 device 且本轮用户已授权设备范围。' },
+    }, {
       modes: [{ name: 'ordinary-new', rpc: ['order.submit'] }, { name: 'conditional-new', rpc: ['input.emit'], when: '显式条件／when-idle／exclusive' },
-        { name: 'numbered-condition', rpc: ['worker.lookup','input.emit'], when: '条件使用W编号' }],
+        { name: 'numbered-condition', rpc: ['worker.lookup','input.emit'], when: '条件使用W编号' },
+        { name: 'registered-model', rpc: ['agent.registered_models.resolve','order.submit','input.emit','worker.lookup'], when: '--registered-model；设备解析之后仍用原项目写权限，不传scope' }],
+      preconditions: ['登记解析须 Valet 本轮设备授权及显式 --scope device；不自动改写冲突后端／模式，不读取私有 profile。', '项目提交仍检查原权限、目标及生命周期。'],
       sources: { '--branch': 'input targets', '--after-settled/--after-merged': 'worker show / worker list中的真实开发目标' },
       effects: ['持久授权新建需求，可能后续调用Agent；只有真实input_id/worker_id证明投递，不把挂载当已开始。'],
     }));

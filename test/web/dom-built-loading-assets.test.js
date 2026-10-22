@@ -79,9 +79,11 @@ test('compiled project boot owns work pages and opens device settings separately
     project.location.hash = '#skills'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('workspace-link');
     expect(project.node('detail').querySelector('a').href).toBe('/#skills');
-    project.location.hash = '#notices-read'; await project.fire('hashchange');
-    expect(project.node('detail').dataset.view).toBe('workspace-link');
-    expect(project.node('detail').querySelector('a').href).toBe('/#notices-read');
+    for (const hash of ['#notices-read', '#model-sources-connections']) {
+      project.location.hash = hash; await project.fire('hashchange');
+      expect(project.node('detail').dataset.view).toBe('workspace-link');
+      expect(project.node('detail').querySelector('a').href).toBe(`/${hash}`);
+    }
     project.location.hash = '#worker-1-cli'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('execution');
     const panel = project.document.body.querySelector('.transcript-dialog');

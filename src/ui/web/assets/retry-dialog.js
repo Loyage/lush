@@ -46,14 +46,14 @@ async function profileDialog(task, options) {
     defaults.env = { ...commonEnv.values, ...roleEnv.values, ...(defaults.env || {}) };
     const profile = { ...current.profile, env: { ...commonEnv.values, ...roleEnv.values, ...(current.profile.env || {}) } };
     const form = createProfileForm({ profile, defaultProfile: defaults, settings, role, ownsPage,
-      applyDefaultModelOnChange: true, collapseAdvanced: true });
+      collapseAdvanced: true });
     const content = el('div', undefined, 'retry-profile-form-wrap');
     const errorBox = el('p', undefined, 'settings-error'); errorBox.setAttribute('role', 'alert');
     content.append(el('p', current.explicit ? '已载入本 Worker 的独立运行覆盖；未修改项保留。' : '已载入当前项目 / 角色默认；保存后成为本 Worker 的独立运行覆盖。', 'hint'),
       form.node, el('p', '运行覆盖只属于这个 Worker，跨交付与验收保留，直到显式清除或重新保存；不修改项目默认。', 'retry-scope-note'), errorBox);
     await form.ready;
     if (!ownsPage()) return false;
-    void form.picker.load();
+    // form.ready includes the shared registered-model read; no duplicate source read.
 
     for (;;) {
       if (!ownsPage()) return false;

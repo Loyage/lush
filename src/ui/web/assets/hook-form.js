@@ -127,7 +127,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       try {
         const settings = await api('/api/agent/config'); if (!ownsPage() || !rows.includes(row) || row.type.input.value !== configuredType) return;
         const profile = row.initial.type === configuredType && row.initial.profile ? row.initial.profile : settings.resolved?.agent || settings.default || {};
-        row.profileForm = createProfileForm({ profile, settings, role: 'agent', ownsPage, applyDefaultModelOnChange: true });
+        row.profileForm = createProfileForm({ profile, settings, role: 'agent', ownsPage });
         row.profileHost.replaceChildren(row.profileForm.node);
         await row.profileForm.ready;
         if (!ownsPage() || !rows.includes(row) || row.type.input.value !== configuredType) return;

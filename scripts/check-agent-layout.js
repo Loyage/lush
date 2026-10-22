@@ -39,7 +39,7 @@ for (const row of world.state.agentConnections.connections) row.storage_scope = 
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
-window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
+window.browserErrors=[];window.resizeDiagnostics=[];addEventListener('error',e=>{if(!e.error&&e.message==='ResizeObserver loop completed with undelivered notifications.')resizeDiagnostics.push(e.message);else browserErrors.push(e.message)});addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
 import {ensureProject} from '/assets/project-picker.js';await ensureProject();
 window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
@@ -84,6 +84,7 @@ try {
     const url = new URL(request.url);
     if (url.pathname === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
     if (/^\/assets\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(path.join(assets, path.basename(url.pathname))));
+    if (url.pathname === '/shared/web-push-protocol.js') return new Response(Bun.file(new URL('../src/shared/web-push-protocol.js', import.meta.url)));
     if (url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
     if (url.pathname === '/test/diagnosis' && request.method === 'POST') {
       diagnosisFails = url.searchParams.get('fail') === 'true';
@@ -91,6 +92,7 @@ try {
     }
     if (url.pathname === '/api/host') return Response.json({ mode: 'bound' });
     calls.push(url.pathname);
+    url.pathname = url.pathname.replace(/^\/api\/host\/settings\//, '/api/');
     const scoped = value => ({ ...value, configuration_scope: { selected: url.searchParams.get('scope') || 'project',
       source: 'device', project_override: false, device_home: '/tmp/layout-device/shared', project_home: '/tmp/layout-fixture/.lush' } });
     if (url.pathname === '/api/agent/status') return diagnosisFails
@@ -98,6 +100,9 @@ try {
       : Response.json({ version: 2, checked_at: new Date().toISOString(), scope: { project: '/tmp/layout-fixture', note: '软件诊断，不读取账号或凭证。' }, warnings: [],
           software: ['pi', 'codex'].map(agent => ({ agent, command: agent, executable: `/bin/${agent}`, real_path: `/opt/${agent}/cli.js`, version: '1.2.3', status: 'available', warning: null })) });
     if (url.pathname === '/api/agent/connections') return Response.json(scoped(world.state.agentConnections));
+    if (url.pathname === '/api/agent/registered-models') return Response.json({ version: 1, storage_scope: 'device', models: [{
+      id: 'registered-deepseek', name: 'deepseek', connection_id: ids[0], model: 'deepseek/deepseek-chat', selectable: true,
+      reason: null, source: world.state.agentConnections.connections[0], storage_scope: 'device' }] });
     if (url.pathname === '/api/action' && request.method === 'POST') {
       const action = await request.json();
       assert(action.method === 'agent.connections.query', `Unexpected mock action: ${action.method}`);
@@ -124,6 +129,8 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
+  assert(await execute(`return document.querySelector('[data-model-sources-tab=models]').getAttribute('aria-selected')==='true' && document.querySelector('.registered-model-row').checkVisibility()`), 'Missing default registered model list');
+  await execute(`return window.openSources({tab:'sources'})`);
   assert(await execute(`const rows=document.querySelector('.model-source-rows'),tools=document.querySelector('.model-source-intro');return document.querySelectorAll('.model-source-row').length===3 && document.querySelector('.model-source-detail').hidden && rows.getBoundingClientRect().top<innerHeight && tools.getBoundingClientRect().top>=rows.getBoundingClientRect().bottom;`), 'Information-first overview or closed initial panel missing');
   assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && !row.textContent.includes('xhigh') && row.textContent.includes('已用 25%') && row.textContent.includes('已用 90%') && !row.querySelector('details') && row.querySelectorAll('[role="progressbar"]').length===2 && !row.querySelector('.model-source-resource-summary').textContent.includes('观测成功') && row.querySelector('.model-source-cache-time').textContent.includes('上次刷新') && row.querySelector('.model-source-cache-time').getAttribute('data-help').includes('缓存观测（非实时）');`), 'Bounded Codex model/quota summary missing');
   await click('.model-source-row:nth-child(3) .model-source-row-actions > button:last-child');
@@ -152,9 +159,9 @@ try {
     await layout(`editor-${theme}-${width}`);
     await execute(`document.querySelector('.model-source-detail').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));`);
     assert(await execute(`return document.activeElement.textContent==='添加连接'`), 'Escape not returned to add trigger');
-    await execute(`const s=document.querySelector('.model-source-filters input');s.value='自定义';s.dispatchEvent(new Event('input'));`);
+    await execute(`const s=document.querySelector('.model-source-filters input');s.value='自定义';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
     assert(await execute(`return document.querySelectorAll('.model-source-row').length===1`), 'Local source search failed');
-    await execute(`const s=document.querySelector('.model-source-filters input');s.value='';s.dispatchEvent(new Event('input'));`);
+    await execute(`const s=document.querySelector('.model-source-filters input');s.value='';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
     await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
     await execute('window.openConfig()'); await waitFor('document.querySelector("[data-agent-target=default]")');
     await layout(`config-${theme}-${width}`);
@@ -170,21 +177,21 @@ try {
     await fetch(`http://127.0.0.1:${server.port}/test/diagnosis?fail=false`, { method: 'POST' });
     await click('[data-agent-tab="settings"]');
     assert(await execute(`return document.querySelector('[data-agent-field="model"]').value==='unsaved-model'`), 'Diagnostic failure lost configuration draft');
-    await execute('window.openSources()'); await waitFor('document.querySelectorAll(".model-source-row").length===3');
+    await execute('return window.openSources()');
+    assert(await execute(`return document.querySelector('.registered-model-row').checkVisibility() && !document.querySelector('.agent-connections-panel').checkVisibility()`), 'Model tab did not hide source operations');
+    await layout(`models-${theme}-${width}`);
+    await execute("return window.openSources({tab:'sources'})");
+    await waitFor('document.querySelectorAll(".model-source-row").length===3');
     if (await execute(`return !document.querySelector('.model-source-detail').hidden`)) await click('.model-source-back');
-    assert(await execute(`return document.querySelector('.legacy-usage-history').hidden`), 'Legacy archive unexpectedly loaded on entry');
-    await click('.model-sources-legacy-history > button');
-    await waitFor('document.querySelector(".agent-usage-history-feedback")?.textContent.includes("已读取本地缓存")');
-    assert(await execute(`const archive=document.querySelector('.legacy-usage-history');return !archive.hidden && archive.textContent.includes('只读旧余额') && !archive.querySelector('.agent-usage-config,[data-usage-field]');`), 'Legacy archive is not read-only');
-    await layout(`archive-${theme}-${width}`);
-    await click('.model-sources-legacy-history > button');
+    assert(await execute(`return !document.querySelector('.legacy-usage-history,.model-sources-legacy-history')`), 'Device sources must not read project legacy history');
     console.log(`PASS Agent/source layout and interaction ${theme}/${width}`);
   }
-  assert(calls.every(route => ['/api/action', '/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
-    '/api/agent/config', '/api/agent/status', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
-  assert(calls.filter(route => route === '/api/agent/usage/history').length === 6, 'Archive history must load only on explicit open');
-  assert(await execute('return window.browserErrors.length===0'), 'Browser emitted errors');
-  passed = true; console.log(`PASS mock-only equal-height compact overview/detail/editor layouts, Codex summary and full windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation, software-only diagnosis and read-only legacy archive. Screenshots: ${output}`);
+  assert(calls.every(route => ['/api/action', '/api/agent/connections', '/api/agent/registered-models', '/api/agent/connections/models', '/api/agent/packages',
+    '/api/agent/config', '/api/agent/status'].includes(route.replace('/api/host/settings/', '/api/'))), `Unexpected API: ${calls.join(',')}`);
+  assert(!calls.some(route => route.includes('/history')), 'Device tabs must not read project history');
+  assert(await execute('return window.browserErrors.length===0'), `Browser emitted errors: ${JSON.stringify(await execute('return window.browserErrors'))}`);
+  console.log(`Resize delivery diagnostics (layout assertions still enforced): ${await execute('return window.resizeDiagnostics.length')}`);
+  passed = true; console.log(`PASS mock-only equal-height compact overview/detail/editor layouts, Codex summary and full windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation, registered model/source tabs, software-only diagnosis and device-only routing. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Agent browser failure; full logs: ${logs}`); throw error;

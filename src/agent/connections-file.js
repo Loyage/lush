@@ -53,11 +53,14 @@ export class ConnectionFile {
     // POSIX mode bits do not enforce Windows ACLs. Never silently downgrade secret storage.
     if (process.platform === 'win32') fail('unsupported_platform');
     try {
-      if (!fs.existsSync(this.home)) {
+      let home;
+      try { home = fs.lstatSync(this.home); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw error;
         if (!create) return null;
         fs.mkdirSync(this.home, { mode: 0o700 });
+        home = fs.lstatSync(this.home);
       }
-      const home = fs.lstatSync(this.home);
       if (!home.isDirectory() || home.isSymbolicLink() || !owner(home)
         || process.platform !== 'win32' && home.mode & 0o022 || this.privateRoot && !privateMode(home, 0o700)
         || fs.realpathSync(this.home) !== this.home) fail('auth_changed');
@@ -73,8 +76,12 @@ export class ConnectionFile {
       return dir;
     } catch { fail('auth_changed'); }
   }
+  // Trusted device-local stores reuse the same guarded read/atomic publication protocol.
+  emptyData() { return emptyConnections(); }
+  validateData(data) { return validate(data); }
+  get lockName() { return 'agent-connections.lock'; }
   read() {
-    const parent = this.directory(); if (!parent) return emptyConnections();
+    const parent = this.directory(); if (!parent) return this.emptyData();
     if (!this.migrationRead) {
       // Handoff starts before device publication. Interrupted retirement must not leave
       // two independent OAuth refresh owners, even after all advisory locks are released.
@@ -88,14 +95,14 @@ export class ConnectionFile {
   _read(parent) {
     let fd;
     try {
-      try { fd = fs.openSync(this.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)); }
-      catch (error) { if (error.code === 'ENOENT') return emptyConnections(); throw error; }
+      try { fd = fs.openSync(this.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)); }
+      catch (error) { if (error.code === 'ENOENT') return this.emptyData(); throw error; }
       const stat = fs.fstatSync(fd);
       if (!stat.isFile() || !owner(stat) || !privateMode(stat, 0o600) || stat.nlink !== 1 || stat.size > MAX_BYTES) fail('auth_changed');
       const raw = fs.readFileSync(fd, 'utf8'), after = fs.fstatSync(fd);
-      if (Buffer.byteLength(raw) > MAX_BYTES || !same(stat, after) || stat.size !== after.size || stat.mtimeMs !== after.mtimeMs
+      if (Buffer.byteLength(raw) > MAX_BYTES || !same(stat, after) || stat.size !== after.size || stat.mtimeMs !== after.mtimeMs || stat.ctimeMs !== after.ctimeMs
         || !same(stat, fs.lstatSync(this.file)) || !same(parent, this.directory())) fail('auth_changed');
-      return validate(JSON.parse(raw));
+      return this.validateData(JSON.parse(raw));
     } catch { fail('auth_changed'); }
     finally { if (fd !== undefined) fs.closeSync(fd); }
   }
@@ -121,10 +128,10 @@ export class ConnectionFile {
     }
   }
   _transaction(fn) {
-    const lock = this.lock('agent-connections.lock'); let temporary, fd;
+    const lock = this.lock(this.lockName); let temporary, fd;
     try {
       lock.assert(); const data = this.read(), result = fn(data);
-      const body = JSON.stringify(validate(data), null, 2) + '\n';
+      const body = JSON.stringify(this.validateData(data), null, 2) + '\n';
       if (Buffer.byteLength(body) > MAX_BYTES) fail('invalid_response');
       temporary = path.join(this.dir, `.connections-${randomUUID()}.tmp`);
       fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0), 0o600);

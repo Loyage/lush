@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { launcherStateDir } from './registry.js';
-import { check, isPlainObject } from '../core/types.js';
+import { check, isPlainObject, LushError } from '../core/types.js';
 import { RuntimeSettings, RUNTIME_SETTINGS_LIMITS, RUNTIME_SETTINGS_KEYS } from '../core/settings.js';
 import { configurationScope, validateConfigurationDirectory } from '../core/device-config.js';
 import { AgentSettings } from '../agent/settings.js';
@@ -22,11 +22,13 @@ export const DEVICE_SETTINGS_READS = new Map([
   ['agent/status', ['agent.status', []]], ['agent/environment', ['agent.environment', ['target']]],
   ['agent/network', ['agent.network', []]], ['agent/connections', ['agent.connections.list', []]],
   ['agent/connections/models', ['agent.connections.models', ['id']]],
+  ['agent/registered-models', ['agent.registered_models.list', []]],
   ['agent/selection/resources', ['agent.selection.resources', []]],
   ['agent/packages', ['agent.packages.list', []]],
 ]);
 export const DEVICE_SETTINGS_ACTIONS = new Set([
   'system.configure', 'agent.configure', 'agent.environment.configure', 'agent.network.configure',
+  'agent.registered_models.save', 'agent.registered_models.remove', 'agent.registered_models.resolve',
   'agent.connections.save', 'agent.connections.remove', 'agent.connections.sampling', 'agent.connections.query',
   'agent.connections.models.refresh', 'agent.connections.login.start', 'agent.connections.login.finish',
   'agent.connections.device.start', 'agent.connections.device.poll', 'agent.connections.device.cancel',
@@ -125,6 +127,10 @@ export class DeviceSettingsService {
       case 'agent.environment.configure': return this.view(saveAgentEnvironment({ ...this.config, deviceHome: this.config.home }, p.target, p.values, 'device'));
       case 'agent.network': return this.view(readNetworkConfiguration(this.config));
       case 'agent.network.configure': return this.view(saveNetworkConfiguration(this.config, p.config));
+      case 'agent.registered_models.list': return this.getManager().registeredModels().list();
+      case 'agent.registered_models.save': return this.getManager().registeredModels().save(p.model);
+      case 'agent.registered_models.remove': return this.getManager().registeredModels().remove(p.id);
+      case 'agent.registered_models.resolve': return this.getManager().registeredModels().resolve(p.selector);
       case 'agent.connections.list': return this.connectionList();
       case 'agent.selection.resources': {
         const list = this.connectionList();
@@ -164,7 +170,11 @@ export class DeviceSettingsService {
     assertAllowed(method, p, null);
     const pending = this.perform(method, p); this.pending.add(pending);
     try { return await pending; }
-    catch { throw new Error(ERROR); }
+    catch (error) {
+      // Registry errors are fixed, bounded local validation diagnostics (never source/network errors).
+      if (method.startsWith('agent.registered_models.') && error instanceof LushError && !error.connectionCode) throw error;
+      throw new Error(ERROR);
+    }
     finally { this.pending.delete(pending); }
   }
   async stop() {

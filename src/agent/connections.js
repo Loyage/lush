@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { check } from '../core/types.js';
 import { ConnectionFile } from './connections-file.js';
+import { RegisteredModelManager } from './registered-models.js';
 import { DEFAULT_ENDPOINTS, digest, secret, fields, object, validId, normalizeConnection, normalizeSampling,
   requestJson, fail, safeCode, unavailable } from './connections-utils.js';
 import { queryConnection } from './connections-query.js';
@@ -59,6 +60,10 @@ export class ConnectionManager {
     if (!this.scopedManagers.has(scope)) new ConnectionManager(this.configurationConfig,
       { ...this.options, scope, scopedManagers: this.scopedManagers });
     return this.scopedManagers.get(scope);
+  }
+  registeredModels() {
+    this._alive();
+    return this.modelRegistry ??= new RegisteredModelManager(this);
   }
   _data() {
     const local = this.file.read();

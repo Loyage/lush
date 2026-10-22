@@ -81,7 +81,7 @@ function resourceGroup(title, entries, selected, kind, enabled) {
  *
  * 只负责取值与校验；调用方决定送 `worker.retry` / `worker.configure`，还是随 `order.submit` 提交。
  */
-export function createProfileForm({ profile, defaultProfile = profile, settings, role, ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false, collapseAdvanced = false }) {
+export function createProfileForm({ profile, defaultProfile = profile, settings, role, ownsPage = () => true, onChange = () => {}, collapseAdvanced = true }) {
   let initial = { ...(profile || {}) };
   const defaults = { ...(defaultProfile || {}) };
   const selectedExtensions = new Set(initial.extensions || []);
@@ -114,23 +114,8 @@ export function createProfileForm({ profile, defaultProfile = profile, settings,
   const model = el('input'); model.type = 'text'; model.maxLength = 256; model.value = inheritedBackend ? (initial.model || '') : '';
   model.dataset.retryField = 'model';
   const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: initial.connection_id || '',
-    ownsPage, onChange: () => paintModels(), applyDefaultModelOnChange });
+    ownsPage, onChange: () => paintModels() });
   connectionPicker.connection.dataset.retryField = 'connection_id';
-  const fillNote = el('span', undefined, 'settings-note');
-  const fillDefaults = button('填入来源默认（模型 + 思考深度）', () => {
-    const row = connectionPicker.entry();
-    if (!row) { fillNote.textContent = '请先读取并选择模型来源。'; return; }
-    const applied = [];
-    if (row.default_model) { model.value = `${row.provider}/${row.default_model}`; applied.push('模型'); }
-    const levels = [...thinking.children].map(option => option.value);
-    if (row.default_thinking && levels.includes(row.default_thinking)) { thinking.value = row.default_thinking; applied.push('思考深度'); }
-    if (!applied.length) { fillNote.textContent = '该来源未设置默认模型或思考深度。'; return; }
-    fillNote.textContent = `已填入来源默认${applied.join('与')}；保存前仍可修改。`;
-    connectionPicker.sync(); onChange();
-  }, 'ghost', { help: '把所选来源保存的默认模型与思考深度填入本表单；只改这两项，不调用 Agent，保存前仍可修改。' });
-  fillDefaults.type = 'button';
-  const defaultsRow = el('div', undefined, 'profile-source-defaults'); defaultsRow.append(fillDefaults, fillNote);
-  connectionPicker.actions.append(defaultsRow);
 
   const thinking = el('select'); thinking.dataset.retryField = 'thinking';
   thinking.onchange = () => onChange();
@@ -239,8 +224,7 @@ export function createProfileForm({ profile, defaultProfile = profile, settings,
     for (const tag of ['input', 'select', 'textarea', 'button']) {
       for (const control of managed.querySelectorAll(tag)) control.disabled = pi;
     }
-    connectionPicker.models.disabled = pi || connectionPicker.models.children.length <= 1
-      || (backend.value === 'pi' && (!connectionPicker.value() || connectionPicker.entry()?.enabled === false));
+    connectionPicker.models.disabled = pi || connectionPicker.models.children.length <= 1;
     modeNote.textContent = modeDescription();
     onChange();
   };
@@ -304,7 +288,7 @@ export function createProfileForm({ profile, defaultProfile = profile, settings,
     // 不静默打开不完整表单：资源目录与当前后端模型目录先读取；读取失败仍可用已保存范围。
     try { resources = await loadResourceCatalog(); }
     catch (error) { resources = { extensions: [], skills: [], warning: `资源目录读取失败：${error.message}` }; }
-    await loadModels(backend.value);
+    await Promise.all([loadModels(backend.value), connectionPicker.load()]);
     if (!ownsPage()) return;
     syncBackend(false);
     applyMode();

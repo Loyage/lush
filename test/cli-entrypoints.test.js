@@ -42,8 +42,9 @@ test('published bins and source scripts expose executable lushw', async () => {
     expect(second.data.items[0].path).not.toBe(first.data.items[0].path);
     expect(() => cliHelpDocument('lush', ['--all', '--cursor', first.page.next_cursor])).toThrow('another catalogue/view/query');
     const requests = [], values = [];
+    const binding = { id: 'registered-id', name: 'astra', connection_id: '11111111-1111-4111-8111-111111111111', model: 'deepseek/deepseek-chat' };
     const context = { executable: 'lush', management: { assertCommand() {}, client: {
-      management: true, request(method, params) { requests.push({ method, params }); return { status: 'waiting' }; },
+      management: true, request(method, params) { requests.push({ method, params }); return method === 'agent.registered_models.resolve' ? binding : { status: 'waiting' }; },
     } }, output: value => values.push(value) };
     await main(['worker', 'message', '7', '--json', '--', '--help'], context);
     expect(requests).toEqual([{ method: 'worker.message', params: { id: 7, body: '--help' } }]);
@@ -66,6 +67,20 @@ test('published bins and source scripts expose executable lushw', async () => {
     expect(requests).toHaveLength(0);
     await main(['order','goal','--data','{"agent":"pi","config_mode":"pi"}'], context);
     expect(requests.at(-1)).toEqual({ method: 'order.submit', params: { content: 'goal', profile: { agent: 'pi', config_mode: 'pi' } } });
+    requests.length = 0;
+    await main(['order','registered goal','--registered-model','astra','--scope','device','--when-idle','--data','{"thinking":"high"}'], context);
+    expect(requests).toEqual([
+      { method: 'agent.registered_models.resolve', params: { selector: 'astra', scope: 'device' } },
+      { method: 'input.emit', params: { content: 'registered goal', conditions: [{ kind: 'parent_quiet' }],
+        profile: { agent: 'pi', config_mode: 'lush', thinking: 'high', connection_id: binding.connection_id, model: binding.model } } },
+    ]);
+    requests.length = 0;
+    for (const args of [
+      ['order','goal','--registered-model','astra','--data','{"agent":"pi","config_mode":"pi"}'],
+      ['order','goal','--registered-model','astra','--data','{"agent":"pi","model":null}'],
+      ['worker','config','set','5','--registered-model','astra','--data','{"agent":"pi"}'],
+    ]) await expect(main(args, context)).rejects.toThrow();
+    expect(requests).toEqual([]);
     await main(['input','draft','submit','5','--revision','1','--data','{"agent":"pi","config_mode":"pi"}'], context);
     expect(requests.at(-1)).toEqual({ method: 'input.emit', params: { draft_id: 5, expected_revision: 1, profile: { agent: 'pi', config_mode: 'pi' } } });
     await main(['notice','answer','12','--data','{"answers":[{"selected":[0]}]}'], context);

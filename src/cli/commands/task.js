@@ -5,6 +5,7 @@ import { option, exact } from '../args.js';
 import { runWorkerHook, runWorkerCompletion } from './hooks.js';
 import { printTree, printTranscript } from '../print.js';
 import { takeOptions } from '../command-options.js';
+import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.js';
 
 function flag(args, name) {
   const index = args.indexOf(name);
@@ -84,15 +85,21 @@ async function config(args, client) {
     exact(args, 1);
     return client.request('worker.clear_override', { id: await resolveWorkerId(client, args[0]) });
   }
-  const connection = option(args, '--connection'), model = option(args, '--model'), source = option(args, '--data'); exact(args, 1);
+  const connection = option(args, '--connection'), model = option(args, '--model'), source = option(args, '--data');
+  const registered = option(args, '--registered-model'), scope = takeConfigurationScope(args); exact(args, 1);
+  check(scope === null || registered !== null, '--scope is only used with --registered-model');
   let update;
-  if (source !== null) {
+  if (registered !== null) {
+    check(connection === null && model === null && source === null, '--registered-model cannot be combined with --connection/--model/--data');
+    const selection = await scopedSettingsClient(client, scope).request('agent.registered_models.resolve', { selector: registered });
+    update = { model_selection: { connection_id: selection.connection_id, model: selection.model } };
+  } else if (source !== null) {
     check(connection === null && model === null, '--data cannot be combined with --connection/--model');
     check(Buffer.byteLength(source) <= 40000, 'inline JSON exceeds budget');
     const profile = JSON.parse(source);
     check(profile && typeof profile === 'object' && !Array.isArray(profile), '--data must be a profile object'); update = { profile };
   } else {
-    check(connection !== null && model !== null, 'config set requires --connection UUID --model PROVIDER/MODEL or --data JSON');
+    check(connection !== null && model !== null, 'config set requires --registered-model NAME_OR_ID, --connection UUID --model PROVIDER/MODEL or --data JSON');
     update = { model_selection: { connection_id: connection, model } };
   }
   return client.request('worker.configure', { id: await resolveWorkerId(client, args[0]), ...update });

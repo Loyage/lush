@@ -105,7 +105,7 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
   const syncThinking = (clear, chosen = undefined) => {
     const agent = backend.value;
     let levels = settings.options.thinking[agent] || [''];
-    const current = clear ? '' : (chosen ?? (thinking.value || profile.thinking));
+    const current = clear ? '' : (chosen ?? (thinking.children.length ? thinking.value : profile.thinking));
     const supported = agent === 'pi' ? connectionPicker.thinkingLevels?.() : null;
     if (supported) {
       levels = ['', ...supported];

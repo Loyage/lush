@@ -286,6 +286,20 @@ export class AgentConnectionsService {
       try { return await fn(); } catch (error) { throw projectError(error); }
     }));
   }
+  registeredModels() {
+    this.assertOpen(); return this.getManager().registeredModels().list();
+  }
+  resolveRegisteredModel(selector) {
+    this.assertOpen(); return this.getManager().registeredModels().resolve(selector);
+  }
+  saveRegisteredModel(model) {
+    return this.operation('save registered model', () => this.getManager().registeredModels().save(model),
+      error => error instanceof LushError ? error : failure());
+  }
+  removeRegisteredModel(id) {
+    return this.operation('remove registered model', () => this.getManager().registeredModels().remove(id),
+      error => error instanceof LushError ? error : failure());
+  }
   save(connection, credential = null) {
     return this.operation('save agent connection', () => {
       const saved = publicConnection(this.getManager().save(connection,credential));

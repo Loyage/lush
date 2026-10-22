@@ -98,8 +98,8 @@ const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status && options.status !== 'all' ? `#notices-${options.status}` : '#notices' });
 const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), options.section === 'drafts' || options.item?.kind === 'draft' ? 'drafts' : 'inputs',
   { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : options.section === 'drafts' ? '#drafts' : '#inputs' });
-const openSources = (connectionId = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId }),
-  'model-sources', { hash: connectionId ? `#model-source-${connectionId}` : '#model-sources' });
+const openSources = (connectionId = '', tab = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId, tab }),
+  'model-sources', { hash: connectionId ? `#model-source-${connectionId}` : tab === 'sources' ? '#model-sources-connections' : '#model-sources' });
 
 function noProjectView() {
   const identity = activateDetailView({ view: 'unavailable', title: '项目不可用', context: '用户工作台',
@@ -120,7 +120,7 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'nav-link'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'nav-link nav-back'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:administrator|settings|skills|agent-status|model-sources|model-source-[a-f0-9-]+|automation|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash)
+const deviceHash = hash => /^#(?:administrator|settings|skills|agent-status|model-sources(?:-connections)?|model-source-[a-f0-9-]+|automation|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash)
   || (hash !== '#notices' && inboxFilterRoute.test(hash)) || inboxProjectRoute.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
@@ -149,7 +149,8 @@ function openHashTarget(hash, project, doc, generation) {
     if (hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
     if (hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
     if (hash === '#skills') return ui.view?.id === 'skills' ? undefined : openSkills();
-    if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
+    if (hash === '#model-sources') return openSources();
+    if (hash === '#model-sources-connections') return openSources('', 'sources');
     const source = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(hash);
     if (source) return openSources(source[1]);
     if (hash === '#automation' || hash === '#hooks') return ui.view?.id === 'automation' ? undefined : openAutomation();

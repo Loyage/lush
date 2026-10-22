@@ -14,7 +14,7 @@ import { ADMINISTRATOR_OPERATIONS, validateAdministratorToolRequest } from './to
 
 const CLI = fileURLToPath(new URL('../../bin/lush', import.meta.url));
 const deviceMethods = new Set([...DEVICE_SETTINGS_READS.values()].map(([method]) => method).concat([...DEVICE_SETTINGS_ACTIONS]));
-const privateDeviceMethods = new Set(['agent.environment', 'agent.connections.save', 'agent.connections.login.start', 'agent.connections.login.finish',
+const privateDeviceMethods = new Set(['agent.registered_models.save', 'agent.registered_models.remove', 'agent.environment', 'agent.connections.save', 'agent.connections.login.start', 'agent.connections.login.finish',
   'agent.connections.device.start', 'agent.connections.device.poll', 'agent.connections.device.cancel']);
 function cleanEnv(env) {
   return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('LUSH_') || ['LUSH_PROVIDER','LUSH_PI_COMMAND','LUSH_GLOBAL_CONFIG','LUSH_CALL_TIMEOUT','LUSH_TASK_CALLS','LUSH_MAX_DEPTH'].includes(key)));

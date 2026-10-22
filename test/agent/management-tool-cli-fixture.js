@@ -72,7 +72,17 @@ async function compatibilityProbe(name, params, callId) {
   const details = await compatibilityRPC(method, body);
   return { details, content: [{ type: 'text', text: JSON.stringify(details) }] };
 }
-for (const [planIndex, { name, params, callId }] of plan.entries()) {
+for (const [planIndex, step] of plan.entries()) {
+  const { name, callId } = step;
+  let params = step.params;
+  // Deterministic model choice from a real earlier CLI response, not a fixture
+  // registry or alternate RPC path. Production still performs exact resolution.
+  if (step.registeredModel) {
+    const rows = replies[step.registeredModel.reply]?.response?.details.result?.data?.models;
+    const matches = rows?.filter(row => row.name === step.registeredModel.name);
+    if (matches?.length !== 1 || !matches[0].selectable) throw Error('no exact selectable registered model');
+    params = { ...params, argv: params.argv.map(arg => arg === '$registered-model' ? matches[0].name : arg) };
+  }
   // Registration/activation failures are not capability-denial results.
   const legacy = ${JSON.stringify(compatibilityRPCPlans)} && name.startsWith('manager_');
   if (!legacy && (!active.includes(name) || !tools.get(name)?.execute)) throw Error('tool not registered/active: ' + name);

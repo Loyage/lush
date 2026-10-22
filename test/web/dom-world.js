@@ -253,6 +253,7 @@ export function makeWorld() {
     if (path === '/api/agent/config') return json(state.agentConfig);
     if (path === '/api/input-parents') return json({ items: state.inputParents });
     if (path === '/api/agent/connections') return json(state.agentConnections);
+    if (path === '/api/agent/registered-models') return json({ version: 1, models: state.registeredModels || [], storage_scope: 'device' });
     if (path === '/api/agent/usage/config') return json(state.agentUsageConfig);
     if (path.startsWith('/api/agent/usage/history?')) return json(state.agentUsageHistory);
     if (path === '/api/agent/status') return json({ version: 2, checked_at: iso(NOW), scope: { project: '/tmp/demo', note: '项目执行机器的软件安装检查' },

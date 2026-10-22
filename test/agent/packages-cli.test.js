@@ -22,6 +22,8 @@ test('device config and core model sources use narrow CLI RPCs without private r
     if (method === 'system.settings') return config.runtimeSettings.get(params?.scope);
     if (method === 'system.configure') return config.configureRuntime(params.settings, params.scope);
     if (method === 'agent.configure') return settings.save(params.config, params.scope);
+    if (method === 'agent.registered_models.list') return manager.registeredModels().list();
+    if (method === 'agent.registered_models.resolve') return manager.registeredModels().resolve(params.selector);
     if (method === 'agent.connections.list' || method === 'agent.selection.resources') return manager.config();
     if (method === 'agent.connections.models' || method === 'agent.connections.models.refresh') return { version: 1, id: source.id, status: 'cached', source: 'manual', models: [] };
     if (method === 'hooks.list') return { daemon_hooks: devicePolicy };
@@ -54,6 +56,12 @@ test('device config and core model sources use narrow CLI RPCs without private r
     expect(sources.connections[0].id).toBe(source.id);
     expect(JSON.stringify(sources)).not.toContain('fixture-secret');
     expect((await execute('agent', ['source', 'show', source.id])).id).toBe(source.id);
+    expect((await execute('agent', ['model', 'list'])).models).toEqual([]); // Old profiles are not auto-registered.
+    const registered = manager.registeredModels().save({ name: 'astra', connection_id: source.id, model: 'deepseek/deepseek-chat' });
+    expect((await execute('agent', ['model', 'list', '--scope', 'device'])).models[0]).toMatchObject({ id: registered.id, name: 'astra' });
+    expect(calls.at(-1)).toEqual({ method: 'agent.registered_models.list', params: { scope: 'device' } });
+    expect(await execute('agent', ['model', 'resolve', 'astra'])).toEqual({ id: registered.id, name: 'astra', connection_id: source.id, model: registered.model });
+    await expect(execute('agent', ['model', 'resolve', 'astr'])).rejects.toThrow('not found');
     await execute('agent', ['model', 'choices']);
     await execute('agent', ['model', 'list', '--backend', 'pi']);
     expect(calls.at(-1)).toEqual({ method: 'agent.models', params: { agent: 'pi' } });

@@ -22,6 +22,10 @@ export default {
   configureAgentUsage(value) { return this.agentUsage.configure(value); },
   agentUsageHistory(options) { return this.agentUsage.history(options); },
   agentConnectionsList(scope) { return this.agentConnectionsForScope(scope).list(); },
+  registeredModelsList(scope) { return this.agentConnectionsForScope(scope).registeredModels(); },
+  saveRegisteredModel(model, scope) { return this.agentConnectionsForScope(scope).saveRegisteredModel(model); },
+  removeRegisteredModel(id, scope) { return this.agentConnectionsForScope(scope).removeRegisteredModel(id); },
+  resolveRegisteredModel(selector, scope) { return this.agentConnectionsForScope(scope).resolveRegisteredModel(selector); },
   agentSelectionResources(scope) {
     const connections = this.agentConnectionsForScope(scope);
     return connections === this.agentConnections ? this.agentSelection.resources()

@@ -21,6 +21,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/project-automation-ui-integration.test.js', // actual automation DOM -> HTTP/RPC mounts, usage and lifecycle
     'test/web/dom-valet-emergency-api.test.js', // user confirmation -> only occupied Valets -> isolation and fresh input
     'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
+    'test/web/agent-connections-api.test.js', // named models HTTP/RPC -> device registry -> scoped Valet reads and frozen bindings
   ]),
   rpc: Object.freeze([
     'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects

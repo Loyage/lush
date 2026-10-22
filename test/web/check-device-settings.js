@@ -41,7 +41,7 @@ for (const row of world.state.agentConnections.connections) row.storage_scope='d
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
-window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
+window.browserErrors=[];window.resizeDiagnostics=[];addEventListener('error',e=>{if(!e.error&&e.message==='ResizeObserver loop completed with undelivered notifications.')resizeDiagnostics.push(e.message);else browserErrors.push(e.message)});addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
 import {openSkills} from '/assets/render-skills.js';window.openSkills=openSkills;
 import {ensureProject} from '/assets/project-picker.js';import {openSettings} from '/assets/render-settings.js';await ensureProject();window.ensureProject=ensureProject;window.openInterface=async()=>{openSettings();return document.querySelector('[data-settings-tab=interface]').onclick()};window.openSystem=async()=>{openSettings();return document.querySelector('[data-settings-tab=system]').onclick()};window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
@@ -71,6 +71,8 @@ async function click(selector) {
   await rpc(`/session/${session}/element/${node['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
 async function screenshot(name) {
+  // Let the real theme/tab color transitions settle before capturing static evidence.
+  await Bun.sleep(200);
   fs.writeFileSync(path.join(output, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
 }
 
@@ -83,6 +85,7 @@ try {
     if (url.pathname==='/api/runtime') url.pathname='/api/settings/runtime';
     if (url.pathname === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
     if (/^\/assets\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(path.join(assets, path.basename(url.pathname))));
+    if (url.pathname === '/shared/web-push-protocol.js') return new Response(Bun.file(new URL('../../src/shared/web-push-protocol.js', import.meta.url)));
     if (url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
     if (url.pathname === '/test/diagnosis' && request.method === 'POST') {
       diagnosisFails = url.searchParams.get('fail') === 'true';
@@ -104,6 +107,9 @@ try {
       : Response.json({ version: 2, checked_at: new Date().toISOString(), scope: { project: '/tmp/layout-fixture', note: '软件诊断，不读取账号或凭证。' }, warnings: [],
           software: ['pi', 'codex'].map(agent => ({ agent, command: agent, executable: `/bin/${agent}`, real_path: `/opt/${agent}/cli.js`, version: '1.2.3', status: 'available', warning: null })) });
     if (url.pathname === '/api/agent/connections') return Response.json(scoped(world.state.agentConnections));
+    if (url.pathname === '/api/agent/registered-models') return Response.json({ version: 1, storage_scope: 'device', models: [{
+      id: 'registered-deepseek', name: 'deepseek', connection_id: ids[0], model: 'deepseek/deepseek-chat', selectable: true, reason: null,
+      source: world.state.agentConnections.connections[0], storage_scope: 'device' }] });
     if (url.pathname === '/api/action' && request.method === 'POST') {
       const action = await request.json();
       if (action.method === 'system.configure') {
@@ -135,6 +141,17 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
+  assert(await execute(`return document.querySelector('h1').textContent==='模型和来源' && document.querySelector('[data-model-sources-tab=models]').getAttribute('aria-selected')==='true' && document.querySelector('.registered-model-row').checkVisibility() && !document.querySelector('.agent-connections-panel').checkVisibility();`), 'Models must be the default tab');
+  await execute(`document.querySelector('[data-model-sources-tab=models]').focus()`);
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE014' }, { type: 'keyUp', value: '\uE014' }] }] });
+  await waitFor('document.querySelectorAll(".model-source-row").length===3');
+  assert(await execute(`return document.querySelector('[data-model-sources-tab=sources]').getAttribute('aria-selected')==='true'`), 'ArrowRight did not open source tab');
+  await execute(`return window.openSources({connectionId:'${codexId}'})`);
+  assert(await execute(`return location.hash==='#model-source-${codexId}'&&document.querySelector('[data-source-id="${codexId}"]').getAttribute('aria-current')==='true'`), 'Legacy source deep link no longer locates source');
+  await click('.model-source-intro .agent-connection-actions > .primary');
+  await execute(`const key=document.querySelector('[data-connection-field=api_key]');key.value='fixture-only-secret';window.oldSecret=key;`);
+  await execute(`return window.openSources()`);
+  assert(await execute(`return window.oldSecret.value===''&&!document.querySelector('.agent-connections-panel').checkVisibility()`), 'Leaving source tab retained a login secret');
   async function layout(name, width) {
     const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view,.skills-page');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
     assert(result.page<=1 && result.root<=1 && result.controls && result.noScope, `Device layout ${name}: ${JSON.stringify(result)}`);
@@ -142,11 +159,16 @@ try {
   }
   for (const theme of ['light','dark']) for (const width of [1440,900,390,320]) {
     await rpc(`/session/${session}/window/rect`,{width,height:950});
-    await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.style.width='${width}px';window.scrollTo(0,0);return window.openSources()`);
+    await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.style.width='${width}px';window.scrollTo(0,0);return window.openSources({tab:'sources'})`);
     await waitFor('document.querySelectorAll(".model-source-row").length===3');
     assert(await execute(`return !document.querySelector('[data-settings-scope]') && document.querySelector('.model-source-row').textContent.includes('设备共享')`), 'Device-only source boundary missing');
     await layout(`sources-${theme}-${width}`,width);
+    await execute('return window.openSources()');
+    assert(await execute(`return document.querySelector('[data-model-sources-tab=models]').getAttribute('aria-selected')==='true'&&document.querySelector('.registered-model-row').checkVisibility()&&!document.querySelector('.agent-connections-panel').checkVisibility()`), 'Model tab leaked source controls');
+    await layout(`registered-models-${theme}-${width}`,width);
     await execute('return window.openConfig()'); await waitFor('document.querySelector("[data-agent-field=append_prompt]")');
+    await waitFor('document.querySelector("[data-registered-model]")?.value==="registered-deepseek"');
+    assert(await execute(`return document.querySelector('[data-registered-binding]').textContent.includes('deepseek/deepseek-chat')&&!document.querySelector('[data-agent-field=model]').checkVisibility()`), 'Device profile is not using registered choice with read-only binding');
     await execute(`const p=document.querySelector('[data-agent-field=append_prompt]');p.value='device-draft';p.dispatchEvent(new Event('input',{bubbles:true}));`);
     assert(await execute(`const m=document.querySelector('.agent-profile');return m.classList.contains('module-fold')&&!m.classList.contains('module-preview')&&m.querySelector('.module-toggle').getAttribute('aria-controls')===m.querySelector('.module-body').id;`), 'Agent form did not adopt explicit-only common folding');
     const checkAgentHeader = async state => {
@@ -199,13 +221,14 @@ try {
   }
   await fetch(`http://127.0.0.1:${server.port}/test/mode?global=true`,{method:'POST'});
   calls.length=0; await execute('return window.ensureProject()');
-  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['runtime','openSystem','[data-runtime-input=call_timeout]'],['skills','openSkills','.skill-card']]) {
+  for (const [name,entry,ready] of [['sources','openSources','.registered-model-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['runtime','openSystem','[data-runtime-input=call_timeout]'],['skills','openSkills','.skill-card']]) {
     await execute(`return window.${entry}()`); await waitFor(`document.querySelector('${ready}')`);
     assert(await execute(`return !document.querySelector('[data-settings-scope]') && !document.querySelector('.legacy-usage-history,.agent-connection-consumers,[data-service-restart="project"]') && [...document.querySelectorAll('[data-migration-action="preview"],[data-migration-action="apply"]')].every(n=>n.disabled)`), `No-project boundary ${name}`);
     await layout(`host-${name}`,320);
   }
   assert(calls.every(route=>route.startsWith('/api/host/settings/') || ['/api/host/projects','/api/host/preferences'].includes(route)),`No-project API leaked: ${calls.join(',')}`);
-  assert(await execute('return window.browserErrors.length===0'),'Browser emitted errors');
+  assert(await execute('return window.browserErrors.length===0'),`Browser emitted errors: ${JSON.stringify(await execute('return window.browserErrors'))}`);
+  console.log(`Resize delivery diagnostics (layout assertions still enforced): ${await execute('return window.resizeDiagnostics.length')}`);
   passed=true;console.log(`PASS device-only Firefox drafts, all capability switches, keyboard save/reset, no concurrency controls, responsive light/dark views and no-project Host-only configuration. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});

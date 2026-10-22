@@ -3,207 +3,109 @@ import { button, el } from './dom.js';
 import { createModelChoice } from './model-choice.js';
 
 const option = (value, text) => { const node = el('option', text); node.value = value; return node; };
-const MODEL_ERROR = '账号连接需要启用且匹配固定 provider/model 及模型范围；请先检查连接和模型。';
-const CATALOG_STATES = { fresh: '缓存目录已更新', cached: '缓存目录（可能不是最新）', unknown: '无缓存目录', error: '目录读取失败', unsupported: '该来源不支持目录同步' };
+export const registeredModelReason = row => ({ source_missing: '来源已删除', source_disabled: '来源已停用',
+  credential_unconfigured: '请先配置凭证或登录', source_unsupported: '来源不支持', provider_mismatch: '服务商不匹配',
+  model_out_of_scope: '模型不在来源范围内' })[row?.reason] || (row?.selectable === false ? '当前不可选' : '');
+const sameBinding = (row, id, model) => row?.connection_id === id && row?.model === model;
 
-/**
- * 项目 Profile 与单 Worker 编辑器共用的后端→来源→匹配模型选择。
- *
- * 模型选项来自 Lush 缓存的连接模型目录（GET /api/agent/connections/models?id=…，只读本地、不联网刷新、不调用模型）；
- * 用户在模型来源页填写的列表优先且完整展示；目录仅补充其元数据，未填写列表时才展示目录候选。
- * 目录缺失或读取失败不影响手动列表；两者皆空时引导到来源页填写，不默默替换用户已选来源或模型。
- * 思考等级只按目录里确有证据的元数据返回；未知一律返回 null，由调用方保留原选项。
+/** One shared Pi registered-model selector. Profiles still store concrete connection_id + model.
+ * Reads never resolve a selected name again: only a deliberate choice copies the displayed binding.
+ * The hidden connection/model controls preserve the existing form collection API and legacy values.
+ * Codex keeps its own editable CLI model and authentication; no directory/model probes here.
  */
-export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false, read = api, readLabel = '读取项目连接' }) {
+export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true,
+  onChange = () => {}, read = api }) {
   const node = el('fieldset', undefined, 'agent-connection-binding');
-  node.append(el('legend', '模型来源与模型'));
-  const connection = el('select'); connection.className = 'agent-select';
-  const models = el('select'); models.className = 'model-catalog'; models.dataset.connectionModel = 'choice';
-  models.setAttribute('aria-label', '候选模型');
-  const choice = createModelChoice({ model, candidates: models });
+  node.append(el('legend', '模型'));
+  const connection = el('select'); connection.hidden = true;
+  const models = el('select'); models.className = 'model-catalog'; models.dataset.registeredModel = 'choice';
+  const registeredField = el('label', undefined, 'model-choice-field');
+  registeredField.append(el('span', '已注册模型', 'model-choice-label'), models);
+  const candidates = el('select'); candidates.className = 'model-catalog';
+  const choice = createModelChoice({ model, candidates });
+  const binding = el('div', undefined, 'registered-model-binding'); binding.dataset.registeredBinding = '';
   const modelExtras = el('div', undefined, 'model-choice-extras');
   const actions = el('div', undefined, 'model-source-actions');
-  const note = el('span', undefined, 'settings-note');
-  note.setAttribute('role', 'status');
-  let cliModels = [];
-  const detailsLink = el('a', '管理模型来源', 'nav-link agent-sources-link'); detailsLink.href = '/#model-sources';
+  const note = el('span', undefined, 'settings-note'); note.setAttribute('role', 'status');
+  const detailsLink = el('a', '管理模型和来源', 'nav-link agent-sources-link'); detailsLink.href = '/#model-sources';
   if (globalThis.location?.pathname?.startsWith('/p/')) { detailsLink.target = '_blank'; detailsLink.rel = 'noopener'; }
-  const entries = new Map();
-  // 只保存已读取的目录缓存；不从连接列表里推断，也不在打开表单时联网刷新。
-  const catalogs = new Map();
-  const catalogPending = new Map();
-  let loading = null;
+  let entries = new Map(), sources = new Map(), loading = null, loaded = false, selected = null, cliModels = [];
   let selectedConnection = connectionId;
-  const value = () => backend.value === 'pi' ? connection.value : '';
-  const entry = () => entries.get(value());
-  const catalog = () => catalogs.get(value()) || null;
-  function catalogModels(row) {
-    const cached = catalogs.get(row?.id);
-    if (cached?.status === 'fresh' || cached?.status === 'cached') return Array.isArray(cached.models) ? cached.models : [];
-    return null;
-  }
-  function paint(selected = connection.value || '') {
-    connection.replaceChildren(option('', '请选择 Lush 模型来源'));
+  const value = () => backend.value === 'pi' ? selectedConnection : '';
+  const entry = () => sources.get(value());
+  const setConnection = id => { selectedConnection = id; connection.replaceChildren(option(id, id)); connection.value = id; };
+  setConnection(connectionId);
+  function paintModels() {
+    const pi = backend.value === 'pi';
+    registeredField.hidden = binding.hidden = !pi; choice.node.hidden = pi;
+    model.readOnly = pi;
+    const current = model.value.trim(), id = value();
+    // Match by concrete value for an initial/legacy profile, never by name or provider alone.
+    if (!selected) selected = [...entries.values()].find(row => sameBinding(row, id, current)) || null;
+    const live = selected && entries.get(selected.id);
+    const exact = live && sameBinding(live, id, current);
+    models.replaceChildren(option('', id && current ? selected && !exact
+      ? '当前固定配置（登记已变更或删除）' : '未注册当前配置' : '请选择已注册模型'));
     for (const row of entries.values()) {
-      connection.append(option(row.id, `${row.label} · ${row.provider}${row.enabled ? '' : '（停用）'}`));
+      const reason = registeredModelReason(row);
+      const item = option(row.id, `${row.name}${reason ? `（${reason}）` : ''}`); item.disabled = row.selectable !== true; models.append(item);
     }
-    if (selected && !entries.has(selected)) connection.append(option(selected, `已配置连接 ${selected}（未读取 / 不可用）`));
-    connection.value = selected; selectedConnection = selected; sync();
+    models.value = exact ? live.id : '';
+    models.disabled = !entries.size;
+    const source = entry();
+    binding.replaceChildren(el('div', `来源：${source?.label || selected?.source?.label || id || '未选择'}`),
+      el('div', `具体模型：${current || '未选择'}`));
+    note.textContent = !pi ? 'Codex CLI 沿用自身认证，模型可手动填写；不使用模型登记。'
+      : selected && !exact ? '当前具体绑定与登记不一致（已修改或删除）；仍保留当前配置，只有显式重新选择才采用新绑定。'
+      : id && current && !exact ? '未注册当前配置：可原样保存，或到“模型和来源”显式注册；不会自动导入或选择第一项。'
+      : exact && registeredModelReason(live) ? `${registeredModelReason(live)}；已有具体绑定保留，请到来源页处理。`
+      : loaded && !entries.size ? '尚无已注册模型。请先添加来源并登录，再注册模型。'
+      : '选择时固定来源与具体模型；登记后续修改或删除不会追改本配置。思考深度独立设置。';
+    loadButton.disabled = !!loading;
   }
-  function paintModels(row) {
-    if (backend.value !== 'pi') {
-      models.replaceChildren(option('', cliModels.length ? '选择 CLI 模型或直接输入…' : '可直接输入，留空使用 CLI 默认'),
-        ...cliModels.map(item => option(item.id, item.label || item.id)));
-      models.hidden = false; models.disabled = cliModels.length === 0; choice.sync(); return;
-    }
-    const seen = new Set();
-    const list = catalogModels(row);
-    const saved = row?.models || [];
-    // A partial/stale catalog must not hide models the user explicitly saved.
-    // Only use matching catalog entries to enrich the manual list, never to expand it.
-    const metadata = new Map((list || []).map(item => [item.id, item]));
-    const choices = saved.length ? saved.map(rawId => {
-      const id = `${row.provider}/${rawId}`;
-      return metadata.get(id) || { id, name: rawId };
-    }) : list || [];
-    models.replaceChildren(option('', !value() ? '请先选择模型来源' : saved.length ? '选择此来源已填写的模型…' : choices.length
-      ? '选择此来源缓存目录内的模型…' : '请先在来源页填写模型列表'));
-    let count = 0;
-    for (const item of choices) {
-      const id = String(item?.id || '').trim();
-      if (!id || seen.has(id) || !id.startsWith(`${row?.provider}/`)) continue;
-      seen.add(id); count++;
-      const name = String(item?.name || '').trim();
-      const levels = Array.isArray(item?.thinking_levels) && item.thinking_levels.length ? ` · 思考 ${item.thinking_levels.join('/')}` : '';
-      models.append(option(id, name && name !== id ? `${name} · ${id}${levels}` : `${id}${levels}`));
-    }
-    models.hidden = false;
-    models.disabled = !value() || row?.enabled === false || count === 0;
-    choice.sync();
-  }
-  function catalogNote(row) {
-    const cached = catalogs.get(row?.id);
-    if (!cached) return '';
-    const state = CATALOG_STATES[cached.status] || '目录状态未知';
-    const at = cached.checked_at ? `，更新于 ${cached.checked_at}` : '';
-    const warning = cached.warning ? ` ${cached.warning}` : '';
-    const unknown = cached.status === 'fresh' || cached.status === 'cached' ? '' : '；可手填来源范围内的 provider/model。';
-    return `模型目录：${state}${at}，共 ${Array.isArray(cached.models) ? cached.models.length : 0} 项${unknown}${warning}`;
-  }
-  function sync() {
-    const pi = backend.value === 'pi', row = entry();
-    connection.disabled = !pi; loadButton.disabled = !pi || !!loading;
-    connection.children[0].textContent = pi ? '请选择 Lush 模型来源' : 'Codex CLI 自身认证';
-    paintModels(row);
-    detailsLink.href = value() ? `/#model-source-${encodeURIComponent(value())}` : '/#model-sources';
-    const emptyModels = row && models.children.length === 1;
-    detailsLink.textContent = emptyModels ? '填写来源模型列表' : value() ? '查看来源详情' : '管理模型来源';
-    const details = catalogNote(row);
-    const manualNote = row?.models?.length ? '候选模型来自你在模型来源页填写的列表；未联网验证可用性。' : '';
-    note.textContent = !pi ? '托管连接仅支持 Pi；Codex CLI 沿用原认证，切回 Pi 后保留连接选择。'
-      : !value() ? 'Pi 必须选择 Lush 模型来源与明确模型才能启动；不会回退到用户 Pi 认证或默认模型。'
-      : !row ? `请${readLabel}以查看模型范围；当前连接与未保存模型保持不变。`
-      : `${row.label} · ${row.endpoint}。${manualNote}${emptyModels ? '暂无可选模型；请到此来源详情点击“编辑”，填写并保存“模型列表”，再读取来源；也可手填 provider/model。' : ''}${details || (row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`)}${details ? '' : '此列表未联网验证模型；'}停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
-    if (pi && row && applyDefaultModelOnChange) {
-      note.textContent += row.default_model
-        ? ' 切换来源时自动填入来源默认模型；思考深度不变，保存前仍可修改。'
-        : ' 此来源未设置默认模型，已保留当前模型；请显式选择或填写匹配模型。';
-    }
-    if (row && model.value.trim() && (!model.value.trim().startsWith(`${row.provider}/`)
-      || (row.models?.length && !row.models.includes(model.value.trim().slice(row.provider.length + 1))))) {
-      note.textContent += ' 当前模型与此来源不匹配，请显式选择或填写匹配模型；不会自动替换。';
-    }
-    onChange();
-  }
-  // 目录读取只发生在用户显式选择来源时（本地缓存 GET），失败保留已保存范围；迟到结果不覆盖已换来源的页面。
-  function loadCatalog(row) {
-    if (!row) return undefined;
-    if (catalogs.has(row.id) || catalogPending.has(row.id)) return catalogPending.get(row.id);
-    const pending = (async () => {
-      try {
-        const data = await read(`/api/agent/connections/models?id=${encodeURIComponent(row.id)}`);
-        if (data?.version === 1 && Array.isArray(data.models)) {
-          catalogs.set(row.id, { status: data.status || 'cached', checked_at: data.checked_at || null, source: data.source || null,
-            models: data.models, warning: data.warning || null });
-        } else {
-          catalogs.set(row.id, { status: 'error', checked_at: null, source: null, models: [], warning: '模型目录数据格式不兼容。' });
-        }
-      } catch (error) {
-        catalogs.set(row.id, { status: 'error', checked_at: null, source: null, models: [],
-          warning: `模型目录读取失败：${error.message}` });
-      } finally { catalogPending.delete(row.id); }
-      if (ownsPage()) { paintModels(entry()); sync(); }
-    })();
-    catalogPending.set(row.id, pending);
-    return pending;
-  }
-  const help = '只读取当前范围的模型来源配置和本地模型目录缓存，不查询上游、不调用 Agent；不会覆盖当前模型或未保存的连接选择。';
-  const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', help);
-  const loadButton = button(readLabel, load, 'ghost', { help }); loadButton.type = 'button'; host.append(loadButton);
+  function sync() { paintModels(); onChange(); }
+  const loadButton = button('读取已注册模型', load, 'ghost', { help: '只读设备登记与本地来源；不联网、不调用模型、不替换当前具体绑定或未保存编辑。' });
+  loadButton.type = 'button'; actions.append(loadButton, detailsLink);
   async function load() {
     if (!ownsPage()) return;
     if (loading) return loading;
     loading = (async () => {
       try {
-        const data = await read('/api/agent/connections');
+        const [data, connections] = await Promise.all([read('/api/agent/registered-models'), read('/api/agent/connections')]);
         if (!ownsPage()) return;
-        if (data?.version !== 1 || !Array.isArray(data.connections)) throw new Error('invalid connections');
-        entries.clear(); for (const row of data.connections) entries.set(row.id, row);
-        paint();
-        if (value()) void loadCatalog(entry());
-      } catch { if (ownsPage()) note.textContent = '连接列表读取失败；当前选择保留，请到模型来源页检查。'; }
-      finally { loading = null; if (ownsPage()) loadButton.disabled = backend.value !== 'pi'; }
+        if (data?.version !== 1 || !Array.isArray(data.models) || !Array.isArray(connections?.connections)) throw new Error('模型登记数据格式不兼容');
+        entries = new Map(data.models.map(row => [row.id, row])); sources = new Map(connections.connections.map(row => [row.id, row])); loaded = true;
+        sync();
+      } catch (error) { if (ownsPage()) note.textContent = `读取失败：${error.message}；当前具体绑定保留，可重试。`; }
+      finally { loading = null; if (ownsPage()) loadButton.disabled = false; }
     })();
     loadButton.disabled = true; return loading;
   }
-  connection.onchange = () => {
-    if (!ownsPage()) return;
-    const changed = connection.value !== selectedConnection;
-    selectedConnection = connection.value;
-    // Only a deliberate Worker source change applies defaults. Reads, resets and late catalogs
-    // must never overwrite a model edited after the selection (or apply a different source's default).
-    const row = entry();
-    if (changed && applyDefaultModelOnChange && row?.default_model) model.value = `${row.provider}/${row.default_model}`;
-    sync(); void loadCatalog(row);
+  models.onchange = () => {
+    if (!ownsPage() || backend.value !== 'pi') return;
+    const row = entries.get(models.value);
+    if (!row || row.selectable !== true) { sync(); return; }
+    selected = { ...row }; setConnection(row.connection_id); model.value = row.model; sync();
   };
-  models.onchange = () => { if (ownsPage() && (backend.value !== 'pi' || value()) && models.value) { model.value = models.value; sync(); } };
-  model.addEventListener('input', () => { if (ownsPage()) sync(); });
-  const sourceField = el('label', undefined, 'model-source-field');
-  sourceField.append(el('span', '模型来源', 'model-choice-label'), connection);
-  const modelHelp = el('span', '选择候选会填入模型名称；也可直接输入，保存时以名称输入框为准。', 'settings-note');
-  actions.append(host, detailsLink);
-  node.append(sourceField, choice.node, modelHelp, modelExtras, actions, note);
-  // Initial rendering must not invoke a caller callback before it has received the picker.
-  connection.append(option('', '请选择 Lush 模型来源'));
-  if (connectionId) connection.append(option(connectionId, `已配置连接 ${connectionId}（未读取 / 不可用）`));
-  connection.value = connectionId;
-  const validate = () => {
-    if (backend.value !== 'pi') return null;
-    const fail = message => { note.textContent = message; return message; };
-    const id = value();
-    if (!id) return fail('请选择 Lush 模型来源；Pi 未选择来源时无法启动，不会回退用户 Pi 认证。');
-    const row = entry(), selected = model.value.trim();
-    if (!selected) return fail('请选择来源内模型；Pi 不能使用 CLI 默认模型。');
-    if (!row) return fail(`请先${readLabel}，确认所选来源存在且凭证可用；当前草稿保留。`);
-    // Expired managed Codex OAuth can be refreshed by the trusted runtime; unknown/missing keys cannot.
-    const credentialReady = row.credential?.status === 'configured'
-      || (row.provider === 'openai-codex' && row.auth_type === 'oauth' && row.credential?.status === 'expired');
-    if (!credentialReady) return fail('所选来源凭证不可用或状态未知，请在模型来源页配置密钥或登录。');
-    if (!/^[a-z][a-z0-9_-]*\/.+$/i.test(selected) || !row.enabled
-      || !selected.startsWith(`${row.provider}/`) || (row.models?.length && !row.models.includes(selected.slice(row.provider.length + 1)))) {
-      return fail(MODEL_ERROR);
-    }
-    return null;
-  };
-  /** 所选模型在缓存目录里声明的思考等级；没有确证元数据时返回 null（调用方保留原选项，不伪造支持）。 */
-  const thinkingLevels = () => {
-    const row = catalog(); if (!row) return null;
-    const selected = model.value.trim();
-    const item = (row.models || []).find(entry => entry?.id === selected);
-    const levels = item?.thinking_levels;
-    return Array.isArray(levels) && levels.length ? [...levels] : null;
-  };
+  candidates.onchange = () => { if (ownsPage() && backend.value !== 'pi' && candidates.value) { model.value = candidates.value; choice.sync(); onChange(); } };
+  model.addEventListener('input', () => { if (ownsPage()) { choice.sync(); sync(); } });
+  node.append(connection, registeredField, binding, choice.node, modelExtras, actions, note);
+  paintModels();
   return { node, connection, models, actions, modelExtras,
-    setCliModels(items) { cliModels = items; if (backend.value !== 'pi') paintModels(); },
-    value, entry, catalog, thinkingLevels, load, sync, validate, reset(id = '') { paint(id); void loadCatalog(entries.get(id)); } };
+    setCliModels(items) {
+      cliModels = items;
+      candidates.replaceChildren(option('', cliModels.length ? '选择 CLI 模型或直接输入…' : '可直接输入，留空使用 CLI 默认'),
+        ...cliModels.map(item => option(item.id, item.label || item.id)));
+      candidates.disabled = !cliModels.length; choice.sync();
+    },
+    value, entry, catalog: () => null, thinkingLevels: () => null, load, sync,
+    validate() {
+      if (backend.value !== 'pi') return null;
+      if (!value() || !model.value.trim()) return '请选择已注册模型；Pi 不会回退到用户认证或默认模型。';
+      // Registration is an index, not a new runtime constraint. Preserve legacy/frozen bindings;
+      // the existing configure/runtime boundary still validates the actual source and model.
+      return null;
+    },
+    reset(id = '') { selected = null; setConnection(id); sync(); },
+  };
 }

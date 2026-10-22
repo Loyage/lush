@@ -19,6 +19,17 @@ test('two real temporary daemons share device settings while project homes stay 
     expect((await ca.request('system.settings')).call_timeout).toMatchObject({ value: 10800, source: 'default', overridden: false });
     await ca.request('agent.configure', { scope: 'device', config: { version: 1, default: { agent: 'pi', config_mode: 'pi' }, roles: {} } });
     expect((await cb.request('agent.config')).default.config_mode).toBe('pi');
+    const source = await ca.request('agent.connections.save', { connection: { label: 'shared fixture', provider: 'deepseek', auth_type: 'api_key', models: ['deepseek-chat'] }, credential: { api_key: 'shared-fixture-secret' } });
+    const registered = await ca.request('agent.registered_models.save', { model: { name: 'astra', connection_id: source.id, model: 'deepseek/deepseek-chat' } });
+    expect((await cb.request('agent.registered_models.list')).models[0]).toMatchObject({ id: registered.id, name: 'astra', selectable: true });
+    const frozen = await cb.request('agent.registered_models.resolve', { selector: 'astra', scope: 'device' });
+    await cb.request('agent.registered_models.save', { model: { id: registered.id, name: 'renamed', connection_id: source.id, model: frozen.model } });
+    expect(await ca.request('agent.registered_models.resolve', { selector: registered.id })).toMatchObject({ id: registered.id, name: 'renamed' });
+    await cb.request('agent.registered_models.remove', { id: registered.id });
+    expect((await ca.request('agent.registered_models.list')).models).toEqual([]);
+    await expect(ca.request('agent.registered_models.resolve', { selector: registered.id })).rejects.toThrow('not found');
+    expect(frozen).toEqual({ id: registered.id, name: 'astra', connection_id: source.id, model: 'deepseek/deepseek-chat' });
+    expect((await ca.request('agent.config')).default.config_mode).toBe('pi');
     await ca.request('agent.environment.configure', { scope: 'device', target: 'common', values: { SHARED_TEST_VALUE: 'shared' } });
     expect((await cb.request('agent.environment', { target: 'common' })).values.SHARED_TEST_VALUE).toBe('shared');
     await ca.request('agent.network.configure', { scope: 'device', config: { version: 1, mode: 'direct', no_proxy: [] } });
