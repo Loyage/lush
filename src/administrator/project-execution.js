@@ -6,7 +6,7 @@ import { PARAMS, assertAllowed } from '../rpc/registry.js';
 import { RETIRED_MANAGEMENT_METHODS } from '../rpc/management-policy.js';
 import { settleNoticeAnswer } from '../core/project/messages.js';
 import { assertManager } from '../core/project/management-auth.js';
-import { managementState, saveManagement, managementTime, MANAGEMENT_LIMITS } from '../core/project/management-data.js';
+import { managementState, saveManagement, managementTime, MANAGEMENT_LIMITS, managementReceiptRoom, assertManagementReceiptRoom } from '../core/project/management-data.js';
 import { trackControlJob } from '../core/project/management-control.js';
 import { inputOptions } from '../core/project/input-emission-data.js';
 import { capabilityDiagnostic } from '../core/project/management-diagnostic.js';
@@ -14,15 +14,9 @@ import { safeAdministratorValue, canonicalAdministratorValue } from './delegatio
 import { readProjectAdministratorSource } from './project-source.js';
 import { PROJECT_ADMINISTRATOR_RPC, PROJECT_ADMINISTRATOR_OPERATIONS, validateProjectAdministratorTool } from './project-tool-protocol.js';
 
+import { PROJECT_READS } from './project-read-methods.js';
+
 // Scope is decided from actual handlers, not USER_ONLY minus a denylist or an omitted scope parameter.
-const PROJECT_READS = new Set(['cli.catalog','system.status','system.summary','system.diagnostics','worker.lookup','worker.graph','worker.list','worker.activity','worker.page','worker.tree','worker.inspect',
-  'worker.management_calls','worker.progress_history','worker.relations','worker.version_graph','worker.version_deliveries','worker.version_commit','worker.version_lineage','worker.version_lineage_commit',
-  'worker.reading_page','worker.reading_record','worker.history','worker.history_page','worker.diff','worker.usage','worker.code_state','worker.code_tree','worker.code_file',
-  'worker.transcript','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search','worker.runs_page','worker.artifacts_page','worker.artifact',
-  'worker.hooks','worker.completion_page','worker.delivery_graph','worker.accept_preview','worker.delete_preview','worker.merge_conditions',
-  'input.history','input.get','input.parents','notice.list','notice.page','notice.sync','branch.history','branch.version_graph','branch.tree','branch.show','graph.get',
-  'hooks.list','hooks.command_export','hooks.command_history','branch.integrate_plan','branch.integration','branch.convergence','branch.convergence_list','branch.convergence_defaults','branch.convergence_runs',
-  'management.receipt','management.emergency_preview']);
 const PROJECT_WRITES = new Set(['system.interrupt_all','system.resume_all','system.stop','system.stop_if_idle','order.submit','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove',
   'worker.create','worker.spawn','worker.rename','worker.reserve','worker.reserve_all','worker.auto_merge','worker.accept','worker.accept_force','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.unreserve',
   'worker.message','worker.cancel','worker.retry','worker.clear_override','worker.cleanup','worker.delete','worker.interrupt','worker.resume','worker.configure','worker.completion','worker.merge_after','worker.acceptance_notice',
@@ -83,9 +77,30 @@ function view(call) { return { receipt_id: call.receipt_id, method: call.method,
   reason: call.reason ?? null, diagnostic: call.diagnostic ?? null, effect: call.effect ?? 'unknown' }; }
 function boundedResult(value, state) {
   const safe = safeAdministratorValue(value), encoded = JSON.stringify(safe);
-  if (Buffer.byteLength(encoded) <= 16000 && Buffer.byteLength(JSON.stringify(state)) + Buffer.byteLength(encoded) + 3000 <= MANAGEMENT_LIMITS.bytes) return safe;
-  return { ...(isPlainObject(safe) && typeof safe.status === 'string' ? { status: safe.status } : {}),
-    ...(isPlainObject(safe) && safe.effect === 'unknown' ? { effect: 'unknown' } : {}), truncated: true, coverage: 'native_management_receipt_budget', preview: encoded.slice(0,2000) };
+  const budget = Math.min(16000, managementReceiptRoom(state) - 64);
+  if (Buffer.byteLength(encoded) <= budget) return safe;
+  const result = { ...(isPlainObject(safe) && typeof safe.status === 'string' ? { status: safe.status } : {}),
+    ...(isPlainObject(safe) && typeof safe.effect === 'string' ? { effect: safe.effect } : {}),
+    truncated: true, coverage: 'native_management_receipt_budget' };
+  // Exact input/Worker identities remain evidence even when optional output is
+  // clipped; provenance and receipt readers must not depend on a text preview.
+  if (isPlainObject(safe)) {
+    for (const key of ['id','draft_id','revision']) if (Number.isSafeInteger(safe[key]) || key === 'revision' && safe[key] === null) result[key] = safe[key];
+    if (typeof safe.emitted === 'boolean') result.emitted = safe.emitted;
+  }
+  // Failure readability is mandatory, unlike an optional result preview. Bound
+  // JSON bytes (including escaping/multibyte text), not just character count.
+  if (isPlainObject(safe) && safe.original_failure !== undefined) {
+    const failure = safe.original_failure;
+    result.original_failure = Buffer.byteLength(JSON.stringify(failure)) <= 2048 ? failure : typeof failure === 'string' ? failure.slice(0, 240) : {
+      name: typeof failure?.name === 'string' ? failure.name.slice(0, 80) : 'Error',
+      message: typeof failure?.message === 'string' ? failure.message.slice(0, 240) : 'unclassified failure', truncated: true };
+  }
+  let preview = encoded.slice(0, 2000);
+  while (preview && Buffer.byteLength(JSON.stringify({ ...result, preview })) > budget) preview = preview.slice(0, Math.floor(preview.length / 2));
+  if (preview) result.preview = preview;
+  check(Buffer.byteLength(JSON.stringify(result)) <= budget, 'management result budget exhausted; receipt remains unresolved');
+  return result;
 }
 /** Actual project invocation is supplied by Dispatcher, never model params or a device delegation. */
 export async function callProjectAdministrator(project, actorId, request, invoke) {
@@ -102,7 +117,7 @@ export async function callProjectAdministrator(project, actorId, request, invoke
   const duplicate = state.control_calls?.find(call => call.occurrence_id === state.pending_signal.id && call.request_id === `project-administrator:${fingerprint}`);
   if (duplicate) return view(duplicate);
   check((state.control_calls?.length ?? 0) + state.receipts.length < MANAGEMENT_LIMITS.actions,'management occurrence action limit reached');
-  check(Buffer.byteLength(JSON.stringify(state)) + Buffer.byteLength(JSON.stringify(copied)) + 6000 < MANAGEMENT_LIMITS.bytes,'management receipt budget exhausted before execution');
+  assertManagementReceiptRoom(state, Buffer.byteLength(JSON.stringify(copied)) + 6000);
   let call;
   project.store.transaction(() => {
     const method = operation === 'project.call' ? params.method : PROJECT_ADMINISTRATOR_RPC;
@@ -112,7 +127,7 @@ export async function callProjectAdministrator(project, actorId, request, invoke
     call = { receipt_id:receiptId,method,operation,params:copied,fingerprint,request_id:`project-administrator:${fingerprint}`,occurrence_id:state.pending_signal.id,
       authorization_mode:'project_administrator',source_event_id:grant.elevation.source_event_id,grant_id:grant.elevation.grant_id,run_id:grant.run.recordId,status:'running',created_at:managementTime(project),started_at:managementTime(project),effect:readOnly?'not_applicable':'unknown' };
     capabilityDiagnostic(project,actorId,call,'in_progress','execution',readOnly?'not_applicable':'unknown',readOnly?'read_only':'dispatch_entered');
-    state.control_calls ??= []; state.control_calls.push(call); saveManagement(project,actorId,state);
+    state.control_calls ??= []; state.control_calls.push(call); assertManagementReceiptRoom(state); saveManagement(project,actorId,state);
     project.store.event(actorId,'management.capability_started',{ receipt_id:receiptId,method,operation,occurrence_id:state.pending_signal.id,grant_id:call.grant_id });
   });
   project.managementControlBusy ??= new Set(); project.managementControlBusy.add(call.receipt_id);
@@ -130,23 +145,29 @@ export async function callProjectAdministrator(project, actorId, request, invoke
       } else if (params.method === 'system.status') result = project.status(false);
       else result = await invoke(params.method,params.method === 'notice.post' ? { ...params.params,task:actorId } : params.params);
     } catch (error) {
-      // Only the fixed method's actual pre-effect graph error proves no mutation.
-      // Matching text/codes (or a different handler) must remain unknown.
+      // Static read-only capabilities cannot produce business writes. For writes,
+      // only the fixed method's typed pre-effect graph rejection proves no mutation;
+      // matching text/codes (or a different handler) must remain unknown.
       cycleRejected = operation === 'project.call' && params.method === 'worker.merge_after' && error instanceof MergeConditionCycleError;
       failed = !cycleRejected;
-      result = { status:cycleRejected?'failed':'unknown',effect:readOnly?'not_applicable':cycleRejected?'not_started':'unknown',
+      result = { status:readOnly||cycleRejected?'failed':'unknown',effect:readOnly||cycleRejected?'not_started':'unknown',
         original_failure:safeAdministratorValue({ name:error?.name ?? 'Error',message:error?.message ?? 'unclassified failure' }) };
     }
     try {
       state = managementState(project.store.task(actorId)); call = state.control_calls.find(item => item.receipt_id === call.receipt_id);
-      call.result = boundedResult(result,state);
-      const unknown = failed || result?.status === 'unknown' || result?.effect === 'unknown';
-      call.status = cycleRejected ? 'failed' : unknown ? 'unknown' : 'succeeded'; call.effect = readOnly ? 'not_applicable' : cycleRejected ? 'not_started' : unknown ? 'unknown' : 'applied';
+      const readFailed = failed && readOnly;
+      // A read may return a receipt describing somebody else's unknown write.
+      // That payload does not make this query itself a write with unknown effects.
+      const unknown = !readOnly && (failed || result?.status === 'unknown' || result?.effect === 'unknown');
+      call.status = readFailed || cycleRejected ? 'failed' : unknown ? 'unknown' : 'succeeded';
+      call.effect = readFailed || cycleRejected ? 'not_started' : readOnly ? 'not_applicable' : unknown ? 'unknown' : 'applied';
       call.finished_at = managementTime(project);
       if (cycleRejected) call.reason = safeManagementDiagnostic({code:'merge_dependency_cycle'}).reason;
+      else if (readFailed) call.reason = '只读请求失败，未产生业务写入；保留原始安全失败及收据。';
       else if (unknown) call.reason = '管理员操作未确认完成，保留原始安全失败及收据，不自动重放。';
-      capabilityDiagnostic(project,actorId,call,cycleRejected?'merge_dependency_cycle':unknown?'execution_failed':'succeeded',cycleRejected||unknown?'execution':'completion',call.effect,
-        cycleRejected?'trusted_pre_effect_rejection':unknown?'dispatch_entered':'completion_saved');
+      capabilityDiagnostic(project,actorId,call,cycleRejected?'merge_dependency_cycle':readFailed?'request_failed':unknown?'execution_failed':'succeeded',readFailed||cycleRejected||unknown?'execution':'completion',call.effect,
+        readFailed?'read_only':cycleRejected?'trusted_pre_effect_rejection':unknown?'dispatch_entered':'completion_saved');
+      call.result = boundedResult(result,state);
       project.store.transaction(() => {
         saveManagement(project,actorId,state);
         project.store.event(actorId,call.status==='succeeded'?'management.capability_completed':'management.capability_failed',{ receipt_id:call.receipt_id,method:call.method,operation,

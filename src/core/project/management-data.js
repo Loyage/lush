@@ -10,6 +10,30 @@ export const MANAGEMENT_LIMITS = Object.freeze({ signals: 64, active: 64, action
 export const MANAGEMENT_READ_ITEMS = 100;
 export const managementState = task => task.management ? JSON.parse(task.management) : null;
 export const managementTime = project => new Date(project.hookClock()).toISOString();
+/** The latest receipts stay in the current arrays for late completion/ownership checks.
+ * last_execution references them until the next occurrence moves them into history. */
+export function managementLastExecution(state) {
+  const execution = state.last_execution;
+  return execution?.receipts_in_current ? { ...execution, actions: state.receipts ?? [], control_calls: state.control_calls ?? [] } : execution;
+}
+export function retainManagementExecution(state) {
+  if (!state.last_execution?.receipts_in_current) return;
+  state.last_execution = managementLastExecution(state);
+  delete state.last_execution.receipts_in_current;
+}
+export function closeManagementExecution(state, details) {
+  state.last_execution = { ...state.pending_signal, ...details, receipts_in_current: true };
+}
+// Leave room for occurrence metadata, revocation reasons and first-failure diagnostics
+// on every still-unfinished receipt. Admission/result storage use the same budget.
+export function managementReceiptRoom(state) {
+  const unfinished = [...(state.control_calls ?? []), ...(state.receipts ?? [])]
+    .filter(item => ['running','approved','pending_confirmation','waiting'].includes(item.status)).length;
+  return MANAGEMENT_LIMITS.bytes - Buffer.byteLength(JSON.stringify(state)) - 8192 - unfinished * 2048;
+}
+export function assertManagementReceiptRoom(state, extra = 0) {
+  check(managementReceiptRoom(state) >= extra, 'management receipt budget exhausted before execution');
+}
 /** Public occurrence summary only. Execution authority additionally requires its accepted Event. */
 export function managementAuthority(occurrence) {
   return { mode: occurrence?.elevation?.version === 1 && occurrence.elevation.mode === 'administrator'
@@ -171,7 +195,7 @@ export function managementView(task, project) {
     reason: ['failed','unknown'].includes(state.state) ? state.reason ?? enableReason
       : !state.enabled && enableReason ? enableReason : state.reason ?? null,
     pending_signal: execution(state.pending_signal ? { ...state.pending_signal, actions: state.receipts, control_calls: state.control_calls ?? [] } : null),
-    last_execution: execution(state.last_execution) };
+    last_execution: execution(managementLastExecution(state)) };
 }
 // Hooks is an authorization control surface, not the full instruction/receipt reader. Compact every
 // variable-size field before applying the list budget so active bindings cannot be hidden by long goals.

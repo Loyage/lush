@@ -3,7 +3,7 @@ import { hookRevision } from '../hooks.js';
 import { questionnaire } from '../questionnaire.js';
 import { workerLabel } from '../worker-number.js';
 import { assertManager } from './management-auth.js';
-import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime, managementInstruction } from './management-data.js';
+import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime, managementInstruction, assertManagementReceiptRoom } from './management-data.js';
 import { managementCatalog, effectiveManagementPolicy, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
 import { hasManagementConfirmation } from './management-code.js';
 import { hookInstallationOutcome, hookRegistrationOutcome, temporaryAutomationOutcome, TEMPORARY_RECEIPT_EVENTS } from './hook-install.js';
@@ -11,6 +11,7 @@ import { resolveRegisteredMount } from './automation-registry.js';
 import { managementAudit, managementPhase, capabilityDiagnostic } from './management-diagnostic.js';
 import { safeManagementDiagnostic } from '../management-diagnostic.js';
 import { MergeConditionCycleError } from '../merge-conditions.js';
+import { projectAdministratorReadOnly } from '../../administrator/project-read-methods.js';
 import { submitManagementDraft } from './management-drafts.js';
 import { inputOptions } from './input-emission-data.js';
 
@@ -262,6 +263,7 @@ export default {
     const duplicate = (state.control_calls ?? []).find(call => call.request_id === key && call.occurrence_id === state.pending_signal.id);
     if (duplicate) { check(duplicate.fingerprint === fingerprint, 'request_id already refers to different management parameters'); return callView(duplicate); }
     check((state.control_calls?.length ?? 0) + state.receipts.length < MANAGEMENT_LIMITS.actions, 'management occurrence action limit reached');
+    assertManagementReceiptRoom(state, Buffer.byteLength(JSON.stringify(copied)) + 6000);
     let call;
     this.store.transaction(() => {
       const audit = managementAudit();
@@ -290,6 +292,7 @@ export default {
         call.notice_id = Number(row.lastInsertRowid);
         this.store.event(task.id, 'notice.opened', { notice_id: call.notice_id, title, kind: 'questionnaire', management_receipt_id: receiptId });
       }
+      assertManagementReceiptRoom(state);
       saveManagement(this, task.id, state);
     });
     if (call.status === 'approved') await this.executeManagementCapability(task.id, call.receipt_id);
@@ -330,7 +333,7 @@ export default {
     const notice = this.store.get('SELECT task_id,status FROM notices WHERE id=?', noticeId);
     // A late answer/callback still belongs to this historical confirmation, but
     // must not create a new control owner after permanent emergency isolation.
-    if (managementState(this.store.task(notice.task_id))?.emergency) return true;
+    if (managementState(this.store.task(notice.task_id))?.emergency || this.managementRecoveryBlocked?.has(notice.task_id)) return true;
     if (notice.status === 'open') return true; // Await the real user event, not a no-op async job/pump loop.
     const job = this.resolveManagementConfirmationUnsafe(noticeId).catch(() => {
       try {
@@ -380,7 +383,7 @@ export default {
   },
 
   executeManagementCapability(taskId, receiptId) {
-    if (managementState(this.store.task(taskId))?.emergency) return Promise.resolve();
+    if (managementState(this.store.task(taskId))?.emergency || this.managementRecoveryBlocked?.has(taskId)) return Promise.resolve();
     return trackControlJob(this, taskId, this.executeManagementCapabilityUnsafe(taskId, receiptId));
   },
 
@@ -491,6 +494,7 @@ export default {
   },
 
   drainManagementCapabilities(taskId) {
+    if (this.managementRecoveryBlocked?.has(taskId)) return;
     const ids = (managementState(this.store.task(taskId))?.control_calls ?? []).map(call => call.receipt_id);
     for (const receiptId of ids) {
       const state = managementState(this.store.task(taskId)), call = state.control_calls.find(item => item.receipt_id === receiptId);
@@ -515,16 +519,18 @@ export default {
   recoverManagementCapabilities(taskId) {
     const state = managementState(this.store.task(taskId));
     for (const call of state?.control_calls ?? []) if (call.status === 'running') {
+      const readOnly = projectAdministratorReadOnly(call);
       const proof = this.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed' AND json_extract(data,'$.receipt_id')=? LIMIT 1", taskId, call.receipt_id);
       if (transactionalAutomation(call.method)) Object.assign(call,
         transactionalOutcome(this, call), { finished_at: call.finished_at ?? managementTime(this) });
       else {
-        call.status = proof ? 'succeeded' : 'unknown';
-        if (!proof) call.reason = safeFailure;
+        call.status = proof ? 'succeeded' : readOnly ? 'failed' : 'unknown';
+        if (readOnly) call.effect = proof ? 'not_applicable' : 'not_started';
+        if (!proof) call.reason = readOnly ? '只读请求未观察到完成；未产生业务写入，不自动重放。' : safeFailure;
       }
       // Only new receipts carry diagnostics; do not fabricate history during recovery.
-      if (call.diagnostic) capabilityDiagnostic(this, taskId, call, call.status === 'succeeded' ? 'succeeded' : 'completion_not_observed', 'recovery',
-        call.status === 'succeeded' ? 'applied' : 'unknown', call.status === 'succeeded' ? 'completion_saved' : 'completion_not_observed');
+      if (call.diagnostic) capabilityDiagnostic(this, taskId, call, call.status === 'succeeded' ? 'succeeded' : readOnly ? 'request_failed' : 'completion_not_observed', 'recovery',
+        readOnly ? call.effect : call.status === 'succeeded' ? 'applied' : 'unknown', readOnly ? 'read_only' : call.status === 'succeeded' ? 'completion_saved' : 'completion_not_observed');
     }
     saveManagement(this, taskId, state);
   },

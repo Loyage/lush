@@ -11,7 +11,7 @@ import { startTestWeb, fetch } from '../web/auth-fixture.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { PROJECT_ELEVATION_RPC } from '../../src/administrator/project-protocol.js';
 import { createSignal } from '../../src/signal.js';
-import { managementState } from '../../src/core/project/management-data.js';
+import { managementState, managementLastExecution, saveManagement, MANAGEMENT_LIMITS } from '../../src/core/project/management-data.js';
 import { projectAdministratorMethods } from '../../src/administrator/project-execution.js';
 import { PROJECT_ADMINISTRATOR_RPC } from '../../src/administrator/project-tool-protocol.js';
 import { sessionFiles } from '../../src/core/transcript.js';
@@ -33,7 +33,25 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
   const password='synthetic-test-only-password';
   const post=(definition,value=password)=>fetch(base+'/api/management/elevate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definition,password:value,confirm:true})});
   async function elevate(definition){const response=await post(definition);expect(response.status).toBe(200);return response.json();}
-  let ordinaryRejected=false,ordinaryPathBlocked=false;
+  let ordinaryRejected=false,ordinaryPathBlocked=false,budgetTarget;
+  const budgetChecked=new Set();
+  async function checkAdmissionBudget(options,elevated){
+    if(budgetChecked.has(elevated))return;
+    const actor=options.task.id,original=f.store.task(actor).management,state=managementState(f.store.task(actor));
+    state.padding='';state.padding='x'.repeat(MANAGEMENT_LIMITS.bytes-Buffer.byteLength(JSON.stringify(state))-4096);
+    saveManagement(f.project,actor,state);
+    const full=f.store.task(actor).management,title=f.store.task(budgetTarget).display_title;
+    try{
+      const call={method:'worker.rename',params:{id:budgetTarget,title:'must not execute over budget'}};
+      let failure;
+      try{await dispatcher.dispatch(elevated?PROJECT_ADMINISTRATOR_RPC:'manager.call',elevated
+        ?{operation:'project.call',params:call,_token:options.token}:{...call,_token:options.token});}catch(error){failure=error;}
+      expect(JSON.parse(failure.message).diagnostic).toMatchObject({effect:'not_started',evidence:'trusted_pre_dispatch'});
+      expect(f.store.task(actor).management).toBe(full);expect(f.store.task(budgetTarget).display_title).toBe(title);
+      expect(f.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'",actor)).toBeNull();
+      budgetChecked.add(elevated);
+    }finally{f.store.update(actor,{management:original});}
+  }
   const run=f.project.provider.run.bind(f.project.provider);
   f.project.provider.run=async options=>{
     if(options.context.management.authorization.mode==='administrator'){
@@ -41,11 +59,12 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     }else{
       await expect(dispatcher.dispatch(PROJECT_ADMINISTRATOR_RPC,{operation:'catalog',params:{},_token:options.token})).rejects.toThrow();ordinaryRejected=true;
     }
+    await checkAdmissionBudget(options,options.context.management.authorization.mode==='administrator');
     return run(options);
   };
-  async function pump(plan){cli.plan(plan);f.project.pump();await Promise.all([...f.project.running.values()].map(item=>item.promise));await Promise.all([...f.project.managementControlJobs]);}
+  async function pump(plan){cli.plan(plan);f.project.pump();await Promise.all([...f.project.running.values()].map(item=>item.promise));await Promise.all([...(f.project.managementControlJobs??[])]);}
   try{
-    const target=(await f.project.order('project target','main',[],null,false)).task;
+    const target=(await f.project.order('project target','main',[],null,false)).task;budgetTarget=target.id;
     const empty=(await dispatcher.dispatch('worker.create',{mode:'spawn'})).task;
     const permission=f.project.managementPermissionGet('worker.rename','device');f.project.managementPermissionSet('worker.rename','confirmation',permission.revision,'device');
     fs.mkdirSync(path.join(f.root,'src'));fs.writeFileSync(path.join(f.root,'src','app.js'),'export const answer = 42;\nconst api_key = "PRIVATE-SOURCE-CANARY";\n');
@@ -82,7 +101,7 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
       tool('project.call',{method:'order.submit',params:{content:'native Valet order source'}}),
       tool('project.call',{method:'input.emit',params:{content:'native Valet emission source'}}),
       tool('project.call',{method:'worker.message',params:{id:target.id,body:'native Valet follow-up source'}}),
-      tool('project.call',{method:'worker.spawn',params:{parent:target.id,goal:'native Valet delegated source'}}),
+      tool('project.call',{method:'worker.spawn',params:{parent:target.id,goal:'native Valet delegated source '+ 'x'.repeat(17000)}}),
       tool('project.call',{method:'input.emit',params:{content:'not a first user input',mode:'append',target_id:empty.id}}),
     ];
     await pump([tool('catalog',{}),rename,rename,tool('source.read',{path:'src/app.js'}),tool('project.call',{method:'worker.inspect',params:{id:target.id}}),
@@ -116,6 +135,7 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     }
     const reading=await dispatcher.dispatch('worker.reading_page',{id:target.id});
     expect(reading.messages.find(message=>message.body==='native Valet follow-up source')).toMatchObject({input_source:source,append_number:null});
+    expect(sourceReplies[3].response.details.result.truncated).toBe(true);
     const spawned=sourceReplies[3].response.details.result.id;
     expect((await dispatcher.dispatch('worker.inspect',{id:spawned})).goal_input_source).toEqual(source);
     f.store.update(spawned,{status:'paused'});
@@ -131,15 +151,44 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     expect(JSON.stringify(high)).not.toContain('PRIVATE-SOURCE-CANARY');
     expect(high.replies[4].response.details.result.coverage).not.toBe('worker_metadata_only');
     expect(f.store.task(target.id).display_title).toBe('native elevated title');expect(f.store.get("SELECT count(*) AS n FROM notices WHERE kind IN ('question','questionnaire')").n).toBe(0);
-    const calls=managementState(f.store.task(manager.id)).last_execution.control_calls;
+    const calls=managementLastExecution(managementState(f.store.task(manager.id))).control_calls;
     expect(calls.every(call=>call.authorization_mode==='project_administrator'&&call.source_event_id>0)).toBe(true);
     expect(f.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed'",manager.id)).toBeTruthy();
     const highSession=high.argv[high.argv.indexOf('--session-id')+1];expect(highSession).toContain('-administrator-');
+    expect(f.project.inspect(manager.id).management).toMatchObject({can_append:true,last_execution:{status:'succeeded'}});
+    // The real elevated bridge must settle read-only handler/source failures without unknown effects.
+    await elevate({kind:'append',mode:'administrator',scope:'current_project',client_request_id:'native-read-failures',id:manager.id,instruction:'inspect missing objects and correct the query'});
+    const missing=tool('project.call',{method:'worker.lookup',params:{number:'V9999999'}});
+    const unobserved=f.store.event(manager.id,'management.capability_requested',{method:'worker.rename',occurrence_id:1});
+    const status=f.project.status;f.project.status=()=>{throw new Error('界'.repeat(16000));};
+    await pump([tool('project.call',{method:'worker.page',params:{limit:10,scope:'management'}}),missing,missing,
+      tool('source.read',{path:'src/missing.js'}),tool('project.call',{method:'worker.lookup',params:{number:target.worker_number}}),
+      tool('project.call',{method:'management.receipt',params:{receipt_id:unobserved}}),tool('project.call',{method:'system.status',params:{}})]);
+    f.project.status=status;
+    const reads=JSON.parse(f.store.task(manager.id).result).replies.map(reply=>reply.response.details);
+    for(const read of reads.slice(0,4)){
+      expect(read).toMatchObject({status:'failed',effect:'not_started',result:{status:'failed',effect:'not_started'},
+        diagnostic:{code:'request_failed',stage:'execution',effect:'not_started',evidence:'read_only',original_failure:{code:'request_failed',effect:'not_started',evidence:'read_only'}}});
+      expect(typeof read.result.original_failure.message).toBe('string');
+    }
+    expect(reads[1].receipt_id).toBe(reads[2].receipt_id);expect(reads[1].result.original_failure.message).toContain('V9999999 not found');
+    expect(reads[4]).toMatchObject({status:'succeeded',effect:'not_applicable',result:{id:target.id}});
+    expect(reads[5]).toMatchObject({status:'succeeded',effect:'not_applicable',result:{status:'unknown'}});
+    expect(reads[6]).toMatchObject({status:'failed',effect:'not_started',result:{original_failure:{name:'Error',truncated:true}}});
+    expect(reads[6].result.original_failure.message).toContain('界');
+    const readState=managementState(f.store.task(manager.id));
+    expect(readState.pending_signal).toBeNull();expect(readState.last_execution).toMatchObject({status:'skipped'});
+    expect(managementLastExecution(readState).control_calls).toHaveLength(6);expect(f.project.managementOccupant()).toBeNull();
+    expect(f.project.inspect(manager.id).management).toMatchObject({can_append:true,can_accept:true,last_execution:{status:'skipped'},
+      first_failure:{receipt_id:reads[0].receipt_id,detail:expect.stringContaining('worker.page.scope')}});
+    const readReceipt=await dispatcher.dispatch('management.receipt',{receipt_id:reads[0].receipt_id});
+    expect(readReceipt).toMatchObject({status:'failed',diagnostic:{effect:'not_started',evidence:'read_only',original_failure:{code:'request_failed',effect:'not_started'}}});
+    expect(readReceipt.timeline.items.some(item=>item.type==='management.capability_failed'&&item.status==='failed')).toBe(true);
     f.store.update(manager.id,{result:'HIGH-RESULT-CANARY',error:'HIGH-ERROR-CANARY'});
     await dispatcher.dispatch('worker.message',{id:manager.id,body:'normal next instruction'});
     await pump([{name:'lush_cli',params:{argv:['help','worker','show']}}]);
     const normal=JSON.parse(f.store.task(manager.id).result);
-    expect(normal.registered).toEqual(['lush_cli']);expect(ordinaryRejected&&ordinaryPathBlocked).toBe(true);
+    expect(normal.registered).toEqual(['lush_cli']);expect(ordinaryRejected&&ordinaryPathBlocked).toBe(true);expect(budgetChecked.size).toBe(2);
     expect(JSON.stringify(normal.startup)).not.toContain('HIGH-RESULT-CANARY');expect(JSON.stringify(normal.startup)).not.toContain('HIGH-ERROR-CANARY');expect(JSON.stringify(normal.startup)).not.toContain('PRIOR-HIGH-GOAL-CANARY');
     expect(normal.startup.task.goal).toBe('normal next instruction');expect(normal.startup.management.management).toBeUndefined();expect(normal.startup.messages).toEqual([]);
     const normalSession=normal.argv[normal.argv.indexOf('--session-id')+1];expect(normalSession).not.toBe(highSession);expect(normalSession).toContain('-ordinary-');
@@ -182,7 +231,7 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     expect(f.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed' AND json_extract(data,'$.receipt_id')=?",manager.id,rejected.receipt_id)).toBeNull();
     expect(failed.replies[1].response.details).toMatchObject({status:'unknown',effect:'unknown',diagnostic:{code:'execution_failed',effect:'unknown'}});
     expect(failed.replies[2].response.details.status).toBe('unknown');expect(failed.replies[3].response.details.status).toBe('unknown');expect(effects).toBe(1);
-    const failedState=managementState(f.store.task(manager.id)),failedCalls=failedState.last_execution?.control_calls??failedState.control_calls;
+    const failedState=managementState(f.store.task(manager.id)),failedCalls=managementLastExecution(failedState)?.control_calls??failedState.control_calls;
     expect(failedCalls.find(call=>call.method==='worker.rename').result.original_failure).toBe('safe original failure');
     expect(f.project.inspect(manager.id).management.first_failure.detail).toContain('merge conditions create a cycle');
     expect(f.project.managementControlJobs.size).toBe(0);expect(f.project.managementControlBusy.size).toBe(0);

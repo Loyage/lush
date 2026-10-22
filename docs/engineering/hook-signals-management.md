@@ -76,7 +76,7 @@ bridge 不使用 shell，不接收 executable/cwd/env 参数，不给子进程�
 
 ## 数据与时间
 
-项目时间信号采用 meta 中 versioned JSON 附属配置，管理绑定／occurrence／受控动作收据采用 tasks.management 附属 JSON。不改写历史行／分支。最多 64 个信号、64 个启用管理绑定，每个 occurrence 最多 32 项动作；信号库与单 Worker 私有状态分别最多 128 KiB，管理列表最多 512 KiB。急救隔离后的旧 Worker 仅为固定隔离标记与至多 32 项撤权诊断预留额外 16 KiB，不再接纳用户材料，也不裁掉原有历史来腾空间。revision 与运行动态分离，读取无副作用。
+项目时间信号采用 meta 中 versioned JSON 附属配置，管理绑定／occurrence／受控动作收据采用 tasks.management 附属 JSON。不改写历史行／分支。最多 64 个信号、64 个启用管理绑定，每个 occurrence 最多 32 项动作；信号库与单 Worker 私有状态分别最多 128 KiB，管理列表最多 512 KiB。急救隔离后的旧 Worker 仅为固定隔离标记与至多 32 项撤权诊断预留额外 16 KiB，不再接纳用户材料，也不裁掉原有历史来腾空间。revision 与运行动态分离，读取无副作用。收口时不复制整份收据：最新收据唯一保存在顶层 `receipts/control_calls`，`last_execution.receipts_in_current:true` 引用同一组事实；下一 occurrence 准入时才将旧数组移入 `last_execution`，公开投影和单收据读取保持完整。动作及提权调用在持久准入／结果存储时预留收口和未完成收据的诊断余量。启动逐身份事务恢复；单条状态不能保存时回滚该身份恢复、保留原 JSON／收据、记录 `management.recovery_failed` 和 Worker 安全错误，并阻止其本次后台内继续执行，其他身份继续恢复；不裁历史、不猜成功、不重放。
 
 信号定义 `{id?:UUID,name,enabled?:boolean,schedule}`，schedule 复用 normalizeHookSchedule / nextHookRun。一次性创建／改时间／重新启用须在未来；已错过或已发出的同一一次性规则不能靠回拨重放。每日 DST 重叠取首次，缺失跳过。停用／停机未提交过期项不补跑。一次性信号显式改为新的未来时刻时保留旧发出历史，但旧历史不消费新时刻；仍不重放已消费的绑定，需另建管理指令或使用此前授权的持续绑定。
 
@@ -155,7 +155,7 @@ W325：真实 Dispatcher 在验证当前 invocation 的管理身份后，为全�
 
 - `stage`：admission、parameters、authorization、preflight、execution、completion、persistence、return、recovery、legacy。
 - `code`：invalid_parameters、authorization_required、permission_denied、preflight_rejected、merge_dependency_cycle、execution_failed、completion_failed、persistence_failed、request_failed、completion_not_observed、pending_confirmation、approved、in_progress、succeeded、read_completed、request_returned、legacy_unknown。
-- `effect`：`not_started` 仅来自可信执行前拒绝／待确认／待准入，或明确的副作用前类型化业务拒绝；`unknown` 表示已越过执行边界但缺少完成证明；`applied` 仅表示**该方法**完成证据已保存（例如提交、注册或挂载），不证明后续生命周期／Worker 业务完成；`not_applicable` 为已审核只读调用。完成状态与 Event 原子保存，任一保存失败回到 unknown，而不是根据 catch 推定未执行。返回／审计中断若已有独立完成证明，保留 applied；传输未知不抹去已有生效证据。
+- `effect`：`not_started` 来自可信执行前拒绝／待确认／待准入、明确的副作用前类型化业务拒绝，或按已审核方法集合确定的只读调用失败；只读失败记 failed，正常返回的 occurrence 可 skipped/succeeded 收口，保留诊断且不自动重放，不根据错误文本或 code 推测写操作未开始。`unknown` 表示已越过执行边界但缺少完成证明；`applied` 仅表示**该方法**完成证据已保存（例如提交、注册或挂载），不证明后续生命周期／Worker 业务完成；`not_applicable` 为已审核只读调用。完成状态与 Event 原子保存，任一保存失败回到 unknown，而不是根据 catch 推定未执行。返回／审计中断若已有独立完成证明，保留 applied；传输未知不抹去已有生效证据。
 - 条件合并环检测在保存配置事务之前抛出专用类型；管理执行层只对 `worker.merge_after` 的该类型保留 `merge_dependency_cycle`，收据为 failed、effect=not_started、evidence=trusted_pre_effect_rejection。表示配置未保存，不是权限不足；历史记录不补写，同文案／错误码的普通异常仍为 execution_failed／unknown，不自动重放。
 - `evidence`：trusted_pre_dispatch、trusted_pre_effect_rejection、confirmation_pending、approval_pending、dispatch_entered、completion_saved、read_only、completion_not_observed、legacy_missing。开始记录只证明越过执行边界，不证明业务副作用完成。
 - `original_failure` 是首次实际采集的 `{stage,code,reason,effect,evidence}`，或 null。后续 unknown、绑定停用、取消与急救隔离不得覆盖原始失败，处置独立反映在 `disposition`。私有收据保存失败时可从同一请求外层可信完成 Event 找回首次已采样错误；恢复仍保留该原错。没有原始采样的旧收据返回 legacy_unknown／unknown、original_failure:null；原成功状态照常保留，不猜补或迁移。
@@ -179,7 +179,7 @@ W325：真实 Dispatcher 在验证当前 invocation 的管理身份后，为全�
 
 confirmation 操作（包括始终需审核的权限修改）先保存精确方法／参数、目标快照与资源预检，发布管理授权 Notice；普通自动选择必须跳过。只有 `answer_source='user'` 的固定问卷答复可授权，dismiss、模型答复、参数或目标变化都不是批准。用户答复在事务后由 `resolveManagementConfirmation` 安排可信执行，不再调用管理模型。目标、脏现场、冻结及 revision 等安全门仍由原引擎复核；模型不能代理答复自身或其它管理授权。
 
-`tasks.management.control_calls` 保存确认／执行收据；批准但暂受阻的操作等待安全点，已经 started/running 而结果未知的操作重启标 unknown，不自动重放。`managementControlJobs` 计入维护忙碌和停机 drain；待用户确认或 unknown 不靠定时轮询。资源回收与服务停机沿用真实入口，`system.stop_if_idle` 因管理执行自身占忙而明确不可用，不伪装成功。
+`tasks.management.control_calls` 保存确认／执行收据；批准但暂受阻的操作等待安全点，已经 started/running 而结果未知的写操作重启标 unknown；按同源已审核只读方法集合确定的未完成提权查询记 failed/not_started，不把未知查询结果当查询自身的副作用。既有 failed/unknown 收据不迁移，均不自动重放。`managementControlJobs` 计入维护忙碌和停机 drain；待用户确认或 unknown 不靠定时轮询。资源回收与服务停机沿用真实入口，`system.stop_if_idle` 因管理执行自身占忙而明确不可用，不伪装成功。
 
 作用域仅当前项目，无跨项目、任意 Shell、read/write/edit 或凭证工具。设备共享设置须指令明确提出设备／全局操作且工具带 `scope:'device'`；device-only 旧别名也要求该授权元数据，不传给普通 handler。私有 env、Prompt、凭证、原始会话正文及需交互认证／设置迁移的能力保留目录但不可用，指向用户界面。管理模型不得创建其它管理身份或自行改变授权；仅可发起需真实用户批准的逐项权限修改请求。只读结果再次做秘密字段和字节裁剪，公开 inspect 不暴露 control_calls 原参数、预检指纹或私有 JSON。
 

@@ -82,6 +82,14 @@ test('Provider -> only lush_cli -> real help/parser -> permissions/execution -> 
     expect(rejected.replies.every(reply => Boolean(reply.error))).toBe(true);
     for (const reply of rejected.replies) expect(JSON.parse(reply.error)).toMatchObject({ kind: 'invalid_parameters', execution: 'not_started' });
     expect((await f.dispatcher.dispatch('worker.management_calls', { id: rejected.task.id, after: 0 })).items).toHaveLength(0);
+    // An ordinary read has no capability receipt. Its failed audit must not
+    // imply a possible write or poison the reusable occurrence.
+    const readFailure = await f.invoke([command(['worker','show','V999999'])]);
+    expect(readFailure.replies[0].error).toBeTruthy();
+    expect(f.project.inspect(readFailure.task.id).management).toMatchObject({ can_append: true, last_execution: { status: 'succeeded' } });
+    const readAudit = await f.dispatcher.dispatch('worker.management_calls', { id: readFailure.task.id, after: 0 });
+    expect(readAudit.items.find(item => item.phase === 'finished')).toMatchObject({ method: 'worker.lookup', status: 'failed',
+      diagnostic: { effect: 'not_started', evidence: 'read_only', retry: 'not_automatic' } });
     const condition = (await f.project.order('condition Worker', 'main', [], null, false)).task;
     const empty = (await f.dispatcher.dispatch('worker.create', { mode: 'spawn' })).task;
     const emptyDraft = await f.dispatcher.dispatch('draft.add', { content: 'must not authorize the first user input', mode: 'append', target_id: empty.id,

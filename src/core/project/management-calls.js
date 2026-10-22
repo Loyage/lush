@@ -69,8 +69,8 @@ export function finishManagementCall(project, actorId, info, result, error, para
   const diagnostic = sampled ? safeManagementDiagnostic({ ...sampled, correlation: { ...sampled.correlation,
     ...correlation } }) : managementDiagnostic(error ? (parameterRejection ? 'invalid_parameters' : info.failure_code ?? 'request_failed')
       : readOnly ? 'read_completed' : 'request_returned', parameterRejection ? 'parameters' : info.stage ?? 'return',
-    parameterRejection ? 'not_started' : error ? info.effect ?? 'unknown' : readOnly ? 'not_applicable' : 'unknown',
-    parameterRejection ? 'trusted_pre_dispatch' : error ? info.evidence ?? 'completion_not_observed' : readOnly ? 'read_only' : 'completion_not_observed', correlation);
+    parameterRejection || error && readOnly ? 'not_started' : error ? info.effect ?? 'unknown' : readOnly ? 'not_applicable' : 'unknown',
+    parameterRejection ? 'trusted_pre_dispatch' : readOnly ? 'read_only' : error ? info.evidence ?? 'completion_not_observed' : 'completion_not_observed', correlation);
   // Persist only the start whitelist, never mutable execution context or exception payloads.
   const snapshot = Object.fromEntries(['method','transport_method','cli_command','actor_id','worker_number','run_id','occurrence_id','started_at',
     'target_id','target_worker_number','params','call_id','request_event_id'].map(key => [key, info[key]]));

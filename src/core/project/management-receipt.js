@@ -3,6 +3,7 @@ import { managementDiagnostic, safeManagementDiagnostic, validManagementReceiptP
 import { publicCapabilityDiagnostic, projectDiagnostic, capabilityDiagnosticSnapshot } from './management-diagnostic.js';
 import { definitionHash, requestKey } from './input-emission-data.js';
 import { PARAMS } from '../../rpc/registry.js';
+import { projectAdministratorReadOnly } from '../../administrator/project-read-methods.js';
 
 const parse = row => { try { return JSON.parse(row?.data ?? 'null'); } catch { return null; } };
 const positive = value => Number.isSafeInteger(value) && value > 0;
@@ -23,7 +24,7 @@ export function findManagementCapability(project, task, receiptId) {
   if (call) {
     const diagnostic = capabilityDiagnosticSnapshot(project, task, call);
     return diagnostic === call.diagnostic ? call : { ...call, diagnostic,
-      status: call.status === 'running' ? 'unknown' : call.status };
+      status: call.status === 'running' ? projectAdministratorReadOnly(call) ? 'failed' : 'unknown' : call.status };
   }
   const requested = project.store.get("SELECT data FROM events WHERE id=? AND task_id=? AND type='management.capability_requested'", receiptId, task.id);
   if (!requested) return null;
