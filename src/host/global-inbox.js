@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { check, id, isPlainObject } from '../core/types.js';
 import { launcherStateDir, projectRouteId } from './registry.js';
+import { inboxQueryMatches, normalizeInboxQuery } from '../ui/web/assets/inbox-query.js';
+import { NOTICE_CATEGORIES } from '../ui/web/assets/notice-channels.js';
 
-const STATUS = new Set(['all','open','unread','automatic','failed']);
 const METHODS = new Set(['notice.answer','notice.dismiss','notice.read']);
+const LIFECYCLE_TYPES = new Set([null, ...NOTICE_CATEGORIES.map(category => category.id)]);
 const FIELDS = ['id','task_id','title','body','status','answer','kind','source_event_id','read_at','created_at',
   'answer_source','task_worker_number','lifecycle_type','sync_identity','sync_revision','sync_epoch'];
 const HEX = /^[a-f0-9]{32}$/;
@@ -32,21 +34,13 @@ function noticeModel(value) {
   check(value.read_at === null || typeof value.read_at === 'string', 'invalid Notice read receipt');
   check(value.source_event_id === null || safeId(value.source_event_id), 'invalid Notice source event');
   check([null,'user','lush'].includes(value.answer_source), 'invalid Notice answer source');
-  check([null,'created','idle','analysis','failed'].includes(value.lifecycle_type), 'invalid Notice lifecycle type');
+  check(LIFECYCLE_TYPES.has(value.lifecycle_type), 'invalid Notice lifecycle type');
   check(value.task_worker_number === null || typeof value.task_worker_number === 'string', 'invalid Notice Worker number');
   const result = Object.fromEntries(FIELDS.map(key => [key, value[key]]));
   check(bytes(result) <= RESPONSE_LIMIT, 'Notice record exceeds inbox byte limit');
   return result;
 }
-function matches(notice, status) {
-  if (status === 'all') return true;
-  if (status === 'open') return notice.status === 'open' && ['question','questionnaire'].includes(notice.kind);
-  if (status === 'unread') return notice.kind === 'info' && notice.status === 'sent'
-    && notice.source_event_id !== null && notice.read_at === null;
-  if (status === 'automatic') return notice.status === 'answered' && notice.answer_source === 'lush'
-    && ['question','questionnaire'].includes(notice.kind);
-  return notice.kind === 'info' && notice.lifecycle_type === 'failed';
-}
+const matches = (notice, status) => inboxQueryMatches({ notice }, { status });
 const keyFor = item => [item.notice.created_at, item.project_id, item.notice.id, item.notice.sync_identity];
 function compareKey(a, b) {
   for (let i = 0; i < a.length; i++) {
@@ -55,15 +49,20 @@ function compareKey(a, b) {
   }
   return 0;
 }
-function encodeCursor(status, item) {
-  return Buffer.from(JSON.stringify({ version: 1, status, key: keyFor(item) })).toString('base64url');
+const queryKey = query => createHash('sha256').update(JSON.stringify(query)).digest('hex');
+function encodeCursor(query, item) {
+  return Buffer.from(JSON.stringify({ version: 2, query: queryKey(query), key: keyFor(item) })).toString('base64url');
 }
-function decodeCursor(value, status) {
-  check(typeof value === 'string' && value.length <= 512 && /^[A-Za-z0-9_-]+$/.test(value), 'invalid inbox cursor');
+function decodeCursor(value, query) {
+  check(typeof value === 'string' && value.length <= 4096 && /^[A-Za-z0-9_-]+$/.test(value), 'invalid inbox cursor');
   let parsed;
   try { parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')); } catch { /* validate below */ }
-  check(isPlainObject(parsed) && Object.keys(parsed).every(key => ['version','status','key'].includes(key))
-    && parsed.version === 1 && parsed.status === status && Array.isArray(parsed.key) && parsed.key.length === 4
+  // Old cursors are valid only for their original unfiltered category/search/project scope.
+  const legacy = parsed?.version === 1 && Object.keys(parsed).every(key => ['version','status','key'].includes(key))
+    && parsed.status === query.status && JSON.stringify(query) === JSON.stringify(normalizeInboxQuery({ status: query.status }));
+  const current = parsed?.version === 2 && Object.keys(parsed).every(key => ['version','query','key'].includes(key))
+    && parsed.query === queryKey(query);
+  check(isPlainObject(parsed) && (legacy || current) && Array.isArray(parsed.key) && parsed.key.length === 4
     && typeof parsed.key[0] === 'string' && Number.isFinite(Date.parse(parsed.key[0]))
     && /^[a-f0-9]{16}$/.test(parsed.key[1]) && safeId(parsed.key[2]) && HEX.test(parsed.key[3]), 'invalid inbox cursor');
   return parsed.key;
@@ -308,10 +307,10 @@ export class GlobalInboxService {
     return { project_id: row.id, project_name: row.name, project: row.project, notice,
       online: state.online, checked_at: state.checked_at };
   }
-  async list({ status = 'all', before = null, limit = 30 } = {}) {
-    check(STATUS.has(status), 'invalid inbox status');
+  async list({ categories, status = 'all', q = '', project_id = null, before = null, limit = 30 } = {}) {
+    const query = normalizeInboxQuery({ categories, status, q, project_id });
     check(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'limit must be 1..100');
-    const afterKey = before === null ? null : decodeCursor(before, status);
+    const afterKey = before === null ? null : decodeCursor(before, query);
     await this.refresh();
     const entries = await this.entries(), items = [], projects = [];
     for (const row of entries) {
@@ -320,7 +319,7 @@ export class GlobalInboxService {
         error: state.error, complete: state.complete && !state.limited });
       for (const notice of state.records.values()) {
         const item = this.item(row, notice, state);
-        if (matches(notice, status) && (!afterKey || compareKey(keyFor(item), afterKey) < 0)) items.push(item);
+        if (inboxQueryMatches(item, query) && (!afterKey || compareKey(keyFor(item), afterKey) < 0)) items.push(item);
       }
     }
     items.sort((a, b) => -compareKey(keyFor(a), keyFor(b)));
@@ -331,7 +330,7 @@ export class GlobalInboxService {
       check(length <= RESPONSE_LIMIT, 'Notice record exceeds inbox response limit');
       page.push(item); size += length;
     }
-    return { version: 1, items: page, cursor: page.length ? encodeCursor(status, page.at(-1)) : null,
+    return { version: 1, items: page, cursor: page.length ? encodeCursor(query, page.at(-1)) : null,
       has_more: items.length > page.length, complete: projects.every(row => row.online && row.complete), projects,
       ...(this.cacheError ? { cache_error: this.cacheError } : {}) };
   }

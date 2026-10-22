@@ -33,7 +33,8 @@ window.fetch=async(url,options={})=>{
  if(path==='/api/worker-lookup')return json(route.searchParams.get('number')==='V3'?window.valet:window.worker);
  if(path==='/api/inputs'){
   window.reads.push(route.search);const drafts=route.searchParams.get('view')==='drafts',modes=JSON.parse(route.searchParams.get('modes')||'["order","append","management"]');
-  return json({items:window.rows.filter(row=>(drafts?row.kind==='draft'&&row.dispatch?.state!=='succeeded':row.kind!=='draft')&&modes.includes(row.mode)),next_cursor:null});
+  const q=route.searchParams.get('q')||'',status=route.searchParams.get('status');
+  return json({items:window.rows.filter(row=>(drafts?row.kind==='draft'&&row.dispatch?.state!=='succeeded':row.kind!=='draft')&&modes.includes(row.mode)&&row.content.includes(q)&&(!status||row.status===status)),next_cursor:null});
  }
  const match=/^\\/api\\/input\\/(draft|input|message|management)\\/(\\d+)$/.exec(path);
  if(match)return json(window.rows.find(row=>row.kind===match[1]&&row.id===Number(match[2])));
@@ -232,16 +233,44 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
       console.log('PASS embedded conditional editor shares the component, defaults conditions closed, and keeps authorization receipt local');
       assert(await frame(`
         await win.ui.inputEditor.leave();win.location.hash='#drafts';await until(()=>win.ui.view.id==='drafts'&&doc.querySelector('.inputs-browse')&&!doc.querySelector('.inputs-browse').hidden);
-        const modes=[...doc.querySelectorAll('.input-mode-toggle')];if(modes.length!==3)throw Error('three draft categories missing');
-        modes.find(node=>node.dataset.mode==='management').click();await until(()=>doc.querySelector('[data-input="draft:4"]'));
-        doc.querySelector('[data-input="draft:4"] .input-row').click();await until(()=>win.ui.inputEditor.inDetail&&win.workspace.currentEdit().saved?.id===4);
+        await win.ui.draftsPage.pending;
+        const modes=[...doc.querySelectorAll('.input-mode-toggle')],mode=value=>modes.find(node=>node.dataset.mode===value);
+        const selected=()=>modes.filter(node=>node.getAttribute('aria-pressed')==='true').map(node=>node.dataset.mode).join(',');
+        const check=(value,message)=>{if(!value)throw Error(message);};
+        check(modes.length===3&&selected()==='order','draft default must remain order only');
+        await mode('append').onclick();check(selected()==='order,append'&&doc.querySelector('[data-input="draft:3"]'),'independent draft multiselect');
+        const search=doc.querySelector('.search-field-input'),status=doc.querySelector('[aria-label="暂存状态"]');
+        search.value='追加';search.dispatchEvent(new win.Event('input'));const reads=win.reads.length;
+        search.dispatchEvent(new win.CompositionEvent('compositionstart'));
+        search.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}));
+        check(win.reads.length===reads,'IME confirmation must not search');search.dispatchEvent(new win.CompositionEvent('compositionend'));
+        await mode('management').onclick();status.value='draft';await status.onchange();
+        let query=new URLSearchParams(win.reads.at(-1));check(query.get('q')===''&&query.get('status')==='draft'&&selected()==='order,append,management','filters must not submit pending search');
+        search.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await win.ui.draftsPage.pending;
+        check(doc.querySelectorAll('.input-record').length===1&&doc.querySelector('[data-input="draft:3"]'),'Enter must search selected categories');
+        await doc.querySelector('.search-field-clear').onclick();query=new URLSearchParams(win.reads.at(-1));
+        check(query.get('q')===''&&query.get('status')==='draft'&&JSON.parse(query.get('modes')).length===3&&doc.querySelector('[data-input="draft:4"]'),'clear must keep other filters');
+        for(const node of modes)await node.onclick();
+        check(selected()===''&&!doc.querySelector('.input-record')&&doc.querySelector('.inputs-feedback').textContent.includes('未勾选暂存分类')&&modes.every(node=>node.classList.contains('is-off')),'empty draft selection must stay empty');
+        await mode('order').onclick();await win.inputPages.openInputs({item:{kind:'draft',id:3}});
+        check(selected()==='order,append'&&win.workspace.currentEdit().saved?.id===3,'deep link must add category without clearing original selection');
+        const body=doc.querySelector('#input');body.value+=' · 分类往返修改';body.dispatchEvent(new win.Event('input'));
+        await win.ui.draftsPage.showList();
+        check(selected()==='order,append'&&win.rows.find(row=>row.kind==='draft'&&row.id===3).content===body.value,'detail return must preserve selection and save body');
+        await mode('management').onclick();check(selected()==='order,append,management','all draft categories must remain independently selected');
+        const rects=modes.map(node=>node.getBoundingClientRect());
+        check(rects.every(box=>box.left>=0&&box.right<=win.innerWidth+1&&box.height>=44)&&modes.every(node=>node.dataset.help),'draft toggles must fit narrow layout and explain multiselect');
+        await mode('order').onclick();await mode('append').onclick();await mode('management').onclick();
+        await win.inputPages.openInputs({item:{kind:'draft',id:4}});
+        check(selected()==='management','deep link must reveal its category from empty selection');
+        await until(()=>win.ui.inputEditor.inDetail&&win.workspace.currentEdit().saved?.id===4);
         const management=!doc.querySelector('#input-buffer').hidden&&doc.querySelector('.unified-editor-condition-section').hidden&&doc.querySelector('.unified-editor-conditions').children.length===0;
         doc.querySelector('#input').value='管理修改';doc.querySelector('#input').dispatchEvent(new win.Event('input'));
         await win.ui.inputEditor.submit();await until(()=>!win.ui.inputEditor.inDetail&&doc.querySelector('.input-original'));
         const exact=win.calls.findLast(call=>call.method==='management.submit').params;
         return management&&exact.draft_id===4&&exact.expected_revision===2&&!('instruction' in exact)&&!doc.querySelector('.input-detail textarea');
       `), 'management draft exact-version submission/receipt');
-      console.log('PASS three draft categories and management save → exact-version authorization → read-only accepted receipt');
+      console.log('PASS draft multiselect/default/all/empty, pending search/IME/clear, additive deep links, detail autosave/return, narrow controls; management exact-version authorization → read-only receipt');
     } else {
       assert(await frame(`
         for(const [mode,task] of [['order',null],['append',win.worker],['management',win.valet]]){

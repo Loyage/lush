@@ -64,7 +64,11 @@ export function createHostRoutes(projectHost, auth, options, env) {
         return json(await projectHost.diagnostics());
       }
       if (request.method === 'GET' && url.pathname === '/api/host/inbox') {
-        const query = userQuery(url, ['status', 'before', 'limit']);
+        const query = userQuery(url, ['categories', 'status', 'q', 'project_id', 'before', 'limit']);
+        if (Object.hasOwn(query, 'categories')) {
+          try { query.categories = JSON.parse(query.categories); }
+          catch { throw new Error('inbox categories must be a JSON array'); }
+        }
         if (Object.hasOwn(query, 'limit')) {
           check(/^[1-9]\d*$/.test(query.limit), 'inbox limit must be a positive integer');
           query.limit = Number(query.limit);

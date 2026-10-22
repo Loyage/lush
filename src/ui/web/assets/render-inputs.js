@@ -113,7 +113,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   header.append(el('span', drafts ? 'DRAFTS' : 'INPUTS', 'resource-kicker'), el('h1', drafts ? '草稿' : '历史输入'),
     el('p', drafts ? '暂缓的工作与追加输入；管理正文、去向与执行条件，实际发送后归入历史。' : '查找自己何时向项目发出了什么批示；这里只收录已创建工作、已入箱追加与已提交管理指令。'));
   const filters = el('form', undefined, 'inputs-filters resource-tools');
-  const searchControl = searchField({ label: '搜索原文', placeholder: drafts ? '搜索暂存正文' : '搜索已发送原文', scope: embedded ? '范围：本项目全部条件输入，服务端分页检索' : drafts ? '范围：本项目当前分类的全部未发送草稿，含等待条件、准入、失败及未知授权' : '范围：本项目全部已发送新建、追加与管理指令；旧无来源证明消息及定时管理不收录', onSubmit: () => searchNow() });
+  const searchControl = searchField({ label: '搜索原文', placeholder: drafts ? '搜索暂存正文' : '搜索已发送原文', scope: embedded ? '范围：本项目全部条件输入，服务端分页检索' : drafts ? '范围：本项目已勾选分类的全部未发送草稿，含等待条件、准入、失败及未知授权' : '范围：本项目全部已发送新建、追加与管理指令；旧无来源证明消息及定时管理不收录', onSubmit: () => searchNow() });
   const search = searchControl.input;
   const draftStatuses = Object.fromEntries(Object.entries(INPUT_STATUS).filter(([key]) => ['draft','waiting_conditions','emitted','emission_failed','unknown_dispatch'].includes(key)));
   const historyStatuses = Object.fromEntries(Object.entries(INPUT_STATUS).filter(([key]) => !['draft','waiting_conditions','emitted','sent','emission_failed','unknown_dispatch'].includes(key)));
@@ -129,17 +129,14 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       const selected = state.modes.has(mode), info = INPUT_MODES[mode];
       node.textContent = `${selected ? '✓' : info.icon} ${modeLabel(mode)}`;
       node.setAttribute('aria-pressed', String(selected)); node.classList.toggle('is-off', !selected);
-      if (drafts) node.removeAttribute('data-help');
-      else node.setAttribute('data-help', `${selected ? '取消勾选，隐藏' : '勾选，显示'}「${info.label}」模式的历史输入；多选取并集，全不选不显示记录，不修改输入或 Worker。`);
+      node.setAttribute('data-help', `${selected ? '取消勾选，隐藏' : '勾选，显示'}「${modeLabel(mode)}」${drafts ? '分类的草稿' : '模式的历史输入'}；多选取并集，全选显示全部，全不选不显示记录，不修改输入或 Worker。`);
     }
   }
   if (!embedded) {
     for (const [mode, info] of Object.entries(INPUT_MODES)) {
       const toggle = button('', () => {
-        if (drafts) {
-          if (state.modes.has(mode)) return;
-          state.modes = new Set([mode]); state.items.clear(); state.cursor = null; paintList();
-        } else if (state.modes.has(mode)) state.modes.delete(mode); else state.modes.add(mode);
+        if (state.modes.has(mode)) state.modes.delete(mode); else state.modes.add(mode);
+        if (drafts) { state.items.clear(); state.cursor = null; paintList(); }
         paintModes(); return searchNow();
       }, `badge input-mode-toggle b-${info.tone}`);
       toggle.dataset.mode = mode; modeButtons.set(mode, toggle); modeFilters.append(toggle);
@@ -263,7 +260,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         if (!morePage) state.items.clear();
         for (const item of data.items) { state.items.set(keyOf(item), item); rememberEmissionSource(item); }
         state.cursor = data.next_cursor; paintList();
-        feedback.textContent = state.items.size ? `已显示 ${state.items.size} 条${state.cursor ? '，可继续加载。' : '，已全部加载。'} 列表与详情只在显式操作时更新。` : state.modes?.size === 0 ? '未勾选输入模式，请勾选要显示的模式。' : '没有符合条件的输入。';
+        feedback.textContent = state.items.size ? `已显示 ${state.items.size} 条${state.cursor ? '，可继续加载。' : '，已全部加载。'} 列表与详情只在显式操作时更新。` : state.modes?.size === 0 ? drafts ? '未勾选暂存分类，请勾选要显示的分类。' : '未勾选输入模式，请勾选要显示的模式。' : '没有符合条件的输入。';
         more.node.hidden = !state.cursor;
       } catch (error) {
         if (current()) { feedback.textContent = `读取失败：${error.message}。已加载记录保留，可重试。`; feedback.setAttribute('role', 'alert'); }
@@ -329,7 +326,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       if ((record.kind !== item.kind && !(item.kind === 'draft' && record.kind === 'input')) || (record.kind === item.kind && record.id !== item.id) || typeof record.content !== 'string'
         || !Array.isArray(record.references) || !Array.isArray(parents.items)) throw new Error('输入详情格式不兼容');
       if (drafts && record.kind === 'draft' && ['order','append','management'].includes(record.mode) && !state.modes.has(record.mode)) {
-        state.modes = new Set([record.mode]); state.items.clear(); paintModes(); paintList(); void load();
+        state.modes.add(record.mode); state.items.clear(); state.cursor = null; paintModes(); paintList(); void load();
       }
       await renderEditor(record, parents.items);
       if (!embedded) $('detail').scrollTop = 0;

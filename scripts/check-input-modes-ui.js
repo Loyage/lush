@@ -2,6 +2,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { listCapabilityGuides } from '../src/agent/capabilities.js';
 
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
 const fixture = `
@@ -36,7 +37,9 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (path === '/p/aaaaaaaaaaaaaaaa/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
   if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text())
-    .replace('../../src/ui/web/assets/prefs.js', '/prefs.js'), { headers: { 'Content-Type': 'text/javascript' } });
+    .replace('../../src/ui/web/assets/prefs.js', '/prefs.js')
+    .replace("import { listCapabilityGuides } from '../../src/agent/capabilities.js';", `const listCapabilityGuides=()=>${JSON.stringify(listCapabilityGuides())};`), { headers: { 'Content-Type': 'text/javascript' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });

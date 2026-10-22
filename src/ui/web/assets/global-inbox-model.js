@@ -1,7 +1,8 @@
 import { linkWorkerNumbers } from './worker-links.js';
-import { automaticNotice, positiveId, unreadNotice } from './notice-kind.js';
+import { positiveId } from './notice-kind.js';
+import { inboxQueryMatches } from './inbox-query.js';
 
-export const INBOX_STATUSES = ['open', 'unread', 'failed', 'automatic', 'all'];
+export { INBOX_STATUSES } from './inbox-query.js';
 export const validProjectId = value => typeof value === 'string' && /^[a-f0-9]{16}$/.test(value);
 export const pendingNotice = notice => notice?.status === 'open' && ['question', 'questionnaire'].includes(notice.kind);
 // Only the source's real record token is an identity. Revision changes must not erase drafts.
@@ -38,9 +39,7 @@ export function inboxProjectHref(projectId, noticeId) {
   if (!validProjectId(projectId) || !positiveId(noticeId)) throw new Error('无效的事项来源身份');
   return `/p/${projectId}/#notices-${noticeId}`;
 }
-export const inboxMatches = (item, status) => status === 'all' || (status === 'open' ? pendingNotice(item.notice)
-  : status === 'unread' ? unreadNotice(item.notice) : status === 'automatic' ? automaticNotice(item.notice)
-    : status === 'failed' ? item.notice.lifecycle_type === 'failed' : false);
+export const inboxMatches = (item, status) => inboxQueryMatches(item, { status });
 
 export function validateInboxItem(item) {
   const notice = item?.notice;

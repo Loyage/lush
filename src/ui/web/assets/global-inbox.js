@@ -6,17 +6,21 @@ import { absolute, noticeNumber } from './format.js';
 import { renderMarkdown } from './markdown.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { searchField, noticeSearchText } from './search-field.js';
+import { searchField } from './search-field.js';
+import { INBOX_CATEGORIES, INBOX_STATUSES, inboxQueryMatches, normalizeInboxQuery } from './inbox-query.js';
 import { listEntry, listSurface } from './list-surface.js';
 import { workerLabel } from './worker-label.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { notificationControl } from './notice-notifications.js';
 import { unreadNotice } from './notice-kind.js';
 import { refreshGlobalNotices } from './global-notice-notifications.js';
-import { INBOX_STATUSES, inboxHash, inboxProjectHref, inboxIdentity, inboxMatches, pendingNotice, sourceWorkerLinks,
+import { inboxHash, inboxProjectHref, inboxIdentity, pendingNotice, sourceWorkerLinks,
   noticeSyncIdentity, sameInboxRecord, validProjectId, validateInboxItem, validateInboxPage } from './global-inbox-model.js';
 
-const LABELS = { all: '全部记录', open: '需要我决定', unread: '未读告知', automatic: '自动选择', failed: '异常与受阻' };
+const LABELS = { all: '全部状态', open: '需要我决定', unread: '未读告知', automatic: '自动选择', failed: '异常与受阻',
+  answered: '已回答', dismissed: '已忽略', read: '已读告知' };
+const CATEGORIES = { notice: { label: 'Notice 告知', tone: 'running' }, decision: { label: 'Decision 待决', tone: 'awaiting' } };
+const queryOf = state => ({ categories: state.categories, status: state.status, q: state.query, project_id: state.projectId });
 const STATUS = { open: '待决定', answered: '已回答', dismissed: '已忽略', sent: '告知' };
 let cache;
 function currentCache() {
@@ -155,8 +159,7 @@ function paintSelected(state) {
 }
 function paintRows(state) {
   if (!state.current()) return;
-  const rows = state.rows.filter(item => (!state.projectId || state.projectId === item.project_id) && inboxMatches(item, state.status)
-    && (!state.query || `${item.project_name} ${noticeSearchText(item.notice)}`.toLocaleLowerCase().includes(state.query)));
+  const rows = state.rows.filter(item => inboxQueryMatches(item, queryOf(state)));
   const known = new Map([...state.list.children].map(node => [node.dataset.noticeIdentity, node]));
   syncChildren(state.list, rows.map(item => {
     const key = inboxIdentity(item), signature = JSON.stringify(item);
@@ -180,7 +183,12 @@ function paintRows(state) {
     node.setAttribute('data-help', '在独立项目标签打开这条消息的详情页，保留当前页面；不自动标已读、不提交答案或启动 Agent。');
     return node;
   }));
-  state.footer.replaceChildren(el('p', rows.length ? `已显示 ${rows.length} / ${state.rows.length} 条已加载记录` : '当前已加载记录中没有匹配；不代表所有项目全库无结果，可继续加载或刷新。', 'hint'));
+  state.footer.replaceChildren(el('p', !state.categories.length ? '未勾选收件箱分类，请勾选要显示的分类。'
+    : rows.length ? `已显示 ${rows.length} 条匹配记录${state.page?.has_more ? '，可继续加载更早匹配。' : '。'}`
+      : state.listBusy ? '正在读取匹配记录…'
+        : state.listError ? '匹配记录读取失败，不能判断是否有结果；可重试。'
+          : !state.page ? '匹配记录尚未读取完成。'
+            : 'Host 当前已同步／缓存记录中没有匹配；不代表来源项目全库无结果，可刷新补齐记录。', 'hint'));
   if (state.page?.has_more) state.footer.append(button('加载更早记录', () => loadRows(state, true), 'ghost'));
 }
 function paintSources(state, projects, complete) {
@@ -192,11 +200,15 @@ function paintSources(state, projects, complete) {
     `${source.name}：${!source.online ? '离线' : '正在补齐'} · 最后确认 ${source.checked_at ? absolute(source.checked_at) : '未知'}${source.error ? ` · ${source.error}` : ''}`, 'hint'));
 }
 async function loadRows(state, more = false) {
-  if (!state.current() || state.listBusy) return;
+  if (!state.current() || (more && (state.listBusy || !state.page?.has_more))) return;
+  state.listController?.abort(); state.listController = new AbortController();
   const request = ++state.listRequest; state.listBusy = true;
-  const before = more && state.page?.has_more ? `&before=${encodeURIComponent(state.page.cursor)}` : '';
+  const params = new URLSearchParams({ categories: JSON.stringify(state.categories), status: state.status, q: state.query, limit: '30' });
+  if (state.projectId) params.set('project_id', state.projectId);
+  if (more) params.set('before', state.page.cursor);
+  state.message.textContent = '正在读取匹配记录…'; state.listError = false; paintRows(state);
   try {
-    const page = validateInboxPage(await api(`/api/host/inbox?status=${state.status}&limit=30${before}`, { signal: state.controller.signal }));
+    const page = validateInboxPage(await api(`/api/host/inbox?${params}`, { signal: state.listController.signal }));
     if (!state.current() || request !== state.listRequest) return;
     const rows = page.items.map(item => overlay(item, state));
     const allowed = new Set(page.projects.map(source => source.id));
@@ -209,9 +221,12 @@ async function loadRows(state, more = false) {
       else state.selected = overlay({ ...state.selected, online: source.online }, state);
       // A list response is not a newer detail read: never replace its body/answer or editing DOM.
     }
+    state.listBusy = false;
     paintSources(state, page.projects, page.complete); paintRows(state); paintSelected(state);
+    state.message.textContent = page.cache_error || '';
   } catch (error) {
-    if (state.current() && error.name !== 'AbortError') {
+    if (state.current() && request === state.listRequest && error.name !== 'AbortError') {
+      state.listBusy = false; state.listError = true; paintRows(state);
       state.message.textContent = `记录加载失败：${error.message}；已有内容和输入已保留。`;
       state.footer.append(button('重试加载', () => loadRows(state, more), 'ghost'));
     }
@@ -232,33 +247,57 @@ async function loadSelected(state, noticeId) {
 }
 
 /** Root Host view; source actions never use the page's current project or integer-only notice cache. */
-export async function openGlobalInbox({ projectId = null, noticeId = null, status = 'all', push = true, query = '' } = {}) {
+export async function openGlobalInbox({ projectId = null, noticeId = null, status = 'all', push = true, query = '', categories = INBOX_CATEGORIES } = {}) {
+  const normalized = normalizeInboxQuery({ categories, status, q: query, project_id: projectId });
   if ((projectId !== null && !validProjectId(projectId)) || !INBOX_STATUSES.includes(status)
     || (noticeId !== null && (!Number.isSafeInteger(noticeId) || noticeId <= 0 || !projectId))) throw new Error('无效的全局收件箱地址');
   const hash = noticeId ? inboxHash(projectId, noticeId) : projectId ? `#notices-project-${projectId}${status === 'all' ? '' : `-${status}`}` : status === 'all' ? '#notices' : `#notices-${status}`;
   const view = activateDetailView({ view: 'global-inbox', key: `global-inbox:${status}:${projectId || ''}:${noticeId || ''}`,
     title: '全局收件箱', context: '用户工作台', hint: '所有可访问项目的待决、告知与自动选择记录', hash, push });
-  ui.globalInboxPage?.controller.abort();
-  const state = { view, status, projectId, query: query.trim().toLocaleLowerCase(), cache: currentCache(), controller: new AbortController(),
+  ui.globalInboxPage?.controller.abort(); ui.globalInboxPage?.listController?.abort();
+  const state = { view, status, projectId, categories: normalized.categories, query: normalized.q, cache: currentCache(), controller: new AbortController(),
     rows: [], selected: null, selectedSignature: null, page: null, listRequest: 0, focusRequest: 0, listBusy: false };
   ui.globalInboxPage = state;
   const owner = globalThis.document, pathname = location.pathname, routeHash = location.hash;
   state.current = () => owner === globalThis.document && ui.globalInboxPage === state && ui.view === view
     && location.pathname === pathname && location.hash === routeHash;
-  ui.disposeDetailRequests = () => state.controller.abort();
+  ui.disposeDetailRequests = () => { state.controller.abort(); state.listController?.abort(); };
   const root = el('div', undefined, 'workbench-view global-inbox');
   const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；点击消息在来源项目的独立详情页查看和处理，不会自动启动已停止的项目后台。', 'hint'));
-  const filters = el('div', undefined, 'filters');
-  for (const value of INBOX_STATUSES) {
-    const filter = button(LABELS[value], () => openGlobalInbox({ projectId, status: value, query: state.query }), 'ghost');
-    filter.setAttribute('aria-pressed', String(value === status)); filters.append(filter);
+  const filters = el('div', undefined, 'filters global-inbox-categories');
+  filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', '收件箱分类');
+  filters.append(el('span', '收件箱分类', 'input-mode-label'));
+  const categoryButtons = new Map();
+  const paintCategories = () => {
+    for (const [value, node] of categoryButtons) {
+      const selected = state.categories.includes(value);
+      node.textContent = `${selected ? '✓' : '＋'} ${CATEGORIES[value].label}`;
+      node.setAttribute('aria-pressed', String(selected)); node.classList.toggle('is-off', !selected);
+      node.setAttribute('data-help', `${selected ? '取消勾选，隐藏' : '勾选，显示'}${CATEGORIES[value].label}；多选取并集，全选显示全部，全不选不显示记录，不改变答复或已读状态。`);
+    }
+  };
+  const filterNow = () => { state.rows = []; state.page = null; paintRows(state); return loadRows(state); };
+  for (const value of INBOX_CATEGORIES) {
+    const toggle = button('', () => {
+      state.categories = INBOX_CATEGORIES.filter(category => category === value ? !state.categories.includes(category) : state.categories.includes(category));
+      paintCategories(); return filterNow();
+    }, `badge input-mode-toggle b-${CATEGORIES[value].tone}`);
+    toggle.dataset.category = value; categoryButtons.set(value, toggle); filters.append(toggle);
   }
-  if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status, query: state.query }), 'ghost'));
+  paintCategories();
+  const statusField = el('label', '状态', 'global-inbox-status'), statusSelect = el('select');
+  statusSelect.setAttribute('aria-label', '收件箱状态');
+  for (const value of INBOX_STATUSES) { const option = el('option', LABELS[value]); option.value = value; statusSelect.append(option); }
+  statusSelect.value = status;
+  statusSelect.onchange = () => { state.status = statusSelect.value; return filterNow(); };
+  statusField.append(statusSelect);
+  if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status: state.status, query: state.query, categories: state.categories }), 'ghost'));
   const refresh = button('刷新记录', () => Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]), 'ghost');
   const search = searchField({ label: '搜索收件箱', placeholder: '项目、标题、正文、答复或编号', value: query,
-    scope: '范围：当前已加载／缓存记录，不是跨项目全库检索；加载更早后继续按已提交词筛选',
-    onSubmit: value => { state.query = value.toLocaleLowerCase(); paintRows(state); } });
-  const tools = el('div', undefined, 'resource-tools'); tools.append(search.root, filters, refresh, notificationControl());
+    scope: '范围：Host 已同步／缓存记录，按分类、状态和关键词分页检索；离线、容量限制或尚未同步完整时，不代表来源项目全库',
+    onSubmit: value => { state.query = value.trim().toLowerCase(); return filterNow(); } });
+  search.input.maxLength = 500;
+  const tools = el('div', undefined, 'resource-tools'); tools.append(search.root, filters, statusField, refresh, notificationControl());
   state.sources = el('div', undefined, 'global-inbox-sources');
   state.message = el('p', '', 'hint'); state.message.setAttribute('role', 'status');
   state.list = el('div', undefined, 'global-inbox-list'); state.footer = el('div', undefined, 'global-inbox-footer');

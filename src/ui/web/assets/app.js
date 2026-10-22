@@ -33,6 +33,11 @@ import { executionTarget } from './execution-route.js';
 import { workerCliTarget } from './worker-cli-route.js';
 import { requestPageLeave, resetPageLeaveGuard, registerPageLeaveGuard } from './page-leave-guard.js';
 import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
+import { INBOX_STATUSES } from './inbox-query.js';
+
+const inboxStatusPattern = INBOX_STATUSES.join('|');
+const inboxFilterRoute = new RegExp(`^#notices(?:-(${inboxStatusPattern}))?$`);
+const inboxProjectRoute = new RegExp(`^#notices-project-([a-f0-9]{16})(?:-(${inboxStatusPattern}))?$`);
 
 function syncSidebarSortSelect() {
   const select = $('sidebar-sort'); if (!select) return;
@@ -90,7 +95,7 @@ const openHooks = (feature = null, subpage = 'settings') => openPage(() => impor
 
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
-  { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
+  { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status && options.status !== 'all' ? `#notices-${options.status}` : '#notices' });
 const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), options.section === 'drafts' || options.item?.kind === 'draft' ? 'drafts' : 'inputs',
   { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : options.section === 'drafts' ? '#drafts' : '#inputs' });
 const openSources = (connectionId = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId }),
@@ -115,7 +120,8 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'nav-link'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'nav-link nav-back'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:administrator|settings|skills|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
+const deviceHash = hash => /^#(?:administrator|settings|skills|agent-status|model-sources|model-source-[a-f0-9-]+|automation|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash)
+  || (hash !== '#notices' && inboxFilterRoute.test(hash)) || inboxProjectRoute.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
@@ -150,9 +156,9 @@ function openHashTarget(hash, project, doc, generation) {
     if (doc) return openDocsView(doc.id);
     const notice = /^#inbox-notice-([a-f0-9]{16})-([1-9]\d*)$/.exec(hash);
     if (notice && Number.isSafeInteger(Number(notice[2]))) return openGlobalInbox({ projectId: notice[1], noticeId: Number(notice[2]), push: false });
-    const sourceNotices = /^#notices-project-([a-f0-9]{16})(?:-(all|open|unread|automatic|failed))?$/.exec(hash);
+    const sourceNotices = inboxProjectRoute.exec(hash);
     if (sourceNotices) return openGlobalInbox({ projectId: sourceNotices[1], status: sourceNotices[2] || 'all', push: false });
-    const filter = /^#notices(?:-(all|open|unread|automatic|failed))?$/.exec(hash);
+    const filter = inboxFilterRoute.exec(hash);
     if (filter) return openGlobalInbox({ status: filter[1] || 'all', push: false });
     return noProjectView();
   }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildAssets } from '../../src/ui/web/build-assets.js';
-import { installDom } from '../dom-stub.js';
+import { installDom, deepText } from '../dom-stub.js';
 import { installDom as installProjectDom } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 import { temp } from '../helpers.js';
@@ -12,7 +12,10 @@ const root = temp(), assets = fileURLToPath(new URL('../../src/ui/web/assets/', 
 await buildAssets(assets, root, 'a'.repeat(32));
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const app = html.match(/src="\/([^"\n]+-app-[^"\n]+\.js)"/)[1];
-const world = makeWorld(), dom = installDom({ fetch: world.fetchImpl });
+const world = makeWorld(), inboxReads = [], dom = installDom({ fetch: (url, options) => {
+  if (String(url).startsWith('/api/host/inbox?')) inboxReads.push(new URL(url, 'http://fixture').searchParams);
+  return world.fetchImpl(url, options);
+} });
 const { boot } = await import(pathToFileURL(path.join(root, app)).href);
 afterAll(() => { dom.restore(); fs.rmSync(root, { recursive: true, force: true }); });
 
@@ -23,6 +26,24 @@ test('compiled root workbench loads global lazy pages with shared navigation sta
     expect(dom.node('detail').dataset.view).toBe(view); expect(dom.location.hash).toBe(`#${hash}`);
     expect(dom.node(`${view}-open`).getAttribute('aria-current')).toBe('page');
   }
+  const inbox = dom.node('detail'), search = inbox.querySelector('.search-field-input');
+  const notice = inbox.querySelector('[data-category="notice"]'), decision = inbox.querySelector('[data-category="decision"]');
+  expect(notice.getAttribute('aria-pressed')).toBe('true'); expect(decision.getAttribute('aria-pressed')).toBe('true');
+  search.value = '未提交'; await notice.onclick();
+  expect(JSON.parse(inboxReads.at(-1).get('categories'))).toEqual(['decision']); expect(inboxReads.at(-1).get('q')).toBe('');
+  await inbox.querySelector('.search-field-submit').onclick(); expect(inboxReads.at(-1).get('q')).toBe('未提交');
+  search.value = '下一条尚未提交'; const status = inbox.querySelector('.global-inbox-status').querySelector('select');
+  status.value = 'answered'; await status.onchange();
+  expect(inboxReads.at(-1).get('status')).toBe('answered'); expect(inboxReads.at(-1).get('q')).toBe('未提交');
+  await inbox.querySelector('.search-field-clear').onclick();
+  expect(inboxReads.at(-1).get('q')).toBe(''); expect(inboxReads.at(-1).get('status')).toBe('answered');
+  await decision.onclick(); expect(JSON.parse(inboxReads.at(-1).get('categories'))).toEqual([]);
+  expect(deepText(inbox)).toContain('未勾选收件箱分类');
+  await notice.onclick(); await decision.onclick(); expect(JSON.parse(inboxReads.at(-1).get('categories'))).toEqual(['notice', 'decision']);
+  dom.location.hash = '#notices-read'; await dom.fire('hashchange');
+  expect(dom.node('detail').dataset.view).toBe('global-inbox'); expect(inboxReads.at(-1).get('status')).toBe('read');
+  dom.location.hash = '#notices-project-aaaaaaaaaaaaaaaa-answered'; await dom.fire('hashchange');
+  expect(inboxReads.at(-1).get('project_id')).toBe('aaaaaaaaaaaaaaaa'); expect(inboxReads.at(-1).get('status')).toBe('answered');
   dom.location.hash = '#administrator'; await dom.fire('hashchange');
   expect(dom.node('detail').dataset.view).toBe('administrator');
   expect(dom.node('detail').querySelector('.administrator-create')).toBeNull();
@@ -58,6 +79,9 @@ test('compiled project boot owns work pages and opens device settings separately
     project.location.hash = '#skills'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('workspace-link');
     expect(project.node('detail').querySelector('a').href).toBe('/#skills');
+    project.location.hash = '#notices-read'; await project.fire('hashchange');
+    expect(project.node('detail').dataset.view).toBe('workspace-link');
+    expect(project.node('detail').querySelector('a').href).toBe('/#notices-read');
     project.location.hash = '#worker-1-cli'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('execution');
     const panel = project.document.body.querySelector('.transcript-dialog');

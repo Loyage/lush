@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { check, isPlainObject } from '../core/types.js';
 import { launcherStateDir } from './registry.js';
+import { normalizeInboxQuery } from '../ui/web/assets/inbox-query.js';
 
 const PREFERENCES = ['markdown', 'theme', 'sidebarSort', 'taskGraphMinimal', 'reduceMotion',
   'polling', 'toastDuration', 'transcriptOrder', 'noticeChannels', 'noticeNotifications'];
-const INBOX_STATUSES = ['all', 'open', 'unread', 'automatic', 'failed'];
 const NOTICE_ACTIONS = ['notice.answer', 'notice.dismiss', 'notice.read'];
 function fields(value, allowed, name, required = []) {
   check(isPlainObject(value) && Object.keys(value).every(key => allowed.includes(key))
@@ -127,12 +127,11 @@ export function createUserServices(projectHost, options = {}) {
       return invoke(automation, 'save', [body.patch, body.expected_revision], automationError);
     },
     async listInbox(query = {}) {
-      fields(query, ['status', 'before', 'limit'], 'inbox query');
-      const status = query.status ?? 'all', before = query.before ?? null, limit = query.limit ?? 30;
-      check(INBOX_STATUSES.includes(status), 'invalid inbox status');
+      fields(query, ['categories', 'status', 'q', 'project_id', 'before', 'limit'], 'inbox query');
+      const normalized = normalizeInboxQuery(query), before = query.before ?? null, limit = query.limit ?? 30;
       check(before === null || (typeof before === 'string' && before.length > 0 && before.length <= 4096), 'invalid inbox cursor');
       check(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'inbox limit must be 1..100');
-      return invoke(inbox, 'list', [{ status, before, limit }], inboxError);
+      return invoke(inbox, 'list', [{ ...normalized, before, limit }], inboxError);
     },
     async getNotice(query) {
       fields(query, ['project_id', 'id'], 'notice query', ['project_id', 'id']);

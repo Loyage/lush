@@ -2,7 +2,11 @@
 .global-inbox{min-width:0;max-width:1100px;margin:0 auto}
 .global-inbox-head h1{margin-top:0}
 .global-inbox .resource-tools{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:16px 0}
-.global-inbox .filters{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.global-inbox .filters{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.global-inbox-categories .input-mode-label{font-size:11px;color:var(--muted)}
+.global-inbox-categories button.is-off{background:var(--panel-2);color:var(--muted);border-color:var(--line-soft);opacity:.65}
+.global-inbox-categories button:hover{opacity:1}
+.global-inbox-status{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px}
 .global-inbox-list{display:flex;flex-direction:column;gap:8px}
 .global-inbox-row{display:flex;flex-direction:column;width:100%;min-width:0;text-align:left;white-space:normal;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
 .global-inbox-row .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;min-width:0}

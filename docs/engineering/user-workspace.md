@@ -66,7 +66,9 @@ W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入
 
 `GlobalInboxService(projectHost,{env,...options})` 对外：
 
-- `list({status='all',before=null,limit=30}={})` → `{version:1,items,cursor,has_more,complete,projects}`。status 支持 all/open/unread/automatic/failed；before 是不透明全局分页游标，不是某项目整数。
+- `list({categories=['notice','decision'],status='all',q='',project_id=null,before=null,limit=30}={})` → `{version:1,items,cursor,has_more,complete,projects}`。在 Host 已同步／缓存且当前有权访问的记录内先过滤再分页，不宣称来源全库搜索。categories 为可多选数组，去重并按 notice/decision 固定顺序规范化；省略为两类全选，`[]` 为空。notice 对应 info，decision 对应 question/questionnaire/历史 plan，不按状态猜种类。status 支持 all/open/unread/automatic/failed/answered/dismissed/read，原状态语义保持；read 仅匹配 info/sent 且 read_at 非空，answered/dismissed 按来源持久状态匹配。
+- q 去首尾空白并转小写，规范化后最多 500 字符；按项目名、Notice 标题／正文／答复、真实 N/D 编号与 task_worker_number 做字面子串匹配，无 Worker 编号时仅使用 `#<task_id>`，不推算 W 编号。project_id 可空或为 16 位小写 hex，仅筛选现有授权来源，不扩大登记权限。纯无依赖 `assets/inbox-query.js` 为 Host／浏览器查询常量、分类及匹配的单一来源。
+- before 是不透明全局分页游标，不是某项目整数；绑定规范化后的 categories/status/q/project_id，跨查询复用会拒绝（limit 可变）。历史游标仅兼容原 categories 全选、空 q、无 project_id 查询；完整性、缓存容量、离线及来源同步边界不因筛选改变。
 - item 为 `{project_id,project_name,project,notice,online,checked_at}`；notice 沿用安全 Notice 投影，含可空 task_worker_number。稳定身份为项目身份加 Notice 真实记录身份，分页不能以局部 ID跨项目排序。
 - projects 为 `[{id,name,online,checked_at,error,complete}]`，失败安全诊断、有界读取／退避，明确是否初始化／补齐完成。
 - `get(projectId,noticeId)` 返回同形 item，在线重核来源；离线可返回已缓存项但不能执行动作。
@@ -84,7 +86,7 @@ W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入
 - `GET /api/host/preferences` → 偏好读模型；`POST /api/host/preferences` 接受 `{patch,expected_revision}`。
 - `GET /api/host/automation` → 自动化读模型，可附加项目能力／确认状态。
 - `POST /api/host/automation` 接受 `{patch,expected_revision}`，只写设备自动选择；completion_defaults 明确拒绝，不循环修改项目策略。开启是持续用户授权，不以读取执行积压。
-- `GET /api/host/inbox?status=&before=&limit=` → list。
+- `GET /api/host/inbox?categories=&status=&q=&project_id=&before=&limit=` → list。categories 必须是 JSON 数组字符串（含 `[]`），省略为两类全选；q 为关键词，project_id 为可选 16 位小写 hex。未知／重复参数及无效类别／状态／查询长度拒绝；默认查询与提醒 API 保持兼容，读取不启动来源 daemon。
 - `GET /api/host/inbox/notice?project_id=&id=` → get。
 - `POST /api/host/inbox/action` → action。
 - 设备设置仍用 `/api/host/settings/**`，前端始终走该根 API，与当前项目是否在线无关。
@@ -99,7 +101,7 @@ W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入
 - 根 `#projects` 增强为后台总览：只读已登记项目，安全 summary 可附已验证的正整数 pid；不可达显示未确认状态，不冒充已停止。不再提供每行「处理消息」按钮；全局收件箱的具体消息与系统提醒通过 `/p/<id>/#notices-<notice-id>` 新标签定位来源项目「待我处理」记录（只读导航、不自动已读），告知为蓝色、待决为琥珀色。原全局来源筛选与详情书签保留兼容。新指令表单按需加载 `project-order-form.js`，固定 `/p/<id>/api/action` 的 `order.submit {content,branch:'main',start}`；默认仅创建，显式创建并开始带 Agent 标识。离线／空白禁发送，单飞跨刷新，正文／ACK 按项目与文档隔离，失败保留并提示先核对未知写入结果，不自动重试。刷新保留表单节点和编辑；未发原文为会话内草稿，不持久写项目 Draft。
 - 执行节点页及设置、项目管理、总览中的相关入口已移除，新建指令与派工不再选择节点，其余页面信息层级不变。旧书签不再加载节点编辑器或连接远端；历史 Worker 的只读提示见[执行节点退役](execution-model.md#单机执行与执行节点退役)。
 - 全局自动化页仅编辑设备自动选择，旧设备完工默认编辑入口退役。项目 hooks 页管理项目未来 Worker 默认及默认显示原则；具体授权／运行记录留在对应 Worker，命令和实际挂载安全边界保持。
-- 全局收件箱可就地答复／已知，来源 Worker 使用完整项目链接；问卷 preview 用来源项目路由，输入草稿和通知去重按项目＋sync_epoch＋sync_identity 隔离。有 sync_identity 的记录提交动作必须携带 expected_identity，缺失字段不能伪造。离线动作禁用及 help-host 解释，ACK与后续刷新失败分开。
+- W390／D767：全局收件箱按 Notice（info）与 Decision（question/questionnaire/历史 plan）标签独立多选，默认两类全选，全不选不显示记录；分类、状态及已提交关键词在 Host 已同步／缓存记录中分页前检索，不将缓存、容量受限或未同步完整冒称来源全库。Enter／搜索提交关键词，切标签／状态不提交尚未搜索的输入，清空保留其他筛选。全局收件箱可就地答复／已知，来源 Worker 使用完整项目链接；问卷 preview 用来源项目路由，输入草稿和通知去重按项目＋sync_epoch＋sync_identity 隔离。有 sync_identity 的记录提交动作必须携带 expected_identity，缺失字段不能伪造。离线动作禁用及 help-host 解释，ACK与后续刷新失败分开。
 - 设备偏好后端权威，缓存首帧、显式写入、跨标签／客户端定期或版本失效同步；启动旧缓存不得写回覆盖新值。请求失败保留编辑并明确未保存。
 - 全局提醒观察所有有权来源，首屏历史不补发，项目＋记录身份／同源锁去重；关闭页面不承诺后台推送。设备总开关不替客户端请求权限，授权只由用户手势触发。
 - 全局模式提示在两种 shell 保持，关闭只修改设备策略，不依赖当前项目在线。启用／可能恢复 Agent 的动作具有 agent-call、agentHelp；非直观及禁用动作遵循 ui-guidance。
