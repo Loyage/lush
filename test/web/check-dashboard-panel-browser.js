@@ -8,6 +8,9 @@ import { buildAssets } from '../../src/ui/web/build-assets.js';
 import { readDashboardSettings, saveDashboardSettings } from '../../src/core/dashboard-settings.js';
 import { newWidget } from '../../src/ui/web/assets/dashboard-widget-model.js';
 import { makeWorld } from './dom-world.js';
+import { fixture, repo, gate, until } from '../helpers.js';
+import { Dispatcher } from '../../src/rpc/dispatcher.js';
+import { projectRoutes } from '../../src/ui/web/server-project-routes.js';
 const temp = await mkdtemp(join(tmpdir(), 'lush-widget-panel-'));
 const output = process.argv[2] || join(tmpdir(), 'lush-widget-panel-results');
 await mkdir(output, { recursive: true });
@@ -64,6 +67,13 @@ const layout = [{ id: 'widget:status', x: 0, y: 0, w: 4, h: 10 }, { id: 'widget:
   { id: 'widget:shortcuts', x: 6, y: 12, w: 6, h: 10 }, { id: 'widget:messages-2', x: 6, y: 22, w: 6, h: 10 },
   { id: Q, x: 6, y: 0, w: 6, h: 24 }, { id: R, x: 6, y: 24, w: 6, h: 10 }];
 saveDashboardSettings(config, { widgets, layout }, readDashboardSettings(config).revision);
+let providerCalls = 0, inputMode = 'normal', inputGate = null;
+const inputWrites = [];
+const inputSource = fixture({ async run() { providerCalls++; return 'controlled overview input result'; } });
+inputSource.project.stopping = true; await repo(inputSource.root);
+const inputRpc = new Dispatcher(inputSource.project);
+const inputHost = { launcher: true, hasRoute: id => id === P,
+  async openRoute(id) { if (id !== P) throw Error('unexpected input source'); return { config: inputSource.config, client: { request: (method, params) => inputRpc.dispatch(method, params) } }; } };
 const csp = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'";
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), path = url.pathname;
@@ -76,7 +86,16 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     if (path === '/api/host') return Response.json({ mode: 'bound', projects, restart_supported: true, pid: 123 });
     if (path === '/api/host/projects') return Response.json({ projects: restartRows() });
     if (req.method === 'POST' && (path.endsWith('/api/action') || path.endsWith('/api/service/restart') || path === '/api/host/restart')) {
-      const body = await req.json();
+      const body = await req.clone().json();
+      if (body.method === 'input.emit') {
+        inputWrites.push({ path, body });
+        if (inputMode === 'error') return Response.json({ error: '受控输入失败' }, { status: 503 });
+        // Exercise the production fixed-source HTTP route, registry/permission
+        // checks, Dispatcher and durable emission; only the Provider is controlled.
+        const response = await projectRoutes({ request: req, url, headers: {}, json: (value, status = 200) => Response.json(value, { status }) }, inputHost);
+        if (inputGate) await inputGate.promise;
+        return response;
+      }
       if (body.method === 'system.interrupt_all') {
         if (!restartPaused) restartAccepted.clear();
         const id = path.split('/')[2]; restartAccepted.add(id);
@@ -146,9 +165,26 @@ const asyncExecute = script => { lastScript = script; return rpc(`/session/${ses
 const wait = condition => asyncExecute(`const done=arguments[0];let n=0;const check=()=>(${condition})?done(true):++n>180?done(false):setTimeout(check,30);check();`);
 const settle = () => asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));');
 const assert = (value, message) => { if (!value) throw Error(message); };
-const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
+const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length&&!b.closest('[inert]'));if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
+async function click(selector) {
+  const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
+  await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
+}
+// Compare local geometry, not document scroll or banner offsets; status changes
+// must not resize buttons or move adjacent cards.
+const quickGeometry = () => execute(`const controls=document.querySelector('.dashboard-quick-actions-controls'),board=document.querySelector('.project-board');
+  return [[controls,'button[data-quick-action],button[data-service-restart]'],[board,'.dashboard-widget']].flatMap(([root,selector])=>{
+    const origin=root.getBoundingClientRect();return [...root.querySelectorAll(selector)].map(node=>{const r=node.getBoundingClientRect();return [node.dataset.quickAction||node.dataset.serviceRestart||node.dataset.cardId,...(r.width||r.height?[r.x-origin.x,r.y-origin.y,r.width,r.height]:[0,0,0,0])]});
+  });`);
+async function stableQuickGeometry(before, phase) {
+  const after = await quickGeometry();
+  assert(before.length===after.length && before.every((row,i)=>row[0]===after[i][0]&&row.slice(1).every((value,j)=>Math.abs(value-after[i][j+1])<0.6)), `quick geometry changed ${phase}: ${JSON.stringify({before,after})}`);
+}
 async function frame() { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); }
-async function screenshot(name) { await writeFile(join(output, name + '.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); }
+async function screenshot(name) {
+  assert(await wait("document.getElementById('modal').hidden||(getComputedStyle(document.getElementById('modal')).opacity==='1'&&getComputedStyle(document.querySelector('#modal .modal-card')).opacity==='1')"), 'modal animation did not settle');
+  await writeFile(join(output, name + '.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+}
 async function ready(count = 5) { assert(await wait(`document.querySelectorAll('.dashboard-widget').length===${count + 1}&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('[data-card-id="aaaaaaaaaaaaaaaa"]').textContent.includes('读取中')`), 'panel ready timeout'); await settle(); }
 async function containment(context) {
   const problems = await execute(`const problems=[],cards=[...document.querySelectorAll('.dashboard-widget')],rects=cards.map(c=>c.getBoundingClientRect());
@@ -190,6 +226,46 @@ try {
     await clickText('取消编辑'); await ready();
     console.log(`PASS assembled ${theme}/${width}: fixed containment, source links, settings and editing`);
   }
+  phase = 'overview input';
+  assert(await execute(`return document.querySelectorAll('.dashboard-project-input').length===3&&[...document.querySelectorAll('.dashboard-project-input')].every(b=>!b.classList.contains('agent-call')&&b.getClientRects().length)`), 'project input must be permanently discoverable without authorizing Agent');
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-input').click()`);
+  assert(await execute(`const modal=document.querySelector('.dashboard-input-modal'),r=modal.getBoundingClientRect();return modal.textContent.includes('项目A')&&modal.textContent.includes('/fixture/project-a')&&r.left>=0&&r.right<=innerWidth&&modal.scrollWidth<=modal.clientWidth&&document.activeElement.tagName==='TEXTAREA'&&modal.querySelector('.agent-call').dataset.help.includes('token')`), 'input modal identity/focus/costs/320px containment');
+  const typeInput = text => execute(`const input=document.querySelector('#modal textarea');input.value=${JSON.stringify(text)};input.dispatchEvent(new Event('input',{bubbles:true}))`);
+  await typeInput('项目A的指令'); await settle();
+  assert(await execute("const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented"), 'input reload protection');
+  await screenshot('input-320'); await clickText('关闭');
+  assert(await execute(`return document.activeElement===document.querySelector('[data-card-id="${P}"] .dashboard-project-input')`), 'input close focus');
+  await execute(`document.querySelector('[data-card-id="${Q}"] .dashboard-project-input').click()`);
+  assert(await execute("return document.querySelector('#modal textarea').value===''") , 'cross-project draft leaked');
+  await typeInput('离线项目草稿'); assert(await execute("return document.querySelector('#modal .agent-call').disabled&&document.querySelector('#modal .project-order-actions .help-host').dataset.help.includes('后台')"), 'offline submit not blocked');
+  await clickText('关闭'); await clickText('刷新全部'); await ready();
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-input').click()`);
+  assert(await execute("return document.querySelector('#modal textarea').value==='项目A的指令'"), 'refresh/reopen lost draft');
+  inputMode = 'error'; await clickText('提交指令');
+  assert(await wait("document.querySelector('#modal .project-order-status').textContent.includes('受控输入失败')&&!document.querySelector('#modal .agent-call').disabled"), 'input failure not retained');
+  assert(inputWrites.length === 1 && inputSource.store.all('SELECT * FROM inputs').length === 0, 'failed input executed');
+  inputMode = 'normal'; inputGate = gate();
+  await execute("document.querySelector('#modal .agent-call').click();document.querySelector('#modal .agent-call').click()");
+  assert(await wait("document.querySelector('#modal .agent-call').disabled"), 'input pending lock');
+  await typeInput('在途新增文字'); await clickText('关闭');
+  await execute("document.getElementById('settings-open').click()");
+  assert(await wait("location.hash==='#projects'&&document.querySelector('.project-overview')"), 'pending input allowed page leave');
+  await clickText('刷新全部'); await ready();
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-input').click()`);
+  assert(await execute("return document.querySelector('#modal textarea').value==='在途新增文字'&&document.querySelector('#modal .agent-call').disabled"), 'pending remount lost text or single flight');
+  inputGate.resolve(); inputGate = null;
+  assert(await wait("document.querySelector('#modal .project-order-status').textContent.includes('工作指令已提交')&&!document.querySelector('#modal .agent-call').disabled"), 'input durable ACK');
+  assert(await execute(`return document.querySelector('#modal textarea').value==='在途新增文字'&&document.querySelector('#modal .project-order-status a').getAttribute('href').startsWith('/p/${P}/#input-draft-')`), 'late ACK erased new input or source receipt');
+  assert(inputWrites.length===2&&inputWrites.every(w=>w.path===`/p/${P}/api/action`&&w.body.params.branch==='main')&&inputWrites[0].body.params.client_request_id===inputWrites[1].body.params.client_request_id, 'input target/dedup identity mismatch');
+  inputSource.project.stopping = false; inputSource.project.kick();
+  await until(() => providerCalls===1 && inputSource.store.all('SELECT * FROM inputs').length===1 && !inputSource.project.running.size, 15000);
+  assert(inputSource.store.all('SELECT * FROM inputs')[0].content==='项目A的指令', 'real input runtime did not receive submitted original');
+  inputSource.project.stopping = true;
+  await typeInput(''); await clickText('关闭');
+  await execute(`document.querySelector('[data-card-id="${Q}"] .dashboard-project-input').click()`);
+  assert(await execute("return document.querySelector('#modal textarea').value==='离线项目草稿'"), 'offline draft lost'); await typeInput(''); await clickText('关闭');
+  console.log('PASS overview input: real fixed-source HTTP -> registry/permission -> Dispatcher -> durable emission -> runtime -> controlled Provider; offline/isolation/failure/retry identity/single flight/refresh/reopen/late ACK/leave guard/focus/320px');
+  phase = 'diagnostic lifecycle';
   // Regression: one uncertain source must not erase positive subtotals in every bucket.
   diagnosticsState = 'all-partial';
   for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
@@ -232,11 +308,15 @@ try {
   await clickText('保存更改'); await ready(4); assert(readDashboardSettings(config).diagnostics === false && JSON.stringify(readDashboardSettings(config).widgets) === JSON.stringify(beforeDiagnostics.widgets), 'diagnostic toggle changed members');
   await clickText('编辑模式');
   await execute("document.querySelector('.dashboard-settings-open').click();const input=document.querySelector('[data-diagnostics=enabled]');input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}))"); await clickText('应用到草稿'); await ready(); await clickText('保存更改'); await ready();
+  phase = 'quick actions lifecycle';
   // Quick actions: real panel entry, confirmation, stable in-flight controller and full error details.
-  await execute("document.querySelector('[data-service-restart=safe]').click()");
+  const beforeQuickConfirm = await quickGeometry();
+  await click('[data-service-restart=safe]');
   assert(await wait("!document.getElementById('modal').hidden&&document.getElementById('modal').textContent.includes('一键安全重启？')"), 'quick scope confirmation');
+  await stableQuickGeometry(beforeQuickConfirm, 'confirming');
   assert(await execute(`const modal=document.getElementById('modal');return modal.textContent.includes('/fixture/project-a')&&modal.textContent.includes('/fixture/project-c')&&!modal.textContent.includes('/fixture/project-b')&&modal.querySelector('.agent-call').dataset.help.includes('token')`), 'quick scope or Agent cost');
   await clickText('取消'); assert(!restartWrites.length, 'cancelled quick action wrote');
+  await stableQuickGeometry(beforeQuickConfirm, 'cancelled');
   await execute("window.quickButton=document.querySelector('[data-service-restart=safe]');quickButton.click()");
   assert(await wait("document.getElementById('modal').textContent.includes('一键安全重启？')&&!document.getElementById('modal').hidden"), 'second quick confirmation');
   await execute("document.querySelector('#modal .modal-confirm').click()");
@@ -346,17 +426,22 @@ try {
     assert(await wait(`!document.getElementById('modal').hidden&&document.getElementById('modal').textContent.includes('${kind==='resume'?'全部继续？':'全部重启？'}')`), 'manual execution confirmation'); await execute("document.querySelector('#modal .modal-confirm').click()");
     assert(await wait(`document.querySelector('.dashboard-quick-actions-controls').textContent.includes('${kind==='resume'?'全部继续请求已接受':'异常末尾可见'}')`), 'manual card result '+kind);
   }
+  const beforeAutoSelect = await quickGeometry();
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
   assert(await wait("document.querySelector('#modal .modal-confirm.agent-call')&&document.getElementById('modal').textContent.includes('持续授权')"), 'auto-select sustained authorization'); await clickText('取消'); assert(automationWrites===0, 'auto cancel wrote policy');
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
   assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'auto enable'); await execute("document.querySelector('#modal .modal-confirm').click()");
   assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status')?.textContent.includes('已确认开启')&&!document.getElementById('auto-select-banner').hidden"), 'card/banner did not share enable state');
+  await stableQuickGeometry(beforeAutoSelect, 'auto enabled');
   await execute("document.querySelector('#auto-select-banner button').click()");
   assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认关闭')&&document.getElementById('auto-select-banner').hidden"), 'banner close not reflected in card');
+  await stableQuickGeometry(beforeAutoSelect, 'auto disabled');
   automationMode='bad_ack';
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
   assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'unknown ACK confirmation'); await execute("document.querySelector('#modal .modal-confirm').click()");
   assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('状态未知')&&document.querySelector('.dashboard-quick-actions-card button[data-quick-action=auto_select]').disabled"), 'unknown ACK not locked');
+  await stableQuickGeometry(beforeAutoSelect, 'auto unknown');
+  assert(await execute("const b=document.querySelector('.dashboard-quick-actions-card button[data-quick-action=auto_select]');return b.parentElement.tabIndex===0&&!!b.parentElement.dataset.help"), 'unknown disabled help unavailable');
   const failedWrites = automationWrites;
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
   assert(automationWrites === failedWrites, 'unknown write retried'); automationMode='read_error';
@@ -393,7 +478,19 @@ try {
   await clickText('应用到草稿'); await ready();
   await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-card-settings').click();document.querySelector('[data-section="distribution"]').click()`);
   await clickText('应用到草稿'); await ready();
+  await execute("document.querySelector('.dashboard-editor-more').open=true");
   await clickText('恢复默认布局'); await clickText('恢复布局'); await ready(); await containment('reset layout draft');
+  await clickText('撤销'); await ready();
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-card-settings').click()`);
+  await clickText('紧凑'); await clickText('下移');
+  assert(await execute("return document.querySelector('[data-geometry=w]').value==='4'&&document.querySelector('[data-geometry=h]').value==='10'&&document.querySelector('[data-geometry=y]').value==='2'"), 'size preset/move buttons');
+  await clickText('应用到草稿'); await ready();
+  assert(await execute(`return document.querySelector('[data-card-id="${P}"]').style.gridRow.includes('span 10')&&document.querySelector('[data-card-id="${P}"] .project-board-geometry-feedback').textContent.includes('4 × 10')`), 'geometry draft/visible feedback');
+  await clickText('撤销'); await ready();
+  assert(await execute(`return document.querySelector('[data-card-id="${P}"]').style.gridRow.includes('span 24')`), 'size undo');
+  await clickText('重做'); await ready();
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-card-settings').click()`); await clickText('宽幅'); await clickText('取消');
+  assert(await execute(`return document.querySelector('[data-card-id="${P}"]').style.gridRow.includes('span 10')`), 'cancelled size form mutated draft');
   await clickText('撤销'); await ready();
   await execute("document.getElementById('settings-open').click()");
   assert(await wait("document.getElementById('modal').textContent.includes('离开并丢弃未保存更改')&&!document.getElementById('modal').hidden"), 'hash navigation lost draft without confirmation');
@@ -402,6 +499,18 @@ try {
   await clickText('取消编辑'); await ready();
   assert(await execute("return !document.querySelector('.dashboard-layout-editing')&&document.querySelector('.dashboard-edit-status').hidden"), 'cancel did not leave editor');
   assert(JSON.stringify(readDashboardSettings(config)) === JSON.stringify(beforeEditor), 'cancel changed shared document');
+  // At phone width a preset still saves canonical twelve-column dimensions,
+  // not the one-column display projection. Restore the fixture baseline after proof.
+  await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='320px'"); await frame(); await settle();
+  await clickText('编辑模式'); await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-card-settings').click()`);
+  await clickText('宽幅'); await settle();
+  assert(await execute("const first=document.querySelector('.dashboard-size-presets button').getBoundingClientRect();return first.top>=0&&first.bottom<=innerHeight"), 'opening settings scrolled past presets');
+  await screenshot('layout-presets-320');
+  assert(await execute("const modal=document.querySelector('.dashboard-settings-modal'),r=modal.getBoundingClientRect();return modal.scrollWidth<=modal.clientWidth&&r.left>=0&&r.right<=innerWidth&&[...modal.querySelectorAll('button,input')].filter(b=>b.getClientRects().length).every(b=>{const s=b.getBoundingClientRect();return s.left>=r.left&&s.right<=r.right})"), 'size editor controls overflow at 320px');
+  await clickText('应用到草稿'); await ready(); await clickText('保存更改'); await ready();
+  assert(readDashboardSettings(config).layout.find(c=>c.id===P).w===12&&readDashboardSettings(config).layout.find(c=>c.id===P).h===24, 'phone preset saved responsive projection');
+  saveDashboardSettings(config, { layout: beforeEditor.layout }, readDashboardSettings(config).revision); await clickText('刷新全部'); await ready();
+  console.log('PASS layout editor: content/library discovery, presets and move buttons, form cancel, undo/redo, page cancel/save, visible geometry feedback and canonical preset persistence at 320px');
   phase = 'account and Worker paging';
   // Real account and Worker pages; no implicit writes/provider queries.
   await execute("document.querySelector('[data-card-id=\"accounts\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
@@ -482,4 +591,4 @@ try {
   console.log(`PASS restored controller: diagnostics independent read/focus/draft/unknown/no-project/error/toggle/keyboard resize, flat/paged navigation, account/Worker paging, h17 boundary, minimum project+diagnostic summary/details, read failure+ACK identity+continuation, business-state geometry, raw-member-preserving device save/reload and 100-source stress. Logs/screenshots: ${output}`);
   console.log('LIMIT Firefox headless/controlled source APIs; physical touch, Chromium/Safari and real providers unverified.');
 } catch (error) { console.error('Panel fixture phase:', phase, 'script:', lastScript, 'last requests:', calls.slice(-12)); if (session) { try { await screenshot('failure'); console.error(await execute("return [...document.querySelectorAll('.dashboard-widget')].map(c=>({id:c.dataset.cardId,text:c.textContent.slice(0,300),html:c.innerHTML.slice(0,500)}))")); } catch {} } throw error; }
-finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); await rm(temp, { recursive: true, force: true }); }
+finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); inputGate?.resolve(); await inputSource.close(); await rm(temp, { recursive: true, force: true }); }

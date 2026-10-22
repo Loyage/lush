@@ -6,7 +6,7 @@ import { emissionRequestId } from './emission-form.js';
 
 // Session-local drafts, scoped by document and registered project identity. Never copy project input.
 const documents = new WeakMap();
-export function createProjectOrderForm(row, { ownsPage = () => true } = {}) {
+export function createProjectOrderForm(row, { ownsPage = () => true, canSubmit = () => true } = {}) {
   if (!/^[a-f0-9]{16}$/.test(row?.id)) throw new Error('项目身份无效');
   const owner = document, projectId = row.id;
   let drafts = documents.get(owner); if (!drafts) documents.set(owner, drafts = new Map());
@@ -28,7 +28,7 @@ export function createProjectOrderForm(row, { ownsPage = () => true } = {}) {
   function paint() {
     if (!current()) return;
     if (input.value !== state.content) input.value = state.content;
-    const reason = state.pending ? '工作指令提交中，请勿重复提交。' : currentRow.running !== true ? '项目后台未运行或当前不可达；请先显式启动或刷新确认。' : !state.content.trim() ? '请先填写工作指令。' : '';
+    const reason = state.pending ? '工作指令提交中，请勿重复提交。' : !canSubmit() ? '请先完成页面刷新或布局编辑，再提交指令。' : currentRow.running !== true ? '项目后台未运行或当前不可达；请先显式启动或刷新确认。' : !state.content.trim() ? '请先填写工作指令。' : '';
     for (const [index, control] of [create].entries()) {
       control.disabled = Boolean(reason);
       if (reason) { hosts[index].setAttribute('data-help', reason); hosts[index].setAttribute('tabindex', '0'); }
@@ -43,7 +43,7 @@ export function createProjectOrderForm(row, { ownsPage = () => true } = {}) {
   state.paint = paint;
   input.oninput = () => { if (!current()) return; state.content = input.value; state.edit++; paint(); };
   async function submit() {
-    if (!current() || state.pending || currentRow.running !== true || !state.content.trim()) return;
+    if (!current() || !canSubmit() || state.pending || currentRow.running !== true || !state.content.trim()) return;
     const content = state.content, edit = state.edit;
     const definition = JSON.stringify([content]);
     if (state.requestContent !== definition) { state.requestContent = definition; state.requestId = emissionRequestId(); }
@@ -62,5 +62,8 @@ export function createProjectOrderForm(row, { ownsPage = () => true } = {}) {
   }
   root.onsubmit = event => event.preventDefault();
   paint();
-  return { root, update(next) { if (next.id !== projectId) throw new Error('不能改变指令目标项目'); currentRow = next; paint(); } };
+  return { root, state: () => ({ content: state.content, pending: state.pending }), sync: paint,
+    update(next) { if (next.id !== projectId) throw new Error('不能改变指令目标项目'); currentRow = next; paint(); },
+    dispose() { if (state.paint === paint) state.paint = null; },
+  };
 }

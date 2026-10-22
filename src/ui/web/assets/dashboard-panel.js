@@ -1,5 +1,4 @@
 import { api } from './api.js';
-import { dashboardIcon } from './dashboard-icons.js';
 import { createCardSettingsGesture } from './dashboard-card-gesture.js';
 import { el } from './dom.js';
 import { formDialog, confirmDialog, closeDialog } from './dialog.js';
@@ -7,6 +6,7 @@ import { createDashboardHistory, dashboardPatch } from './dashboard-edit-model.j
 import { registerPageLeaveGuard } from './page-leave-guard.js';
 import { show as showMessage } from './messages.js';
 import { createProjectBoard } from './project-board.js';
+import { createProjectOrderForm } from './project-order-form.js';
 import { readDashboardConfig, loadDashboardConnections, refreshAccountCards } from './dashboard-cards.js';
 import { dashboardAggregateLayout } from './dashboard-layout-model.js';
 import { loadProjectCardMessages, PROJECT_CARD_SECTIONS } from './project-dashboard-content.js';
@@ -20,6 +20,7 @@ import { QUICK_ACTIONS } from '../../../shared/dashboard-quick-actions.js';
 
 const cardName = row => row.name || '未命名项目';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
+const CARD_SIZES = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 }, quick_actions: { w: 6, h: 12 } };
 
 /** One revision owner for all device-shared card selection, content and layout writes. */
 export function createDashboardPanel({ ownsPage = () => true, createBoard = createProjectBoard } = {}) {
@@ -29,7 +30,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   const toolbar = el('div', undefined, 'dashboard-toolbar');
   const refresh = el('button', '刷新全部', 'ghost'); refresh.type = 'button';
   refresh.dataset.help = '重新读取项目状态与消息，并联网查询已摆放账户的额度；不会启动离线后台或调用模型。';
-  const settings = el('button', undefined, 'ghost dashboard-settings-open'); settings.type = 'button'; settings.append(dashboardIcon('settings'));
+  const settings = el('button', '面板设置', 'ghost dashboard-settings-open'); settings.type = 'button';
   settings.setAttribute('aria-label', '设置总览卡片'); settings.dataset.help = '选择面板展示的项目、账户与常用入口；保存后同设备浏览器共享。';
   settings.setAttribute('aria-expanded', 'false'); settings.setAttribute('aria-haspopup', 'dialog');
   const edit = el('button', '编辑模式', 'ghost dashboard-layout-edit'); edit.type = 'button';
@@ -57,6 +58,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   for (const control of controls) {
     const host = el('span', undefined, 'help-host'); host.append(control); actionHosts.set(control, host); toolbar.append(host);
   }
+  const more = el('details', undefined, 'dashboard-editor-more');
+  more.append(el('summary', '更多布局操作'), actionHosts.get(reset), actionHosts.get(reread)); toolbar.append(more);
   // Status projection is stable; visible feedback belongs to the existing toast/modal, never the grid flow.
   const status = el('p', '正在读取卡片…', 'dashboard-status'); status.setAttribute('aria-hidden', 'true');
   const editor = el('section', undefined, 'dashboard-settings-panel'); editor.hidden = true;
@@ -71,13 +74,14 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   const remember = () => { history?.push(snapshot()); syncControls(); };
   let generation = 0, formSave = null, formSaveHost = null, formControls = [], currentEditor = null, editorStatus = null, editorObserver = null;
   let navigationRevision = null;
-  let disposed = false, quickActions = null;
+  let disposed = false, quickActions = null, inputDialog = null;
+  const inputForms = new Map();
   const active = () => !disposed && owner === globalThis.document && ownsPage() && root.parentNode != null;
   const diagnostics = createDiagnosticsController({ ownsPage: active, onChange: () => {
     if (active()) for (const card of board.root.querySelectorAll('.dashboard-diagnostics-card')) card.dashboardDiagnosticsChange?.();
   } });
   const renderer = createAggregateRenderer({ ownsPage: active, canAct: () => active() && !busy && !editing,
-    messages: () => messages, refresh: id => updateInformation([id]), refreshAccounts: ids => updateInformation(ids) });
+    messages: () => messages, openInput, refresh: id => updateInformation([id]), refreshAccounts: ids => updateInformation(ids) });
   const board = createBoard({ ownsPage: active, request: api,
     renderCard(row, options = {}) {
       const item = row.type === 'quick_actions' ? quickActions.root : row.type === 'diagnostics'
@@ -85,7 +89,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
         : renderer.render(row, { ...options, mode: config.account_view });
       if (row.type === 'quick_actions') quickActions.setGeometry(options.geometry);
       item.querySelector('.dashboard-card-settings-host')?.remove();
-      const control = el('button', undefined, 'ghost dashboard-card-settings'); control.type = 'button'; control.append(dashboardIcon('settings'));
+      const control = el('button', '内容', 'ghost dashboard-card-settings'); control.type = 'button';
       control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
       control.dataset.help = '设置卡片内容、适用来源与导航，或仅从总览移除；应用只更新草稿，页面保存后发布。';
       control.onclick = () => { if (active() && !busy) { cardGesture.hide(); if (!editing) startEditing(); openCardSettings(row); } };
@@ -113,6 +117,15 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   function syncControls() {
     if (busy || editing) cardGesture.hide();
+    more.hidden = !editing && !failedWrite;
+    for (const form of inputForms.values()) form.sync();
+    for (const control of board.root.querySelectorAll('.dashboard-project-input')) {
+      control.disabled = busy || editing;
+      control.hidden = editing;
+      const host = control.parentNode; host.hidden = editing;
+      if (control.disabled) { host.dataset.help = '请先完成刷新或布局编辑，再打开项目输入。'; host.setAttribute('tabindex', '0'); }
+      else { delete host.dataset.help; host.removeAttribute('tabindex'); }
+    }
     navigation.hidden = !config || aggregateLinks(config).length === 0;
     root.classList.toggle('dashboard-layout-editing', editing);
     const navigationKey = JSON.stringify(config && aggregateLinks(config));
@@ -170,6 +183,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   async function paint() {
     if (!active()) return;
+    for (const [id, form] of inputForms) form.update(projects.find(row => row.id === id) || { id, running: false });
     rows = config ? aggregateRows(config, projects, connections) : [];
     if (config?.diagnostics) rows.push({ id: DIAGNOSTICS_ID, type: 'diagnostics', name: '运行诊断' });
     if (config?.quick_actions) {
@@ -188,7 +202,33 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       await Promise.all([...board.root.querySelectorAll('.dashboard-widget')].map(item => item.dashboardReady?.()));
     }
   }
-  const ownsDialog = () => globalThis.document?.getElementById('modal')?.querySelector('.dashboard-settings-panel') === editor;
+  function openInput(row) {
+    if (!active() || busy || editing) return;
+    let form = inputForms.get(row.id);
+    if (!form) {
+      form = createProjectOrderForm(row, { ownsPage: active, canSubmit: () => !busy && !editing });
+      inputForms.set(row.id, form);
+    }
+    form.update(projects.find(project => project.id === row.id) || { ...row, running: false });
+    const identity = { id: row.id, form }; inputDialog = identity;
+    void formDialog({ title: `${cardName(row)} · 输入工作指令`,
+      message: row.project || `项目 ${row.id}`, content: form.root, cardClass: 'dashboard-input-modal',
+      confirmLabel: '关闭', cancelLabel: '关闭', initialFocus: form.root.querySelector('textarea'),
+    }).then(() => {
+      if (inputDialog !== identity) return;
+      inputDialog = null;
+      if (active() && owner.getElementById('modal')?.hidden)
+        board.root.querySelector(`[data-card-id="${row.id}"] .dashboard-project-input`)?.focus?.({ preventScroll: true });
+    });
+  }
+  const pendingInput = () => [...inputForms.values()].some(form => form.state().pending);
+  const unfinishedInput = () => [...inputForms.values()].some(form => form.state().pending || form.state().content);
+  // Exit-animation remnants are not an open form. A quick reopen must build
+  // a fresh editor rather than toggling the already-dismissed dialog again.
+  const ownsDialog = () => {
+    const modal = globalThis.document?.getElementById('modal');
+    return modal?.hidden === false && modal.querySelector('.dashboard-settings-panel') === editor;
+  };
   function closeEditor() {
     if (ownsDialog()) closeDialog();
     editorObserver?.disconnect(); editorObserver = null;
@@ -213,6 +253,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const show = () => {
       const identity = currentEditor;
       void formDialog({ title, content: editor, confirmLabel: '应用到草稿', cardClass: 'dashboard-settings-modal',
+        initialFocus: editor.querySelector('input,button') || editor,
         canConfirm: () => active() && !busy && !!config,
         onConfirm: () => save.onclick(),
       }).then(() => {
@@ -298,13 +339,15 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       for (const change of navigationChanges.values()) toggleAggregateLink(next, projects, change.item, change.selected);
       return applyDraft(next);
     };
-    show(); syncControls(); editor.focus?.();
+    show(); syncControls();
   }
   function openCardSettings(row) {
     if (!config || busy) return;
     if (!editing) startEditing();
     if (!editing) return;
-    const { actions, save, show } = editorFrame(cardName(row)); currentEditor = { kind: 'card', id: row.id };
+    const { actions, save, show } = editorFrame(`${cardName(row)} · 内容与布局`); currentEditor = { kind: 'card', id: row.id };
+    const applyGeometry = geometrySettings(row, actions);
+    const applyCard = next => { applyGeometry(next); return applyDraft(next); };
     const initial = new Set(['diagnostics', 'quick_actions'].includes(row.type) ? [] : aggregateSections(config, row.id)), selected = new Set(initial);
     let removed = false;
     const remove = checkbox(editor, '从总览移除此卡片（不删除来源，可重新添加）', false, checked => { removed = checked; }, { removeCard: row.id });
@@ -319,14 +362,14 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       save.onclick = () => {
         const next = structuredClone(config); next.quick_actions = !removed;
         next.quick_action_buttons = QUICK_ACTIONS.filter(item => chosen.has(item.id)).map(item => item.id);
-        return applyDraft(next);
+        return applyCard(next);
       };
-      show(); syncControls(); editor.focus?.(); return;
+      show(); syncControls(); return;
     }
     if (row.type === 'diagnostics') {
       editor.insertBefore(el('p', '汇总所有已登记项目的运行诊断；保留 60 / 300 秒窗口、趋势和来源覆盖，不查询服务商或修改运行配置。', 'hint'), actions);
-      save.onclick = () => { const next = structuredClone(config); next.diagnostics = !removed; return applyDraft(next); };
-      show(); syncControls(); editor.focus?.(); return;
+      save.onclick = () => { const next = structuredClone(config); next.diagnostics = !removed; return applyCard(next); };
+      show(); syncControls(); return;
     }
     const choices = el('fieldset'); choices.append(el('legend', '展示内容'));
     for (const [key, label] of row.type === 'accounts' ? WIDGET_SECTIONS.accounts : PROJECT_CARD_SECTIONS) checkbox(choices, label, selected.has(key), checked => {
@@ -341,9 +384,53 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       for (const change of navigationChanges.values()) toggleAggregateLink(next, projects, change.item, change.selected);
       if (row.type === 'project' && selected.has('shortcuts') !== initial.has('shortcuts')) toggleAggregateSection(next, row.id, 'shortcuts', selected.has('shortcuts'));
       if (removed) removeCard(next, row);
-      return applyDraft(next);
+      return applyCard(next);
     };
-    show(); syncControls(); editor.focus?.();
+    show(); syncControls();
+  }
+  function geometrySettings(row, actions) {
+    const original = board.getLayout().find(cell => cell.id === row.id), desired = { ...original };
+    const group = el('fieldset', undefined, 'dashboard-geometry-settings'); group.append(el('legend', '尺寸与位置'));
+    const presets = el('div', undefined, 'dashboard-size-presets'), fields = new Map();
+    const feedback = el('p', '', 'hint'); feedback.setAttribute('role', 'status');
+    function sync() {
+      for (const [key, input] of fields) input.value = String(desired[key] + (['x', 'y'].includes(key) ? 1 : 0));
+      for (const button of presets.children) button.setAttribute('aria-pressed', String(desired.w === Number(button.dataset.width) && desired.h === Number(button.dataset.height)));
+      feedback.textContent = `桌面十二列布局：列 ${desired.x + 1}，行 ${desired.y + 1}；${desired.w} × ${desired.h}。小屏仅投影，应用时自动避让相邻卡片。`;
+    }
+    function change(patch) {
+      Object.assign(desired, patch);
+      // A position-only edit must preserve legacy small saved dimensions.
+      if (Object.hasOwn(patch, 'w')) desired.w = Math.max(4, Math.min(12, desired.w));
+      if (Object.hasOwn(patch, 'h')) desired.h = Math.max(10, Math.min(80, desired.h));
+      desired.x = Math.max(0, Math.min(12 - desired.w, desired.x)); desired.y = Math.max(0, Math.min(4095, desired.y));
+      formDirty = true; sync();
+    }
+    const standard = CARD_SIZES[row.type];
+    for (const [label, size] of [['紧凑', { w: 4, h: 10 }], ['标准', standard], ['宽幅', { ...standard, w: 12 }]]) {
+      const button = el('button', label, 'ghost'); button.type = 'button';
+      button.dataset.width = String(size.w); button.dataset.height = String(size.h);
+      button.dataset.help = `将此卡片草稿设为 ${size.w} 列宽、${size.h} 行高；内容不删除，容纳不了的内容仍可查看详情。`;
+      button.onclick = () => { if (active() && !busy) change(size); }; presets.append(button); formControls.push(button);
+    }
+    group.append(presets);
+    for (const [key, name, max] of [['x', '列', 12], ['y', '行', 4096], ['w', '宽', 12], ['h', '高', 80]]) {
+      const label = el('label', name), input = el('input'); input.type = 'number'; input.min = key === 'w' ? '4' : key === 'h' ? '10' : '1'; input.max = String(max); input.step = '1';
+      input.dataset.geometry = key; input.setAttribute('aria-label', `卡片${name}`);
+      input.onchange = () => { if (active() && !busy) change({ [key]: Number.isFinite(input.valueAsNumber) ? Math.round(input.valueAsNumber) - (['x', 'y'].includes(key) ? 1 : 0) : desired[key] }); };
+      fields.set(key, input); label.append(input); group.append(label); formControls.push(input);
+    }
+    const moves = el('div', undefined, 'dashboard-position-buttons');
+    for (const [label, key, delta] of [['左移', 'x', -1], ['右移', 'x', 1], ['上移', 'y', -1], ['下移', 'y', 1]]) {
+      const button = el('button', label, 'ghost'); button.type = 'button';
+      button.onclick = () => { if (active() && !busy) change({ [key]: desired[key] + delta }); }; moves.append(button); formControls.push(button);
+    }
+    group.append(moves, feedback); editor.insertBefore(group, actions); sync();
+    return next => {
+      if (!['x', 'y', 'w', 'h'].some(key => original[key] !== desired[key])) return;
+      layoutDraft = board.layoutWithGeometry(row.id, desired); layoutDirty = true;
+      next.layout = [...next.layout.filter(cell => !rows.some(row => row.id === cell.id)), ...layoutDraft];
+    };
   }
   function removeCard(next, row) {
     if (row.type === 'project') selectAggregateProject(next, projects, row.id, false);
@@ -550,11 +637,10 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const accepted = await confirmDialog({ title: '恢复当前卡片的默认布局？', message: '只重置当前可见卡片的位置与尺寸，按默认网格排列；来源、内容、导航和旧成员布局保留。修改只进入草稿，可撤销。', confirmLabel: '恢复布局' });
     if (!accepted || !active() || busy || !editing) return;
     const next = structuredClone(config), ids = new Set(rows.map(row => row.id));
-    const sizes = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 }, quick_actions: { w: 6, h: 12 } };
     const bottom = [0, 0];
     layoutDraft = rows.map(row => {
       const column = bottom[0] <= bottom[1] ? 0 : 1;
-      const cell = { id: row.id, x: column * 6, y: bottom[column], ...sizes[row.type] }; bottom[column] += cell.h; return cell;
+      const cell = { id: row.id, x: column * 6, y: bottom[column], ...CARD_SIZES[row.type] }; bottom[column] += cell.h; return cell;
     });
     // Board reconciles canonical twelve-column placement, never a narrow-screen projection.
     layoutDirty = true; next.layout = [...next.layout.filter(cell => !ids.has(cell.id)), ...layoutDraft];
@@ -577,7 +663,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   const unregisterLeave = registerPageLeaveGuard(target => {
     if (!active()) return true;
     if (target === '#projects' && editing) return false;
-    if (busy) { setStatus('请求尚未结束，请等待后离开。'); return false; }
+    if (busy || pendingInput()) { setStatus('请求尚未结束，请等待后离开。'); return false; }
+    if (inputDialog) { setStatus('请先关闭输入弹窗；文字会保留在当前页面会话。'); return false; }
     if (currentEditor) { setStatus('请先应用或取消当前卡片表单，再离开总览。'); return false; }
     if (!dirty() && !failedWrite) return true;
     return confirmDialog({ title: '离开并丢弃未保存更改？', message: failedWrite ? '上次保存结果未确认，离开会丢弃本地草稿。建议先重新读取设置核对。' : '卡片与布局更改尚未保存；离开将丢弃本次草稿。', confirmLabel: '丢弃并离开', danger: true })
@@ -589,7 +676,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     return false;
   } });
   const beforeUnload = event => {
-    if (!active() || (!dirty() && !formDirty && !busy && !failedWrite)) return;
+    if (!active() || (!dirty() && !formDirty && !busy && !failedWrite && !unfinishedInput())) return;
     event.preventDefault?.(); event.returnValue = '';
   };
   globalThis.addEventListener?.('beforeunload', beforeUnload);
@@ -601,6 +688,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     if (disposed) return;
     disposed = true; ++generation; quickActions?.dispose(); diagnostics.dispose(); removalObserver?.disconnect(); cardGesture.dispose();
     unregisterLeave(); globalThis.removeEventListener?.('beforeunload', beforeUnload); closeEditor();
+    if (inputDialog && owner.getElementById('modal')?.contains(inputDialog.form.root)) closeDialog();
+    inputDialog = null; for (const form of inputForms.values()) form.dispose();
   }
   syncControls();
   return { root, ready: () => updateInformation(null, { initial: true }), refresh: updateInformation, dispose,

@@ -26,7 +26,7 @@ export function dashboardNavigation(links, { name = '' } = {}) {
   return root;
 }
 /** Project cards and one quota window; no independent five-type UI or natural-height measurement. */
-export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPage, messages, refresh, refreshAccounts } = {}) {
+export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPage, messages, refresh, refreshAccounts, openInput } = {}) {
   const owner = globalThis.document, accountState = { index: 0 };
   const widgets = createWidgetRenderer({ ownsPage, canAct, messages, refresh, refreshAccounts });
   const value = number => Number.isSafeInteger(number) ? String(number) : '—';
@@ -48,6 +48,14 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
     const title = el('a', undefined, 'project-open dashboard-widget-title'); title.href = projectHref(row.id); title.target = '_blank'; title.rel = 'noopener';
     title.append(el('strong', row.name || '未命名项目')); header.append(title);
     if (!onlineDashboardProject(row)) header.append(el('span', row.error || '离线', 'project-status dashboard-widget-source-error'));
+    if (openInput) {
+      const input = el('button', '输入', 'ghost dashboard-project-input'); input.type = 'button';
+      input.setAttribute('aria-label', `向${row.name || '此项目'}输入工作指令`);
+      input.setAttribute('aria-haspopup', 'dialog');
+      input.dataset.help = '在当前页为此项目填写新指令，去向固定 main；打开不调用 Agent，提交才授权执行。';
+      input.onclick = () => { if (current() && canAct()) openInput(row, input); };
+      const host = el('span', undefined, 'help-host'); host.append(input); header.append(host);
+    }
     root.append(header);
     const body = el('div', undefined, 'project-dashboard-content dashboard-widget-body'); root.append(body);
     const groups = new Map(), summary = onlineDashboardProject(row) ? row.summary?.development : null;

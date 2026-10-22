@@ -152,6 +152,11 @@ details.dashboard-account-metric-details>summary,details.dashboard-account-old>s
 .project-board .dashboard-quick-actions-card .dashboard-widget-body{display:flex;flex-direction:column;min-height:0}
 .dashboard-quick-actions-controls{display:flex;flex-direction:column;gap:6px;min-width:0;min-height:0;flex:1}
 .dashboard-quick-actions-controls .settings-runtime-actions{display:flex;flex-direction:column;flex:none;gap:6px;margin:0;min-width:0}
+/* Keep a real, full-width help host in both states: disabled keyboard help must
+   not replace a stretched button with an intrinsic-width flex child. */
+.dashboard-quick-actions-controls .help-host{display:inline-flex;align-items:stretch;min-width:0;max-width:100%;width:100%}
+.dashboard-quick-actions-controls .help-host>button{width:100%;min-width:0}
+.dashboard-quick-actions-controls .device-auto-select-action{width:100%}
 .dashboard-quick-actions-controls>[hidden],.dashboard-quick-actions-controls .settings-runtime-actions>[hidden]{display:none!important}
 .dashboard-quick-actions-controls .device-auto-select-status{margin:0;font-size:12px;line-height:18px;overflow-wrap:anywhere}
 .dashboard-quick-actions-card .device-auto-select-status,.dashboard-quick-actions-card .device-auto-select-reread{display:none}
@@ -161,8 +166,8 @@ details.dashboard-account-metric-details>summary,details.dashboard-account-old>s
 .dashboard-quick-actions-empty{margin:0;font-size:12px;line-height:18px;color:var(--muted)}
 .dashboard-quick-actions-modal .dashboard-quick-actions-controls{flex:none}
 .dashboard-quick-actions-modal .dashboard-quick-actions-controls>[role="status"]{display:none}
-.dashboard-quick-actions-modal .device-auto-select-buttons{flex-direction:column;align-items:flex-start}
-.dashboard-quick-actions-modal .settings-runtime-actions{flex-direction:column;align-items:flex-start}
+.dashboard-quick-actions-modal .device-auto-select-buttons{flex-direction:column;align-items:stretch}
+.dashboard-quick-actions-modal .settings-runtime-actions{flex-direction:column;align-items:stretch}
 .dashboard-quick-actions-modal button{white-space:normal;max-width:100%;min-height:var(--control-height)}
 .dashboard-quick-actions-controls button{box-sizing:border-box;min-height:var(--control-height);max-width:100%;white-space:normal;font-size:12px}
 .dashboard-quick-actions-controls>[role="status"]{margin:0;min-width:0;min-height:0;max-height:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:18px;font-size:12px;overflow-wrap:anywhere}

@@ -63,7 +63,7 @@
 /* Align text and icon controls to the shared height; wrapped labels may grow. */
 .dashboard-toolbar button{display:inline-flex;align-items:center;justify-content:center;flex:none;min-height:var(--control-height)}
 .dashboard-toolbar button[hidden]{display:none}
-.project-overview .dashboard-toolbar .dashboard-settings-open{display:grid;place-items:center;width:44px;padding:0;line-height:1}
+.project-overview .dashboard-toolbar .dashboard-settings-open{display:inline-flex;width:auto}
 .dashboard-settings-open svg,.dashboard-card-settings svg,.dashboard-account-refresh svg,.dashboard-accounts-refresh svg{display:block;flex:none}
 .dashboard-status{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .dashboard-status.error{color:var(--failed)}
@@ -86,7 +86,27 @@
 .dashboard-settings-status[hidden]{display:none}
 .dashboard-account-view{box-sizing:border-box;width:100%;max-width:320px;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
 .project-board .dashboard-card-settings-host{position:absolute;right:10px;top:10px;z-index:2;display:block}
-.project-board .dashboard-card-settings{display:grid;place-items:center;width:var(--control-height);height:var(--control-height);min-height:var(--control-height);max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
+.project-board .dashboard-card-settings{display:grid;place-items:center;width:44px;height:var(--control-height);min-height:var(--control-height);max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
+.dashboard-editor-more{position:relative;min-width:0;max-width:100%;font-size:12px}
+.dashboard-editor-more>summary{cursor:pointer;min-height:var(--control-height);display:flex;align-items:center;padding:0 8px;box-sizing:border-box;color:var(--muted)}
+.dashboard-editor-more[open]{display:flex;flex-wrap:wrap;gap:8px}
+.dashboard-editor-more[hidden]{display:none}
+.dashboard-geometry-settings label{display:grid;gap:4px;font-size:12px;min-width:0;flex:1 1 60px}
+.dashboard-geometry-settings input{box-sizing:border-box;width:100%;min-width:0;min-height:var(--control-height);padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font:inherit}
+.dashboard-size-presets,.dashboard-position-buttons{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%}
+.dashboard-size-presets [aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.dashboard-geometry-settings .hint{flex-basis:100%;margin:0;overflow-wrap:anywhere}
+.project-board-geometry-feedback{position:absolute;bottom:4px;left:50px;right:50px;pointer-events:none;font-size:10px;line-height:14px;text-align:center;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .dashboard-project-card .dashboard-widget-header{padding-right:0}
+.project-board-editing .dashboard-project-card .dashboard-widget-header{padding-right:100px}
+.project-board .dashboard-project-input{flex:none;min-width:44px;min-height:var(--control-height);padding:6px 8px}
+.dashboard-input-modal{width:min(640px,100%);min-width:0;box-sizing:border-box}
+.dashboard-input-modal .modal-message{overflow-wrap:anywhere;font-size:12px;color:var(--muted)}
+.dashboard-input-modal .modal-cancel{display:none}
+.dashboard-input-modal .project-order-form{margin-top:0}
+.dashboard-input-modal .project-order-form textarea{min-height:140px;max-height:45dvh}
+.dashboard-input-modal .project-order-form .hint{margin:0;font-size:12px;line-height:1.5}
+.dashboard-input-modal button{min-height:var(--control-height);max-width:100%;white-space:normal}
 .project-board .project-development-metric{border-color:color-mix(in srgb,var(--tone) 32%,var(--line-soft));background:color-mix(in srgb,var(--tint) 70%,var(--panel))}
 .project-board .project-development-value{color:var(--tone)}
 .project-dashboard-content{min-width:0;display:grid;gap:6px}

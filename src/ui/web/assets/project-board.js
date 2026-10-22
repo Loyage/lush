@@ -151,6 +151,10 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     for (const [id, entry] of entries) {
       const cell = source.find(value => value.id === id);
       const label = positionLabel(entry, cell);
+      entry.feedback.hidden = !editing;
+      const feedback = `列 ${cell.x + 1} · 行 ${cell.y + 1} ｜ ${cell.w} × ${cell.h}`;
+      if (entry.feedback.textContent !== feedback) entry.feedback.textContent = feedback;
+      entry.feedback.setAttribute('aria-label', label);
       for (const control of entry.controls) {
         if (control.hidden !== !editing) control.hidden = !editing;
         if (control.disabled !== !editing) control.disabled = !editing;
@@ -257,8 +261,6 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   function commit(candidate, entry) {
     if (!active() || !editing || !changed(candidate)) return;
     layout = candidate; paint();
-    const cell = layout.find(cell => cell.id === entry.id);
-    entry.feedback.textContent = `${positionLabel(entry, cell)}。`;
     onLayoutChange?.(getLayout());
   }
   function attach(entry, epoch) {
@@ -368,7 +370,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
       }
       const hint = node('span', '方向键移动；Shift 加方向键或缩放手柄调整固定宽度和高度；Esc 取消拖动。设备布局始终使用十二列，小屏仅改变显示。', 'project-board-sr');
       hint.id = `project-board-${number}-${id}-hint`; for (const control of controls) control.setAttribute('aria-describedby', hint.id);
-      const feedback = node('span', '', 'project-board-sr'); feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite'); feedback.setAttribute('aria-atomic', 'true');
+      const feedback = node('span', '', 'project-board-geometry-feedback'); feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite'); feedback.setAttribute('aria-atomic', 'true');
       const palette = node('small', project ? '正在确认配色…' : '', 'project-board-palette'); palette.setAttribute('role', 'status'); palette.hidden = !project;
       item.append(content, palette, ...controls, hint, feedback);
       const entry = { id, row, geometry, item, content, handle, controls, hint, palette, feedback, name, project };
@@ -403,5 +405,12 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     if (active() && epoch === generation) measure();
     else if (!active()) dispose();
   }
-  return { root, update, setEditing, getLayout };
+  // Pure canonical-layout preview for button/number editors; only their explicit
+  // apply/save path publishes it, never the responsive display projection.
+  function layoutWithGeometry(id, geometry) {
+    if (!active() || !editing || !entries.has(id)) return getLayout();
+    const cell = layout.find(cell => cell.id === id);
+    return copy(adjust(id, { ...cell, ...geometry, id }, cell.w !== geometry.w || cell.h !== geometry.h));
+  }
+  return { root, update, setEditing, getLayout, layoutWithGeometry };
 }
