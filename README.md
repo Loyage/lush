@@ -1,64 +1,65 @@
 # LushCode
 
 **一丁点儿时间不浪费。**
+
 **Not a single moment wasted.**
 
-LushCode 是项目名，软件名称为 Lush，以代码开发为中心。管理命令为 `lush`，Worker 协作命令为 `lushw`，后台服务为 `lushd`；`.lush`、`LUSH_*` 及既有数据命名保持不变。
+LushCode（简称 Lush）是一个以代码开发为中心的多 Agent 应用：你提出目标，AI 在独立的 Git 工作区里阅读、修改和验证代码，你再审阅成果、决定是否合入项目。
 
-Lush 是项目级的多 agent 开发应用。你描述目标，一个 Worker 在独立 Git 分支与 worktree 中理解、实现和验证；需要时再派并行子 Worker。你审阅成果，决定合并与验收。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
+它面向维护真实代码库的开发者。你不必先把工作拆成一长串任务；一个目标交给一个 Worker，必要时它可以再派子 Worker 并行处理。
 
-Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS/Linux，使用浏览器访问。Windows 可连接服务器 Host，或运行[WSL2 后台](docs/deployment/windows-wsl2.md)。
+**第一次使用？从[新手教程：完成你的第一个任务](docs/getting-started.md)开始。** 教程以浏览器操作为主，带你从认识基本概念走到审阅、合并和验收。
 
-## 设计理念
+## Lush 与普通 AI 对话有什么不同
 
-### 你描述目标，机器负责拆解
+- **围绕目标持续工作。** Worker 保存目标、会话、执行记录和成果。补充要求时继续同一个 Worker，不必重新解释整件事。
+- **改动先隔离，再交付。** 每个开发 Worker 有自己的分支和 worktree，不直接在你的主分支上试改代码。未提交的本地改动不会自动带进它的工作区。
+- **能并行，也能追踪。** 子 Worker 分别工作，向直接父 Worker 交付；你可以查看关系、执行过程和改动。
+- **“说完成”不是交付证明。** 你可以核对提交与验证结果；工作结束、代码合并和验收归档是三件不同的事。
 
-一条 order（指令）对应一个拥有独立工作区的 Worker，由它决定亲自完成还是委派，不要求你先写工作清单。
+Lush 不替代代码审查，也不是安全沙箱。Agent 能以运行后台的用户权限读取文件、执行命令；只在可信环境中使用，并确认模型费用和可修改范围。
 
-### 输入与 Worker 相连：围绕目标，而不是工作清单
+## 开始使用
 
-原话、引用、各轮输入与结果关联保存，便于回看目标，不必从分支名猜测。管理 CLI 使用 `lush order '目标'`，源码统一使用 `bun run lush …`（不保留业务快捷包装）；开发协作使用绑定当前 invocation 的 `lushw self/parent/children`，例如 `bun run lushw self show` 查看自身、`bun run lushw children message W5-1 '补充说明'` 给直接 child 追加要求。项目级查询与管理统一使用 `lush`，入口名称不替代身份授权，见[CLI 分区](docs/reference/api.md#开发与管理双入口)。
+### 1. 准备环境
 
-### 精确的 commit，而不是笼统的“完成了”
+后台支持 macOS / Linux，使用 Bun 1.2+、Git 和 Pi / Codex。项目应是有初始提交的 Git 工作区根目录；模型认证与 Host 登录也需先配置好。
 
-交付固定源成果和本次父基线，落地与测试结论分别记录；“调用结束”“已合并”“已验收”不是同一件事。
+- 本机使用：读[本机部署说明](docs/deployment/local-deployment.md)，按配套[配置步骤](docs/deployment/agent-guide.md)准备环境。
+- 远程服务器或 Windows：从[部署索引](docs/deployment/README.md)选择远程 Host 或 WSL2 路线。
+- 已有可用页面和模型：直接进入[新手教程](docs/getting-started.md)。
 
-### Branch 支撑：Git 只做基础设施
+完成安装和登录配置后，在 **Lush 源码目录**启动全局工作台：
 
-worktree 隔离并行开发，源侧修复保留固定提交与现场，不在父分支留下未经验证的冲突。具体[交付协议](docs/engineering/merge.md)与[安全边界](docs/engineering/git-boundary.md)不由界面状态替代。
+```bash
+bun run lush host start
+```
 
-### 三层：Lush UI → Lush Host → lushd
+默认本机地址是 `http://127.0.0.1:4318`。本机也需要登录，缺少 `web.json` 时拒绝启动，**没有默认账号或首次设置页**。此命令用于无项目绑定的全局入口；单项目启动顺序见[部署步骤](docs/deployment/agent-guide.md#2-启动)。
 
-浏览器展示并发送带项目身份的请求；Host 负责登录、登记、设备设置和来源转发；每 canonical 项目一个 lushd 持有 SQLite、Worker、调度和 Git 事实。Host 不跨项目调度。项目独立浏览器标签，关闭页面不停止后台，见[核心架构](docs/core-architecture.md)。
+### 2. 打开项目，提出一个小目标
 
-### 一次配置，同设备项目复用
+在工作台的「项目管理」登记并打开项目目录，在项目页选择「新建工作」。第一次可以要求整理 README 中的运行步骤：范围小、容易检查，也能体验完整交付过程。教程提供了[可直接改写的任务示例](docs/getting-started.md#3-提交第一个小任务)。
 
-技术配置和偏好设备唯一，Worker 可保存完整显式运行参数，项目数据与执行仍隔离。旧项目配置只[显式预检迁移](docs/device-settings.md)，不自动覆盖。全局可选择[Agent 能力](docs/agent-capabilities.md)，关闭不等于撤销权限或中断已有工作。
+### 3. 审阅后再合并、验收
 
-### 人类把关：Agent 不是沙箱
+查看 Worker 的结果、实际改动和验证记录；需要调整时用「追加输入」。确认本轮成果后合并；不再需要继续开发时再验收。**验收会归档并回收工作区和本地分支，保留运行历史**，不是再让 AI 做一次质量检查。
 
-项目绑定隔离 Lush 的事实与工作区，不隔离操作系统权限；Agent 使用当前用户权限。这是可信用户工具，不是多用户沙箱。
+用户新建的指令默认不自动合并；可以另行授权自动化。第一次建议保留手动审阅流程，详见[指令交付流程](docs/task-flow.md)。
 
-## 一条输入怎么走
+## 运行在哪里，保存在哪里
 
-主输入可暂存、条件发射或仅创建 Worker；明确的管理输入使用隔离管理能力。Agent 等待消息或决定时静息，下一轮继续同一 Worker。关键选择由 Notice 提问，补充需求追加给现有 Worker。
+浏览器是操作界面，Host 提供登录和项目入口，每个项目各有一个 `lushd` 后台处理开发工作。项目、Git、Agent 和工作区位于后台所在机器；浏览器可以在另一台机器上访问。
 
-指令默认由你请求合并或启用自动合并；派生 child 默认自动交付，父 runtime 在安全点串行处理。合并后保留现场供继续开发；**验收即归档**，安全回收开发资源、保留历史，脏现场和未处理需求阻止验收。完整操作见[指令流程](docs/task-flow.md)和[历史输入与暂存](docs/input-history.md)，不需要逐个操作 child。
-
-## 部署方式
-
-在 LushCode 源码目录执行 `bun run lush host start`，浏览器打开工作台，再登记／打开项目。Host 本机也必须登录；缺少对应 `web.json` 时拒绝启动，无默认账号。v2 默认回环，公网需显式授权与项目白名单。
-
-远程 Host、SSH 转发、域名、证书和防火墙由用户配置，Lush 不管理隧道。HTTP 会暴露明文传输风险，推荐 HTTPS 或用户自建 SSH 隧道。安装、认证与验证步骤见[部署索引](docs/deployment/README.md)。
-
-## 部署文档：用户与 Agent 各一份
-
-[部署索引](docs/deployment/README.md)按本机、远程、WSL2 提供配套说明：用户版解释方案，Agent 版指导检查、配置与验收。未知选择先确认，不默认迁移、开放公网或调用付费模型。
+- 项目状态保存在项目自己的 `.lush/`，不要复制到另一项目或把删除它当作排错办法。
+- 模型来源、Agent 配置等设备设置可供同设备项目复用；项目工作和历史仍彼此隔离。
+- 关闭浏览器不会停止后台。Host 和项目后台是独立进程，更新时须分别核对，不靠刷新页面替代安全重启。
+- 远程网络由你配置；Lush 不管理 SSH 隧道，也不提供分布式执行节点。远程访问推荐 HTTPS 或自行建立的 SSH 隧道。
 
 ## 接下来读什么
 
-- [文档总览](docs/README.md)：按问题找入口，不要求顺序通读。
-- [指令流程](docs/task-flow.md)：创建、追加、交付与验收。
-- [接口参考](docs/reference/README.md)：CLI、RPC 与 HTTP。
-- [核心 API 与历史兼容](docs/engineering/core-api.md)：当前公开入口、退休能力和数据保护。
-- [贡献指南](docs/contributing/README.md)：验证责任与文档维护。
+- [新手教程](docs/getting-started.md)：概念、首次操作、结果检查和常见卡点。
+- [文档导航](docs/README.md)：按你现在要做的事寻找说明。
+- [指令交付流程](docs/task-flow.md)：追加开发、合并与验收的进阶说明。
+- [CLI 与接口参考](docs/reference/README.md)：管理入口是 `lush`，Worker 协作入口是 `lushw`；从源码运行统一使用 `bun run lush …` / `bun run lushw …`。
+- [核心架构](docs/core-architecture.md)与[贡献指南](docs/contributing/README.md)：了解或修改 Lush 本身。daemon 与 CLI 使用 JavaScript / SQLite / Unix socket，无第三方运行时依赖。

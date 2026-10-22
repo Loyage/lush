@@ -1,22 +1,72 @@
 # 一条指令输入如何交付
 
-本文记录 Worker 中心输入与交付的设计细节。当前可用命令及已下线功能以[核心 API 收敛](engineering/core-api.md)为准。
+本文面向已经完成首次练习、需要继续开发与交付的用户，说明指令从提交到归档的流程。第一次使用请先读[新手教程](getting-started.md)；精确接口与旧版本边界见[核心 API](engineering/core-api.md)。
+
+阅读路线：[项目概览](../README.md) → [新手教程](getting-started.md) → **指令交付流程（本文）**。
 
 ## 发送与执行
 
-Web 中尚未决定执行的想法可先按 Ctrl/⌘+S 暂存，Enter 换行；暂存不创建 Worker、不调用 Agent。在「历史输入」中可搜索原始指令、编辑暂存并逐条发射，见[历史输入与暂存](input-history.md)。
+### 选择新建还是追加
 
-1. `lush order '目标'` 或 Web「发射」/ Ctrl/⌘+Enter 可靠挂载这一条输入，不保证立即有 Worker；Ctrl/⌘+Shift+Enter 同样直接发射；条件发射仅在草稿详情主动展开设置后使用。条件全部满足且父 runtime 真正空闲、安全可写时才创建并开始独立 Worker，保留原话与引用，**不先运行 planner、快速路由或 Plan Compiler**。显式 API start:false 仅创建路径仍保留兼容；详见[条件发射](engineering/conditional-emission.md)。
-2. CLI 未指定父时使用当前本地分支，Web 默认 main，可显式选择父。main 有静息根 Worker，其它分支须先显式绑定所有者（用户 RPC `branch.bind {branch,commit}`；无 CLI）。从实际创建时父的已提交 tip 建工作区；未提交改动不会被带入。
-3. 指令 Agent 可亲自完成，也可派子 Worker。子 Worker 各有自己的分支；新 child 默认预约合入直接父 Worker。安全结束、后代收敛、工作区干净且有提交时，由父 Worker 自有队列的 runtime 串行 Squash，不额外调用父 Agent；无提交的干净 child 只交付结果，不产生合并提交。分歧回源 Worker 合入固定父提交并测试，不允许 Agent 在父分支擅自解决或 rebase。
-4. Agent 每轮返回后，指令 Worker 通常静息等待下一条消息或子Worker结果；`waiting` 不继续运行 Agent，也不表示失败或代码已合并。直接问问题也走指令 worktree。只想了解、没有代码改动的回答也由用户用 `lush worker accept ID` 验收：保留答案并以 `completed` / `integration='none'` 结算，无需先请求合并，区别于放弃工作。Web 详情与 Worker 图共用一个「验收」按钮：验收表示不再有异议，同时归档并安全回收 worktree/ref，保留答案与运行历史；脏工作区阻止验收。原 `worker.resolve` 仅保留为指令验收的用户专属兼容入口，统一安全检查、验收审计与 Hook。
+- **新目标：**在项目页选择「新建工作」，确认父分支后提交。Web 默认 main；CLI 未指定父时使用当前本地分支，两者不能混为一谈。非 main 分支需要先有明确的所有者，接口见[分支参考](reference/rpc/branches.md)。
+- **原目标的补充或修正：**从对应 Worker 选择「追加输入」，继续同一份工作现场，不改写最初的指令。
+- **尚未决定执行：**选择「保存草稿」，以后在「草稿」页继续。保存不创建 Worker、不调用 Agent；「历史输入」用于找回已经发送的原话。
+
+输入框中 Enter 换行，Ctrl/⌘+S 保存，Ctrl/⌘+Enter 提交。条件执行在草稿详情配置；输入、条件、收据与失败保护以[历史输入与草稿](input-history.md)为准。
+
+### 提交不等于立即开始
+
+提交先可靠保存执行授权，条件全部满足且父分支安全可写后，才实际创建并启动 Worker。以原提交收据判断进展；还没有 Worker 时不要因页面没跳转而重复提交。
+
+Worker 从**实际创建时父分支的已提交版本**建立自己的分支与 worktree，不复制未提交内容，也不先运行一个独立的规划 Agent。它可以亲自完成任务，或在允许委派时创建子 Worker。
+
+Agent 每轮返回后可以等待问题答复、子成果或新消息，等待不是持续调用模型，也不表示失败或代码已合并。追加消息在两轮调用之间交付；合并冻结期间合法输入可先保存，等解除冻结并安全退出本轮后再投递。“已保存”不表示 Agent 已阅读。暂停中的 Worker 仍需显式开始／继续。
+
+### 子 Worker 如何交付
+
+Agent 派出的子 Worker 各有工作区，默认自动向**直接父 Worker**交付。正常安全收尾、后代结算、工作区干净且有提交时，系统串行合入；无新提交的回答只交付结果，不虚构合并。
+
+父 Agent 必须检查子成果与验证，并完成必要的集成；默认保留子 Worker 供继续追加需求，尽量随用户验收父 Worker 一并回收。不要求用户逐个合并或验收派生 child，也不把用户独立创建的指令纳入这种自动授权。
 
 ## 合并预约与交付
 
-用户直接创建的指令默认关闭自动合并：可在开发中先读 `lush worker automation show ID` 的真实 revision，再用 `lush worker automation enable ID auto-merge --revision REV` 开启跨轮 hook，也可在就绪后用 `lush worker merge request ID` 显式请求本轮交付。真实安全点固定源提交，由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改变父子关系。请求按入队顺序、代码依赖优先；取得父执行位后才固定父基线。分歧回原 Worker 在源侧修复，期间保留父执行位；挂起释放，恢复重新排队并固定新基线。失败保留分支与提交。完整协议见[分支合并](engineering/merge.md)。历史 version 1 固定提交人工确认及旧 version 2 merge 身份仅按兼容路径处理，不猜父身份、不删历史。
+### 审阅本轮，再授权合并
 
-本轮落地后，原 Worker 保持原父子关系并进入非终态「待验收」（`awaiting_acceptance`），保留分支/worktree/会话。用户追加 `lush worker message ID '新要求'` 继续当前 Worker；新提交再次请求交付。直接父 Agent 给 child 追加则用 `lushw children message ID '新要求'`。用户用 `lush worker accept ID` 验收自己的指令；派生 child 由直接父 Agent 检查成果但默认保留供追加需求，尽量随用户验收父 Worker 一并安全验收为 completed，无需用户逐个验收；不连带验收用户独立创建的指令。无代码改动的 child 也先交付结果、保留现场，不因本轮检查通过就回收。确认不调用 Agent，但**验收即归档**：安全回收分支子树的 worktree/ref，保留 Worker、会话、消息、结果和审计历史。失败、未决问题、未读输入、脏现场与未交付改动不能视为成功；资源回收失败保留诊断，可显式续办验收，不自动重放未知删除。失败／取消现场另用「清理资源」，不伪装为成果验收。`completed` 的历史结算、`integration='merged'` 的代码落地、实际资源回收仍各有事实依据，不能只凭状态猜资源已删除；进入直接父分支也不代表已经进入 main。见[统一验收](engineering/worker-acceptance.md)。
+先读结果、实际改动和验证记录。不满意时继续追加，不要用验收代替反馈。有代码改动时，确认本轮结果与目标父分支后，可选两种方式：
 
-父分支前进时，`lush worker sync start ID` 在源侧安全吸收父提交：无冲突程序直接完成，冲突只返回诊断。另用 `lush worker sync resolve ID` 才调用 Agent 解决固定提交的冲突并测试；不会推进父分支。未归档且保留分支/worktree 的历史 completed/merged 指令/child 可显式 `lush worker reopen ID` 恢复待验收，再追加输入；明确用户验收或父确认过的新Worker不误重开，已归档Worker不重建。详见[持续迭代](engineering/task-iteration.md)。
+| 方式 | 含义 |
+| --- | --- |
+| 本轮手动合并 | 成果就绪后使用「合并」；授权本轮交付，不改变后续轮次的自动合并设置 |
+| 开启自动合并 | 预先授权达到安全条件时交付；设置跨轮保留，不等于已经请求或已经合并 |
 
-审阅时从 `lush worker show ID` 和 Worker 图（RPC `worker.diff` 提供只读改动视图）查看固定提交、未提交改动、消息与阻塞原因；失败工作区与历史按安全规则保留。[RPC Worker 参考](reference/rpc/tasks.md)列出详细准入和异常处理。
+用户直接创建的指令默认关闭自动合并，派生 child 默认开启且锁定。自动化配置及更高的自动验收授权见[自动化说明](hooks.md)。自动化不代替质量审查。
+
+系统在真实安全点固定成果，按父分支的队列处理；向目标写入 Squash 提交（把本次成果汇成一条提交）。包括 main 在内，发出授权后无需再找父 Agent 批准。**请求被接收、排队、已合并是不同事实**，应以本轮实际落地和目标分支为准。
+
+存在分歧时，系统唤醒原 Worker，在它自己的工作区合入固定父提交、修复并验证，不让它直接改父分支。需要决策时先回答问题；失败或阻塞会保留原因和现场，不要手工删除资源绕过检查。排队、挂起与历史协议细节见[合并契约](engineering/merge.md)。
+
+### 合并以后，继续还是结束
+
+合并后通常进入「待验收」，保留工作区与会话。仍要调整时，向原 Worker 追加要求；新一轮结果需要重新审阅和交付，旧的合并记录不证明新改动已经进入父分支。子成果进入直接父分支，也不等于进入 main。
+
+父分支前进不等于当前 Worker 已自动同步到最新版本。需要吸收父改动时使用受检的同步操作；无冲突可由程序完成，冲突处理需另行授权 Agent。具体操作与历史恢复限制见[持续迭代](engineering/task-iteration.md)，不要手动切到父分支替 Worker 修复。
+
+确认工作不再有异议后，使用「验收」：**验收即归档并安全回收 worktree 与本地分支，保留结果、会话和运行历史**。验收不是质量评审，不撤销已合并代码；正常归档后有新需求请另发指令。只回答问题、没有代码提交的 Worker 无需先合并，也应在答案确认后验收。
+
+未处理输入、待决、活动工作、脏现场、未交付改动等会阻止验收。资源回收失败时保留诊断，按提示显式续办；失败／取消工作的「清理资源」不是成功验收。精确保留范围与安全门见[统一验收](engineering/worker-acceptance.md)。
+
+## 需要命令行时
+
+普通用户使用管理入口 `lush`；`lushw` 是运行中的 Worker 协作入口，不是用户管理命令的替代品。下列命令在 Lush 源码目录运行，将 `/absolute/path/to/project` 与 `ID` 替换为真实项目路径和 Worker 标识：
+
+```bash
+bun run lush --project /absolute/path/to/project order '明确的目标、范围与完成标准'
+bun run lush --project /absolute/path/to/project worker show ID
+bun run lush --project /absolute/path/to/project worker message ID '补充要求'
+bun run lush --project /absolute/path/to/project worker merge request ID
+bun run lush --project /absolute/path/to/project worker accept ID
+```
+
+这是按需选用的操作示例，**不要整段连续执行**：先查看与审阅，确实要合并时才请求，不再需要继续开发时才验收。自动化 revision、同步与异常处理参数见[CLI 与 RPC 参考](reference/api.md)及[Worker 参考](reference/rpc/tasks.md)。
+
+[← 新手教程](getting-started.md) · [返回文档导航](README.md)
