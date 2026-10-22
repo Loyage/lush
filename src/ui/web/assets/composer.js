@@ -55,7 +55,7 @@ export function toggleDraftPanel(force) { ui.draftPanelOpen = force ?? !ui.draft
 export function parentTasks(tasks = []) {
   return tasks.filter(task => task.execution_retired !== true && ['main', 'owner', 'order'].includes(workerKind(task)) && task.branch
     && ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused'].includes(task.status)
-    && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && !task.freeze
+    && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && (!task.freeze || task.freeze.creation_commit)
     && !isHistoricalDelivery(task) && task.reservation?.status !== 'requested').sort((a, b) => a.id - b.id);
 }
 function destination() {
@@ -97,7 +97,7 @@ export function renderParentOptions() {
     select.dataset.signature = signature;
     const options = parents.map(task => {
       const option = document.createElement('option'); option.value = task.branch === 'main' ? '' : task.branch;
-      option.textContent = `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}${task.freeze ? ' · 冻结，可保存/提交等待' : ''}`; return option;
+      option.textContent = `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}${task.freeze?.creation_commit ? ' · 可从固定提交新建' : task.freeze ? ' · 冻结，可保存/提交等待' : ''}`; return option;
     });
     if (entry?.branch && !parents.some(task => task.branch === entry.branch)) {
       const missing = document.createElement('option'); missing.value = entry.branch === 'main' ? '' : entry.branch; missing.textContent = `${entry.branch}（待核验，不能静默改投）`; options.push(missing);
@@ -166,7 +166,9 @@ export function syncComposer() {
   $('composer-mode-target').setAttribute('data-help', `本条去向：${destinationText}。更改去向请进入详细编辑；不会随当前阅读页面改变。`);
   $('composer-mode-target').setAttribute('tabindex', '0');
   $('composer-mode-behavior').textContent = target.reason || 'Enter / Shift+Enter 换行 · Ctrl/⌘+S 保存 · Ctrl/⌘+Enter 提交；保存与切换不执行。';
-  const status = target.reason || target.queueText || target.wait || target.freeze?.reason || (followup && target.task?.status === 'paused' && !waitingFirstInput(target.task) ? '暂停中，需开始 / 继续后处理' : '');
+  const status = target.reason || target.queueText || target.wait || (target.freeze?.creation_commit
+    ? '可从 main 固定提交创建独立 Worker；不含正在解分歧的成果，后续合并仍须排队。' : target.freeze?.reason)
+    || (followup && target.task?.status === 'paused' && !waitingFirstInput(target.task) ? '暂停中，需开始 / 继续后处理' : '');
   $('composer-target-status').hidden = !status; $('composer-target-status').textContent = status;
   input.disabled = missingTarget; input.placeholder = management ? '描述希望管家处理的事项…' : followup ? '补充要求或反馈…' : '描述希望完成的工作…';
   input.setAttribute('aria-label', management ? '管理指令正文' : followup ? '追加指令正文' : '工作指令正文');

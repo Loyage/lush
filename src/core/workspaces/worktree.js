@@ -60,7 +60,7 @@ export const methods = {
       const targetWorkspace = await this.workspaceForBranch(target);
       const source = targetWorkspace ? await this.porcelain(targetWorkspace) : '';
       check(!workspace || !fs.existsSync(workspace), `input workspace already exists: ${workspace}; inspect it before submitting`);
-      guard?.(); // Final synchronous admission inside the serialized Git writer boundary.
+      guard?.(commit); // Final synchronous admission of the exact snapshot inside the Git writer boundary.
       this.store.recordBranch({ branch, parent: target, created_from_commit: commit, worktree: workspace });
       try {
         fs.mkdirSync(path.dirname(workspace), { recursive: true });

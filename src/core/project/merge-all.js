@@ -29,6 +29,16 @@ export default {
     return true;
   },
 
+  /** Snapshot creation is not a parent write. Only known source-side repair on main permits it. */
+  assertWorkerCreationAllowed(branch, action = 'create a Worker', commit = null) {
+    const info = frozenFor(this.store, branch);
+    if (!info?.creation_commit) return this.assertBranchWritable(branch, action);
+    check(!this.workerDeleteIds?.size, `Worker deletion is in progress; cannot ${action}`);
+    check(commit === null || commit === info.creation_commit,
+      'main moved from the fixed repair baseline; cannot create a Worker from a different commit');
+    return true;
+  },
+
   /** 事件挂在「这条分支属于谁」上：有创建它的任务记在任务上，输入锚点记在 planner 上，否则项目级。 */
   branchHost(branch) {
     const record = this.store.branch(branch);

@@ -191,9 +191,12 @@ export default {
     assertTaskNotSyncing(this, parent.id);
     const exclusive = this.inputExclusiveReason(parent.id, draftId);
     if (exclusive) return exclusive;
+    const freeze = this.branchFreeze(parent.branch);
+    const snapshotAllowed = Boolean(freeze?.creation_commit);
     if (this.running.has(parent.id) || ['running','queued','paused','awaiting'].includes(parent.status)
-      || this.commandHookRunning?.has(parent.id) || this.taskMergeBusy?.has(parent.id)
-      || this.activeTaskMerge(parent.id) || this.branchFreeze(parent.branch) || this.questionPending(parent.id)) return '父 Worker 正忙，等待可创建安全点';
+      || this.commandHookRunning?.has(parent.id) || this.questionPending(parent.id)
+      || (!snapshotAllowed && (this.taskMergeBusy?.has(parent.id) || this.activeTaskMerge(parent.id) || freeze)))
+      return '父 Worker 正忙，等待可创建安全点';
     return null;
   },
 

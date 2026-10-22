@@ -30,14 +30,15 @@ export default {
       const parentId = options.parent ?? source?.parent_id ?? (await this.ensureMainTask()).id;
       const parent = this.store.task(id(parentId));
       const sourceIsParent = source?.id === parent.id;
-      const admit = () => {
+      const admit = (commit = null) => {
         this.assertWritable('create a Worker');
         const live = this.store.task(parent.id);
         assertTaskNotSyncing(this, live.id); assertTaskAncestorsOpen(this, live);
         check(['main','owner','order','child'].includes(live.task_kind) && live.branch === parent.branch
           && live.branch && !TERMINAL.has(live.status) && !waitingFirstInput(live), 'parent Worker is not available for new work');
         check(!this.store.branch(live.branch) || this.store.branch(live.branch).status === 'active', 'parent branch is archived');
-        this.assertBranchWritable(live.branch, 'create a Worker');
+        if (source) this.assertBranchWritable(live.branch, 'fork a Worker');
+        else this.assertWorkerCreationAllowed(live.branch, 'create a Worker', commit);
         check(!this.inputExclusiveReason(live), this.inputExclusiveReason(live));
         if (source) {
           const current = this.store.task(source.id);
@@ -67,7 +68,7 @@ export default {
         catch { check(false, 'fork 无法继承会话：来源提交的 Pi 检查点无效或不可用；请改用空白 spawn，或选择有有效检查点的来源。'); }
       }
       const rule = await readInputRule(this.workspaces, this.config.project, commit);
-      admit();
+      admit(commit);
       const creation = { mode, source_id: source?.id ?? null, source_worker_number: source?.worker_number ?? null,
         commit, session_inherited: Boolean(pointer) };
       const task = this.store.transaction(() => {
@@ -88,7 +89,7 @@ export default {
       });
       try {
         await this.workspaces.forkTaskUnsafe(task, parent.branch, commit);
-        admit();
+        admit(commit);
         if (rule !== null) saveInputRule(this.config.home, task.id, rule);
         this.store.event(task.id, 'task.manual_created', creation);
         if (runProfile) this.store.event(task.id, 'task.configured', { ...profileEvent(runProfile), profile_override: true,

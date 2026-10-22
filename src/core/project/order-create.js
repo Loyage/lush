@@ -70,7 +70,7 @@ export default {
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const target = branch ?? await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD')
       .catch(() => { throw new Error('select a local parent branch before sending from detached HEAD'); });
-    if (!defer) this.assertBranchWritable(target, 'create a new worker on it');
+    if (!defer) this.assertWorkerCreationAllowed(target, 'create a new worker on it');
     if (target === 'main') await this.ensureMainTask();
     const owner = this.store.all("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say') ORDER BY id", target);
     check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Worker before order`);
@@ -80,19 +80,20 @@ export default {
     assertTaskNotSyncing(this, parent.id);
     check(!TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} has ended; select an active parent Worker`);
     assertTaskAncestorsOpen(this, parent);
-    if (defer && this.branchFreeze(target))
+    const freeze = this.branchFreeze(target);
+    if (defer && freeze && !freeze.creation_commit)
       return this.deferOrderHook(parent, content, normalized, runProfile, start, draft, source);
-    this.assertBranchWritable(target, 'create a new worker on it');
+    this.assertWorkerCreationAllowed(target, 'create a new worker on it');
     assertLocalWorker(this, parent.id);
     // Recheck inside the Git writer queue, not only before waiting to acquire it.
-    const { inputId, anchor } = await this.anchorInput(target, () => {
+    const { inputId, anchor } = await this.anchorInput(target, commit => {
       this.assertWritable('send this order');
       assertLocalWorker(this, parent.id);
       check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
       creationGuard?.();
       this.assertInputParent(parent.id, target);
       assertTaskNotSyncing(this, parent.id);
-      this.assertBranchWritable(target, 'create a new worker on it');
+      this.assertWorkerCreationAllowed(target, 'create a new worker on it', commit);
     });
     let ruleTaskId = null;
     try {
@@ -106,7 +107,7 @@ export default {
         const current = this.store.task(parent.id);
         check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
         creationGuard?.();
-        this.assertBranchWritable(target, 'create a new worker on it');
+        this.assertWorkerCreationAllowed(target, 'create a new worker on it', anchor.commit);
         if (buffered) this.assertInputParent(draft.parent_id, target);
         check(!TERMINAL.has(current.status) && current.branch === target, 'parent worker changed while creating the worktree');
         assertTaskAncestorsOpen(this, current);

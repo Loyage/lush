@@ -61,10 +61,15 @@ test('real composer resumes, updates and emits an order draft through HTTP/RPC a
   const restore = registerNavigation({ refresh: async () => {} });
   try {
     dom.localStorage.clear(); fixture.project.kick = () => {}; fixture.project.scheduleInputEmissions = () => {};
+    const repair = (await fixture.project.order('source repair', 'main', [], null, false)).task;
+    fixture.store.update(repair.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', queue_protocol: 1,
+      status: 'resolving', parent_id: repair.parent_id, baseline: repair.base_commit }) });
     const refs = [{ version: 1, kind: 'text', target: {}, label: '快照', quote: '引用原文', location: {}, captured_at: '2026-01-01T00:00:00.000Z' }];
     const draft = await action('draft.add', { content: '原始暂存', references: refs, branch: 'main' }, { refresh: false });
     resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; editorDom(); await initComposer();
     await selectComposerMode('order'); requests.length = 0;
+    expect(ui.composerParents.find(row => row.branch === 'main').freeze.creation_commit).toBe(repair.base_commit);
+    expect(dom.node('input-parent').querySelectorAll('option').some(row => row.textContent.includes('可从固定提交新建'))).toBe(true);
     const input = dom.node('input');
     await input.onkeydown({ key: 'ArrowUp', preventDefault() {} });
     expect(currentEdit().saved).toMatchObject({ id: draft.id, revision: 1, references: refs });
@@ -119,6 +124,8 @@ test('real composer resumes, updates and emits an order draft through HTTP/RPC a
     expect(fixture.store.all('SELECT * FROM inputs WHERE content=?', '原位续写后的正文！最终')).toHaveLength(1);
     expect(fixture.project.inputGet('input', receipt.input_id).references[0].quote).toBe('引用原文');
     expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
+    expect(fixture.store.task(receipt.dispatch.worker_id).base_commit).toBe(repair.base_commit);
+    fixture.store.update(repair.id, { reservation: null });
 
     // Extend this main flow rather than add a mock-only UI case: new entrance ->
     // real HTTP submit -> restricted Provider/CLI bridge -> same draft + receipt.

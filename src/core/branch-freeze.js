@@ -79,7 +79,14 @@ export function branchFreeze(store) {
         attempt_id: request.attempt_id ?? null,
         reason: `Worker ${workerLabel(task)} 的交付由父Worker队列串行处理（${request.status}）` };
       add(task.branch, info);
-      if (['executing','resolving','blocked'].includes(request.status)) add(task.target_branch, info);
+      if (['executing','resolving','blocked'].includes(request.status)) {
+        // Source-side repair keeps main stable but does not write its checkout.
+        // New independent work may snapshot this exact baseline, never an unknown landing.
+        const creationCommit = task.target_branch === 'main' && task.branch !== 'main'
+          && request.status === 'resolving' && !request.landing_receipt
+          && /^[a-f0-9]{40,64}$/.test(request.baseline ?? '') ? request.baseline : null;
+        add(task.target_branch, { ...info, ...(creationCommit ? { creation_commit: creationCommit } : {}) });
+      }
     } else add(task.target_branch, { kind: 'delivery', task_id: task.id, task_worker_number: task.worker_number, commit: request.commit ?? null,
       reason: `历史 Worker ${workerLabel(task)} 的固定提交交付请求尚未结算` });
   }

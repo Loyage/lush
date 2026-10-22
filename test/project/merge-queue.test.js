@@ -1,10 +1,23 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture, repo, git, until } from '../helpers.js';
+import { fixture, repo, git, until, gate } from '../helpers.js';
+import { Dispatcher } from '../../src/rpc/dispatcher.js';
+import { RPCServer } from '../../src/rpc/server.js';
+import { UIClient } from '../../src/ui/client.js';
+import { createSignal } from '../../src/signal.js';
 
 test('child auto-delivery, explicit parent Squash and batch acceptance preserve code and reclaim worktrees', async () => {
-  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd }) {
+  const repairGate = gate(); let repairing = false;
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd, api }) {
+    const booking = JSON.parse(api.store.task(task.id).reservation ?? 'null');
+    if (booking?.status === 'resolving') {
+      repairing = true; await repairGate.promise;
+      await git(cwd, 'merge', '--no-edit', booking.baseline);
+    } else if (task.goal === 'parallel feature') {
+      fs.writeFileSync(path.join(cwd, 'parallel.txt'), 'independent code\n');
+      await git(cwd, 'add', 'parallel.txt'); await git(cwd, 'commit', '-m', 'parallel feature');
+    }
     if (task.task_kind === 'child') {
       fs.writeFileSync(path.join(cwd, 'feature.txt'), 'delivered code\n');
       await git(cwd, 'add', 'feature.txt'); await git(cwd, 'commit', '-m', 'child feature');
@@ -12,6 +25,8 @@ test('child auto-delivery, explicit parent Squash and batch acceptance preserve 
     return 'reviewed result';
   } });
   f.project.stopping = true; await repo(f.root);
+  const rpc = new RPCServer(f.config.socket, new Dispatcher(f.project, createSignal(), {})); await rpc.start();
+  const client = new UIClient(f.config);
   try {
     const parent = (await f.project.order('collect feature')).task;
     f.store.update(parent.id, { status: 'waiting' });
@@ -23,11 +38,43 @@ test('child auto-delivery, explicit parent Squash and batch acceptance preserve 
     expect(await git(parent.workspace, 'show', 'HEAD:feature.txt')).toBe('delivered code');
     expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);
     expect(fs.existsSync(child.workspace)).toBe(true);
+    // A real divergent delivery holds main while independent Worker creation uses its pinned baseline.
+    fs.writeFileSync(path.join(f.root, 'main.txt'), 'new main code\n');
+    await git(f.root, 'add', 'main.txt'); await git(f.root, 'commit', '-m', 'advance main');
+    const repairBaseline = await git(f.root, 'rev-parse', 'main');
     await f.project.reserveTask(parent.id, 'merge');
-    await until(() => f.store.task(parent.id).integration === 'merged', 12000);
+    await until(() => repairing, 12000);
+    expect(f.project.branchFreeze('main').creation_commit).toBe(repairBaseline);
+    const graph = await client.request('worker.graph', { details: false });
+    expect(graph.nodes.find(row => row.id === parent.parent_id).freeze.creation_commit).toBe(repairBaseline);
+    expect(() => f.project.assertBranchWritable('main')).toThrow('frozen');
+    expect(() => f.project.assertWorkerCreationAllowed(parent.branch)).toThrow('frozen');
+    expect(() => f.project.assertWorkerCreationAllowed('main', 'snapshot', baseline)).toThrow('fixed repair baseline');
+    const booking = f.store.task(parent.id).reservation;
+    f.store.update(parent.id, { reservation: JSON.stringify({ ...JSON.parse(booking), status: 'blocked' }) });
+    expect(() => f.project.assertWorkerCreationAllowed('main')).toThrow('frozen');
+    f.store.update(parent.id, { reservation: booking });
+    const parallel = (await client.request('worker.create', { mode: 'spawn' })).task;
+    expect(parallel).toMatchObject({ status: 'paused', input_id: null, base_commit: repairBaseline, target_branch: 'main' });
+    await client.request('worker.message', { id: parallel.id, body: 'parallel feature' });
+    const emitted = await client.request('input.emit', { content: 'independent order', branch: 'main', client_request_id: 'repair-snapshot' });
+    await until(() => f.project.inputEmissionResult(emitted.draft_id).dispatch.state === 'succeeded', 12000);
+    const independent = f.store.task(f.project.inputEmissionResult(emitted.draft_id).dispatch.worker_id);
+    expect(independent.base_commit).toBe(repairBaseline);
+    await until(() => f.store.task(parallel.id).status === 'waiting' && f.store.task(independent.id).status === 'waiting', 12000);
+    await f.project.reserveTask(parallel.id, 'merge');
+    await until(() => JSON.parse(f.store.task(parallel.id).reservation).status === 'requested', 12000);
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(repairBaseline);
+    expect(f.project.activeTaskMerge(parent.parent_id).id).toBe(parent.id);
+    expect(f.store.task(parent.id).reservation).toBe(booking);
+    repairGate.resolve();
+    await until(() => f.store.task(parent.id).integration === 'merged' && f.store.task(parallel.id).integration === 'merged', 12000);
     expect(await git(f.root, 'show', 'main:feature.txt')).toBe('delivered code');
-    expect(await git(f.root, 'rev-list', '--count', `${baseline}..main`)).toBe('1');
+    expect(await git(f.root, 'show', 'main:parallel.txt')).toBe('independent code');
+    expect(await git(f.root, 'rev-list', '--count', `${repairBaseline}..main`)).toBe('2');
     expect(f.store.task(parent.id).status).toBe('awaiting_acceptance');
+    await f.project.acceptTask(parallel.id);
+    await f.project.acceptTask(independent.id);
     const temporary = f.project.createTemporaryAutomation({ hook: { name: '验收告知', trigger: 'worker.accepted', mode: 'persistent', enabled: true,
       actions: [{ type: 'notify', title: 'accepted-hook', body: '保留验收触发与审计' }] },
       expected_revisions: { registry: f.project.hooksList().registry.revision }, client_request_id: 'acceptance-mounts' });
@@ -69,5 +116,5 @@ test('child auto-delivery, explicit parent Squash and batch acceptance preserve 
     }
     expect(f.project.reclaimTemporaryAutomation({ id: temporary.template_id,
       expected_revision: f.project.hooksList().registry.revision, client_request_id: 'accepted-reclaim' }).reclaimed).toBe(true);
-  } finally { await f.close(); }
+  } finally { repairGate.resolve(); await rpc.close(); await f.close(); }
 });
