@@ -6,7 +6,6 @@ import { show } from './messages.js';
 import { taskTitle, isHistoricalDelivery } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { draftLabel } from './draft-label.js';
-import { chooseCreationProfile } from './creation-profile-dialog.js';
 import { workerKind } from './worker-kind.js';
 import { waitingFirstInput } from './worker-create.js';
 import { iterationBlocker } from './render-iteration.js';
@@ -19,37 +18,8 @@ import { attachComposerViewport } from './composer-viewport.js';
 import { attachComposerResize } from './composer-resize.js';
 import { initComposerWorkspace, currentEdit, selectComposerMode, paintComposerWorkspace, finishComposerEdit, collapseComposer, rememberComposer, navigateComposerDraft, activateComposerDraft, newComposerEntry, openComposer, retargetComposerEntry, applyEntry } from './composer-workspace.js';
 
-export const RUN_SETTINGS_HELP = '设置本条输入的运行参数；仅提交时生效，不修改项目默认，不调用 Agent。';
-let textEditor = null, disposeViewport = null, disposeResize = null, elevationControl = null, runSettingsButton = null;
+let textEditor = null, disposeViewport = null, disposeResize = null, elevationControl = null;
 let elevationReceipts = null, receiptKey = null, cacheScheduled = false;
-export function runSettingsLabel() {
-  return `运行设置：${ui.composerManagement ? ui.composerManagementProfile ? '本条已选择' : '管理默认' : ui.composerProfile ? '本条已选择' : '项目默认'}`;
-}
-export function paintRunSettings() {
-  if (!runSettingsButton) return;
-  runSettingsButton.textContent = runSettingsLabel(); runSettingsButton.hidden = Boolean(ui.composerAppendTarget);
-}
-export async function openComposerRunSettings() {
-  const editing = currentEdit(), view = ui.view, management = ui.composerManagement;
-  const current = () => currentEdit() === editing && ui.view === view && ui.composerManagement === management && !ui.inputEditor?.busy;
-  if (!current()) return;
-  if (management) {
-    const settings = await api('/api/agent/config'); if (!current()) return;
-    const { createManagementProfileForm } = await import('./management-profile-form.js');
-    const { formDialog } = await import('./dialog.js');
-    if (!current()) return;
-    const form = createManagementProfileForm(settings, { ownsPage: current }); await form.ready;
-    if (!current()) return;
-    const confirmed = await formDialog({ title: '管理指令的运行设置', content: form.node, confirmLabel: '使用这份管理设置',
-      onConfirm: () => { const error = form.validate(); if (error) { show(error, 'error'); return false; } return current(); } });
-    if (confirmed && current()) ui.composerManagementProfile = form.collect();
-  } else {
-    if (!current()) return;
-    const chosen = await chooseCreationProfile({ profile: ui.composerProfile, ownsPage: current, title: '本条工作指令的运行设置' });
-    if (current() && chosen.changed) ui.composerProfile = chosen.profile;
-  }
-  rememberComposer(); syncComposer();
-}
 export function paintDraftPanel() { $('draft-panel')?.classList.toggle('open', Boolean(ui.draftPanelOpen)); }
 export function toggleDraftPanel(force) { ui.draftPanelOpen = force ?? !ui.draftPanelOpen; paintDraftPanel(); }
 export function parentTasks(tasks = []) {
@@ -173,9 +143,10 @@ export function syncComposer() {
   input.disabled = missingTarget; input.placeholder = management ? '描述希望管家处理的事项…' : followup ? '补充要求或反馈…' : '描述希望完成的工作…';
   input.setAttribute('aria-label', management ? '管理指令正文' : followup ? '追加指令正文' : '工作指令正文');
   const busy = Boolean(entry.flight || entry.operation), empty = !input.value.trim();
-  $('draft-commit').disabled = busy || empty || Boolean(target.reason) || management && managementPending().length > 0;
+  const profileIssue = ui.inputEditor?.profileIssue;
+  $('draft-commit').disabled = busy || empty || Boolean(target.reason || profileIssue) || management && managementPending().length > 0;
   $('draft-commit').textContent = conditional ? '按条件提交' : management ? ui.composerElevated && detailHost ? '核对本条提权指令' : '提交管理指令' : followup ? '提交追加' : '提交新工作';
-  const help = agentHelp(target.reason || (conditional ? '先保存，再授权此精确版本按条件提交；等待全部条件与安全准入，不保证立即执行。' : '先保存，再授权此精确版本提交；可靠接受不表示 Agent 已收到或执行完成。'));
+  const help = agentHelp(target.reason || profileIssue || (conditional ? '先保存，再授权此精确版本按条件提交；等待全部条件与安全准入，不保证立即执行。' : '先保存，再授权此精确版本提交；可靠接受不表示 Agent 已收到或执行完成。'));
   $('draft-commit').classList.add('agent-call'); $('draft-commit').setAttribute('data-help', help); $('input-send-help').setAttribute('data-help', help);
   $('input-buffer').hidden = $('input-buffer-help').hidden = false;
   $('input-buffer').disabled = busy || empty || missingTarget; $('input-buffer').textContent = '保存草稿';
@@ -183,7 +154,7 @@ export function syncComposer() {
   $('input-buffer').removeAttribute('data-help');
   $('composer-reset').hidden = !detailHost; $('input-history').hidden = $('input-drafts').hidden = !detailHost;
   if (elevationControl) elevationControl.root.hidden = !management || !detailHost;
-  textEditor?.sync(); paintRunSettings(); paintComposerWorkspace(); paintComposerDetails(); ui.inputEditor?.paint();
+  textEditor?.sync(); paintComposerWorkspace(); paintComposerDetails(); ui.inputEditor?.paint();
   const saved = entry.saved;
   $('composer-draft-status').hidden = false;
   const dirty = ui.inputEditor?.dirty;
@@ -254,13 +225,11 @@ export async function initComposer() {
     const editing = currentEdit();
     if (!ui.inputEditor.inDetail) await ui.inputEditor.detail();
     if (ui.composerIdentity !== identity || currentEdit() !== editing || !ui.inputEditor.inDetail) return;
-    const extras = $('input-form').querySelector('.unified-editor-extras'); extras.open = true;
+    const extras = $('input-form').querySelector('.unified-editor-references'); extras.open = true;
     (composerReferences().length ? $('composer-references') : extras).scrollIntoView?.({ block: 'nearest' });
-  }, 'ghost composer-reference-count', { help: '在详细编辑中查看本条引用及运行设置；不会提交或调用 Agent。' });
+  }, 'ghost composer-reference-count', { help: '在详细编辑中展开本条引用完整信息；不会提交或调用 Agent。' });
   referenceCount.id = 'composer-reference-count';
   $('composer-editor-tools').replaceChildren(textEditor.controls, referenceCount);
-  runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP }); runSettingsButton.id = 'composer-run-settings';
-  $('input-form').append(runSettingsButton);
   elevationControl = elevationChoice(checked => { ui.composerElevated = checked; syncComposer(); });
   $('composer-management-settings').replaceChildren(elevationControl.root);
   elevationReceipts?.root.remove(); elevationReceipts = null; receiptKey = null;

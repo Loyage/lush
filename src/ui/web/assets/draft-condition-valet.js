@@ -30,7 +30,7 @@ ${JSON.stringify(text)}
 
 /** Extends the existing session save flight; every other save/submit/leave sees
  * the same lock. The development draft is NOT consumed by management.submit. */
-export function createDraftConditionValet({ entry: getEntry, session, current, changed, composing = () => false }) {
+export function createDraftConditionValet({ entry: getEntry, session, current, changed, composing = () => false, prepare = async () => true }) {
   const node = el('section', undefined, 'draft-condition-valet');
   const summary = el('p', undefined, 'draft-condition-summary');
   const label = el('label', '用自然语言描述执行条件', 'draft-condition-label');
@@ -84,6 +84,7 @@ export function createDraftConditionValet({ entry: getEntry, session, current, c
     const flight = savedFlight.then(async saved => {
       if (!current()) return false;
       if (!value.attempt) {
+        if (!await prepare() || !current()) return false;
         value.attempt = { saved: { id: saved.id, draft_number: saved.draft_number, revision: saved.revision }, params: {
           instruction: draftConditionInstruction(saved, originalText, entry.profile), client_request_id: emissionRequestId(),
         } };

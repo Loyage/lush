@@ -355,7 +355,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       }
       state.editor?.textEditor?.dispose();
       ui.inputEditor.detach();
-      panel.replaceChildren(el('h2', draftLabel(record)), statusLine(record));
+      const metadata = el('div', undefined, 'input-metadata');
+      metadata.append(el('span', '未提交', 'badge b-neutral'), el('span', '创建于'), recordTime(record));
+      panel.replaceChildren(el('h2', draftLabel(record)), metadata);
       const controller = ui.inputEditor;
       const editor = { recordKey: keyOf(record), dirty: () => controller.dirty, save: () => controller.leave(),
         get busy() { return controller.busy; }, editKey: () => JSON.stringify([record.id, ui.composerEditRevision, ui.composerReferenceRevision]) };

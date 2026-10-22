@@ -88,11 +88,13 @@ test('production startup and complete lazy module graph are served within the co
     expect(coldJs.length).toBeLessThan(native.size / 4);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"\n]+)"/g)].map(row => row[1]);
     expect(new Set([...scripts, ...styles, ...preloads])).toEqual(cold);
+    // Inline draft settings load their profile form from the lazy editor, not directly
+    // from the cold composer. Check all lazy levels without relaxing cold budgets.
+    while ([...lazy].some(file => !seen.has(file))) { pending.push(...lazy); await collect(); }
     for (const name of ['render-settings', 'render-skills', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-project-automation', 'render-valet-settings', 'administrator-page', 'management-profile-form']) {
       const target = [...lazy].find(file => file.includes(`-${name}-`));
       expect(target).toBeTruthy(); expect(cold.has(target)).toBe(false);
     }
-    while ([...lazy].some(file => !seen.has(file))) { pending.push(...lazy); await collect(); }
     expect(seen.size).toBeGreaterThan(cold.size);
     const feature = [...seen.keys()].find(file => file.includes('-automation-feature-pages-'));
     expect(feature).toBeTruthy(); expect(cold.has(feature)).toBe(false);

@@ -133,11 +133,18 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         const manual=doc.querySelector('.unified-editor-conditions'),natural=doc.querySelector('.draft-condition-valet');
         const hierarchy=!manual.open&&natural.getClientRects().length>0&&natural.querySelector('textarea').getClientRects().length>0
           &&natural.querySelector('button').classList.contains('agent-call')&&natural.querySelector('button').hasAttribute('data-help')
-          &&!doc.querySelector('.unified-editor-extras').open&&!doc.querySelector('.unified-editor-danger').open&&!doc.querySelector('#input-parent').disabled;
+          &&!doc.querySelector('.unified-editor-runtime').open&&!doc.querySelector('.unified-editor-references').open&&!doc.querySelector('.unified-editor-danger')&&!doc.querySelector('#input-parent').disabled
+          &&doc.querySelector('#composer-remove-draft-help').parentElement.classList.contains('composer-actions')&&!doc.querySelector('#composer-remove-draft').hidden
+          &&!doc.querySelector('.input-metadata').textContent.includes('Worker 状态')&&!doc.querySelector('.input-metadata').textContent.includes('合并状态');
         manual.open=true;const manualAvailable=doc.querySelector('.emission-conditions').getClientRects().length>0;manual.open=false;
-        const extras=doc.querySelector('.unified-editor-extras');extras.open=true;
-        const runtimeVisible=doc.querySelector('.composer-run-settings').getClientRects().length>0;extras.open=false;
-        const formalFits=[doc.querySelector('#input-form'),natural].every(node=>node.scrollWidth<=node.clientWidth+1);
+        const runtime=doc.querySelector('.unified-editor-runtime'),writesBefore=win.calls.length;runtime.open=true;
+        await until(()=>runtime.querySelector('[data-retry-field="config_mode"]')&&!runtime.querySelector('.draft-run-fields').disabled);
+        const runtimeVisible=runtime.querySelector('[data-retry-field="config_mode"]').getClientRects().length>0
+          &&doc.querySelector('#modal').hidden&&!win.workspace.currentEdit().profile&&win.calls.length===writesBefore;
+        const headings=[natural.querySelector('.draft-condition-summary'),runtime.querySelector('summary'),doc.querySelector('.unified-editor-references summary')];
+        const aligned=headings.every(node=>Math.abs(node.getBoundingClientRect().left-headings[0].getBoundingClientRect().left)<1);
+        const formalFits=[doc.querySelector('#input-form'),natural,runtime].every(node=>node.scrollWidth<=node.clientWidth+1);
+        runtime.open=false;
         submit.scrollIntoView({block:'center',behavior:'instant'});const submitRect=submit.getBoundingClientRect();
         const formalActions=submitRect.top>=0&&submitRect.bottom<=win.innerHeight+1&&[...doc.querySelector('#input-form').querySelectorAll('button')].filter(node=>node.getClientRects().length).every(node=>${width}>760||node.getBoundingClientRect().height>=44);
         box.value+=' · 详情修改';box.dispatchEvent(new win.Event('input'));
@@ -172,9 +179,9 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         doc.querySelector('#composer-shortcuts-toggle').click();
         const helpAvailable=!doc.querySelector('#composer-shortcuts').hidden&&doc.querySelector('#composer-shortcuts-toggle').getAttribute('aria-expanded')==='true';
         doc.querySelector('#composer-shortcuts-toggle').click();
-        doc.querySelector('#composer-reference-count').click();await until(()=>win.ui.inputEditor.inDetail&&doc.querySelector('.unified-editor-extras').open);
+        doc.querySelector('#composer-reference-count').click();await until(()=>win.ui.inputEditor.inDetail&&doc.querySelector('.unified-editor-references').open);
         const referenceEntry=win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
-        doc.querySelector('.unified-editor-extras').open=false;await win.ui.inputEditor.continuePortable();
+        doc.querySelector('.unified-editor-references').open=false;await win.ui.inputEditor.continuePortable();
         await win.workspace.collapseComposer();doc.querySelector('#composer-launcher').click();
         await until(()=>[...doc.querySelectorAll('#composer-menu button')].every(node=>/\\d+ 份草稿/.test(node.textContent)));
         const menu=doc.querySelector('#composer-menu'),categories=[...menu.querySelectorAll('button')];
@@ -201,14 +208,17 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
           &&choose.parentNode===parent&&choose.nextElementSibling===next;
         choose.click();await until(row);row().click();await until(()=>list.hidden);
         const picker=chooseVisible&&initial&&expanded&&folded&&collapsed()&&win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
-        return {retained,basic,agent,formal,hierarchy,manualAvailable,runtimeVisible,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,menuOnly,counts,menuFits,picker,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
+        return {retained,basic,agent,formal,hierarchy,manualAvailable,runtimeVisible,aligned,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,menuOnly,counts,menuFits,picker,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
       `);
       assert(layout.width === width && Object.entries(layout).filter(([key]) => !['width', 'errors', 'shellHeight'].includes(key)).every(([, value]) => value), `${scope}/${theme}/${width}: ${JSON.stringify(layout)}`);
       if (width === 390 || width === 1440) {
         await Bun.write(join(output, `${theme}-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
         await frame(`await win.ui.inputEditor.detail();doc.querySelector('#input-form').scrollIntoView({block:'start'});await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));return true;`);
         await Bun.write(join(output, `detail-${theme}-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-        await frame('await win.ui.inputEditor.continuePortable();return true;');
+        await frame(`const runtime=doc.querySelector('.unified-editor-runtime');runtime.open=true;await until(()=>runtime.querySelector('select')&&!runtime.querySelector('.draft-run-fields').disabled);
+          runtime.scrollIntoView({block:'start'});return true;`);
+        await Bun.write(join(output, `settings-${theme}-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+        await frame('doc.querySelector(".unified-editor-runtime").open=false;await win.ui.inputEditor.continuePortable();return true;');
       }
       console.log(`PASS ${scope} ${theme}/${width}: ${layout.shellHeight}px dock, compact tools/actions, preserved manual height, on-demand shortcuts, same DOM/state/ID, autosave, hierarchy, Agent help, touch targets, no overflow`);
     }
@@ -306,6 +316,51 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         await win.ui.inputEditor.continuePortable();return exact&&safe&&retained&&receipt.includes('#worker-9')&&receipt.includes('#input-draft-'+saved.id);
       `), 'natural condition entrance saves exact draft, creates ordinary Valet, retains state and distinguishes creation from mount');
       console.log('PASS natural condition input saves exact draft then hands off once, preserves shared state, and shows V/draft links without claiming mount success');
+      assert(await frame(`
+        const check=(value,message)=>{if(!value)throw Error(message);};
+        const change=(node,value,type='change')=>{node.value=value;node.dispatchEvent(new win.Event(type,{bubbles:true}));};
+        const openSettings=async()=>{const section=doc.querySelector('.unified-editor-runtime');section.open=true;
+          await until(()=>section.querySelector('select')&&!section.querySelector('.draft-run-fields').disabled);return section;};
+        await win.workspace.selectComposerMode('order');await win.workspace.newComposerEntry();
+        change(doc.querySelector('#input'),'就地运行设置验证','input');await win.ui.inputEditor.detail();
+        let runtime=await openSettings();
+        const backend=runtime.querySelector('[data-retry-field="agent"]');change(backend,'codex');
+        runtime.querySelector('.retry-advanced').open=true;
+        const env=runtime.querySelector('[data-retry-field="env"]'),prompt=runtime.querySelector('[data-retry-field="default-prompt"]');
+        change(env,'BROKEN','input');check(Boolean(win.ui.inputEditor.profileIssue)&&doc.querySelector('#draft-commit').disabled,'invalid inline configuration must block authorization');
+        const before=win.calls.filter(call=>call.method==='input.emit').length;
+        check(await win.ui.inputEditor.leave()===false&&env.value==='BROKEN','invalid fields must survive blocked navigation');
+        await win.ui.inputEditor.save();check(win.workspace.currentEdit().saved.content==='就地运行设置验证','invalid settings must not block body save');
+        change(env,'INLINE_TEST=kept','input');change(prompt,'自定义 Worker 规则','input');
+        const submitting=win.ui.inputEditor.submit();await until(()=>!doc.querySelector('#modal').hidden);
+        check(doc.querySelector('.modal-title').textContent.includes('自定义 Prompt'),'inline custom Prompt still needs risk confirmation');
+        doc.querySelector('.modal-cancel').click();await submitting;
+        check(win.calls.filter(call=>call.method==='input.emit').length===before&&prompt.value==='自定义 Worker 规则','cancelled Prompt confirmation must not authorize or discard edits');
+        runtime.querySelector('.draft-run-settings > button').click();
+        await until(()=>runtime.querySelector('[data-retry-field="config_mode"]')&&!runtime.querySelector('.draft-run-fields').disabled);
+        check(!win.workspace.currentEdit().profile,'restore default must clear override');
+        change(runtime.querySelector('[data-retry-field="config_mode"]'),'pi');
+        check(win.workspace.currentEdit().profile.config_mode==='pi','inline change must apply without a second button');
+        await win.ui.inputEditor.continuePortable();await win.ui.inputEditor.detail();
+        check(runtime===doc.querySelector('.unified-editor-runtime')&&runtime.querySelector('[data-retry-field="config_mode"]').value==='pi','host movement must preserve the same settings form');
+        await win.ui.inputEditor.submit();
+        check(win.calls.findLast(call=>call.method==='input.emit').params.profile.config_mode==='pi'&&!win.workspace.currentEdit().profile,'submission must carry override once and release consumed settings');
+        await win.workspace.selectComposerMode('management');await win.workspace.newComposerEntry();
+        change(doc.querySelector('#input'),'新建管理运行配置','input');await win.ui.inputEditor.detail();runtime=await openSettings();
+        change(runtime.querySelector('[aria-label="Valet 配置模式"]'),'pi');await win.ui.inputEditor.submit();
+        check(win.calls.findLast(call=>call.method==='management.submit').params.profile.config_mode==='pi','new management must submit its inline configuration');
+        await win.workspace.selectComposerMode('order');await win.workspace.newComposerEntry();
+        change(doc.querySelector('#input'),'删除操作行验证','input');await win.ui.inputEditor.detail();
+        const saved=win.workspace.currentEdit().saved,remove=doc.querySelector('#composer-remove-draft');
+        check(remove.closest('.composer-actions')&&!remove.hidden,'delete must be directly in the action row');
+        remove.click();await until(()=>!doc.querySelector('#modal').hidden);doc.querySelector('.modal-cancel').click();
+        await until(()=>!win.ui.inputEditor.busy);check(win.rows.some(row=>row.id===saved.id),'cancel delete must preserve draft');
+        remove.click();await until(()=>!doc.querySelector('#modal').hidden);doc.querySelector('.modal-confirm').click();
+        await until(()=>!win.ui.inputEditor.busy&&!win.workspace.currentEdit().saved);
+        check(win.calls.findLast(call=>call.method==='draft.remove').params.expected_revision===saved.revision&&!win.rows.some(row=>row.id===saved.id),'delete must use confirmed exact revision');
+        return true;
+      `), 'inline configuration edit/reset/validation/authorization and visible confirmed deletion');
+      console.log('PASS inline work/management settings, invalid edit retention, Prompt confirmation cancellation, default reset, host continuity, exact submission, consumed-state release and action-row deletion');
       await frame(`await win.workspace.selectComposerMode('order');await win.workspace.newComposerEntry();win.calls=[];win.nativeKeyEvents=[];doc.querySelector('#input').focus();return true;`);
       await nativeInput('native-first', '\uE007');
       assert(await frame(`return doc.querySelector('#input').value==='native-first\\n'&&win.calls.length===0;`), 'native Enter must insert a newline without any draft/submission request');

@@ -10,12 +10,13 @@ import { draftLabel } from './draft-label.js';
 import { editableDraft } from './draft-editor.js';
 import { isValet } from './work-type.js';
 import { createDraftConditionValet } from './draft-condition-valet.js';
+import { createDraftRunSettings } from './draft-run-settings.js';
 
 /** The form and textarea are MOVED, never cloned. Hosts have no editable state or submit lock. */
 export function createUnifiedInputEditor({ authorize, accepted, history, sync, workspace, onCreated = () => {} }) {
   const { currentEdit, rememberComposer, finishComposerEdit, activateComposerDraft, newComposerEntry, paintComposerWorkspace, openComposer, retargetComposerEntry, applyEntry } = workspace;
   const form = $('input-form'), shell = $('composer-shell'), input = $('input'), details = $('composer-details'), scope = projectApi('/api/');
-  const managementSettings = $('composer-management-settings'), removeHelp = $('composer-remove-draft-help');
+  const managementSettings = $('composer-management-settings');
   let bound = null, conditions = null, conditionValet = null, picker = null, detailHost = null, origin = null, generation = 0, hostGeneration = 0, disposed = false, composing = false, receiptPresenter = null;
   const owns = () => !disposed && projectApi('/api/') === scope && ui.inputEditor === controller;
   const advanced = el('div', undefined, 'unified-editor-advanced');
@@ -23,8 +24,28 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   const conditionSection = el('section', undefined, 'unified-editor-condition-section');
   const conditionHost = el('details', undefined, 'unified-editor-conditions'); conditionHost.open = false;
   conditionSection.append(conditionHost);
-  const extras = el('details', undefined, 'unified-editor-extras'), extrasSummary = el('summary', '运行设置与引用完整信息'); extras.append(extrasSummary);
-  const danger = el('details', undefined, 'unified-editor-danger'); danger.append(el('summary', '危险操作'));
+  const runtime = el('details', undefined, 'unified-editor-runtime'), runtimeSummary = el('summary', '运行设置');
+  const runtimeBody = el('div', undefined, 'unified-editor-section-body'); runtime.append(runtimeSummary, runtimeBody);
+  const extras = el('details', undefined, 'unified-editor-references'), extrasSummary = el('summary', '引用 · 0 条'); extras.append(extrasSummary);
+  const emptyReferences = el('p', '暂无引用。', 'hint'); extras.append(emptyReferences);
+  let runSettings = null, runEntry = null, runRequest = null, runTarget = null;
+  function ensureRunSettings(entry = currentEdit()) {
+    if (!entry) return;
+    const targetKey = `${entry.mode}:${entry.target_id ?? ''}`;
+    if (runEntry === entry && runRequest === entry.request && runTarget === targetKey) return;
+    runSettings?.dispose(); runtime.open = false;
+    runEntry = entry; runRequest = entry.request; runTarget = targetKey;
+    const request = entry.request;
+    runSettings = createDraftRunSettings({ entry,
+      current: () => owns() && currentEdit() === entry && entry.request === request && `${entry.mode}:${entry.target_id ?? ''}` === targetKey,
+      changed: () => {
+        if (entry.mode === 'management') ui.composerManagementProfile = entry.profile;
+        else ui.composerProfile = entry.profile;
+        ui.composerEditRevision++; rememberComposer(); sync();
+      } });
+    runtimeBody.replaceChildren(runSettings.node, managementSettings);
+  }
+  runtime.addEventListener('toggle', () => { if (runtime.open) void runSettings?.load(); });
   const error = el('section', undefined, 'unified-editor-recovery'); error.hidden = true; error.setAttribute('role', 'status');
   const errorText = el('p'), serverText = el('pre', undefined, 'input-original');
   const retry = button('重试保存', () => controller.save());
@@ -37,7 +58,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   }, 'ghost', { help: '服务器草稿已不可编辑；显式把本地修改保留为新的未提交条目，旧草稿收据不变，不执行。' });
   detachLocal.hidden = true;
   error.append(errorText, retry, latest, serverText, keep, use, detachLocal);
-  advanced.append(conditionSection, extras, danger);
+  advanced.append(conditionSection, runtime, extras);
   form.insertBefore(target, form.querySelector('.composer-input'));
   form.insertBefore(advanced, form.querySelector('.composer-foot'));
   form.append(error);
@@ -57,10 +78,9 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   $('composer-expand').parentNode?.append(fresh);
   // The DOM stub has independent id nodes; the browser always follows the static form hierarchy.
   if (!fresh.parentNode) form.append(fresh);
-  extras.insertBefore(managementSettings, null);
-  const refs = $('composer-references'); extras.insertBefore(refs, null);
-  const run = form.querySelector('.composer-run-settings'); if (run) extras.insertBefore(run, null);
-  danger.insertBefore(removeHelp, null);
+  runtimeBody.append(managementSettings);
+  const refs = $('composer-references'); extras.append(refs);
+  // Keep deletion in the existing action row; portable mode still hides it.
   function read() {
     const entry = currentEdit();
     return { content: input.value, references: composerReferences(), mode: entry.mode,
@@ -83,14 +103,18 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
         if (entry.saved && entry.key !== `draft:${entry.saved.id}`) { finishComposerEdit({ saved: entry.saved }); void onCreated(entry.saved); }
         rememberComposer(); paintRecovery(); sync();
       },
-      authorize: saved => authorize(saved),
+      authorize: async saved => await runSettings?.confirm() ? authorize(saved) : null,
       accepted: (result, untouched, saved) => accepted(result, untouched, saved),
     });
     return entry.session;
   }
   function paintRecovery() {
-    const entry = currentEdit();
-    extrasSummary.textContent = `运行设置与引用 · ${entry?.profile ? '本条设置已选择' : '默认设置'} · 引用 ${composerReferences().length}${ui.composerElevated ? ' · 本条管理员（提交须验密）' : ''}`;
+    const entry = currentEdit(); ensureRunSettings(entry);
+    runtimeSummary.textContent = `运行设置 · ${entry?.mode === 'append' || entry?.target_id != null ? '沿用目标设置' : entry?.profile ? '本条已设置' : entry?.mode === 'management' ? '管理默认' : '项目默认'}${ui.composerElevated ? ' · 本条管理员（提交须验密）' : ''}${runSettings?.issue ? ' · 有待修正项' : ''}`;
+    extrasSummary.textContent = `引用 · ${composerReferences().length} 条`;
+    emptyReferences.hidden = Boolean(composerReferences().length);
+    extras.hidden = entry?.mode === 'management';
+    runSettings?.paint();
     const summary = conditionHost.querySelector('summary'), options = entry?.localOptions;
     if (summary) summary.textContent = `手动配置条件与独占 · ${options?.conditions?.length || 0} 项${options?.exclusive ? ' · 独占' : ''}`;
     conditionValet?.paint();
@@ -128,6 +152,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   function bind() {
     const entry = currentEdit(); if (!entry || bound === entry) return;
     generation++; bound = entry;
+    ensureRunSettings(entry); extras.open = false;
     form.insertBefore(details, target);
     target.replaceChildren(); conditionHost.replaceChildren(); conditionValet?.node.remove(); conditionValet = null; picker = null;
     if (entry.mode === 'order') {
@@ -177,7 +202,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
       ownsPage: () => owns() && currentEdit() === entry, onChange: () => { capture(); sync(); } });
     if (conditions) {
       conditionHost.append(el('summary', '手动配置条件与独占'), conditions.node);
-      conditionValet = createDraftConditionValet({ entry: () => entry, session,
+      conditionValet = createDraftConditionValet({ entry: () => entry, session, prepare: () => runSettings.confirm(),
         current: () => owns() && currentEdit() === entry && bound === entry,
         composing: () => composing,
         changed: () => { if (owns() && currentEdit() === entry) { capture(); rememberComposer(); sync(); } } });
@@ -191,6 +216,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
     const active = session(); if (!active) return true;
     if (!read().content.trim() && !read().references.length && !active.entry.saved) return true;
     try {
+      if (kind === 'submit' && runSettings?.validate()) throw Error(runSettings.validate());
       const result = await active[kind]();
       if (kind === 'save' && !quiet) show(`${draftLabel(active.entry.saved)}已保存，尚未提交；内容保留。`);
       return result || true;
@@ -213,11 +239,14 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   }
   const controller = { get inDetail() { return Boolean(detailHost); }, get host() { return detailHost; }, get draft() { return currentEdit()?.saved; }, get receiptPresenter() { return receiptPresenter; }, capture, bind, portable, paint: paintRecovery,
     get busy() { return Boolean(currentEdit()?.flight || currentEdit()?.operation); }, get dirty() { return session()?.dirty() || false; },
+    get profileIssue() { ensureRunSettings(); return runSettings?.validate() || ''; },
     save: () => perform('save'), submit: () => perform('submit'),
     async leave() {
       if (!owns()) return true;
       capture(); rememberComposer();
       if (currentEdit()?.operation) return false;
+      const profileIssue = runSettings?.validate();
+      if (profileIssue) { runtime.open = true; show(`运行设置未完成：${profileIssue}；请修正或恢复默认，编辑仍保留。`, 'error'); return false; }
       if (composing) { show('请先完成输入法候选确认；编辑保留。', 'error'); return false; }
       if (currentEdit()?.consumed) return true;
       if (!await perform('save', true)) return false;
@@ -260,10 +289,10 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
       if (disposed) return;
       portable(); disposed = true; generation++; unregister();
       form.insertBefore(details, advanced); form.insertBefore(managementSettings, advanced); form.insertBefore(refs, advanced);
-      form.insertBefore(removeHelp, advanced);
+      runSettings?.dispose();
       input.removeEventListener('compositionstart', compositionStart); input.removeEventListener('compositionend', compositionEnd);
       globalThis.removeEventListener?.('beforeunload', beforeUnload); globalThis.removeEventListener?.('pagehide', pageHide);
-      run?.remove(); advanced.remove(); target.remove(); error.remove(); receipt.remove(); fresh.remove();
+      advanced.remove(); target.remove(); error.remove(); receipt.remove(); fresh.remove();
     },
   };
   const unregister = registerPageLeaveGuard(() => controller.leave(), { key: 'input-session', stay: () => {
@@ -274,7 +303,7 @@ export function createUnifiedInputEditor({ authorize, accepted, history, sync, w
   const pageHide = () => { if (owns()) rememberComposer(); };
   const beforeUnload = event => {
     if (!owns()) return; rememberComposer();
-    if (session()?.dirty() && (input.value.trim() || composerReferences().length || currentEdit()?.saved) || currentEdit()?.flight || currentEdit()?.error) { event.preventDefault(); event.returnValue = ''; }
+    if (session()?.dirty() && (input.value.trim() || composerReferences().length || currentEdit()?.saved) || currentEdit()?.flight || currentEdit()?.error || runSettings?.validate()) { event.preventDefault(); event.returnValue = ''; }
   };
   input.addEventListener('compositionstart', compositionStart); input.addEventListener('compositionend', compositionEnd);
   globalThis.addEventListener?.('beforeunload', beforeUnload); globalThis.addEventListener?.('pagehide', pageHide);

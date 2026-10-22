@@ -81,7 +81,7 @@ function resourceGroup(title, entries, selected, kind, enabled) {
  *
  * 只负责取值与校验；调用方决定送 `worker.retry` / `worker.configure`，还是随 `order.submit` 提交。
  */
-export function createProfileForm({ profile, defaultProfile = profile, settings, role, ownsPage = () => true, onChange = () => {}, collapseAdvanced = true }) {
+export function createProfileForm({ profile, defaultProfile = profile, settings, role, ownsPage = () => true, onChange = () => {}, collapseAdvanced = true, showDefaults = true }) {
   let initial = { ...(profile || {}) };
   const defaults = { ...(defaultProfile || {}) };
   const selectedExtensions = new Set(initial.extensions || []);
@@ -255,7 +255,8 @@ export function createProfileForm({ profile, defaultProfile = profile, settings,
     syncPromptState(); syncBackend(false); applyMode();
   }, 'ghost', { help: '用打开面板时读取的项目与角色默认参数替换表单中全部改动（含环境变量与模式）；不保存、不启动 Agent。' });
   restoreDefaults.type = 'button'; defaultsTools.append(restoreDefaults);
-  node.append(modeBox, managed, defaultsTools);
+  node.append(modeBox, managed);
+  if (showDefaults) node.append(defaultsTools);
   applyMode();
 
   const collect = () => {

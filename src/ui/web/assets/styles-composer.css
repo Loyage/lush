@@ -85,8 +85,23 @@ html[data-lush-space="global"] #composer-shell { display:none; }
 #input-form[data-host="detail"] .composer-identity { flex-wrap:wrap; }
 #input-form[data-host="detail"] .composer-target { display:grid; gap:6px; }
 #input-form .unified-editor-advanced { display:grid; gap:12px; margin:12px 0; }
-#input-form .unified-editor-extras, #input-form .unified-editor-danger { padding:8px; border:1px solid var(--border); border-radius:6px; }
-#input-form .unified-editor-danger { margin-top:12px; }
+#input-form .unified-editor-advanced > :is(section,details) { min-width:0; padding:14px; border:1px solid var(--line-soft); border-radius:9px; background:var(--bg); }
+#input-form .unified-editor-advanced > details > summary { margin-left:18px; min-height:32px; padding:6px 0; font-size:12px; font-weight:650; cursor:pointer; overflow-wrap:anywhere; }
+#input-form .unified-editor-advanced > details[open] > summary { margin-bottom:10px; }
+#input-form .draft-condition-valet { padding:0; border:0; border-radius:0; background:none; }
+#input-form .draft-condition-summary { margin-left:18px; min-height:32px; padding:6px 0; font-weight:650; }
+#input-form .unified-editor-conditions { margin-top:12px; font-size:12px; }
+#input-form .unified-editor-conditions > summary { margin-left:18px; cursor:pointer; padding:6px 0; }
+#input-form .unified-editor-section-body, #input-form .draft-run-settings { min-width:0; }
+#input-form .draft-run-fields { min-width:0; margin:0; padding:0; border:0; }
+#input-form .draft-run-settings > .hint { margin:0 0 10px; overflow-wrap:anywhere; }
+#input-form .draft-run-settings > .hint:empty { display:none; }
+#input-form .draft-run-error { color:var(--failed); }
+#input-form .draft-run-settings .retry-profile-form { margin-top:0; }
+#input-form .draft-run-settings :is(input,select,textarea,button) { max-width:100%; }
+#input-form .draft-run-settings textarea { min-height:90px; max-height:none; margin:0; font-size:13px; }
+#input-form .draft-run-settings button { white-space:normal; overflow-wrap:anywhere; }
+#input-form #composer-remove-draft { margin-inline:8px; }
 #input-form .unified-editor-recovery { border:1px solid var(--failed); padding:10px; overflow-wrap:anywhere; }
 #input-form .unified-editor-recovery pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 #composer-shell[data-detail="true"] { height:0; padding:0; border:0; overflow:visible; }
@@ -94,6 +109,11 @@ html[data-lush-space="global"] #composer-shell { display:none; }
 @media(max-width:760px), (pointer:coarse) {
   #input-form :is(button,select,input:not([type="checkbox"])) { min-height:44px; }
   #input-form .composer-foot button { min-height:44px; }
+  #input-form .unified-editor-advanced > :is(section,details) { padding:10px; }
+  #input-form .unified-editor-advanced summary { min-height:44px; }
+  #input-form .draft-condition-summary { min-height:44px; }
+  #input-form .draft-run-settings :is(.retry-profile-grid,.retry-resource-choices,.retry-model-box) { grid-template-columns:minmax(0,1fr); }
+  #input-form .draft-run-settings :is(input,select,textarea) { font-size:16px; }
   #input-form .text-editor-controls button { min-width:44px; }
   #input-form .composer-help { min-width:44px; }
   #composer-shell .composer-context { min-height:44px; padding-right:48px; }

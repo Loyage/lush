@@ -103,6 +103,14 @@ test('real composer resumes, updates and emits an order draft through HTTP/RPC a
     const panel = dom.node('detail').querySelector('.input-detail'), body = panel.querySelector('textarea');
     expect(body).toBe(input); // same actual component, not a synchronized second body
     expect(currentEdit().saved.id).toBe(draft.id);
+    const runtime = panel.querySelector('.unified-editor-runtime'); runtime.open = true;
+    for (const listener of runtime.listeners.toggle) listener();
+    const fields = runtime.querySelector('.draft-run-fields');
+    await until(() => fields.querySelector('[data-retry-field="config_mode"]') && !fields.disabled);
+    expect(currentEdit().profile).toBeFalsy(); // reading defaults alone never freezes an override
+    const mode = fields.querySelector('[data-retry-field="config_mode"]'); mode.value = 'pi'; mode.onchange();
+    for (const listener of fields.listeners.change) listener({ type: 'change', target: mode });
+    expect(currentEdit().profile).toEqual({ agent: 'pi', config_mode: 'pi' });
     ui.restoreInputContext = async () => { ui.view = { id: 'overview' }; };
     await ui.inputEditor.continuePortable();
     expect(ui.inputEditor.inDetail).toBe(false);
@@ -118,13 +126,14 @@ test('real composer resumes, updates and emits an order draft through HTTP/RPC a
     expect(body.value).toBe('原位续写后的正文！');
     body.value += '最终'; body.oninput();
     await key({ key: 'Enter', ctrlKey: true });
-    expect(requests.find(request => request.method === 'input.emit').params).toMatchObject({ draft_id: draft.id, expected_revision: 4 });
+    expect(requests.find(request => request.method === 'input.emit').params).toMatchObject({ draft_id: draft.id, expected_revision: 4, profile: { agent: 'pi', config_mode: 'pi' } });
     fixture.project.stopping = false; await fixture.project.drainInputEmissions(); fixture.project.stopping = true;
     const receipt = fixture.project.inputGet('draft', draft.id); expect(receipt.dispatch.state).toBe('succeeded');
     expect(fixture.store.all('SELECT * FROM inputs WHERE content=?', '原位续写后的正文！最终')).toHaveLength(1);
     expect(fixture.project.inputGet('input', receipt.input_id).references[0].quote).toBe('引用原文');
     expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
     expect(fixture.store.task(receipt.dispatch.worker_id).base_commit).toBe(repair.base_commit);
+    expect(fixture.project.taskRunSettings(receipt.dispatch.worker_id).profile).toMatchObject({ agent: 'pi', config_mode: 'pi' });
     fixture.store.update(repair.id, { reservation: null });
 
     // Extend this main flow rather than add a mock-only UI case: new entrance ->
