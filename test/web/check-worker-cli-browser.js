@@ -99,8 +99,10 @@ try {
       if(innerWidth<=600 && b.top<a.bottom)errors.push('narrow controls not stacked');
       const result=panel.querySelector('.worker-cli-result'),advanced=panel.querySelector('.worker-cli-advanced');
       if(!(panel.querySelector('.worker-cli-controls').compareDocumentPosition(panel.querySelector('.worker-cli-history'))&Node.DOCUMENT_POSITION_FOLLOWING))errors.push('input and guide must precede history');
+      if(panel.querySelector('.worker-cli-history-disclosure').open)errors.push('history must start collapsed');
+      if(!panel.querySelector('.worker-cli-current').contains(result))errors.push('current result must remain next to editor');
       const parts=[...result.children];
-      if(!parts[0].classList.contains('worker-cli-result-command')||!parts.at(-1).classList.contains('worker-cli-result-meta'))errors.push('command/output/status order');
+      if(parts[0].tagName!=='SUMMARY'||!parts[1].classList.contains('worker-cli-result-command')||!parts.at(-1).classList.contains('worker-cli-result-meta'))errors.push('command/output/status order');
       const tabs=[...document.querySelectorAll('.execution-tabs button')];
       if(tabs.length!==4||tabs.at(-1).textContent!=='CLI 交互')errors.push('four reader tabs missing');
       if(!document.querySelector('.transcript-dialog').open||document.querySelector('.transcript-back'))errors.push('not standalone reader');

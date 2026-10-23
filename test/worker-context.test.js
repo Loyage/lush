@@ -20,6 +20,10 @@ test('runtime-issued invocation -> shipped bin -> RPC registration -> real spawn
     try {
       expect((await cli('help','self','show')).id).toBe('self.show');
       const self = await cli('self','show');
+      // Main's user CLI surface must not become an invocation/Agent privilege.
+      const userOnly = new Dispatcher(f.project);
+      await expect(userOnly.dispatch('worker.cli_preview', { id: task.parent_id, command: 'lush status', _token: token })).rejects.toThrow();
+      await expect(userOnly.dispatch('worker.cli_history', { id: task.parent_id, _token: token })).rejects.toThrow();
       await cli('self','title','协作操作记录');
       await cli('self','progress','plan','inspect:确认现状','test:测试');
       await cli('self','progress','complete','inspect');

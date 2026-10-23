@@ -32,7 +32,30 @@ test('isolated separate daemon and authenticated HTTP bridge execute real query 
       expect(result.code).toBe(200); expect(result.value).toMatchObject({ status: 'succeeded', exit_code: 0 });
       expect(result.value.workspace).toBe(created.value.task.workspace);
     }
-    expect((await new UIClient(config).request('worker.inspect', { id })).display_title).toBe('actual-cli');
+    const client = new UIClient(config);
+    expect((await client.request('worker.inspect', { id })).display_title).toBe('actual-cli');
+    const mainId = created.value.task.parent_id;
+    expect((await client.request('worker.inspect', { id: mainId })).task_kind).toBe('main');
+    const mainCommands = ['lush --json status', 'lushw --json self show', 'lushw --json children list',
+      `lush worker rename ${id} main-cli`, "lushw --json self notice notify 'main user notice'", "lush --json order 'main CLI mock Agent instruction'"];
+    for (const command of mainCommands) {
+      const plan = await post('worker.cli_preview', { id: mainId, command }); expect(plan.code).toBe(200);
+      expect(plan.value.workspace).toBe(root);
+      if (plan.value.requires_confirmation) expect((await post('worker.cli_execute', { id: mainId, command, revision: plan.value.revision })).code).not.toBe(200);
+      const run = await post('worker.cli_execute', { id: mainId, command, revision: plan.value.revision, confirm: true });
+      expect(run.code).toBe(200); expect(run.value).toMatchObject({ status: 'succeeded', exit_code: 0, workspace: root });
+      if (plan.value.kind === 'agent') {
+        expect(plan.value.requires_confirmation).toBe(true);
+        const submitted = JSON.parse(run.value.stdout).data;
+        expect(submitted).toMatchObject({ emitted: true, parent_id: mainId, dispatch: { state: 'queued' } });
+      }
+      expect((await post('worker.cli_execute', { id: mainId, command, revision: plan.value.revision, confirm: true })).code).not.toBe(200);
+    }
+    expect((await client.request('worker.inspect', { id })).display_title).toBe('main-cli');
+    const mainHistory = await post('worker.cli_history', { id: mainId });
+    expect(mainHistory.value.entries.map(row => row.command)).toEqual(mainCommands);
+    expect((await post('worker.cli_history_clear', { id: mainId })).value).toEqual({ cleared: true });
+    expect((await post('worker.cli_history', { id: mainId })).value.entries).toHaveLength(0);
     const saved = await post('worker.cli_history', { id });
     expect(saved.value.entries).toHaveLength(6);
     expect((await post('worker.cli_history_clear', { id })).value).toEqual({ cleared: true });

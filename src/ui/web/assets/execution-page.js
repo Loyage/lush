@@ -14,7 +14,7 @@ export async function openExecutionPage({ taskId, mode }) {
     const task = await api(`/api/worker/${taskId}`);
     if (!current()) return;
     if (task?.id !== taskId) throw Error('返回的 Worker 身份不匹配。');
-    if (mode === 'cli' && (!['order', 'child'].includes(task.task_kind) || task.execution_retired === true)) throw Error('此 Worker 不支持 CLI 交互。');
+    if (mode === 'cli' && (!['main', 'order', 'child'].includes(task.task_kind) || task.execution_retired === true)) throw Error('此 Worker 不支持 CLI 交互。');
     // Existing live polling follows the selected Worker, without loading its detail page.
     ui.selected = taskId;
     const reader = ui.transcriptView;

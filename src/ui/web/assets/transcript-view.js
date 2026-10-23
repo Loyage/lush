@@ -7,6 +7,7 @@ import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searc
 import { createCodeView } from './code-view.js';
 import { createPerformanceView } from './performance-view.js';
 import { detailWorkerCli, disposeWorkerCli } from './worker-cli-detail.js';
+export { renderWorkerCli } from './worker-cli.js';
 import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange } from './prefs.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';
@@ -90,7 +91,7 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');
   const performanceTab = button('性能分析', () => switchMode('performance'), 'ghost');
   const cliTab = button('CLI 交互', () => switchMode('cli'), 'ghost');
-  const supportsCli = !valet && ['order', 'child'].includes(knownTask?.task_kind) && knownTask?.execution_retired !== true;
+  const supportsCli = !valet && ['main', 'order', 'child'].includes(knownTask?.task_kind) && knownTask?.execution_retired !== true;
   const viewTabs = valet ? [[recordsTab, 'transcript']] : [[recordsTab, 'transcript'], [codeTab, 'code'], [performanceTab, 'performance'], ...(supportsCli ? [[cliTab, 'cli']] : [])];
   for (const [tab, name] of viewTabs) {
     tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(name === state.mode));

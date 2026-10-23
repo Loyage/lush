@@ -1,12 +1,12 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture } from './helpers.js';
+import { fixture, repo } from './helpers.js';
 import { beginCLIHistory, finishCLIHistory, workerCLIHistory, clearWorkerCLIHistory } from '../src/core/worker-cli-history.js';
 
-test('CLI history privately persists an encrypted command and its completed output', async () => {
-  const f = fixture();
-  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'history' });
+test('main CLI history privately persists an encrypted command and its completed output', async () => {
+  const f = fixture(); await repo(f.root);
+  const task = await f.project.ensureMainTask();
   const file = path.join(f.config.home, 'worker-cli-history', `${task.id}.json`);
   const keyFile = path.join(f.config.home, 'worker-cli-history.key');
   try {

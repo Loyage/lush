@@ -10,7 +10,7 @@ export function disposeWorkerCli() {
 }
 
 export function detailWorkerCli(task, { preview, execute, loadHistory, clearHistory } = {}) {
-  if (!['order', 'child'].includes(task.task_kind) || task.execution_retired === true) {
+  if (!['main', 'order', 'child'].includes(task.task_kind) || task.execution_retired === true) {
     disposeWorkerCli();
     return null;
   }

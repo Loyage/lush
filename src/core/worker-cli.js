@@ -7,7 +7,8 @@ import { CLI_COMMANDS, CLI_EXECUTABLES, commandExecutables } from '../cli/catalo
 import { parseCLI, validateCLIParameters } from '../cli/parser.js';
 import { isOptionIndex } from '../cli/args.js';
 import { ROOT } from '../identity.js';
-import { check, id } from './types.js';
+import { check, TERMINAL } from './types.js';
+import { workerCLIIdentity } from './worker-cli-identity.js';
 import { commandEnvironment } from './workspaces/command.js';
 import { beginCLIHistory, finishCLIHistory } from './worker-cli-history.js';
 
@@ -87,19 +88,24 @@ export async function dispatchWorkerCLI(project, method, params, actor, run) {
   try { return await promise; } finally { lease.pending.delete(promise); }
 }
 
-function workspace(project, taskId, mutating) {
-  const task = project.store.task(id(taskId));
+function executionTask(project, taskId, mutating) {
+  const task = workerCLIIdentity(project.store, taskId);
   check(!project.workerDeleteIds?.has(task.id), 'Worker deletion is in progress; CLI execution is unavailable');
-  check(['order','child'].includes(task.task_kind) && task.workspace && task.branch, 'CLI requires an order/child dedicated worktree');
   check(!project.store.executionRetired(task.id), 'retired Worker has no executable worktree');
   const branch = project.store.branch(task.branch);
-  check(branch && !['archived','deleted'].includes(branch.status), 'Worker branch has been archived');
-  check(branch.task_id === task.id && branch.worktree === task.workspace && task.branch !== 'main'
-    && task.branch !== task.target_branch, 'Worker does not own this dedicated worktree');
-  let actual, stat;
-  try { actual = fs.realpathSync(task.workspace); stat = fs.statSync(actual); } catch { check(false, 'Worker worktree no longer exists'); }
-  check(stat.isDirectory() && actual === path.resolve(task.workspace) && actual !== fs.realpathSync(project.config.project),
-    'CLI requires the real dedicated worktree, never the canonical project or a symlink');
+  if (task.task_kind === 'main') {
+    // ensureMainTask registers ownership in tasks; the optional branches row is
+    // immutable genealogy, not an automatically refreshed worktree registry.
+    check(!TERMINAL.has(task.status), 'main Worker has ended');
+    check(!branch || !['archived','deleted'].includes(branch.status)
+      && (branch.task_id === null || branch.task_id === task.id) && branch.parent === null,
+    'main branch registration conflicts with its real owner');
+  } else {
+    check(task.workspace && task.branch, 'CLI requires an order/child dedicated worktree');
+    check(branch && !['archived','deleted'].includes(branch.status), 'Worker branch has been archived');
+    check(branch.task_id === task.id && branch.worktree === task.workspace && task.branch !== 'main'
+      && task.branch !== task.target_branch, 'Worker does not own this dedicated worktree');
+  }
   if (mutating) {
     check(!project.running.has(task.id) && !['running','queued'].includes(task.status), 'Worker workspace is active; modifications are forbidden');
     check(!project.branchFreeze(task.branch) && !project.activeTaskMerge(task.id), 'Worker workspace is frozen; modifications are forbidden');
@@ -107,14 +113,30 @@ function workspace(project, taskId, mutating) {
     check(!project.taskSyncBusy?.has(task.id) && !project.workspaces.busy.has(task.id)
       && !project.commandHookRunning?.has(task.id) && !project.acceptanceBusy?.has(task.id), 'Worker workspace is busy');
   }
+  return task;
+}
+
+function workspace(project, taskId, mutating, checkedOut) {
+  const task = executionTask(project, taskId, mutating);
+  const main = task.task_kind === 'main', directory = main ? checkedOut : task.workspace;
+  check(typeof directory === 'string' && directory.length > 0, 'Worker branch is not checked out; CLI has no execution directory');
+  let actual, stat;
+  try { actual = fs.realpathSync(directory); stat = fs.statSync(actual); } catch { check(false, 'Worker worktree no longer exists'); }
+  check(stat.isDirectory() && actual === path.resolve(directory)
+    && (main || actual !== fs.realpathSync(project.config.project)),
+  'CLI requires the real owning worktree, never a symlink or a fallback directory');
+  if (main) check(!task.workspace || path.resolve(task.workspace) === actual, 'main Worker workspace conflicts with its real checkout');
   return { task, actual, identity: [stat.dev, stat.ino] };
 }
 
 async function preview(project, params) {
-  const parsed = parseWorkerCLI(params.command), { task, actual, identity } = workspace(project, params.id, parsed.requires_confirmation);
+  const parsed = parseWorkerCLI(params.command), source = executionTask(project, params.id, parsed.requires_confirmation);
+  // Resolve main from its actual Git checkout, never assume canonical is on main.
+  const checkedOut = await project.workspaces.workspaceForBranch(source.branch);
+  const { task, actual, identity } = workspace(project, params.id, parsed.requires_confirmation, checkedOut);
+  check(task.branch === source.branch, 'Worker branch identity changed');
   // Read-only Git identity checks go through the existing Workspaces boundary. There is no fallback cwd.
-  const [checkedOut, current, common, projectCommon, head] = await Promise.all([
-    project.workspaces.workspaceForBranch(task.branch),
+  const [current, common, projectCommon, head] = await Promise.all([
     project.workspaces.git(actual, 'symbolic-ref', '--short', 'HEAD'),
     project.workspaces.git(actual, 'rev-parse', '--path-format=absolute', '--git-common-dir'),
     project.workspaces.git(project.config.project, 'rev-parse', '--path-format=absolute', '--git-common-dir'),
@@ -122,10 +144,12 @@ async function preview(project, params) {
   ]);
   check(checkedOut && fs.realpathSync(checkedOut) === actual && current === task.branch
     && fs.realpathSync(common) === fs.realpathSync(projectCommon), 'Worker worktree identity changed');
-  const live = workspace(project, params.id, parsed.requires_confirmation);
-  check(live.actual === actual && JSON.stringify(live.identity) === JSON.stringify(identity), 'Worker worktree identity changed');
+  const live = workspace(project, params.id, parsed.requires_confirmation, checkedOut);
+  check(live.task.branch === task.branch && live.task.task_kind === task.task_kind
+    && live.actual === actual && JSON.stringify(live.identity) === JSON.stringify(identity), 'Worker worktree identity changed');
   const { status, workspace: directory, branch, reservation, interrupt_state } = live.task;
-  const revision = hash({ parsed, identity, head, status, directory, branch, reservation, interrupt_state,
+  const revision = hash({ parsed, id: task.id, task_kind: task.task_kind, actual, identity, head, status, directory, branch, reservation, interrupt_state,
+    registration: project.store.branch(branch),
     freeze: project.branchFreeze(task.branch) });
   return { ...parsed, id: task.id, workspace: actual, revision, limits: WORKER_CLI_LIMITS };
 }
@@ -202,9 +226,9 @@ export async function executeWorkerCLI(project, params) {
   check(!initial.requires_confirmation || params.confirm === true, 'CLI modification requires explicit confirmation');
   if (initial.requires_confirmation) check(project.maintenanceView().ready_to_restart, 'project has active calls or background work; modifications must wait');
   // Claim BEFORE asynchronous identity checks. No queueing/retry: each preview is consumed once.
-  const source = workspace(project, params.id, initial.requires_confirmation);
+  const source = executionTask(project, params.id, initial.requires_confirmation);
   const lease = { rpc: initial.rpc, contextMethod: initial.context_method, userRPC: initial.user_context_rpc,
-    taskId: source.task.id, branch: source.task.branch, workspace: source.actual,
+    taskId: source.id, branch: source.branch, workspace: null,
     pending: new Set(), controller: new AbortController() }, marker = randomBytes(32).toString('hex');
   (project.cliRunning ??= new Map()).set(marker, lease);
   if (initial.requires_confirmation) project.cliMutation = lease;
@@ -215,15 +239,16 @@ export async function executeWorkerCLI(project, params) {
     const record = project.cliPreviews?.get(params.revision);
     check(record && record.expires > Date.now() && value.revision === record.state,
       'CLI preview expired, changed or was already executed; inspect before previewing again');
-    const { actual } = workspace(project, params.id, initial.requires_confirmation);
+    const { actual } = workspace(project, params.id, initial.requires_confirmation, value.workspace);
+    lease.workspace = actual;
     // Consume BEFORE spawn, including unknown outcomes. A fresh preview is an explicit new action, not a retry.
     project.cliPreviews.delete(params.revision);
     // Persist unknown BEFORE spawn: a crash must never make execution disappear or suggest a retry.
-    const history = beginCLIHistory(project, source.task.id, value.command, actual);
+    const history = beginCLIHistory(project, source.id, value.command, actual);
     const result = await runWorkerCLI([path.join(ROOT, 'bin', value.executable), '--project', project.config.project, ...value.argv],
       actual, environment(project, marker), { ...project.workerCLIOptions, signal: lease.controller.signal });
     let history_error;
-    try { finishCLIHistory(project, source.task.id, history.history_id, result); }
+    try { finishCLIHistory(project, source.id, history.history_id, result); }
     catch { history_error = 'CLI executed but history result could not be saved; inspect the outcome, do not replay'; }
     return { command: value.command, workspace: actual, ...result, ...history, ...(history_error ? { history_error } : {}) };
   });

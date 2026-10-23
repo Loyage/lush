@@ -5,6 +5,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { projectRoute } from './route.js';
 import { confirmDialog } from './dialog.js';
 import { loadCliCatalog, searchCommands, commandType, commandGuide } from './cli-catalog.js';
+import { renderCliTrial } from './cli-trial.js';
 
 const permissionsEndpoint = '/api/host/management/permissions';
 const labels = { read: '只读', automatic: '自动执行', confirmation: '逐次确认', unavailable: '禁止' };
@@ -29,19 +30,25 @@ function validatePermissions(value, catalog) {
 }
 
 // Historical filename/state slot retained; the independent settings page is replaced.
-export async function openCliInterfaces({ registerPageLeaveGuard }) {
+export async function openCliInterfaces({ registerPageLeaveGuard, renderWorkerCli }) {
   const view = activateDetailView({ view: 'cli-interfaces' });
   const owner = globalThis.document, identity = globalThis.location?.pathname;
   const existing = ui.valetSettingsPage;
   if (existing?.view === view && existing.owner === owner && existing.pathname === identity) return existing.ready;
   ui.disposeValetSettings?.();
   const state = { view, owner, pathname: identity, disposed: false, generation: 0, catalogGeneration: 0, catalog: null, data: null,
-    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, expanded: new Set(), permissionsExpanded: new Set() };
+    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, trail: [null], trailIndex: 0, trial: null, trialGeneration: 0, expanded: new Set(), permissionsExpanded: new Set() };
   ui.valetSettingsPage = state;
   const owns = () => !state.disposed && globalThis.document === owner && ui.view === view
     && ui.valetSettingsPage === state && globalThis.location?.pathname === identity && !projectRoute();
   const dirty = () => state.data && state.data.methods.some(item => state.draft[item.method] !== state.data.permissions[item.method]);
   const root = el('div', undefined, 'cli-interfaces-page');
+  function navigate(path, record = true) {
+    if (!owns()) return;
+    if (record && path !== state.selected) { state.trail = state.trail.slice(0, state.trailIndex + 1); state.trail.push(path); state.trailIndex++; }
+    state.selected = path; paint();
+    if (globalThis.innerWidth <= 700) directory.open = !path || ['lush', 'lushw'].includes(path) || Boolean(state.catalog?.commands.find(item => item.path === path)?.directory);
+  }
   const searchBox = el('section', undefined, 'cli-search');
   const searchLabel = el('label', '搜索命令'); searchLabel.htmlFor = 'cli-command-search';
   const search = el('input'); search.id = 'cli-command-search'; search.type = 'search'; search.placeholder = '搜索 CLI 命令、名称或介绍'; search.setAttribute('aria-label', '搜索 CLI 命令、名称或介绍'); search.setAttribute('aria-describedby', 'cli-search-hint');
@@ -52,7 +59,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   searchField.append(searchIcon, search, searchSubmit, clear);
   const searchHint = el('p', '支持 lush / lushw 完整命令及关键词 · 按搜索或 Enter 匹配固定文档 · 空关键词显示顶层目录', 'hint'); searchHint.id = 'cli-search-hint';
   searchBox.append(searchLabel, searchField, searchHint);
-  const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); };
+  const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); directory.open = true; };
   searchSubmit.onclick = updateSearch;
   search.onkeydown = event => { if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229 && !state.composing) { event.preventDefault(); updateSearch(); } };
   search.addEventListener('compositionstart', () => { state.composing = true; });
@@ -73,7 +80,17 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const reload = el('button', '读取全局权限', 'ghost'); reload.type = 'button'; reload.onclick = () => loadPermissions(true);
   footer.append(el('h2', '全局权限 · 按需读取与统一保存'), el('p', '更改适用于此设备用户所有项目的新旧管家。可将自动执行收紧为逐次确认或禁止；管家修改权限本身不可设为自动执行。排队或待确认但尚未开始的操作，执行前重新检查；已开始的不强行中断、已执行的不撤销，失败不重放。权限改变不新建操作；已有未开始的请求可能继续或受阻。无需选择项目，所有项目后台离线也可配置。', 'hint'), status, save, reload);
   const globalPermissions = el('details', undefined, 'cli-advanced'); globalPermissions.append(el('summary', '高级：设备全局管家权限'), footer);
-  root.append(hero, unconfigured, catalogNotice, searchBox, results, detail, globalPermissions); $('detail').replaceChildren(root);
+  const navigation = el('nav', undefined, 'cli-browser-nav'); navigation.setAttribute('aria-label', '命令文档导航');
+  const back = el('button', '后退', 'ghost'), forward = el('button', '前进', 'ghost'), up = el('button', '上一级', 'ghost');
+  back.onclick = () => { if (state.trailIndex > 0) navigate(state.trail[--state.trailIndex], false); };
+  forward.onclick = () => { if (state.trailIndex + 1 < state.trail.length) navigate(state.trail[++state.trailIndex], false); };
+  up.onclick = () => navigate(state.selected?.includes(' ') ? state.selected.slice(0, state.selected.lastIndexOf(' ')) : null);
+  const crumbs = el('div', undefined, 'cli-breadcrumbs'); navigation.append(back, forward, up, crumbs);
+  const directory = el('details', undefined, 'cli-directory'); directory.open = globalThis.innerWidth > 700;
+  directory.append(el('summary', '本级目录'), results);
+  const browser = el('div', undefined, 'cli-document-browser'), trialSlot = el('aside', undefined, 'cli-trial-slot'); trialSlot.hidden = true;
+  browser.append(directory, detail, trialSlot);
+  root.append(hero, catalogNotice, searchBox, navigation, browser, unconfigured, globalPermissions); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function sync() {
@@ -120,7 +137,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       const operation = el('span', item.operations.length > 1 ? '读／写' : item.operations.includes('write') ? '写' : '读', 'cli-command-operation');
       operation.dataset.operation = item.operations.length > 1 ? 'mixed' : item.operations[0];
       node.append(el('strong', item.path), el('span', item.description, 'cli-command-description'), operation, summary);
-      node.onclick = () => { if (!owns()) return; state.selected = item.path; paint(); detail.scrollIntoView?.({ block: 'start' }); };
+      node.onclick = () => navigate(item.path);
       container.append(node);
     }
   }
@@ -165,20 +182,27 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
     const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-    const matches = query ? searchCommands(commands, query) : commands.filter(item => !item.parent);
-    results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
-    results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
+    const selected = commands.find(item => item.path === state.selected);
+    const level = selected?.directory || commands.some(item => item.parent === state.selected) ? state.selected : selected?.parent || state.selected;
+    const matches = state.selected ? commands.filter(item => level === item.executable ? !item.parent && item.executable === level : item.parent === level)
+      : query ? searchCommands(commands, query) : commands.filter(item => !item.parent);
+    results.hidden = false; detail.hidden = false;
+    back.disabled = state.trailIndex === 0; forward.disabled = state.trailIndex + 1 >= state.trail.length; up.disabled = !state.selected;
+    crumbs.replaceChildren();
+    const parts = state.selected?.split(' ') || [];
+    for (let index = 0; index < parts.length; index++) {
+      if (index) crumbs.append(el('span', '›'));
+      const crumb = el('button', parts[index], 'ghost'); crumb.type = 'button';
+      const path = parts.slice(0, index + 1).join(' '); crumb.onclick = () => navigate(path); crumbs.append(crumb);
+    }
+    results.append(el('h2', state.selected ? '本级／同级目录' : query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
+    if (!state.selected) detail.append(el('h2', '命令文档'), el('p', '选择左侧命令查看用途、参数与风险。分类仅显示直接子命令；查看文档无需项目。'));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
     commandList(results, matches);
     if (state.selected) {
-      const item = commands.find(item => item.path === state.selected);
+      const item = selected || { path: state.selected, directory: true, description: '选择本级命令继续阅读。', rpc: [], risk: '分类不执行命令。' };
       const nav = el('nav', undefined, 'cli-detail-nav');
-      const back = el('button', query ? '返回搜索结果' : '返回顶层目录', 'ghost'); back.type = 'button';
-      back.onclick = () => { if (!owns()) return; state.selected = null; paint(); search.focus(); }; nav.append(back);
-      if (item.parent) {
-        const parent = el('button', `上级：${item.parent}`, 'ghost'); parent.type = 'button';
-        parent.onclick = () => { if (!owns()) return; state.selected = item.parent; paint(); }; nav.append(parent);
-      }
+      const all = el('button', query ? '返回搜索结果' : '返回顶层目录', 'ghost'); all.type = 'button'; all.onclick = () => navigate(null); nav.append(all);
       detail.append(nav, el('h2', item.path), el('p', commandType(item, commands)), commandGuide(item));
       if (!item.directory) {
         const copy = el('button', '复制模板（须补全参数）', 'ghost'); copy.type = 'button';
@@ -187,12 +211,21 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
           try { await navigator.clipboard.writeText(item.format); if (owns() && state.selected === item.path) copied.textContent = '已复制模板；请补全参数并核对真实目标，复制不会执行。'; }
           catch { if (owns()) copied.textContent = '复制失败，请手动选择调用格式复制。'; }
         };
-        detail.append(copy, copied);
+        const trial = el('button', '试运行…', 'ghost'); trial.type = 'button'; trial.dataset.help = '打开编辑器并选择在线项目与 Worker；不会自动执行，修改操作仍需明确确认。';
+        trial.onclick = async () => {
+          const turn = ++state.trialGeneration;
+          await Promise.resolve();
+          if (!owns() || turn !== state.trialGeneration) return;
+          state.trial?.dispose(); trialSlot.replaceChildren(); trialSlot.hidden = false; browser.classList.add('with-trial');
+          const close = el('button', '关闭试运行', 'ghost'); close.type = 'button'; close.onclick = () => { state.trialGeneration++; state.trial?.dispose(); state.trial = null; trialSlot.replaceChildren(); trialSlot.hidden = true; browser.classList.remove('with-trial'); };
+          state.trial = renderCliTrial({ ownsPage: owns, renderWorkerCli, command: item.format }); trialSlot.append(close, state.trial);
+        };
+        detail.append(copy, trial, copied);
       }
       if (item.example) detail.append(el('h3', '示例（仅说明，不执行）'), el('code', item.example, 'cli-command-code'));
       detail.append(el('h3', '风险与边界'), el('p', item.risk));
       const children = commands.filter(child => child.parent === item.path);
-      if (children.length) { detail.append(el('h3', '子命令')); commandList(detail, children); }
+      if (children.length) detail.append(el('p', `本分类有 ${children.length} 个直接子命令／分类，请从目录选择。`));
       if (!item.directory) {
         const policy = el('details', undefined, 'cli-permissions-disclosure'); policy.dataset.command = item.path; policy.open = state.permissionsExpanded.has(item.path); policy.append(el('summary', '按需查看／设置管家权限'), permissions(item)); detail.append(policy);
       }
@@ -284,6 +317,6 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   }, { stay: () => { if (owns()) window.history.replaceState(null, '', '#cli-interfaces'); return false; } });
   const beforeUnload = event => { if (owns() && (dirty() || state.busy || state.uncertain)) { event.preventDefault?.(); event.returnValue = ''; } };
   globalThis.addEventListener?.('beforeunload', beforeUnload);
-  ui.disposeValetSettings = () => { state.disposed = true; ++state.generation; unregister(); globalThis.removeEventListener?.('beforeunload', beforeUnload); if (ui.valetSettingsPage === state) ui.valetSettingsPage = null; };
+  ui.disposeValetSettings = () => { state.trialGeneration++; state.trial?.dispose(); state.disposed = true; ++state.generation; unregister(); globalThis.removeEventListener?.('beforeunload', beforeUnload); if (ui.valetSettingsPage === state) ui.valetSettingsPage = null; };
   state.ready = loadCatalog(); return state.ready;
 }

@@ -57,10 +57,20 @@ try {
   const frame = async () => { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); };
   await frame(); assert(await wait(`document.querySelectorAll('.cli-command-link').length>0`), 'page missing');
   assert(await run(`return location.hash==='#cli-interfaces'&&[...document.querySelectorAll('.cli-results [data-command]')].every(n=>n.dataset.command.split(' ').length===2)`), 'empty search must show only roots / old route redirect');
-  assert(await run(`const hero=document.querySelector('.resource-hero'),search=document.querySelector('.cli-search'),results=document.querySelector('.cli-results');return hero.getBoundingClientRect().top<search.getBoundingClientRect().top&&search.getBoundingClientRect().bottom<=results.getBoundingClientRect().top&&search.nextElementSibling===results&&!document.querySelector('.cli-operation-filters')&&document.querySelector('.cli-catalog-notice').hidden`), 'title/search/results hierarchy is not compact');
+  assert(await run(`const hero=document.querySelector('.resource-hero'),search=document.querySelector('.cli-search'),results=document.querySelector('.cli-results');return hero.getBoundingClientRect().top<search.getBoundingClientRect().top&&search.getBoundingClientRect().bottom<=results.getBoundingClientRect().top&&document.querySelector('.cli-document-browser').contains(results)&&!document.querySelector('.cli-operation-filters')&&document.querySelector('.cli-catalog-notice').hidden`), 'title/search/results hierarchy is not compact');
   assert(await run(`return getComputedStyle(document.querySelector('.cli-command-link strong')).color===getComputedStyle(document.querySelector('.cli-interfaces-page')).color`), 'command names are not legible');
   assert(await run(`return !document.querySelector('.cli-search-prefix')&&[...document.querySelectorAll('.cli-results [data-command]')].some(n=>n.dataset.command.startsWith('lushw '))`), 'fixed prefix was not removed or development entry is missing');
   assert(permissionReads === 0 && catalogueRequests.length === 1, 'static browsing requested global permissions or duplicate data');
+  await search('worker merge request'); await choose('worker merge request');
+  await run(`const words=[...document.querySelectorAll('.cli-breadcrumbs button')];if(words.map(n=>n.textContent).join(' ')!=='lush worker merge request')throw Error('word navigation missing');words[1].click();`);
+  assert(await run(`return !!document.querySelector('.cli-results [data-command="lush worker merge"]')&&!document.querySelector('.cli-results [data-command="lush worker merge request"]')`), 'word navigation must show direct children only');
+  await press('后退'); assert(await run(`return document.querySelector('.cli-command-detail h2').textContent==='lush worker merge request'`), 'back did not restore document');
+  await press('前进'); await press('上一级');
+  assert(await run(`return document.querySelector('.cli-command-detail h2').textContent==='lush'`), 'up must reach executable root');
+  await search('worker show'); await choose('worker show'); await press('试运行…');
+  assert(await wait(`document.querySelector('.cli-trial select')?.options.length===1`), 'no-project trial should preserve static documentation');
+  assert(await run(`return !!document.querySelector('.cli-command-detail .cli-inline-guide')&&!document.querySelector('.cli-trial textarea')`), 'no-project documentation incorrectly requires execution context');
+  await press('关闭试运行'); await search('');
   await screenshot('desktop-directory');
   await run(`location.hash='#projects'`); assert(await wait(`document.querySelector('#detail').dataset.view==='projects'&&document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'leave missing');
   await run(`location.hash='#cli-interfaces'`); assert(await wait(`document.querySelectorAll('.cli-command-link').length>0`), 'return missing');
@@ -81,9 +91,10 @@ try {
   assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths.filter(command => command.startsWith('lush '))))}`), 'full command paste must select its actual executable');
   for (const width of [1440, 768, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    await run(`document.querySelector('.cli-directory').open=true`);
     const layout = await run(`const rows=[...document.querySelectorAll('.cli-results .cli-command-link')];return {kind:'list',width:innerWidth,documentWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,listWidth:document.querySelector('.cli-results').getBoundingClientRect().width,rows:rows.map(n=>{const r=n.getBoundingClientRect(),name=n.querySelector('strong').getBoundingClientRect(),description=n.querySelector('.cli-command-description').getBoundingClientRect(),operation=n.querySelector('.cli-command-operation').getBoundingClientRect(),permission=n.querySelector('.cli-command-access').getBoundingClientRect();return {height:r.height,display:getComputedStyle(n).display,margin:getComputedStyle(n).marginBottom,last:n.lastElementChild.className,nameX:name.x,nameRight:name.right,nameBottom:name.bottom,descriptionX:description.x,descriptionY:description.y,descriptionRight:description.right,operationX:operation.x,permissionX:permission.x,permissionRight:permission.right,gap:getComputedStyle(n).columnGap};})};`);
     assert(layout.documentWidth <= width && layout.bodyWidth <= width && layout.listWidth <= 800, `list overflow or excessive reading width ${width}: ${JSON.stringify(layout)}`);
-    assert(layout.rows.every(row => row.display === 'grid' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && parseFloat(row.gap) <= 12 && row.permissionRight <= width && (width <= 600 ? row.descriptionY >= row.nameBottom : width > 760 ? row.nameRight <= row.descriptionX && row.descriptionRight <= row.operationX && row.operationX < row.permissionX : row.descriptionX === row.nameX && row.descriptionY >= row.nameBottom && row.descriptionRight <= row.operationX && row.nameRight <= row.operationX && row.operationX < row.permissionX)), `not compact responsive rows ${width}: ${JSON.stringify(layout)}`);
+    assert(layout.rows.every(row => row.display === 'flex' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && parseFloat(row.gap) <= 12 && row.permissionRight <= width && row.descriptionY >= row.nameBottom), `not compact responsive rows ${width}: ${JSON.stringify(layout)}`);
     layouts.push(layout); await screenshot(`${width}-list`);
   }
   await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='1440px'`); await frame();
@@ -116,7 +127,7 @@ try {
   await search('config valet-permission set'); await choose('config valet-permission set');
   assert(await run(`const s=document.querySelector('[data-method="management.permission_set"] select');return s.value==='unavailable'&&[...s.options].map(n=>n.value).join(',')==='unavailable'`), 'project identity can change shared device permissions');
   await search('order'); await choose('order');
-  assert(await run(`return !document.querySelector('.cli-advanced').open&&document.querySelector('.cli-results').hidden`), 'single detail / advanced hierarchy missing');
+  assert(await run(`return !document.querySelector('.cli-advanced').open&&!document.querySelector('.cli-results').hidden`), 'single detail / advanced hierarchy missing');
   await select('order.submit', 'confirmation');
   await press('返回搜索结果'); assert(await run(`return document.querySelector('.cli-search input').value==='order'`), 'search lost'); await choose('order');
   assert(await run(`return document.querySelector('[data-method="order.submit"] select').value==='confirmation'`), 'draft lost');
@@ -178,6 +189,50 @@ try {
     await rpc(`/session/${session}/window`, undefined, 'DELETE'); await rpc(`/session/${session}/window`, { handle: handles[0] }); await frame();
     assert(await run(`return location.pathname==='/p/${projectId}/'&&location.hash==='#${hash}'&&document.querySelector('#input').value==='preserve project input'`), 'native global link changed project source input or route');
   }
+  // Real Host document → explicit project route → main/Worker lease → fixed CLI.
+  const trialWorker = (await f.project.order('browser CLI target', null, [], null, false)).task;
+  await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').src='/?trial=1#cli-interfaces'`);
+  assert(await wait(`document.querySelector('#viewport').contentWindow.location.search==='?trial=1'&&document.querySelector('#viewport').contentDocument.querySelectorAll('.cli-command-link').length>0`), 'trial page missing'); await frame();
+  await search('worker show'); await choose('worker show'); await press('试运行…');
+  assert(await wait(`document.querySelector('[aria-label="试运行项目"]')?.options.length>1`), 'registered project missing');
+  await run(`const s=document.querySelector('[aria-label="试运行项目"]');s.value='${projectId}';s.dispatchEvent(new Event('change'));`);
+  assert(await wait(`!!document.querySelector('.cli-trial textarea')`), 'main editor did not load');
+  assert(await run(`return document.querySelector('[aria-label="试运行 Worker"]').value==='${trialWorker.parent_id}'&&document.querySelector('.worker-cli-workspace').textContent.includes('预检')`), 'trial must default to real main without inventing workspace');
+  const editTrial = command => run(`const i=document.querySelector('.cli-trial textarea');i.value=${JSON.stringify(command)};i.dispatchEvent(new Event('input'));`);
+  const rename = `lush worker rename ${trialWorker.id} browser-main-cli`;
+  await editTrial(rename); await press('预检');
+  assert(await wait(`document.querySelector('.worker-cli-status').textContent.includes('预检通过')`), 'real main preflight failed');
+  assert(f.store.task(trialWorker.id).display_title === null, 'preview executed mutation');
+  await press('执行'); assert(await wait(`!document.querySelector('#modal').hidden`), 'main modification lacked confirmation');
+  await press('确认执行'); assert(await wait(`document.querySelector('.worker-cli-status').textContent==='执行成功。'`), 'real main execution failed');
+  assert(f.store.task(trialWorker.id).display_title === 'browser-main-cli', 'real CLI mutation did not persist');
+  await editTrial(`lush worker show ${trialWorker.id}`);
+  const countBeforeSwitch = mutations.filter(row => row.method === 'worker.cli_execute').length;
+  await run(`const s=document.querySelector('[aria-label="试运行 Worker"]');s.value='${trialWorker.id}';s.dispatchEvent(new Event('change'));`);
+  assert(await wait(`document.querySelector('.cli-trial textarea')?.value==='lush worker show ${trialWorker.id}'`), 'target switch rewrote explicit target/draft');
+  assert(mutations.filter(row => row.method === 'worker.cli_execute').length === countBeforeSwitch, 'switch executed a command');
+  await editTrial('lushw --json self show'); await press('执行');
+  assert(await wait(`document.querySelector('.worker-cli-status').textContent==='执行成功。'`), 'real developer Worker execution failed');
+  assert(await run(`return JSON.parse(document.querySelector('.worker-cli-current .worker-cli-output').textContent).data.id===${trialWorker.id}`), 'context returned wrong Worker');
+  for (const width of [1440, 390, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    assert(await run(`return document.documentElement.scrollWidth<=innerWidth&&document.querySelector('.cli-trial textarea').getBoundingClientRect().right<=innerWidth&&document.querySelector('.worker-cli-run').getBoundingClientRect().height>=44`), 'trial layout overflow/touch target');
+    await run(`document.querySelector('.cli-trial .worker-cli-controls').scrollIntoView({block:'start',behavior:'instant'})`);
+    await screenshot(`${width}-real-trial`);
+  }
+  await run(`const s=document.querySelector('[aria-label="试运行 Worker"]');s.value='${trialWorker.parent_id}';s.dispatchEvent(new Event('change'));`);
+  assert(await wait(`document.querySelector('.worker-cli-history')?.textContent.includes('browser-main-cli')`), 'main encrypted history did not reload');
+  assert(await run(`return !document.querySelector('.worker-cli-history-disclosure').open&&[...document.querySelectorAll('.worker-cli-history details')].every(n=>!n.open)`), 'old output must remain collapsed');
+  await editTrial(rename); await press('执行'); assert(await wait(`!document.querySelector('#modal').hidden`), 'target-switch confirmation missing');
+  const beforeTargetChange = mutations.filter(row => row.method === 'worker.cli_execute').length;
+  await run(`const s=document.querySelector('[aria-label="试运行 Worker"]');s.value='${trialWorker.id}';s.dispatchEvent(new Event('change'));`);
+  assert(await wait(`document.querySelector('#modal').hidden&&!!document.querySelector('.cli-trial textarea')`), 'target switch retained obsolete confirmation');
+  await run(`const s=document.querySelector('[aria-label="试运行项目"]');s.value='';s.dispatchEvent(new Event('change'));`);
+  assert(await run(`return !document.querySelector('.cli-trial textarea')`), 'clearing project retained executable editor');
+  await run(`const s=document.querySelector('[aria-label="试运行项目"]');s.value='${projectId}';s.dispatchEvent(new Event('change'));`);
+  assert(await wait(`document.querySelector('.cli-trial textarea')?.value===${JSON.stringify(rename)}`), 'project switch lost or rewrote draft');
+  assert(mutations.filter(row => row.method === 'worker.cli_execute').length === beforeTargetChange, 'target/project switch dispatched obsolete command');
+  await press('关闭试运行');
   // Close only the isolated fixture's RPC service; the root page remains fully writable.
   await f.rpc.close();
   await rpc(`/session/${session}/frame`, { id: null });

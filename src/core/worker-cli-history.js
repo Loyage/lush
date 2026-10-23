@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { check, id } from './types.js';
+import { workerCLIIdentity } from './worker-cli-identity.js';
 
 export const CLI_HISTORY_LIMITS = Object.freeze({ retained: 100, page: 20, response_bytes: 900000 });
 const MAX_FILE = 64 * 1024 * 1024;
@@ -45,8 +46,7 @@ function keyFor(locations, create) {
 function binding(project, taskId) { return Buffer.from(JSON.stringify(['lush-worker-cli-history', 1, fs.realpathSync(project.config.project), taskId])); }
 function open(project, taskId, create = false) {
   taskId = id(taskId);
-  const task = project.store.task(taskId);
-  check(['order','child'].includes(task.task_kind), 'CLI history requires an order/child Worker');
+  workerCLIIdentity(project.store, taskId);
   check(!project.workerDeleteIds?.has(taskId), 'Worker deletion is in progress; CLI history is unavailable');
   const locations_ = locations(project), key = keyFor(locations_, create), file = path.join(locations_.directory, `${taskId}.json`);
   const bytes = readFile(file);

@@ -16,10 +16,15 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   const body = el('div', undefined, 'worker-cli-body'); root.append(body);
   const identity = el('div', undefined, 'worker-cli-identity');
   const worker = el('strong'), workspace = el('code', undefined, 'worker-cli-workspace');
-  identity.append(worker, workspace);
-  body.append(identity, el('p', '以当前登录用户身份真实执行，不是沙箱，也不借用 Worker 的 Agent token。', 'worker-cli-warning'));
+  identity.append(worker, el('span', '当前登录用户 · 真实执行', 'worker-cli-shortcut'), workspace);
+  body.append(identity);
+  const layout = el('div', undefined, 'worker-cli-layout');
+  const primary = el('div', undefined, 'worker-cli-primary');
+  const auxiliary = el('details', undefined, 'worker-cli-auxiliary'); auxiliary.open = globalThis.innerWidth > 700;
+  auxiliary.append(el('summary', '功能搜索与命令说明'));
+  layout.append(primary, auxiliary); body.append(layout);
   const unavailable = el('p', undefined, 'worker-cli-unavailable'); unavailable.setAttribute('role', 'status');
-  body.append(unavailable);
+  primary.append(unavailable);
   const historyTools = el('div', undefined, 'worker-cli-history-tools');
   const older = el('button', '加载更早命令', 'ghost'); older.type = 'button';
   const clearHost = el('span', undefined, 'help-host');
@@ -35,7 +40,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   const clearSearch = el('button', '清空', 'ghost'); clearSearch.type = 'button';
   const catalogStatus = el('p', '正在加载静态命令目录…'); catalogStatus.setAttribute('role', 'status');
   const candidates = el('div', undefined, 'worker-cli-candidates');
-  discovery.append(searchLabel, searchButton, clearSearch, catalogStatus, candidates); body.append(discovery);
+  discovery.append(searchLabel, searchButton, clearSearch, catalogStatus, candidates); auxiliary.append(discovery);
   const row = el('div', undefined, 'worker-cli-controls');
   const label = el('label', undefined, 'worker-cli-field'); label.append(el('span', '单次 Lush 命令'));
   const input = el('textarea', undefined, 'worker-cli-input'); input.rows = 2; input.placeholder = 'lush status';
@@ -44,12 +49,18 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   const shortcut = el('span', '↑↓ 选择提示 · Tab 补全 · Esc 关闭 · 选中提示时 Enter 只填入；否则 Enter 执行 · Shift+Enter 换行', 'worker-cli-shortcut');
   const suggestions = el('div', undefined, 'worker-cli-suggestions');
   const guide = el('div', undefined, 'worker-cli-guide'); guide.setAttribute('aria-live', 'polite');
-  label.append(input, shortcut, suggestions, guide);
+  const purpose = el('p', '', 'worker-cli-purpose'); purpose.setAttribute('aria-live', 'polite');
+  label.append(input, shortcut, purpose, suggestions);
+  auxiliary.append(guide);
   const runHost = el('span', undefined, 'help-host');
   const run = el('button', '执行', 'worker-cli-run'); run.type = 'button';
   run.dataset.help = '先预览命令与真实工作目录；有副作用或调用 Agent 时确认后才执行，不会自动重试。';
-  runHost.append(run); row.append(label, runHost); body.append(row);
-  const status = el('p', '', 'worker-cli-status'); status.setAttribute('role', 'status'); body.append(status);
+  const checkOnly = el('button', '预检', 'ghost'); checkOnly.type = 'button';
+  checkOnly.dataset.help = '只读取命令分类、实际目录与安全检查，不执行；执行时仍重新预检。';
+  const actions = el('div', undefined, 'worker-cli-actions'); actions.append(checkOnly, runHost);
+  runHost.append(run); row.append(label, actions); primary.append(row);
+  const status = el('p', '', 'worker-cli-status'); status.setAttribute('role', 'status'); primary.append(status);
+  const currentOutput = el('div', undefined, 'worker-cli-current'); currentOutput.setAttribute('aria-label', '当前执行结果'); primary.append(currentOutput);
 
   const advanced = el('details', undefined, 'worker-cli-advanced');
   advanced.append(el('summary', '示例、限制与选项'));
@@ -59,7 +70,9 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     ? '服务器保存全量加密命令与输出，登录后自动解锁；密文和密钥一起泄露时无法保护内容。每页默认 10 条，本页最多保留最近 100 条。'
     : '历史接口尚未连接：仅在当前阅读页会话保留最近 100 条，离页即释放，不写入浏览器存储。'));
   advanced.append(el('p', '输出、耗时和执行上限以服务端返回为准。超时、信号、截断或连接中断不代表命令没有产生副作用；结果未知时请先核查，勿盲目再次执行。'));
-  body.append(advanced, historyTools, historyStatus, history);
+  auxiliary.append(advanced);
+  const historyDisclosure = el('details', undefined, 'worker-cli-history-disclosure');
+  historyDisclosure.append(el('summary', '命令历史（按需展开旧输出）'), historyTools, historyStatus, history); body.append(historyDisclosure);
 
   let task, disposed = false, busy = false, generation = 0, draftVersion = 0, confirmation = null, visible = true;
   let discoveryApi = null;
@@ -79,6 +92,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     });
     guide.replaceChildren();
     const item = suggestionItems[selectedSuggestion] || discoveryApi?.currentCommand(catalogCommands, input.value);
+    purpose.textContent = item?.description || '';
     if (item) guide.append(discoveryApi.commandGuide(item));
   }
   function searchCatalog(event) {
@@ -106,6 +120,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     fillExamples(); paintSuggestions();
   }).catch(error => { if (!disposed) catalogStatus.textContent = `目录加载失败：${errorText(error)}。仍可手动输入，执行必须经过预检；重新打开页面可重试。`; });
   root.catalogReady = catalogReady;
+  let currentEntry = null;
   let entries = [], before = null, hasMore = false, historyLoaded = false, reading = false, historyGeneration = 0;
   function summary(value, pending = false) {
     if (pending) return '正在真实执行，等待输出…';
@@ -121,13 +136,15 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     if (value.timed_out) diagnostics.push('已超时，可能已有副作用');
     if (value.truncated) diagnostics.push('输出已截断，并非完整输出');
     if (!entry.node) {
-      entry.node = el('section', undefined, 'worker-cli-result'); entry.node.setAttribute('aria-label', 'CLI 执行结果');
+      entry.node = el('details', undefined, 'worker-cli-result'); entry.node.setAttribute('aria-label', 'CLI 执行结果');
+      entry.heading = el('summary'); entry.node.append(entry.heading);
       entry.command = el('pre', undefined, 'worker-cli-result-command');
       entry.stdout = el('pre', undefined, 'worker-cli-output'); entry.stdout.setAttribute('aria-label', 'stdout');
       entry.stderr = el('pre', undefined, 'worker-cli-output'); entry.stderr.setAttribute('aria-label', 'stderr');
       entry.meta = el('p', undefined, 'worker-cli-result-meta');
       entry.node.append(entry.command, el('h4', 'stdout'), entry.stdout, el('h4', 'stderr'), entry.stderr, entry.meta);
     }
+    entry.heading.textContent = `${value.created_at || '时间未知'} · ${value.command} · ${summary(value, entry.pending)}`;
     entry.command.textContent = `${value.created_at || '时间未知'}\n$ ${value.command}\n目录：${value.workspace || '未知'}`;
     entry.stdout.textContent = String(value.stdout ?? ''); entry.stderr.textContent = String(value.stderr ?? '');
     entry.meta.textContent = `${summary(value, entry.pending)} ${diagnostics.join(' · ')}${value.history_error ? ' · 历史保存失败；执行 ACK 仍有效，不会重发。' : ''}${value.error ? ` ${value.error}` : ''}`;
@@ -136,7 +153,8 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   function paintHistory() {
     entries = entries.slice(-100);
     // Reuse entry nodes so completing an execution never destroys older selections.
-    syncChildren(history, entries.map(paintEntry));
+    syncChildren(history, entries.filter(entry => entry !== currentEntry).map(paintEntry));
+    if (currentEntry) { const node = paintEntry(currentEntry); node.open = true; syncChildren(currentOutput, [node]); }
     sync();
   }
   async function readHistory() {
@@ -178,7 +196,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
       historyGeneration++; reading = false;
       if (typeof clearHistory === 'function') await clearHistory();
       if (!current()) return;
-      entries = []; before = null; hasMore = false; historyLoaded = true; history.replaceChildren();
+      entries = []; currentEntry = null; currentOutput.replaceChildren(); before = null; hasMore = false; historyLoaded = true; history.replaceChildren();
       historyStatus.textContent = '命令历史已清除；已执行操作不受影响。';
     } catch (error) {
       if (current()) historyStatus.textContent = `清除失败，保留当前历史。${errorText(error)}`;
@@ -188,9 +206,9 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   function reason() {
     if (disposed) return '页面已离开，请重新打开 CLI 交互。';
     if (!visible) return 'CLI 标签当前未显示。';
-    if (!['order', 'child'].includes(task?.task_kind) || task?.execution_retired === true) return '仅本机开发指令或子 Worker 可以使用 CLI 交互。';
+    if (!['main', 'order', 'child'].includes(task?.task_kind) || task?.execution_retired === true) return '仅真实 main、本机开发指令或子 Worker 可以使用 CLI 交互。';
     if (!Number.isSafeInteger(task?.id) || task.id <= 0) return 'Worker 身份不可用。';
-    if (!present(task?.workspace)) return 'Worker 工作区不存在或不可用；不会回落到项目目录。';
+    if (task?.task_kind !== 'main' && !present(task?.workspace)) return 'Worker 工作区不存在或不可用；不会回落到项目目录。';
     if (typeof preview !== 'function' || typeof execute !== 'function') return 'CLI 执行接口尚未连接。';
     return '';
   }
@@ -199,6 +217,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     unavailable.textContent = disabledReason; unavailable.hidden = !disabledReason;
     input.disabled = Boolean(disabledReason);
     run.disabled = Boolean(disabledReason) || busy || !input.value.trim();
+    checkOnly.disabled = run.disabled;
     const help = disabledReason || (busy ? '命令请求在途，不会重复提交；仍可编辑下一条命令草稿。' : !input.value.trim() ? '请先输入一条 Lush 命令。' : '');
     if (run.disabled) { runHost.dataset.help = help; runHost.setAttribute('tabindex', '0'); }
     else { delete runHost.dataset.help; runHost.removeAttribute('tabindex'); }
@@ -216,6 +235,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   }
   function edited() {
     draftVersion++;
+    if (status.textContent.startsWith('预检通过')) status.textContent = '命令已修改，旧预检已失效；执行前将重新预检。';
     if (confirmation) { dismissConfirmation(); status.textContent = '命令已修改，旧预览未执行；请重新执行以预览新命令。'; }
     selectedSuggestion = -1; suggestionsClosed = false; paintSuggestions(); sync();
   }
@@ -230,6 +250,20 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
       node.addEventListener('click', handler); exampleHandlers.push([node, handler]); examples.append(node);
     }
   }
+  checkOnly.onclick = async () => {
+    if (busy || reason() || !input.value.trim()) return;
+    const command = input.value, version = draftVersion, turn = ++generation;
+    busy = true; sync(); status.textContent = '正在预检，尚未执行…';
+    try {
+      const plan = await preview(command);
+      if (disposed || turn !== generation) return;
+      if (version !== draftVersion || input.value !== command || reason()) { status.textContent = '命令或目标已变化，旧预检已失效。'; return; }
+      if (plan?.id !== task.id || plan.command !== command || !present(plan.workspace) || !present(plan.kind)) throw Error('预检身份或命令不匹配');
+      workspace.textContent = plan.workspace;
+      status.textContent = `预检通过，尚未执行。目录：${plan.workspace} · 分类：${plan.kind} · ${plan.requires_confirmation ? '执行需要明确确认' : '只读操作'}。执行时重新核验。`;
+    } catch (error) { if (!disposed && turn === generation) status.textContent = `预检失败，未执行：${errorText(error)}`; }
+    finally { if (!disposed && turn === generation) { busy = false; sync(); } }
+  };
   async function submit() {
     if (busy || reason() || !input.value.trim()) return;
     const command = input.value, id = task.id, version = draftVersion, turn = ++generation;
@@ -267,7 +301,8 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
       if (!unchanged()) return;
       started = true;
       executionEntry = { pending: true, value: { command, workspace: plan.workspace, created_at: new Date().toISOString(), status: 'unknown' } };
-      entries.push(executionEntry); paintHistory();
+      if (currentEntry?.node) currentEntry.node.open = false;
+      currentEntry = executionEntry; entries.push(executionEntry); paintHistory();
       // Clear only the submitted draft at dispatch. Later typing belongs to the next command.
       input.value = ''; draftVersion++; suggestionsClosed = true; paintSuggestions(); sync();
       status.textContent = '正在真实执行，请勿重复提交…';
@@ -315,17 +350,19 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     const contextChanged = changed || task.workspace !== next?.workspace || task.task_kind !== next?.task_kind || task.execution_retired !== next?.execution_retired;
     if (contextChanged) { generation++; historyGeneration++; reading = false; busy = false; dismissConfirmation(); }
     task = { ...next };
-    if (contextChanged) { entries = []; before = null; hasMore = false; historyLoaded = false; history.replaceChildren(); historyStatus.textContent = ''; }
+    if (contextChanged) { currentEntry = null; currentOutput.replaceChildren(); entries = []; before = null; hasMore = false; historyLoaded = false; history.replaceChildren(); historyStatus.textContent = ''; }
     if (changed) { input.value = ''; draftVersion++; status.textContent = ''; advanced.open = false; }
     else if (contextChanged) status.textContent = '工作区或 Worker 类型已变化，旧请求不再更新此面板；已发出的命令仍可能执行，请先核查。';
     worker.textContent = workerNumber(task);
-    if (contextChanged) workspace.textContent = present(task.workspace) ? task.workspace : '工作区不可用';
+    if (contextChanged) workspace.textContent = present(task.workspace) ? task.workspace : task.task_kind === 'main' ? 'main 实际目录由服务端预检确认' : '工作区不可用';
     if (contextChanged) { selectedSuggestion = -1; suggestionsClosed = false; paintSuggestions(); }
     fillExamples(); sync();
-    if (contextChanged && Number.isSafeInteger(task.id) && task.id > 0 && ['order', 'child'].includes(task.task_kind)
+    if (contextChanged && Number.isSafeInteger(task.id) && task.id > 0 && ['main', 'order', 'child'].includes(task.task_kind)
       && task.execution_retired !== true) root.ready = readHistory();
     return root;
   };
+  root.getDraft = () => input.value;
+  root.setDraft = command => { if (!disposed) { input.value = command; edited(); } };
   root.dispose = () => {
     if (disposed) return;
     disposed = true; generation++; historyGeneration++; busy = false; dismissConfirmation();
