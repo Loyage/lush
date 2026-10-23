@@ -12,6 +12,10 @@ export const handlers = {
   'sleep.status'(p) { return p.sleepStatus(); },
   'sleep.choices'(p, params) { return p.sleepChoices(params.before, params.limit); },
   'system.usage'(p, params) { return p.usageStatistics(params); },
+  'system.diagnostics.query'(p, params, actor) {
+    check(actor === null, 'runtime diagnostics requires user approval');
+    return p.queryRuntimeDiagnostics(params);
+  },
   'system.diagnostics'(p, params, actor) {
     check(actor === null, 'runtime diagnostics requires user approval');
     return p.runtimeDiagnostics();

@@ -1,5 +1,6 @@
 import { block, button, el, kv } from './dom.js';
 import { listEntry } from './list-surface.js';
+import { diagnosticsLink } from './diagnostics-route.js';
 import { pageBlocks } from './page-modules.js';
 import { workerLabel } from './worker-label.js';
 import { PROVIDERS, CREDENTIALS, array, text, time, field, note, helped, canQuery, successful } from './connection-view-common.js';
@@ -31,7 +32,7 @@ export function renderConnectionRow(connection, { selected, refreshing, operatio
   cache.setAttribute('data-help', `缓存观测（非实时）；观测时间：${time(connection.observation?.checked_at)}。查询失败不代表余额为零。`);
   refreshRow.append(cache, refresh); actions.append(refreshRow);
   const status = el('p', operation || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); status.hidden = !status.textContent; actions.append(status);
-  actions.append(button('详情', onDetail, 'ghost model-source-details-toggle'));
+  actions.append(diagnosticsLink(el, { connection_id: connection.id }), button('详情', onDetail, 'ghost model-source-details-toggle'));
   row.append(identity, settings, resources, actions); return row;
 }
 

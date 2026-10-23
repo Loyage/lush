@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { el } from './dom.js';
+import { diagnosticsLink } from './diagnostics-route.js';
 import { formDialog } from './dialog.js';
 import { onPrefChange, pollingIntervals } from './prefs.js';
 
@@ -145,7 +146,8 @@ export function renderDiagnosticsCard(row, { geometry = row.geometry, state, ref
   const control = el('button', '刷新', 'ghost dashboard-diagnostics-refresh'); control.type = 'button';
   control.dataset.help = '仅重新读取已登记项目的运行诊断，不查询服务商、不启动后台或调用模型。';
   const host = el('span', undefined, 'help-host'); host.append(control);
-  const details = el('button', '详情', 'ghost dashboard-diagnostics-details'); details.type = 'button';
+  const details = el('button', '快照', 'ghost dashboard-diagnostics-details'); details.type = 'button';
+  details.dataset.help = '查看本卡片的 1／5 分钟小计和 10 分钟趋势；自选时间、来源与模型请打开分析页。';
   control.onclick = () => { if (ownsPage() && !state().pending) return refresh(); };
   details.onclick = () => {
     if (!ownsPage()) return;
@@ -160,9 +162,10 @@ export function renderDiagnosticsCard(row, { geometry = row.geometry, state, ref
       for (const project of snapshot.projects) sources.append(el('li', `${project.name} · ${STATES[project.state]} · ${project.generated_at ? clock(project.generated_at) : '无更新时间'}${project.error ? ` · ${project.error}` : ''}`));
       content.append(sources);
     }
-    void formDialog({ title: '运行诊断详情', content, confirmLabel: '关闭' });
+    void formDialog({ title: '简版诊断快照（1／5分钟及10分钟趋势）', content, confirmLabel: '关闭' });
   };
-  footer.append(updated, host, details); root.append(header, body, footer);
+  const analysis = diagnosticsLink(el, {}, '分析'); analysis.setAttribute('aria-label', '打开完整运行诊断分析页');
+  footer.append(updated, host, details, analysis); root.append(header, body, footer);
   function paint() {
     const { snapshot, error, pending } = state();
     const compact = (geometry?.h || 18) < 18;

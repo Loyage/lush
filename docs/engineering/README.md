@@ -19,6 +19,7 @@
 - [Worker 图与固定输入规则](task-graph.md)：Worker 视角、可信规则执行与读面边界。
 - [一次 invocation 与多级协作](invocation.md)
 - [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速收尾与可选软预算。
+- [运行诊断分析](runtime-diagnostics.md)：被动计时、30 天元数据、来源／模型查询及 Host 只读聚合。
 - [项目身份与恢复](identity-and-recovery.md)
 
 ## Git 子系统

@@ -388,6 +388,7 @@ export default {
     this.agentUsage.start();
     this.usageIndex.start();
     this.agentConnections.start();
+    this.startDiagnosticsRetention();
     this.startRuntimeSettingsMonitor();
     // Legacy automation authorization is retained on disk but is not reactivated.
     // 抢占通道是进程内运行时状态：重启后不可能还有 invocation 在跑，残留请求必须清掉，
@@ -515,6 +516,7 @@ export default {
     await Promise.allSettled([...(this.cliRunning?.values() ?? [])].map(lease => lease.promise));
     for (const job of this.convergenceJobs?.values() ?? []) job.controller.abort(new Error('daemon stopped'));
     this.stopScheduledHookTimer();
+    await this.stopDiagnosticsRetention();
     this.stopMaintenanceMonitor();
     this.stopRuntimeSettingsMonitor();
     this.stopDeviceAutomationMonitor();

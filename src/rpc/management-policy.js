@@ -34,6 +34,7 @@ export function managementDispatchParams(method, params) {
   return definition;
 }
 const unavailable = new Set([
+  'system.diagnostics.query', // User analysis page only; no new Agent/Valet capability.
   'administrator.dispatch', // Independent signed identity, never an ordinary Valet capability.
   PROJECT_ELEVATION_RPC.submit, PROJECT_ELEVATION_RPC.append, PROJECT_ELEVATION_RPC.receipt, // Password entrances/receipts are never ordinary manager proxies.
   'management.emergency_preview','management.emergency_stop', // User-only emergency; never a delegable capability.

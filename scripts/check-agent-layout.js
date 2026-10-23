@@ -65,6 +65,8 @@ async function waitFor(expression) {
   assert(await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];let n=0;const check=()=>{try{if(${expression})return done(true)}catch{}if(++n>200)return done(false);setTimeout(check,50)};check();` }), `Timed out: ${expression}`);
 }
 async function click(selector) {
+  // Keep actual pointer clicks clear of the shared sticky list heading after row navigation.
+  await execute(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'})`);
   const node = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
   await rpc(`/session/${session}/element/${node['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }

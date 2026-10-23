@@ -248,6 +248,18 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
         started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), ended_at TEXT);
       CREATE INDEX IF NOT EXISTS agent_runs_task ON agent_runs(task_id,id);
+      CREATE INDEX IF NOT EXISTS agent_runs_started ON agent_runs(started_at,id);
+      -- Independent, disposable 30-day metadata. Never mutate original runs/sessions or quota history.
+      CREATE TABLE IF NOT EXISTS diagnostic_runs (
+        run_id INTEGER PRIMARY KEY REFERENCES agent_runs(id) ON DELETE CASCADE,
+        connection_id TEXT, model TEXT, captured INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0,
+        samples INTEGER NOT NULL DEFAULT 0, started_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS diagnostic_runs_time ON diagnostic_runs(started_at);
+      CREATE TABLE IF NOT EXISTS diagnostic_samples (
+        run_id INTEGER NOT NULL REFERENCES diagnostic_runs(run_id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL, at TEXT NOT NULL, connection_id TEXT, model TEXT, payload TEXT NOT NULL,
+        PRIMARY KEY(run_id,sequence));
+      CREATE INDEX IF NOT EXISTS diagnostic_samples_time ON diagnostic_samples(at,run_id,sequence);
       -- Structured outputs from a run. payload/metadata are JSON text so the zero-dependency runtime can evolve
       -- artifact kinds without rewriting the schema.
       CREATE TABLE IF NOT EXISTS artifacts (

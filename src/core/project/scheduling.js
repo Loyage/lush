@@ -564,8 +564,11 @@ export default {
       }
       if (!this.provider.reportsInputDelivery) onInputDelivered();
       let result;
+      try { this.store.beginDiagnosticsRun(run.recordId, agent.connection_id ?? null, agent.model ?? null); }
+      catch { /* Passive diagnostics never prevent execution; absent capture remains unknown. */ }
       try {
         result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent, onInputDelivered,
+          onDiagnostics: report => this.store.recordDiagnosticsRun(run.recordId, report),
           connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
             agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
           onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,

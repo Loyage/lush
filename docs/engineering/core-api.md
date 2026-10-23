@@ -57,6 +57,8 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 ## 核心工作流
 
+用户分析读面 `system.diagnostics.query {from?,to?,connection_id?,model?}` 与旧无参数 `system.diagnostics` 并存；前者不开放给开发 Agent／Valet。计时、30 天元数据、额度隔离及 HTTP／Host 形状唯一契约见[运行诊断分析](runtime-diagnostics.md)。
+
 - `worker.create`：用户创建 paused 空容器或受约束父来源关系的 fork，不创建 Input／调用 Agent；首条用户 worker.message／input.emit append 原子绑定唯一 Input 后授权排队。会话、来源／交付父隔离、失败与幂等边界见[手动创建契约](../reference/rpc/tasks.md#手动创建与首条输入w337d698)。现有 order 用户路径不增加操作步骤，worker.spawn 委派不改语义。
 - `input.emit` / `order.submit` 缺省及 `start:true`：先持久挂载当前输入，返回 `{emitted:true,draft_id,dispatch}`，不保证立即有 task。条件全部满足且父 runtime 真正空闲、安全可写时，才从当时父提交创建并开始独立 Worker；main/owner 不为准入调用模型。显式 `order.submit {start:false}` 保留旧仅创建 paused 路径，不是发射。main 自动确立静息 owner，其它本地分支须先 `branch.bind`；历史 create_worker Hook 与内部 order/sendOrder 不迁移。
 - `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；新建与追加统一支持版本草稿、条件及发射，已绑定目标的追加只关联 Message/A 编号，不造 O；手动空容器首条输入例外见上文。`input.emission_cancel` / `input.exclusive_release` 分别撤销未执行输入或释放独占，不删除成果、不重放 unknown。字段见[历史输入接口](input-history.md)及[条件发射](conditional-emission.md)。

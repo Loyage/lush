@@ -22,6 +22,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-valet-emergency-api.test.js', // user confirmation -> only occupied Valets -> isolation and fresh input
     'test/web/skills-page-integration.test.js', // Host settings -> next invocation prompt
     'test/web/agent-connections-api.test.js', // named models HTTP/RPC -> device registry -> scoped Valet reads and frozen bindings
+    'test/web/diagnostics-api.test.js', // passive Provider timing -> project persistence -> user-only HTTP/RPC -> Host analysis
   ]),
   rpc: Object.freeze([
     'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects
@@ -47,6 +48,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/transcript-reader.test.js', // shared search and explicit full-record reads
     'test/web/dom-questionnaire.test.js', // choices -> review -> answer
     'test/web/settings.test.js', // device preferences
+    'test/web/dom-model-sources.test.js', // model/source/diagnostics tabs, filtered reads and cancellation
   ]),
   cli: Object.freeze([
     'test/cli-entrypoints.test.js', // published bins and offline help

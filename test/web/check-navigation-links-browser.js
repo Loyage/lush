@@ -5,6 +5,7 @@ import path from 'node:path';
 import { request } from 'node:http';
 import { setup, fetch } from './harness.js';
 import { repo } from '../helpers.js';
+import { resource, digest } from '../project/agent-connection-fixture.js';
 
 const evidence = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-navigation-links-'));
 const f = await setup();
@@ -13,7 +14,8 @@ f.project.provider = { run() { throw Error('No real Agent allowed'); } };
 const assert = (ok, message) => { if (!ok) throw Error(message); };
 const reserve = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
 const port = reserve.port; reserve.stop(true);
-let driver, wrapper, session, success = false;
+let driver, wrapper, session, success = false, holdDiagnostic = false, releaseDiagnostic, diagnosticAborted = false;
+const diagnosticReads = [];
 const layouts = [];
 async function rpc(route, body, method = 'POST') {
   const response = await new Promise((resolve, reject) => {
@@ -50,6 +52,13 @@ try {
   wrapper = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === '/fixture') return new Response('<!doctype html><html><body style="margin:0"><iframe id="viewport" style="border:0;width:1440px;height:1000px" src="/#docs"></iframe></body></html>', { headers: { 'Content-Type': 'text/html' } });
+    if (url.pathname.endsWith('/diagnostics/query')) {
+      diagnosticReads.push(url);
+      if (holdDiagnostic) {
+        req.signal.addEventListener('abort', () => { diagnosticAborted = true; }, { once: true });
+        await new Promise(resolve => { releaseDiagnostic = resolve; });
+      }
+    }
     const body = req.method === 'GET' || req.method === 'HEAD' ? null : await req.text();
     const upstream = await fetch(f.url + url.pathname + url.search, { method: req.method, ...(body !== null ? { headers: { 'Content-Type': 'application/json' }, body } : {}) });
     const headers = new Headers(upstream.headers);
@@ -125,6 +134,64 @@ try {
   await wait(`location.hash==='#model-sources'&&document.querySelector('.model-sources-page')`);
   // Real Worker -> native new tab -> independent project-scoped reader, including reload and Escape.
   await repo(f.root); await f.project.bootstrapMain();
+  // Diagnostics uses the actual compiled page, CSP, Host registry, HTTP/RPC and SQLite projection.
+  // Seed observations only; no Provider/network probing is involved.
+  const action = async (method, params) => {
+    const response = await fetch(f.url + '/api/host/settings/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params: { ...params, scope: 'device' } }) });
+    assert(response.status === 200, `diagnostics setup ${method}: ${await response.clone().text()}`); return response.json();
+  };
+  const connection = await action('agent.connections.save', { connection: { label: '诊断浏览器来源', provider: 'deepseek', auth_type: 'api_key', models: ['deepseek-chat'] }, credential: { api_key: 'isolated-fixture-only' } });
+  await action('agent.registered_models.save', { model: { name: '诊断命名模型', connection_id: connection.id, model: 'deepseek/deepseek-chat' } });
+  const diagnosticWorker = (await f.project.order('diagnostic observations fixture', 'main', [], null, false)).task;
+  const run = f.store.startRun(diagnosticWorker, { agent: 'mock' });
+  f.store.beginDiagnosticsRun(run.id, connection.id, 'deepseek/deepseek-chat');
+  f.store.recordDiagnosticsRun(run.id, { dropped: 1, rows: [{ at: new Date().toISOString(), model: 'deepseek/deepseek-chat', status: 'ok', input_tokens: 50, output_tokens: 20, estimated_cost_usd: .01, response_ms: 1000, text_chars: 12, text_ms: 400, wait_ms: 100, ttft_ms: 200 }] });
+  f.store.finishRun(run.id, 'completed');
+  const now = Date.now();
+  for (const [index, remaining, status] of [[0, 80, 'available'], [1, 60, 'available'], [2, null, 'error'], [3, 55, 'available'], [4, 100, 'available']]) {
+    f.store.recordAgentConnectionObservation({ query_key: `browser-diagnostic-${index}`, connection_id: connection.id, provider: 'deepseek', account_key: digest('browser-account'), source_key: digest('browser-source'), observation: { status, checked_at: new Date(now - 6000 + index * 500).toISOString(), source: 'usage_api', resources: [resource(remaining, { reset_at: new Date(now + (index === 4 ? 7200000 : 3600000)).toISOString() })] } });
+  }
+  await execute(`location.hash='#model-sources-connections'`); await wait(`document.querySelector('.model-source-row .diagnostics-link')`);
+  await click('.model-source-row .diagnostics-link');
+  await wait(`document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  assert(diagnosticReads.at(-1).searchParams.get('connection_id') === connection.id && !diagnosticReads.at(-1).searchParams.has('model'), 'source diagnostic binding missing');
+  await click('[data-model-sources-tab=models]'); await wait(`document.querySelector('.registered-model-row .diagnostics-link')`);
+  await click('.registered-model-row .diagnostics-link'); await wait(`document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  assert(diagnosticReads.at(-1).searchParams.get('model') === 'deepseek/deepseek-chat', 'model link used registration name instead of actual binding');
+  assert(await execute(`return document.querySelector('[data-diagnostic-filter=connection_id]').selectedOptions[0].textContent==='诊断浏览器来源'`), 'known source label did not replace the temporary deep-link ID');
+  assert(await execute(`const p=document.querySelector('.runtime-diagnostics-page');return p.textContent.includes('下界')&&p.textContent.includes('丢弃样本 1')&&p.textContent.includes('模型筛选不适用于额度')&&p.textContent.includes('可能重置')&&p.querySelector('.diagnostic-quota-series svg').querySelectorAll('.diagnostic-line').length===1`), 'coverage or quota reset/failure continuity incorrect');
+  await execute(`const n=document.querySelector('[data-diagnostic-filter=period]');n.value='7d';n.dispatchEvent(new Event('change'));document.querySelector('[data-diagnostic-apply]').focus()`);
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+  await wait(`document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  let query = diagnosticReads.at(-1).searchParams;
+  assert(Date.parse(query.get('to')) - Date.parse(query.get('from')) === 7 * 86400000, 'keyboard period apply did not submit range');
+  await execute(`const n=document.querySelector('[data-diagnostic-filter=project_id]');n.value=[...n.options].find(o=>o.value).value;n.dispatchEvent(new Event('change'));const p=document.querySelector('[data-diagnostic-filter=period]');p.value='custom';p.dispatchEvent(new Event('change'));const local=t=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()*60000).toISOString().slice(0,16)};document.querySelector('[data-diagnostic-filter=from]').value=local(${now - 3600000});document.querySelector('[data-diagnostic-filter=to]').value=local(${now - 60000});document.querySelector('[data-diagnostic-apply]').click()`);
+  await wait(`document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  query = diagnosticReads.at(-1).searchParams;
+  assert(/^[a-f0-9]{16}$/.test(query.get('project_id')) && Date.parse(query.get('to')) - Date.parse(query.get('from')) === 3540000, 'custom range/real project identity not submitted');
+  // Restore the default time so the just-recorded samples appear in the layout evidence.
+  await execute(`const p=document.querySelector('[data-diagnostic-filter=period]');p.value='24h';p.dispatchEvent(new Event('change'));document.querySelector('[data-diagnostic-apply]').click()`);
+  await wait(`document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}'`);
+    const bounds = await execute(`const p=document.querySelector('.runtime-diagnostics-page');return {overflow:document.documentElement.scrollWidth-innerWidth,page:p.scrollWidth-p.clientWidth,controls:[...p.querySelectorAll('button,input,select')].filter(n=>n.getClientRects().length).map(n=>{const r=n.getBoundingClientRect();return {name:n.className||n.dataset.diagnosticFilter,width:r.width,height:r.height}}),folds:[...p.querySelectorAll('.block')].map(n=>n.querySelector('.module-body').hidden)};`);
+    assert(bounds.overflow <= 1 && bounds.page <= 1 && bounds.controls.every(n=>n.width<=width&&n.height>=44) && JSON.stringify(bounds.folds) === '[false,false,false,true,true,true]', `diagnostic layout ${theme}/${width}: ${JSON.stringify(bounds)}`);
+    layouts.push({ theme, width, diagnostics: bounds }); await screenshot(`diagnostics-${theme}-${width}`);
+  }
+  holdDiagnostic = true;
+  await click('[data-diagnostic-reload]'); await wait(`document.querySelector('.runtime-diagnostics-page').getAttribute('aria-busy')==='true'`);
+  await click('[data-model-sources-tab=models]');
+  holdDiagnostic = false; releaseDiagnostic?.();
+  await wait(`document.querySelector('.registered-model-row')?.checkVisibility()`);
+  assert(diagnosticAborted, 'leaving diagnostics did not abort its HTTP request');
+  await execute(`document.querySelector('[data-model-sources-tab=sources]').focus()`);
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE014' }, { type: 'keyUp', value: '\uE014' }] }] });
+  await wait(`document.querySelector('[data-model-sources-tab=diagnostics]').getAttribute('aria-selected')==='true'&&document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  await execute(`location.hash='#projects'`); await wait(`document.querySelector('.dashboard-diagnostics-card .diagnostics-link')`);
+  await click('.dashboard-diagnostics-card .diagnostics-link'); await wait(`document.querySelector('.diagnostic-status')?.textContent.includes('读取完成')`);
+  assert(!diagnosticReads.at(-1).searchParams.has('connection_id') && !diagnosticReads.at(-1).searchParams.has('model'), 'dashboard did not open unfiltered analysis');
+  console.log('PASS compiled diagnostics: source/model/dashboard links, HTTP filters/ranges, quota breaks, coverage, cancellation, keyboard and 320/1440 dual themes');
   const worker = (await f.project.order('Reader navigation browser fixture', 'main', [], null, false)).task;
   for (let index = 0; index < 105; index++) {
     f.store.update(worker.id, { calls: index });

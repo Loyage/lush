@@ -1,6 +1,7 @@
 import { button, el } from './dom.js';
 import { confirmDialog } from './dialog.js';
 import { registeredModelReason } from './agent-connection-picker.js';
+import { diagnosticsLink } from './diagnostics-route.js';
 
 const option = (id, text) => { const node = el('option', text); node.value = id; return node; };
 const field = (label, control) => { const node = el('label', undefined, 'registered-model-field'); node.append(el('span', label), control); return node; };
@@ -36,6 +37,7 @@ export function createRegisteredModels({ client, ownsPage, openSources }) {
       copy.append(el('strong', row.name), el('span', `来源：${row.source?.label || row.connection_id}`), el('span', `具体模型：${row.model}`));
       const reason = registeredModelReason(row); if (reason) copy.append(el('span', reason, 'agent-status-warning'));
       const actions = el('div', undefined, 'model-source-actions');
+      actions.append(diagnosticsLink(el, { connection_id: row.connection_id, model: row.model }));
       const edit = button('编辑', () => openEditor(row), 'ghost'); edit.disabled = busy;
       const remove = button('删除', async () => {
         if (!current() || busy) return;

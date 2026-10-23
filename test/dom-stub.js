@@ -178,6 +178,7 @@ export function installDom({ fetch: fetchImpl } = {}) {
   const documentListeners = {};
   const document = {
     createElement: tag => new StubNode(tag),
+    createElementNS: (namespace, tag) => Object.assign(new StubNode(tag), { namespaceURI: namespace }),
     createTextNode: textNode,
     documentElement: new StubNode('html'),
     body: new StubNode('body'),

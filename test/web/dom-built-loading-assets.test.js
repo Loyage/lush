@@ -7,12 +7,17 @@ import { installDom, deepText } from '../dom-stub.js';
 import { installDom as installProjectDom } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 import { temp } from '../helpers.js';
+import { diagnosticsQuery, emptyDiagnosticQuery, finishDiagnosticQuery } from '../../src/core/diagnostics-query.js';
 
 const root = temp(), assets = fileURLToPath(new URL('../../src/ui/web/assets/', import.meta.url));
 await buildAssets(assets, root, 'a'.repeat(32));
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const app = html.match(/src="\/([^"\n]+-app-[^"\n]+\.js)"/)[1];
-const world = makeWorld(), inboxReads = [], dom = installDom({ fetch: (url, options) => {
+const world = makeWorld(), inboxReads = [], diagnosticReads = [], dom = installDom({ fetch: (url, options) => {
+  if (String(url).startsWith('/api/host/diagnostics/query?')) {
+    const params = new URL(url, 'http://fixture').searchParams; diagnosticReads.push({ params, signal: options.signal });
+    return Response.json(finishDiagnosticQuery(emptyDiagnosticQuery(diagnosticsQuery(Object.fromEntries(params), Date.now(), true))));
+  }
   if (String(url).startsWith('/api/host/inbox?')) inboxReads.push(new URL(url, 'http://fixture').searchParams);
   return world.fetchImpl(url, options);
 } });
@@ -48,11 +53,26 @@ test('compiled root workbench loads global lazy pages with shared navigation sta
   expect(dom.node('detail').dataset.view).toBe('administrator');
   expect(dom.node('detail').querySelector('.administrator-create')).toBeNull();
   expect(dom.node('detail').querySelector('.administrator-instruction')).toBeNull();
+  dom.location.hash = '#model-sources-diagnostics?connection_id=deleted&model=historical%2Fmodel'; await dom.fire('hashchange');
+  expect(dom.node('detail').dataset.view).toBe('model-sources');
+  expect(dom.node('detail').querySelector('[data-model-sources-tab="diagnostics"]').getAttribute('aria-selected')).toBe('true');
+  expect(diagnosticReads.at(-1).params.get('model')).toBe('historical/model');
+  expect(deepText(dom.node('detail'))).toContain('额度观测变化');
+  await dom.node('detail').querySelector('[data-model-sources-tab="models"]').onclick();
+  expect(dom.location.hash).toBe('#model-sources');
+  await dom.node('detail').querySelector('[data-model-sources-tab="diagnostics"]').onclick();
+  expect(diagnosticReads.at(-1).params.get('connection_id')).toBe('deleted');
   await dom.node('projects-open').onclick(); expect(dom.node('detail').dataset.view).toBe('projects');
 });
 
 test('compiled project boot owns work pages and opens device settings separately', async () => {
+  const projectDiagnostics = [];
   const project = installProjectDom({ fetch: async (url, options) => {
+    if (String(url).includes('/api/diagnostics/query?')) {
+      projectDiagnostics.push(String(url));
+      const params = new URL(url, 'http://fixture').searchParams;
+      return Response.json(finishDiagnosticQuery(emptyDiagnosticQuery(diagnosticsQuery(Object.fromEntries(params)))));
+    }
     const response = await world.fetchImpl(url, options);
     if (/\/api\/worker\/1$/.test(String(url))) return Response.json({ ...await response.json(), task_kind: 'order', worker_number: 'W333' });
     return response;
@@ -84,6 +104,12 @@ test('compiled project boot owns work pages and opens device settings separately
       expect(project.node('detail').dataset.view).toBe('workspace-link');
       expect(project.node('detail').querySelector('a').href).toBe(`/${hash}`);
     }
+    project.location.hash = '#model-sources-diagnostics?model=%40unknown'; await project.fire('hashchange');
+    expect(project.node('detail').dataset.view).toBe('model-sources');
+    expect(projectDiagnostics.at(-1)).toStartWith('/api/diagnostics/query?');
+    expect(project.requests.filter(row => row.path.includes('/diagnostics/query?')).at(-1).path).toStartWith('/p/aaaaaaaaaaaaaaaa/api/diagnostics/query?');
+    expect(project.node('detail').querySelector('[data-diagnostic-filter="project_id"]')).toBeNull();
+    expect(deepText(project.node('detail'))).toContain('额度观测变化');
     project.location.hash = '#worker-1-cli'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('execution');
     const panel = project.document.body.querySelector('.transcript-dialog');

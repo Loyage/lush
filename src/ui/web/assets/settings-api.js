@@ -16,8 +16,8 @@ export function settingsClient(scope = 'device') {
     return parsed.pathname + parsed.search;
   };
   return { scope: 'device', key: 'host:device', project: false, isCurrent: () => true,
-    read: async url => {
-      const value = await api(urlFor(url));
+    read: async (url, options = {}) => {
+      const value = await api(urlFor(url), options);
       const path = new URL(url, 'http://lush.invalid').pathname;
       if (['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/agent/environment'].includes(path)
         && (value?.configuration_scope?.selected !== 'device' || value.configuration_scope.project_override === true

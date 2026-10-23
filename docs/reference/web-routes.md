@@ -22,6 +22,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 - `GET /api/host`：返回 `mode`、上次打开的项目（`last_project` / `last_project_id`）与已登记项目列表（`projects`，含 `connected` / `last`；`mode` 为 `host` 或 `bound`）。只报告上次落点，不因此自动启动或连接任何 daemon。另返回当前服务进程的 `pid` 与 `restart_supported`；嵌入式 Host 不支持进程重启时为 `false`。
 - `GET /api/host/dashboard`：设备共享总览 v5 配置，前端聚合项目卡、统一额度窗口及运行诊断卡；保留原始 widgets、固定网格及旧选择／内容字段，新增 `diagnostics:boolean`。`widgets:null` 兼容投影与 partial patch `POST` 见[总览面板契约](../engineering/dashboard-panel.md)。用户专属、严格字段／revision／私有文件校验，v1–v4 文件只读兼容。配置不存余额或凭证，读取不启动后台或查询账号；显式刷新已摆放账户沿用设备连接查询接口。
 - `GET /api/host/diagnostics`：用户专属根路径、无查询参数；只读聚合已登记且授权可访问项目的 `system.diagnostics`，返回 1／5 分钟平均 token/s、估算 USD/min、十分钟趋势和来源覆盖／未知状态。保留登录、Origin、no-store 和严格白名单，不接受路径、token 或任意 RPC，不启动离线后台、查询服务商或调用模型；字段与费用口径见[运行诊断卡](../engineering/dashboard-panel.md#运行诊断卡)。
+- `GET /api/host/diagnostics/query`：用户专属分析聚合，支持 from/to/connection_id/model/project_id；默认 24h、最多 30d，字符速度、响应效率、流量与额度观测分开。严格参数、覆盖／未知及取消语义见[分析契约](../engineering/runtime-diagnostics.md)。
 - `GET /api/host/projects`：项目列表对已登记目录检查项目 socket，并对可达的 lushd 有界读取 `system.summary`，返回 `running` 与摘要（可含已验证的正整数 `pid`、实际 `agents_running`、维护暂停、待决数，以及 `development` 的全项目状态指标和最近 3 条 Worker；详见[开发摘要契约](../engineering/user-workspace.md#后台总览开发摘要w186决定-446)）。新 Host 只在显式总览读取请求 `development:true`；旧 daemon 不支持参数时只读降级，开发摘要缺失明确不可用，不能把 `agents_total` 当作真实调用数；`connected` 仅表示 Host 已打开连接，二者不是同一状态。读取列表不会启动任何 lushd，未登记项目不会被扫描；单个项目失败只影响自己那一行。
 - `GET /api/host/projects/<id>/appearance`：只读项目外观元数据，不启动 daemon；返回 `{id,name,project,appearance}`，未初始化时 appearance 为 null。`POST` 同路径接受 `{initialize:true}` 或 `{color,expected_revision}`，首次分配尽量不重复的预设色，保存须匹配 revision。#411：项目 `.lush/appearance.json` 的旧 theme 留存但不生效，兼容回传相同 theme、改变拒绝；配色在用户工作台管理，设备主题另走 preferences API；只认已登记／白名单身份，拒绝路径、token、未知字段和 query，沿用认证／Origin／JSON／no-store。详见[项目外观契约](../engineering/workbench.md#项目外观w160)。
 - `POST /api/host/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径（公网模式还必须在白名单内）；登记该项目、按需启动 / 连接 daemon，返回该项目稳定路由 ID（`id`）。它不再设置全局「当前项目」，页面归属由前端跳到 `/p/<id>/` 决定。
@@ -103,6 +104,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，version 2 Pi/Codex 软件路径、版本与可用性；显式诊断/刷新时读取，不读取配置/认证、不联网或启动模型，详见 [Agent 状态](rpc/agents.md) |
 | `GET /api/agent/selection/resources` | 用户专属 `agent.selection.resources {}`；本地托管 API/模型范围、执行后端能力、余额状态与观测时间，不含秘密、不联网；不接受查询参数 |
 | `GET /api/agent/registered-models` | 设备命名模型本地安全列表；Host 对应 `/api/host/settings/agent/registered-models`，状态／操作见[登记契约](../engineering/agent-connections.md#设备共享命名模型登记w392--d770) |
+| `GET /api/diagnostics/query` | 用户专属 `system.diagnostics.query {from?,to?,connection_id?,model?}`；被动元数据只读，不联网，详见[分析契约](../engineering/runtime-diagnostics.md) |
 | `GET /api/agent/connections` | 用户专属 `agent.connections.list {}`；只读取项目托管连接及缓存，不导入 Pi 登录 |
 | `GET /api/agent/connections/history?id=&days=` | 用户专属 `agent.connections.history`；本地连接历史，不访问上游 |
 | `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；旧配置只读兼容，页面不调用；旧配置写入明确退役，见 [Agent 状态](rpc/agents.md) |

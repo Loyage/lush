@@ -12,6 +12,7 @@ import { forkCheckpoint } from './fork.js';
 import { choiceForkPath, readChoiceFile } from './choice-context.js';
 import { createRuntimeConnection, readRuntimeObservations } from './connection-runtime.js';
 import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
+import { readPiDiagnostics } from './pi-diagnostics.js';
 import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
 import { MANAGEMENT_TOOL_NAMES } from './pi-management.js';
 import { PROJECT_ADMINISTRATOR_TOOL_NAMES, PROJECT_ADMINISTRATOR_PROMPT } from '../administrator/project-tool-protocol.js';
@@ -194,7 +195,7 @@ export class PiProvider {
   requiresPiSource = true;
   reportsInputDelivery = true;
   async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, onPreempt = null, agent, forkPointer = null,
-    connectionRuntime = null, onConnectionObservation = null, choiceFork = null, remote_workspace = null }) {
+    connectionRuntime = null, onConnectionObservation = null, onDiagnostics = null, choiceFork = null, remote_workspace = null }) {
     const config = this.config;
     if (remote_workspace !== null || task.execution_retired) throw new Error('Remote execution is retired; this Worker is read-only');
     const piMode = agent?.config_mode === 'pi';
@@ -261,6 +262,12 @@ export class PiProvider {
     // credential snapshot and the Lush Agent env files (already absent from the Pi-mode values).
     const values = piMode ? defaultPiEnvironment(config, files.environment.values)
       : isolatedPiEnvironment(config, files.environment.values, managed.dir);
+    let diagnosticsDir, diagnosticsFile;
+    try {
+      diagnosticsDir = fs.mkdtempSync(path.join(files.sessions, '.diagnostics-'));
+      fs.chmodSync(diagnosticsDir, 0o700);
+      diagnosticsFile = path.join(diagnosticsDir, 'samples.json');
+    } catch { /* Passive metadata failure must not prevent execution. */ }
     try {
       const result = await spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
         config: { ...config, env: piMode ? defaultPiEnvironment(config, config.env)
@@ -272,7 +279,7 @@ export class PiProvider {
             task_id: task.id, role: task.role, task_kind: task.task_kind ?? null,
             ...(manager ? { management_occurrence_id: context.management?.signal?.id,
               management_authorization: elevated ? { mode: 'administrator', scope: 'current_project', project: config.project } : { mode: 'ordinary', scope: 'current_project', project: config.project } } : {}), config_mode: piMode ? 'pi' : 'lush',
-            soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
+            soft_budget: agent.soft_budget, diagnostics_file: diagnosticsFile, preempt_dir: path.join(config.home, 'preempt'),
             sessions_dir: files.sessions, ...(managed ? { connection: { ...managed.binding, observations_file: managed.observations } } : {}) }) },
       });
       const secret = managed ? (connectionRuntime.credential.key || connectionRuntime.credential.access) : null;
@@ -284,6 +291,9 @@ export class PiProvider {
         throw new AgentInvocationError('pi_invocation_failed');
       throw error;
     } finally {
+      try { await onDiagnostics?.(diagnosticsFile ? readPiDiagnostics(diagnosticsFile) : null); }
+      catch { /* Metadata failure is represented by a missing capture in the project store. */ }
+      finally { try { if (diagnosticsDir) fs.rmSync(diagnosticsDir, { recursive: true, force: true }); } catch {} }
       if (managed) {
         try {
           for (const observation of readRuntimeObservations(managed)) await onConnectionObservation?.(observation);

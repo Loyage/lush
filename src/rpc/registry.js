@@ -1,4 +1,5 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
+import { DIAGNOSTICS_PARAMS } from '../core/diagnostics-query.js';
 import { normalizeConfigurationScope } from '../core/device-config.js';
 import { INPUT_OPTION_KEYS as ALL_INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { INPUT_EMIT_PARAMS } from '../core/input-emission-protocol.js';
@@ -24,7 +25,7 @@ export const PARAMS = {
   'worker.cli_preview': ['id','command'], 'worker.cli_execute': ['id','command','revision','confirm'],
   'worker.cli_history': ['id','before','limit'], 'worker.cli_history_clear': ['id'],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
-  'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': ['notify_completion'], 'system.resume_all': [],
+  'system.settings': ['scope'], 'system.diagnostics': [], 'system.diagnostics.query': DIAGNOSTICS_PARAMS, 'system.interrupt_all': ['notify_completion'], 'system.resume_all': [],
   'settings.clear_override': ['kind','target'], 'settings.migration.preview': [], 'settings.migration.apply': ['revision','confirm'],
   'agent.config': ['scope'], 'agent.models': ['agent','scope'], 'agent.resources': ['scope'], 'agent.status': ['scope'], 'agent.configure': ['config','scope'],
   'agent.network': ['scope'], 'agent.network.configure': ['config','scope'],
@@ -126,7 +127,7 @@ export const USER_ONLY = new Set([
   'graph.get','branch.tree','branch.show','notice.list','notice.page',
   ...Object.keys(MERGE_CONDITION_PARAMETERS),
   'cli.catalog','worker.cli_preview','worker.cli_execute','worker.cli_history','worker.cli_history_clear','worker.delivery_graph','worker.management_calls',
-  'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
+  'system.diagnostics','system.diagnostics.query','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','branch.version_graph','worker.version_graph','worker.version_deliveries','worker.version_commit','worker.version_lineage','worker.version_lineage_commit','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',

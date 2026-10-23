@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { check, isPlainObject } from '../../core/types.js';
+import { diagnosticsSearch } from '../../core/diagnostics-query.js';
 import { WEB_PUSH_PATHS } from '../../shared/web-push-protocol.js';
 import { projectRouteId } from '../../host/registry.js';
 import { cliCatalog } from '../../rpc/cli-catalog.js';
@@ -84,6 +85,10 @@ export function createHostRoutes(projectHost, auth, options, env) {
         if (request.method !== 'POST') return json({ error: 'not found' }, 404);
         const origin = pushRequestOrigin(context);
         return json(await getUserServices()[pushAction](await userBody(request, url), origin));
+      }
+      if (url.pathname === '/api/host/diagnostics/query') {
+        if (request.method !== 'GET') return json({ error: 'not found' }, 404);
+        return json(await projectHost.queryDiagnostics(diagnosticsSearch(url.searchParams, true), request.signal));
       }
       if (url.pathname === '/api/host/diagnostics') {
         if (request.method !== 'GET') return json({ error: 'not found' }, 404);

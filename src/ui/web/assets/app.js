@@ -14,6 +14,7 @@ import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } fro
 import { openTaskGraph } from './render-task-graph.js';
 import { openDeliveryView } from './render-delivery-view.js';
 import { deliveryTarget } from './delivery-model.js';
+import { diagnosticsHash, diagnosticsTarget } from './diagnostics-route.js';
 import { initSidebar } from './sidebar-init.js';
 import { resetProjectMaintenance, renderProjectMaintenance } from './project-maintenance.js';
 import { activateDetailView, openResource, paintCollapsed, toggleMobileNavigation } from './sidebar-ui.js';
@@ -94,8 +95,8 @@ const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status && options.status !== 'all' ? `#notices-${options.status}` : '#notices' });
 const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), options.section === 'drafts' || options.item?.kind === 'draft' ? 'drafts' : 'inputs',
   { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : options.section === 'drafts' ? '#drafts' : '#inputs' });
-const openSources = (connectionId = '', tab = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId, tab }),
-  'model-sources', { hash: connectionId ? `#model-source-${connectionId}` : tab === 'sources' ? '#model-sources-connections' : '#model-sources' });
+const openSources = (connectionId = '', tab = '', filters) => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId, tab, filters }),
+  'model-sources', { hash: tab === 'diagnostics' ? diagnosticsHash(filters) : connectionId ? `#model-source-${connectionId}` : tab === 'sources' ? '#model-sources-connections' : '#model-sources' });
 
 function noProjectView() {
   const identity = activateDetailView({ view: 'unavailable', title: '项目不可用', context: '用户工作台',
@@ -126,6 +127,8 @@ function onHashChange() {
   return requestPageLeave(hash || '#projects', { leave: () => openHashTarget(hash, project, doc, generation) });
 }
 function openHashTarget(hash, project, doc, generation) {
+  const diagnosticFilters = diagnosticsTarget(hash);
+  if (diagnosticFilters) return openSources('', 'diagnostics', diagnosticFilters);
   if (hash === '#cli-interfaces' || hash === '#valet-settings') {
     if (project) return globalPageRedirect(hash);
     if (hash === '#valet-settings') window.history.replaceState(null, '', '#cli-interfaces');

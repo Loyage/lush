@@ -2,11 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseConnectionHeaders } from './connection-runtime.js';
+import { installPiDiagnostics } from './pi-diagnostics.js';
 
 export default function lushRuntime(pi) {
   let settings;
   try { settings = JSON.parse(process.env.LUSH_RUNTIME_CONTEXT || '{}'); }
   catch { throw new Error('invalid Lush runtime context'); }
+  installPiDiagnostics(pi, settings.diagnostics_file);
   const budget = settings.soft_budget || {};
   // Passive only: no fetch, credentials, model probes or timers. The daemon absorbs the bounded file at process exit.
   const connection = settings.connection;

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { check } from '../../core/types.js';
+import { DIAGNOSTICS_LIMITS } from '../../core/diagnostics-query.js';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const ID = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -198,6 +199,42 @@ export const agentConnections = {
       this.run('DELETE FROM agent_connection_series WHERE NOT EXISTS (SELECT 1 FROM agent_connection_points WHERE series_id=agent_connection_series.id)');
       return removed;
     });
+  },
+  readDiagnosticsQuota({ from, to, connection_id }) {
+    if (connection_id === '@unknown') return { series: [], truncated: false };
+    const candidates = this.all(`SELECT s.* FROM agent_connection_series s WHERE last_at>=?
+      ${connection_id ? 'AND connection_id=?' : ''}
+      AND EXISTS (SELECT 1 FROM agent_connection_points p WHERE p.series_id=s.id AND p.checked_at>=? AND p.checked_at<?)
+      ORDER BY last_at DESC,id LIMIT ?`, from, ...(connection_id ? [connection_id] : []), from, to, DIAGNOSTICS_LIMITS.series + 1);
+    let truncated = candidates.length > DIAGNOSTICS_LIMITS.series;
+    const series = candidates.slice(0, DIAGNOSTICS_LIMITS.series).map(row => {
+      const until = new Date(Date.parse(to) - 1).toISOString();
+      const read = this.all(`SELECT checked_at,remaining,total,used,used_percent,status,reset_at,error_code,source FROM agent_connection_points
+        WHERE series_id=? AND checked_at>=? AND checked_at<=? ORDER BY checked_at DESC,query_id DESC LIMIT 1025`, row.id, from, until);
+      const scan_truncated = read.length > 1024, available = read.slice(0, 1024).reverse().map(point);
+      const selected = new Set(available.length ? [0, available.length - 1] : []);
+      // Prefer failure/reset boundary pairs, then cover the retained span uniformly. Overflow stays explicit.
+      for (let i = 1; i < available.length && selected.size < DIAGNOSTICS_LIMITS.points - 1; i++) {
+        const a = available[i - 1], b = available[i];
+        if (a.status !== b.status || a.reset_at !== b.reset_at || b.remaining > a.remaining) { selected.add(i - 1); selected.add(i); }
+      }
+      for (let i = 0; i < DIAGNOSTICS_LIMITS.points && selected.size < DIAGNOSTICS_LIMITS.points; i++)
+        selected.add(Math.floor(i * (available.length - 1) / (DIAGNOSTICS_LIMITS.points - 1)));
+      const points = available.length ? [...selected].sort((a,b) => a-b).map(i => available[i]) : [];
+      const sampled = scan_truncated || points.length < available.length; truncated ||= sampled;
+      // Each edge is an observed change, not model/project spend. Never bridge failures or resets.
+      return { id: row.id, connection_id: row.connection_id, provider: row.provider, account_key: row.account_key,
+        source_key: row.source_key, kind: row.kind, scope: row.scope, label: row.label, unit: row.unit,
+        window_seconds: row.window_seconds, models: JSON.parse(row.models), sample_count: read.length, sample_count_lower_bound: scan_truncated, sampled,
+        points: points.map((point, index) => {
+          const prior = points[index - 1];
+          const reset = !!prior && (point.reset_at !== prior.reset_at || point.remaining !== null && prior.remaining !== null && point.remaining > prior.remaining);
+          const known = prior && !sampled && !reset && ['available','partial'].includes(point.status) && ['available','partial'].includes(prior.status)
+            && point.remaining !== null && prior.remaining !== null && point.total === prior.total;
+          return { ...point, reset, remaining_change: known ? point.remaining - prior.remaining : null };
+        }) };
+    });
+    return { series, truncated };
   },
   readAgentConnectionHistory({ id, from, to, retention_days }) {
     check(validConnectionId(id) && iso(from) && iso(to) && from <= to, 'invalid connection history range');
