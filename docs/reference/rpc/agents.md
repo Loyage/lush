@@ -94,7 +94,7 @@ Codex 等套餐窗口主显示“约多久后重置”，绝对本地时间与�
 | `agent.usage.history {provider?,account_key?,days?}` | GET `/api/agent/usage/history`，只读旧存档，不联网或清理 |
 | `worker.configure {id,model_selection}` | POST action，窄更新；与 profile 互斥 |
 
-命名模型登记的字段、容量、状态、权限与 Host 对应入口以[设备共享登记契约](../../engineering/agent-connections.md#设备共享命名模型登记w392--d770)为准；list/resolve 可经受控管家桥读取，仍要求设备授权与显式 scope，写入不向管家开放。
+命名模型登记的字段、容量、状态、权限与 Host 对应入口以[设备共享登记契约](../../engineering/agent-connections.md#设备共享命名模型登记w392--d770)为准；list/resolve 可经受控项目管家桥安全读取，无需设备关键词或显式 scope，仍检查最新 read／unavailable 权限；指定 scope 时只能为 device。设备共享写入不向项目管家（含项目单条提权）开放。
 
 受信调用前策略仍默认关闭，不执行用户脚本；Worker 显式覆盖优先。`agent.selection.resources` 的顶层时间是读面生成时间，额度新鲜度须看各观测时间。没有策略不做自动付费切换。
 

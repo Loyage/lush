@@ -100,7 +100,7 @@ RPC：
 - `agent.registered_models.remove {id,scope?}` → `{removed:id}`。
 - `agent.registered_models.resolve {selector,scope?}` → **仅** `{id,name,connection_id,model}`；selector 必须精确匹配稳定 id 或唯一名称，不裁剪查询、不模糊猜选。
 
-scope 缺省为 device，project 明确拒绝。全部方法对普通开发 Agent 为 USER_ONLY；普通 Valet 仅经既有受控管理桥获得 list/resolve 的 read 权限，仍须本轮设备授权与显式 `scope:'device'`，写方法不可委派（含旧管理员目录），不放宽管理边界。CLI 查询／选择由同源 CommandSpec 注册，经真实 `lush_cli` bridge 使用这些接口；不以 RPC 可调用冒充 Provider 工具可用。
+scope 缺省为 device，project 明确拒绝。全部方法对普通开发 Agent 为 USER_ONLY；W400／D782 使项目 Valet 经既有受控管理桥获得 list/resolve 的安全 read 权限，无需设备关键词或显式 `scope:'device'`，仍受最新 read／unavailable 限制；指定 scope 时只接受 device。设备共享写方法不向普通项目身份或项目单条提权开放，旧管理员目录不恢复授权，边界见[管家权限](hook-signals-management.md#设备全局管家权限)。CLI 查询／选择由同源 CommandSpec 注册，经真实 `lush_cli` bridge 使用这些接口；不以 RPC 可调用冒充 Provider 工具可用。
 
 HTTP 本地读取为 GET `/api/agent/registered-models` 与 `/api/host/settings/agent/registered-models`；save/remove/resolve 分别经原项目 `/api/action` 或 Host `/api/host/settings/action` 的同名 RPC action，复用认证、Origin、参数白名单和 no-store。可选 scope 只接受 device，拒绝未知／重复 query。
 
@@ -115,7 +115,7 @@ bun run lush order '实现功能' --registered-model astra --scope device --data
 bun run lush worker config set W5 --registered-model astra --scope device
 ```
 
-`agent model list` 默认列已注册模型、具体来源和不可选原因；显式 `--backend pi|codex` 保留原后端候选查询，不能混为登记清单。`resolve` 只读精确名称或稳定 ID，不联网、不探测、不模糊匹配。Valet 应先读取清单再按精确名称选择；缺少本轮用户的设备／全局授权时须询问，不能仅补 scope 或改用其他接口绕过。
+`agent model list` 默认列已注册模型、具体来源和不可选原因；显式 `--backend pi|codex` 保留原后端候选查询，不能混为登记清单。`resolve` 只读精确名称或稳定 ID，不联网、不探测、不模糊匹配。Valet 应先读取清单再按精确名称选择；安全读取和解析不需要用户设备关键词，`--scope device` 可省略。读取权限被用户收紧为 unavailable 时仍拒绝，不换身份或接口绕过。
 
 `order --registered-model` 先解析，再显式提交 Pi/lush 的具体 profile；`--data` 可补其它合法运行参数，不能包含 connection_id/model（包括 null）或冲突 agent/config_mode。不读取私有默认配置、不偷偷改写用户显式模式。`worker config set --registered-model` 与 `--connection/--model/--data` 互斥，解析后走既有 `model_selection` 原子窄更新，保留其余覆盖；目标不是 Pi lush 时拒绝，不隐式切换。`--scope device` 在这两个项目命令中仅用于登记解析，后续项目写请求不携带 scope，仍独立检查原权限、确认与生命周期。
 

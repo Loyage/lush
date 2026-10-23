@@ -105,7 +105,9 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
       tool('project.call',{method:'input.emit',params:{content:'not a first user input',mode:'append',target_id:empty.id}}),
     ];
     await pump([tool('catalog',{}),rename,rename,tool('source.read',{path:'src/app.js'}),tool('project.call',{method:'worker.inspect',params:{id:target.id}}),
+      tool('project.call',{method:'agent.registered_models.list',params:{}}),
       tool('project.call',{method:'system.configure',params:{settings:{}}}),tool('project.call',{method:'agent.config',params:{}}),
+      tool('project.call',{method:'agent.connections.query',params:{scope:'device'}}),
       tool('source.read',{project:'/different/project',path:'src/app.js'}),tool('project.call',{method:'notice.post',params:{title:'new instruction?',body:'must reject',kind:'question'}}),
       tool('project.call',{method:'hooks.register',params:forbiddenRegistration}),
       tool('project.call',{method:'worker.hook_attach',params:{id:target.id,hook:{template_id:registered.template_id,template_version:registered.template_version},expected_revision:mounted.revision}}),
@@ -118,8 +120,9 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     expect(high.registered).toEqual(['administrator']);expect(high.cliActive).toEqual(['administrator']);expect(high.modelActive).toEqual(['administrator']);expect(high.blocked.every(Boolean)).toBe(true);
     expect(high.startup.management.instruction).toBe(definition.instruction);expect(JSON.stringify(high)).not.toContain(password);expect(JSON.stringify(high)).not.toContain(forwarded[acceptedIndex].params.proof.signature);
     expect(JSON.stringify(f.store.all('SELECT data FROM events'))).not.toContain(password);
-    expect(high.replies.slice(0,5).every(item=>!item.error)).toBe(true);
-    expect(high.replies.slice(5,-sourcePlan.length-1).every(item=>item.error)).toBe(true);
+    expect(high.replies.slice(0,6).every(item=>!item.error)).toBe(true);
+    expect(high.replies[5].response.details.result).toMatchObject({models:[]});
+    expect(high.replies.slice(6,-sourcePlan.length-1).every(item=>item.error)).toBe(true);
     expect(high.replies.at(-sourcePlan.length-1).response.details.status).toBe('succeeded');
     const sourceReplies=high.replies.slice(-sourcePlan.length);
     expect(sourceReplies.every(item=>!item.error&&item.response.details.status==='succeeded')).toBe(true);
@@ -142,7 +145,8 @@ test('Web password -> native elevated Valet -> isolated Provider/bridge -> handl
     const emptyDraft=sourceReplies.at(-1).response.details.result.draft_id;
     await until(()=>f.project.inputEmissionResult(emptyDraft).dispatch.state==='failed');
     expect(f.store.task(empty.id)).toMatchObject({input_id:null,goal:'',status:'paused'});
-    expect(['hooks.register','hooks.save','hooks.command_save','hooks.command_import','hooks.command_remove','worker.hook_attach','worker.hook_update','worker.hook_remove'].some(method=>projectAdministratorMethods().includes(method))).toBe(false);
+    expect(['hooks.register','hooks.save','hooks.command_save','hooks.command_import','hooks.command_remove','worker.hook_attach','worker.hook_update','worker.hook_remove',
+      'agent.configure','agent.connections.save','agent.connections.query','agent.connections.remove','system.configure','hooks.auto_select','management.permission_set'].some(method=>projectAdministratorMethods().includes(method))).toBe(false);
     expect(f.project.hooksList().registry.revision).toBe(registryRevision);expect(f.project.shortcutCommands().revision).toBe(commandsRevision);
     expect(f.project.taskHooks(target.id).mounts.find(item=>item.id===shellMount.id).enabled).toBe(false);expect(fs.existsSync(marker)).toBe(false);
     expect(high.replies[1].response.details.receipt_id).toBe(high.replies[2].response.details.receipt_id);

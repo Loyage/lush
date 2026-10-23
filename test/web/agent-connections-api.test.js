@@ -48,8 +48,8 @@ test('connection and named model HTTP/RPC lifecycle preserves concrete bindings 
         expect(PARAMS[name]).toBeTruthy(); expect(USER_ONLY.has(name)).toBe(true);
         await expect(client.request(name, { _token: token })).rejects.toThrow('user approval');
       }
-      await expect(call('agent.registered_models.list')).rejects.toThrow();
-      replies.push(await call('agent.registered_models.list', { scope: 'device' }));
+      await expect(call('agent.registered_models.list', { scope: 'project' })).rejects.toThrow();
+      replies.push(await call('agent.registered_models.list'));
       replies.push(await call('agent.registered_models.resolve', { selector: 'astra', scope: 'device' }));
       for (const method of ['save', 'remove']) {
         const name = `agent.registered_models.${method}`;
@@ -58,7 +58,7 @@ test('connection and named model HTTP/RPC lifecycle preserves concrete bindings 
       }
       return 'registry permission chain verified';
     } };
-    const valet = await client.request('management.submit', { instruction: '读取设备登记模型 astra', profile: { agent: 'pi', config_mode: 'pi' } });
+    const valet = await client.request('management.submit', { instruction: '读取当前登记模型 astra', profile: { agent: 'pi', config_mode: 'pi' } });
     f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
     expect(f.store.task(valet.task.id).result).toBe('registry permission chain verified');
     expect(replies[0]).toMatchObject({ status: 'succeeded', result: { version: 1, models: [{ id: registered.id }] } });
@@ -66,7 +66,9 @@ test('connection and named model HTTP/RPC lifecycle preserves concrete bindings 
     expect(JSON.stringify(replies)).not.toContain('fixture-key');
     f.project.provider = { async run({ token, task }) {
       if (task.task_kind === 'management') {
-        await expect(client.request('manager.call', { _token: token, method: 'agent.registered_models.list', params: { scope: 'device' } })).rejects.toThrow();
+        expect(await client.request('manager.call', { _token: token, method: 'agent.registered_models.list', params: { scope: 'device' } }))
+          .toMatchObject({ status: 'succeeded' });
+        await expect(client.request('manager.call', { _token: token, method: 'agent.registered_models.list', params: { scope: 'project' } })).rejects.toThrow();
       } else {
         for (const method of ['list', 'save', 'remove', 'resolve'])
           await expect(client.request(`agent.registered_models.${method}`, { _token: token })).rejects.toThrow('user approval');

@@ -18,6 +18,7 @@ const PAGES = {
   deliveries: ['历史合并记录', '历史', '旧链接只读兼容 · 不提供持续归并设置'],
   'cli-interfaces': ['CLI 接口', '用户工作台', '搜索与学习命令 · 此设备用户所有项目的管家权限'],
   administrator: ['旧全局管理员历史', '用户工作台', '只读与安全停止 · 新工作使用项目管家密码提权'],
+  'device-valet': ['设备管家', '用户工作台', '共享模型与来源 · 每条指令重新验证密码'],
   hooks: ['项目自动化', '工作', '功能设置 · 新 Worker 默认与显示原则'],
   inputs: ['历史输入', '工作', '已发送原文 · 时间与来源检索'],
   drafts: ['草稿', '工作', '工作暂存 · 追加输入暂存 · 执行条件'],
@@ -50,7 +51,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
   if (changed) cancelDisclosureMotions();
-  if (changed) { ui.disposeModelSources?.(); ui.disposeModelSources = null; ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null; ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.({ savedLeave: true }); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
+  if (changed) { ui.disposeModelSources?.(); ui.disposeModelSources = null; ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null; ui.disposeDeviceValetPage?.(); ui.disposeDeviceValetPage = null; ui.disposeWorkerCreation?.(); ui.disposeWorkerCreation = null; ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null; ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeDeliveryView?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.collapseComposer?.({ savedLeave: true }); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';

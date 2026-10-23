@@ -7,11 +7,23 @@ import { CLI_WORKFLOWS } from '../src/cli/discovery.js';
 import { cliCatalog } from '../src/rpc/cli-catalog.js';
 import { HANDLERS } from '../src/rpc/dispatcher.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from '../src/rpc/registry.js';
-import { managementPolicy, managementAllowedAccess } from '../src/rpc/management-policy.js';
+import { managementPolicy, managementAllowedAccess, effectiveManagementPolicy, validateManagementCall, managementAuthorization, DEVICE_RESTRICTED_MANAGEMENT_METHODS } from '../src/rpc/management-policy.js';
+import { AGENT_RESOURCE_READ_METHODS } from '../src/core/agent-resource-policy.js';
 import { CLI_MIGRATIONS } from '../src/cli/migrations.js';
 
 test('CLI registration/help/hierarchy and user-visible RPC parameter/permission projection share code-owned sources', () => {
   const catalogue = cliCatalog(), commands = catalogue.commands;
+  for (const method of AGENT_RESOURCE_READ_METHODS) {
+    expect(managementPolicy(method).access).toBe('read');
+    expect(managementAuthorization(method)).toBeNull();
+    expect(validateManagementCall(method, {}, '查看当前模型和来源', { permissions: { [method]: 'read' } }).access).toBe('read');
+  }
+  for (const method of DEVICE_RESTRICTED_MANAGEMENT_METHODS) {
+    expect(managementPolicy(method).access).toBe('unavailable');
+    expect(managementAllowedAccess(managementPolicy(method).access, method)).toEqual(['unavailable']);
+    expect(effectiveManagementPolicy(method, { permissions: { [method]: 'automatic' } }).access).toBe('unavailable');
+    expect(effectiveManagementPolicy(method).access).toBe('unavailable');
+  }
   expect(catalogue.catalog_version).toBeTruthy();
   for (const migration of CLI_MIGRATIONS) {
     expect(commands.some(item => !item.directory && item.command_path === migration.path)).toBe(false);

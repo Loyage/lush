@@ -168,18 +168,26 @@ test('registered model discovery through the real Provider CLI freezes order and
     f.project.managementDispatch = (method, params, ...rest) => { calls.push({ method, params }); return dispatch(method, params, ...rest); };
     const choose = argv => ({ ...command(argv), registeredModel: { reply: 0, name: 'astra' } });
     const result = await f.invoke([
-      command(['agent','model','list','--scope','device']),
-      command(['agent','model','resolve',registered.id,'--scope','device']),
-      choose(['order','named model goal','--registered-model','$registered-model','--scope','device','--data','{"thinking":"high","soft_budget":{"responses":9}}']),
-      choose(['worker','config','set',target.worker_number,'--registered-model','$registered-model','--scope','device']),
-    ], '使用设备已注册模型 astra 创建工作并更新指定 Worker');
+      command(['agent','model','list']),
+      command(['agent','model','resolve',registered.id]),
+      command(['agent','source','list']),
+      command(['agent','source','show',source.id]),
+      command(['agent','source','models','list',source.id]),
+      command(['agent','model','choices','--scope','device']),
+      choose(['order','named model goal','--registered-model','$registered-model','--data','{"thinking":"high","soft_budget":{"responses":9}}']),
+      choose(['worker','config','set',target.worker_number,'--registered-model','$registered-model']),
+    ], '查看当前模型和来源，用 astra 创建工作并更新指定 Worker');
     expect(result.replies.flatMap((reply, index) => reply.error ? [{ index, error: reply.error }] : [])).toEqual([]);
     expect(result.values[0]).toMatchObject({ storage_scope: 'device', models: [{ name: 'astra', selectable: true }] });
     expect(result.values[1]).toEqual({ id: registered.id, name: 'astra', connection_id: source.id, model: registered.model });
-    expect(result.values[2]).toMatchObject({ method: 'order.submit', status: 'succeeded' });
-    expect(result.values[3]).toMatchObject({ method: 'worker.configure', status: 'succeeded' });
+    expect(result.values[2].connections.some(row => row.id === source.id)).toBe(true);
+    expect(result.values[3]).toMatchObject({ id: source.id, label: 'CLI source' });
+    expect(result.values[4]).toHaveProperty('models');
+    expect(result.values[5].connections.some(row => row.id === source.id)).toBe(true);
+    expect(result.values[6]).toMatchObject({ method: 'order.submit', status: 'succeeded' });
+    expect(result.values[7]).toMatchObject({ method: 'worker.configure', status: 'succeeded' });
     await f.project.drainInputEmissions();
-    const delivered = f.project.inputEmissionResult(result.values[2].result.draft_id).dispatch;
+    const delivered = f.project.inputEmissionResult(result.values[6].result.draft_id).dispatch;
     expect(delivered.state).toBe('succeeded');
     const created = f.store.task(delivered.worker_id);
     f.store.update(created.id, { status: 'paused' }); // Do not execute a development model in later management invocations.
@@ -200,8 +208,29 @@ test('registered model discovery through the real Provider CLI freezes order and
     expect(JSON.stringify(result)).not.toMatch(/PRIVATE-FIXTURE-KEY|PRIVATE-PROMPT|PRIVATE-ENV/);
     await f.project.saveRegisteredModel({ id: registered.id, name: 'astra', connection_id: source.id, model: 'deepseek/deepseek-reasoner' });
     expect(JSON.parse(f.store.task(created.id).retry_profile)).toEqual(createdProfile);
-    const denied = await f.invoke([command(['order','no device authorization','--registered-model','astra','--scope','device'])], '用 astra 做工作');
-    expect(JSON.parse(denied.replies[0].error)).toMatchObject({ kind: 'authorization_required', execution: 'not_started' });
+    const denied = await f.invoke([
+      command(['agent','source','list','--scope','work']),
+      command(['agent','source','remove',source.id,'--scope','device']),
+      command(['agent','source','refresh',source.id]),
+      command(['agent','source','models','refresh',source.id]),
+      command(['config','agent','replace','--data','{"version":1,"default":{"agent":"pi","config_mode":"pi"},"roles":{}}']),
+      command(['config','runtime','set','max-depth','4']),
+      command(['config','auto-answer','set','off','--revision','not-an-authorization','--scope','device']),
+      command(['config','valet-permission','set','worker.rename','automatic','--revision','not-an-authorization','--scope','device']),
+    ], '修改设备模型与全局设置');
+    expect(JSON.parse(denied.replies[0].error)).toMatchObject({ kind: 'invalid_parameters', execution: 'not_started' });
+    for (const reply of denied.replies.slice(1)) expect(JSON.parse(reply.error).diagnostic).toMatchObject({ code: 'permission_denied', effect: 'not_started' });
+    expect(manager.config().connections.some(row => row.id === source.id)).toBe(true);
+    let readPermission = f.project.managementPermissionGet('agent.connections.list','device');
+    f.project.managementPermissionSet(readPermission.method,'unavailable',readPermission.revision,'device');
+    const readDenied = await f.invoke([command(['agent','source','list'])], '查看当前来源');
+    expect(JSON.parse(readDenied.replies[0].error).diagnostic).toMatchObject({ code: 'permission_denied', effect: 'not_started' });
+    expect(network).toEqual([]);
+    const fullTarget = (await f.project.order('full explicit override target','main',[],null,false)).task;
+    const fullProfile = { agent: 'pi', config_mode: 'lush', connection_id: source.id, model: registered.model, thinking: 'low' };
+    const fullOverride = await f.invoke([command(['worker','config','set',fullTarget.worker_number,'--data',JSON.stringify(fullProfile)])], '保存这个 Worker 的完整运行设置');
+    expect(fullOverride.values[0]).toMatchObject({ method: 'worker.configure', status: 'succeeded' });
+    expect(f.project.inspect(fullTarget.id).model_selection).toMatchObject(fullProfile);
     let permission = f.project.managementPermissionGet('worker.configure','device');
     f.project.managementPermissionSet(permission.method,'unavailable',permission.revision,'device');
     const refused = await f.invoke([command(['worker','config','set',target.worker_number,'--registered-model','astra','--scope','device'])], '用设备模型 astra 更新 Worker');

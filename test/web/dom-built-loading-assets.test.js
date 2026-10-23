@@ -14,6 +14,8 @@ await buildAssets(assets, root, 'a'.repeat(32));
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const app = html.match(/src="\/([^"\n]+-app-[^"\n]+\.js)"/)[1];
 const world = makeWorld(), inboxReads = [], diagnosticReads = [], dom = installDom({ fetch: (url, options) => {
+  if (String(url) === '/api/host/device-valet/options') return Response.json({ version: 1, default_profile: null, connections: [], registered_models: [] });
+  if (String(url) === '/api/host/device-valet/status') return Response.json({ version: 1, online: false, active: 0 });
   if (String(url).startsWith('/api/host/diagnostics/query?')) {
     const params = new URL(url, 'http://fixture').searchParams; diagnosticReads.push({ params, signal: options.signal });
     return Response.json(finishDiagnosticQuery(emptyDiagnosticQuery(diagnosticsQuery(Object.fromEntries(params), Date.now(), true))));
@@ -26,10 +28,16 @@ afterAll(() => { dom.restore(); fs.rmSync(root, { recursive: true, force: true }
 
 test('compiled root workbench loads global lazy pages with shared navigation state', async () => {
   expect(dom.node('detail').dataset.view).toBe('projects');
-  for (const [view, hash] of [['settings', 'settings'], ['skills', 'skills'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'notices']]) {
+  for (const [view, hash] of [['settings', 'settings'], ['skills', 'skills'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['device-valet', 'device-valet'], ['global-inbox', 'notices']]) {
     await dom.node(`${view}-open`).onclick();
     expect(dom.node('detail').dataset.view).toBe(view); expect(dom.location.hash).toBe(`#${hash}`);
     expect(dom.node(`${view}-open`).getAttribute('aria-current')).toBe('page');
+    if (view === 'device-valet') {
+      expect(deepText(dom.node('detail'))).toContain('不会继承机器 Pi 认证');
+      expect(dom.node('detail').querySelector('.device-valet-model-settings').querySelector('.hint').textContent).not.toContain('候选目录已裁剪');
+      const configure = dom.node('detail').querySelector('.device-valet-model-settings').querySelector('a');
+      expect(configure.href).toBe('/#model-sources'); expect(configure.target).toBe('_blank');
+    }
   }
   const inbox = dom.node('detail'), search = inbox.querySelector('.search-field-input');
   const notice = inbox.querySelector('[data-category="notice"]'), decision = inbox.querySelector('[data-category="decision"]');
@@ -99,7 +107,7 @@ test('compiled project boot owns work pages and opens device settings separately
     project.location.hash = '#skills'; await project.fire('hashchange');
     expect(project.node('detail').dataset.view).toBe('workspace-link');
     expect(project.node('detail').querySelector('a').href).toBe('/#skills');
-    for (const hash of ['#notices-read', '#model-sources-connections']) {
+    for (const hash of ['#notices-read', '#model-sources-connections', '#device-valet']) {
       project.location.hash = hash; await project.fire('hashchange');
       expect(project.node('detail').dataset.view).toBe('workspace-link');
       expect(project.node('detail').querySelector('a').href).toBe(`/${hash}`);

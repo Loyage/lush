@@ -48,13 +48,13 @@ export const COMMANDS = defineCommands(add => {
 
   declare('worker config set', 'ID (--registered-model NAME_OR_ID [--scope device] | --connection UUID --model PROVIDER/MODEL | --data JSON)', '保存下一次运行覆盖；登记选择冻结具体绑定，窄更新原子保留其它字段，不读取私有配置。', 'W5 --registered-model astra --scope device', ['worker.configure','agent.registered_models.resolve'], 'write', params(target, {
     registered_model: { ...text, conflicts: ['--connection','--model','--data'], description: 'agent model list 的精确名称或稳定 ID；不修改后端或配置模式。' },
-    scope: { type: 'string', enum: ['device'], description: '仅与 --registered-model 使用，只传登记解析；Valet 必须显式 device 且本轮用户已授权设备范围。' },
+    scope: { type: 'string', enum: ['device'], description: '仅与 --registered-model 使用，只传登记解析；安全只读解析可省略，无需设备关键词。' },
     connection: { ...text, format: 'uuid' }, model: text, data: { type: 'json', schema: storedProfile },
   }), { modes: [{ id: 'registered', when: '--registered-model 与 --connection/--model/--data 互斥；--scope 仅用于登记解析', rpc: ['agent.registered_models.resolve','worker.configure','worker.lookup'] },
     { id: 'model', when: '--connection与--model同时提供，与--data互斥', rpc: ['worker.configure','worker.lookup'] },
     { id: 'profile', when: '--data完整显式覆盖，不接受--connection/--model', rpc: ['worker.configure','worker.lookup'] }],
     sources: ['已注册选择来自 agent model list；直接来源与模型来自 agent model choices；完整 profile 使用本叶 schema，Valet 仍拒绝私有字段。'],
-    preconditions: ['登记解析仍须 Valet 本轮设备授权及显式 --scope device；后续项目动作独立检查原写权限和生命周期，不传设备 scope。', '窄更新仅支持已有 Pi lush 配置，不偷偷切换模式／后端。'],
+    preconditions: ['登记解析是安全资源读取，可省略 --scope device 且无需设备关键词，仍检查最新只读权限；后续项目动作独立检查原写权限和生命周期，不传设备 scope。', '窄更新仅支持已有 Pi lush 配置，不偷偷切换模式／后端。'],
     effects: ['仅保存具体 connection_id + model，不保存登记动态引用；不自动继续／重试／热换当前调用。'] });
   declare('worker config reset', 'ID', '清除 Worker 显式覆盖、恢复继承，不改设备默认或开始调用。', 'W5', ['worker.clear_override'], 'write', params(target));
   declare('worker sync start', 'ID', '程序同步固定父提交；冲突只返回诊断。', 'W5', ['worker.sync_parent'], 'write', params(target));

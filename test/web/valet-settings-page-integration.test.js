@@ -55,7 +55,20 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     expect(saved.configured).toBe(true); expect(saved.scope).toBe('device');
     expect(saved.permissions).toEqual(Object.fromEntries(saved.methods.map(item => [item.method, item.method === 'draft.add' ? 'confirmation' : item.base_access])));
     expect(saved.permissions['worker.cancel']).toBe('automatic');
-    expect(saved.methods.find(item => item.method === 'management.permission_set').allowed_access).toEqual(['confirmation', 'unavailable']);
+    expect(saved.methods.find(item => item.method === 'management.permission_set').allowed_access).toEqual(['unavailable']);
+    // A formerly valid device-write grant is historical data, not a reason to
+    // reject the entire shared file or restore the old project authority.
+    const permissionFile = path.join(home, 'shared', 'management-permissions-v2.json');
+    const legacy = JSON.parse(fs.readFileSync(permissionFile, 'utf8'));
+    Object.assign(legacy.permissions, { 'agent.configure': 'automatic', 'agent.connections.query': 'confirmation',
+      'system.configure': 'automatic', 'hooks.auto_select': 'automatic', 'management.permission_set': 'confirmation' });
+    const legacyBytes = JSON.stringify(legacy); fs.writeFileSync(permissionFile, legacyBytes);
+    const compatible = await (await fetch(url + '/api/host/management/permissions')).json();
+    for (const method of ['agent.configure','agent.connections.query','system.configure','hooks.auto_select','management.permission_set'])
+      expect(compatible.permissions[method]).toBe('unavailable');
+    expect(compatible.permissions['draft.add']).toBe('confirmation');
+    expect(compatible.permissions['agent.connections.list']).toBe('read');
+    expect(fs.readFileSync(permissionFile, 'utf8')).toBe(legacyBytes);
     // The same shipped CLI catalogue now explains typed query parameters in the
     // existing advanced section; browsing never executes the examples.
     await button('返回搜索结果').onclick();

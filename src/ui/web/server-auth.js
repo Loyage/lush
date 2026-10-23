@@ -4,6 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { webListenHost } from '../../host/web-listen.js';
 import { canonicalProjectPath } from '../../host/registry.js';
 import { check } from '../../core/types.js';
+import { DEVICE_VALET_API, DEVICE_VALET_ROUTES } from '../../device-valet/protocol.js';
 
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
@@ -198,7 +199,8 @@ export function createAuthHandler(auth) {
     if (!authenticated) {
       // 项目 API 也在 /p/<id>/api/ 下：未登录时同样用 401，前端才能跳登录并带回原路径。
       if (/\/api\//.test(url.pathname)) return json({ error: 'authentication required',
-        ...(request.method === 'POST' && /\/api\/management\/elevate$/.test(url.pathname)
+        ...(request.method === 'POST' && (/\/api\/management\/elevate$/.test(url.pathname)
+          || url.pathname === `${DEVICE_VALET_API}/${DEVICE_VALET_ROUTES.submit}`)
           ? { code: 'elevation_password_rejected', execution: 'not_started' } : {}) }, 401);
       return new Response(null, { status: 303, headers: { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, ...headers } });
     }

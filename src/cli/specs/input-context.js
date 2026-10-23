@@ -86,7 +86,7 @@ export const COMMANDS = defineCommands(add => {
       modes: [{ name: 'ordinary-new', rpc: ['order.submit'] }, { name: 'conditional-new', rpc: ['input.emit'], when: '显式条件／when-idle／exclusive' },
         { name: 'numbered-condition', rpc: ['worker.lookup','input.emit'], when: '条件使用W编号' },
         { name: 'registered-model', rpc: ['agent.registered_models.resolve','order.submit','input.emit','worker.lookup'], when: '--registered-model；设备解析之后仍用原项目写权限，不传scope' }],
-      preconditions: ['登记解析须 Valet 本轮设备授权及显式 --scope device；不自动改写冲突后端／模式，不读取私有 profile。', '项目提交仍检查原权限、目标及生命周期。'],
+      preconditions: ['登记解析是安全资源读取，可省略 --scope device 且无需设备关键词，仍检查最新只读权限；不自动改写冲突后端／模式，不读取私有 profile。', '项目提交仍检查原权限、目标及生命周期。'],
       sources: { '--branch': 'input targets', '--after-settled/--after-merged': 'worker show / worker list中的真实开发目标' },
       effects: ['持久授权新建需求，可能后续调用Agent；只有真实input_id/worker_id证明投递，不把挂载当已开始。'],
     }));

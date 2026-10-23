@@ -10,6 +10,15 @@ import { WORKER_QUERY_CAPABILITIES, validateWorkerQuery } from '../core/worker-q
 import { CONTEXT_CAPABILITIES } from '../core/worker-context.js';
 import { MANAGEMENT_CODE_METHODS, MANAGEMENT_CODE_READS } from './management-code-methods.js';
 import { PROJECT_ELEVATION_RPC } from '../administrator/project-protocol.js';
+import { AGENT_RESOURCE_READ_METHODS } from '../core/agent-resource-policy.js';
+
+const agentResourceReads = new Set(AGENT_RESOURCE_READ_METHODS);
+// Shared device state is not writable by a project identity, even with exact
+// confirmation, an old permission snapshot or project-local password elevation.
+export const DEVICE_RESTRICTED_MANAGEMENT_METHODS = new Set([
+  ...Object.keys(PARAMS).filter(method => method.startsWith('agent.') && !agentResourceReads.has(method)),
+  'system.configure', 'hooks.auto_select', 'management.permission_set',
+]);
 
 export const RETIRED_MANAGEMENT_METHODS = new Set(['hooks.install', 'worker.resolve', 'worker.resolve_divergence', 'worker.approve_merge', 'branch.convergence_set', 'branch.convergence_defaults_set']);
 
@@ -19,9 +28,7 @@ const reads = new Set([
   'worker.merge_conditions','hooks.list','hooks.temporary_history','worker.hooks','hooks.command_history','input.history','input.get','input.parents',
   'notice.list','notice.page','branch.convergence','branch.convergence_list','branch.convergence_runs',
   'branch.convergence_defaults','branch.history','branch.version_graph','worker.delete_preview',
-  'agent.connections.list','agent.connections.history','agent.connections.models','agent.usage.config','agent.usage.history',
-  'agent.registered_models.list','agent.registered_models.resolve',
-  'agent.models','agent.resources','agent.selection.resources','agent.packages.list','agent.status','system.settings',
+  ...AGENT_RESOURCE_READ_METHODS, 'system.settings',
 ]);
 const automatic = new Set(['draft.add','draft.update','draft.remove','input.emit','order.submit','worker.message',
   'input.emission_cancel','input.exclusive_release','worker.resume','worker.retry']);
@@ -55,6 +62,8 @@ const unavailable = new Set([
   'worker.runs_page','worker.artifacts_page','worker.artifact', // raw provider/tool material is not a credential-safe read surface
 ]);
 function legacyManagementPolicy(method) {
+  if (DEVICE_RESTRICTED_MANAGEMENT_METHODS.has(method)) return { access: 'unavailable',
+    reason: '项目管家仅可读取安全模型资源；设备共享资源写入须使用全局工作台的设备管家，私有材料与交互认证仍不可用。' };
   if (RETIRED_MANAGEMENT_METHODS.has(method)) return { access: 'unavailable', reason: method === 'hooks.install'
     ? 'hooks.install 已退役；先 hooks.register 注册完成，再独立请求 worker.hook_attach 的目标和版本。'
     : '对应 CLI 已退役，仅保留旧后端和历史兼容；验收使用 worker accept，合并交给当前 runtime。' };
@@ -73,7 +82,7 @@ export function managementPolicy(method) {
   if (['worker.accept_preview', 'worker.accept_force'].includes(method)) return { access: 'unavailable',
     reason: '强制验收仅由用户预检并显式确认，不开放给 Agent、管家或自动 Hook。' };
   if (method === 'management.permission_get') return { access: 'read', reason: '读取设备全局单项权限及全局修订；设备作用域须明确。' };
-  if (method === 'management.permission_set') return { access: 'confirmation', reason: '必须由真实用户批准单项旧值、新值和全局 revision；影响同设备用户所有项目，权限修改自身也不可免审。' };
+  if (DEVICE_RESTRICTED_MANAGEMENT_METHODS.has(method)) return legacyManagementPolicy(method);
   if (RETIRED_MANAGEMENT_METHODS.has(method)) return legacyManagementPolicy(method);
   if (method === 'hooks.register') return { access: 'automatic', reason: '只注册不挂载；完成后独立请求具体目标及固定版本，用户可逐项收紧权限。' };
   if (method.startsWith('context.')) return { access: 'unavailable', reason: 'Worker context is bound to its own active development invocation; use reviewed project management methods.' };
@@ -147,6 +156,7 @@ export function managementAllowedAccess(base, method) {
 export function effectiveManagementPolicy(method, snapshot = null) {
   const base = managementPolicy(method);
   if (method === 'manager.catalog') return base;
+  if (DEVICE_RESTRICTED_MANAGEMENT_METHODS.has(method)) return base;
   if (!snapshot) return legacyManagementPolicy(method);
   const access = Object.hasOwn(snapshot.permissions ?? {}, method) ? snapshot.permissions[method] : 'unavailable';
   if (!managementAllowedAccess(base.access, method).includes(access)) return { access: 'unavailable', reason: '授权记录未授权此功能。' };
@@ -166,7 +176,8 @@ export function managementPermissionMethods(snapshot = null) {
 export function managementAuthorization(method) {
   return (PARAMS[method]?.includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method))
     && !WORKER_QUERY_CAPABILITIES[method]?.schema.properties.scope
-    && !['agent.status', 'branch.convergence_defaults_set'].includes(method)
+    && !agentResourceReads.has(method)
+    && method !== 'branch.convergence_defaults_set'
     ? managementScopeAuthorization() : null;
 }
 export function managementCatalog(snapshot = null, legacy = false) {
@@ -179,7 +190,7 @@ export function managementCatalog(snapshot = null, legacy = false) {
       ...(MERGE_CONDITION_CAPABILITIES[item.method] ?? {}), ...(WORKER_QUERY_CAPABILITIES[item.method] ?? {}), ...(AUTOMATION_CAPABILITIES[item.method] ?? {}), ...(CONTEXT_CAPABILITIES[item.method] ?? {}), ...(MANAGEMENT_RECEIPT_CAPABILITIES[item.method] ?? {}), ...(item.method === 'input.emit' ? INPUT_EMIT_CAPABILITY : {}) })),
     help: `${MANAGEMENT_RECOVERY_GUIDANCE}\n${DEVICE_SCOPE_GUIDANCE}`,
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
-      '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
+      '安全模型资源读取不要求设备关键词或 scope；设备共享写入不向项目身份开放', '未知副作用不自动重放'] };
 }
 
 export function validateManagementCall(method, params, instruction = '', snapshot = null) {
@@ -214,7 +225,7 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   const projectMountScope = method === 'branch.convergence_defaults_set';
   if (!queryScope && !projectMountScope && Object.hasOwn(params, 'scope')) {
     if (params.scope !== 'device') throw managementScopeError('invalid_scope');
-    if (!/设备|全局|device/i.test(instruction)) {
+    if (!agentResourceReads.has(method) && !/设备|全局|device/i.test(instruction)) {
       managementPhase('authorization', 'not_started', 'trusted_pre_dispatch', 'authorization_required');
       throw managementScopeError('user_authorization_required');
     }

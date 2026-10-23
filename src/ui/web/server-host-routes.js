@@ -11,6 +11,8 @@ import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS }
 import { emptyJson, settingQuery, userQuery, userBody } from './server-query.js';
 import { administratorControl } from '../../host/administrator.js';
 import { createAdministratorHostRoutes } from './server-administrator-routes.js';
+import { deviceValetControl } from '../../host/device-valet.js';
+import { createDeviceValetHostRoutes } from './server-device-valet-routes.js';
 
 /** Root-only Host routes precede project identity normalization; services stay lazy. */
 export function createHostRoutes(projectHost, auth, options, env) {
@@ -28,11 +30,15 @@ export function createHostRoutes(projectHost, auth, options, env) {
     return value;
   };
   const administrator = createAdministratorHostRoutes(administratorControl(env, options.administratorOptions));
+  const deviceControl = deviceValetControl(env, options.deviceValetOptions);
+  const deviceValet = createDeviceValetHostRoutes(deviceControl);
   return {
     // startWeb owns this lifecycle hook; subscription POST also starts a newly enabled sender.
     async start() { await getUserServices().start(); },
     async handle(context) {
       const { request, url, headers, json } = context;
+      const device = await deviceValet(context);
+      if (device) return device;
       const privileged = await administrator(context);
       if (privileged) return privileged;
       // These root-only reads never attach a project or instantiate device services.
@@ -181,7 +187,7 @@ export function createHostRoutes(projectHost, auth, options, env) {
     },
     async close(stopped) {
       await Promise.allSettled([stopped, userServices?.close()]);
-      await Promise.allSettled([deviceSettings?.stop()]);
+      await Promise.allSettled([deviceSettings?.stop(), deviceControl.close()]);
     },
   };
 }

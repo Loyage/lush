@@ -7,6 +7,7 @@ import { createHostRoutes } from './server-host-routes.js';
 import { projectRoutes } from './server-project-routes.js';
 import { pwaResponse } from './server-pwa.js';
 import { PROJECT_ELEVATION_HTTP, PROJECT_ELEVATION_HTTP_BYTES } from '../../administrator/project-protocol.js';
+import { DEVICE_VALET_API, DEVICE_VALET_ROUTES } from '../../device-valet/protocol.js';
 
 const WEB_HOSTS = new WeakMap();
 const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -30,10 +31,11 @@ export function startWeb(config, port = 4318, options = {}) {
       const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
         'Content-Security-Policy': PAGE_CSP };
       const json = (body, status = 200, extra = {}) => Response.json(body, { status, headers: { ...headers, ...extra } });
-      // Preserve existing endpoint budgets; only the exact project password entrance
-      // needs room for JSON-escaped confirmed text. Legacy global creation is retired.
+      // Only exact password entrances need room for JSON-escaped confirmed text.
+      // Legacy global administrator creation remains retired.
       const administratorInput = request.method === 'POST'
-        && url.pathname.replace(/^\/p\/[a-z0-9]{16}/, '') === PROJECT_ELEVATION_HTTP.submit;
+        && (url.pathname.replace(/^\/p\/[a-z0-9]{16}/, '') === PROJECT_ELEVATION_HTTP.submit
+          || url.pathname === `${DEVICE_VALET_API}/${DEVICE_VALET_ROUTES.submit}`);
       if (request.method === 'POST' && !administratorInput && (await request.clone().arrayBuffer()).byteLength > 128 * 1024)
         return json({ error: 'request body exceeds 128 KiB' }, 413);
       const context = { request, server, url, headers, json };

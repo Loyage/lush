@@ -9,7 +9,7 @@ const integer = (minimum, maximum) => ({ type: 'integer', minimum, maximum });
 const nullable = schema => ({ anyOf: [schema, { type: 'null' }] });
 const object = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const position = (name, schema = string, required = true) => ({ name, ...schema, required });
-const scope = { '--scope': { ...enumeration(['device']), description: '用户可省略；Valet 设备操作须显式 device 且本轮用户已授权设备范围。' } };
+const scope = { '--scope': { ...enumeration(['device']), description: '安全模型资源读取可省略，无需设备关键词；显式值只能为 device。项目 Valet 不可写设备共享资源。' } };
 const revision = { '--revision': { ...string, required: true, maxLength: 256, source: '对应 show 返回的 revision；不同对象不可互换。' } };
 const data = schema => ({ '--data': { type: 'json', schema, maxBytes: 40000 } });
 const profile = INPUT_EMIT_SCHEMA.properties.profile.anyOf[0];
@@ -20,7 +20,7 @@ const runtimePatch = object({
   ...Object.fromEntries(['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval', 'result_notice'].map(key => [key, nullable(bool)])),
   input_routes: nullable({ type: 'array', maxItems: 32, items: object({ prefix: { ...string, minLength: 1, maxLength: 32, pattern: '^\\S+$' }, target: enumeration(['worker', 'research']) }, ['prefix', 'target']) }),
 });
-const deviceBoundary = '设备策略不随 cwd 改变；Valet 仍逐 RPC 检查最新权限、显式设备范围和本轮用户授权。保存只影响后续调用，不自动继续、重试或热换当前 invocation。秘密不得经 argv，私有字段仍拒绝 Valet。';
+const deviceBoundary = '设备策略不随 cwd 改变。项目 Valet 的安全模型／来源／缓存读取不要求设备关键词或显式 scope，但仍检查最新只读权限；其它设备查询按各自授权前置条件执行。设备共享资源写入、删除及联网刷新只向设备级管家开放，不因 scope、确认或项目提权放行；真实用户终端／Web 原入口不变。保存只影响后续调用，不自动继续、重试或热换当前 invocation。秘密不得经 argv，私有字段仍拒绝 Valet。';
 const unknownBoundary = '请求受理不证明后续业务完成；pending_confirmation/waiting 应结束本轮，unknown 不自动重放或更换去重身份。';
 
 export const COMMANDS = defineCommands(add => {
@@ -48,15 +48,15 @@ export const COMMANDS = defineCommands(add => {
   });
   declare('config auto-answer set', 'on|off --revision REV [--scope device]', '设置设备自动答复策略；启用可能答复已有问题并恢复调用。', 'off --revision REV --scope device', ['hooks.auto_select'], 'write', {
     positionals: [position('ENABLED', enumeration(['on', 'off']))], options: { ...scope, ...revision },
-  }, { sources: { '--revision': 'config.auto-answer.show' }, preconditions: ['读取 config auto-answer show 的 daemon policy revision；设备授权仍需本轮明确。'],
+  }, { sources: { '--revision': 'config.auto-answer.show' }, preconditions: ['读取 config auto-answer show 的 daemon policy revision；项目 Valet 不可代理设备自动答复写入。'],
     effects: { operation: 'write', scope: 'device', network: false, invokes_agent: true } });
   for (const action of ['show', 'set']) declare(`config valet-permission ${action}`, action === 'set' ? 'METHOD ACCESS --revision REV --scope device' : 'METHOD --scope device',
-    action === 'set' ? '逐项精确审核修改设备 Valet 权限，不能自动批准或提升固有上限。' : '读取单项权限、允许值与设备全局 revision。',
+    action === 'set' ? '真实用户逐项修改设备 Valet 权限；项目 Valet 不可代理修改，不能提升固有上限。' : '读取单项权限、允许值与设备全局 revision。',
     action === 'set' ? 'worker.cancel confirmation --revision REV --scope device' : 'worker.cancel --scope device', [action === 'set' ? 'management.permission_set' : 'management.permission_get'], action === 'show' ? 'read' : 'write', {
       positionals: [position('METHOD'), ...(action === 'set' ? [position('ACCESS', enumeration(['read', 'automatic', 'confirmation', 'unavailable']))] : [])],
       options: { '--scope': { ...scope['--scope'], required: true }, ...(action === 'set' ? revision : {}) },
     }, { sources: { METHOD: '已注册且审核的 management 权限方法名', '--revision': 'config.valet-permission.show' },
-      preconditions: ['显式 --scope device；Valet 还须真实用户本轮明确设备授权。', ...(action === 'set' ? ['真实用户批准精确 METHOD、旧值、新值与 revision；不继承或复制其它方法授权。'] : [])] });
+      preconditions: ['显式 --scope device；只读权限查询仍须 Valet 本轮明确设备授权。', ...(action === 'set' ? ['项目 Valet 不可代理权限写入；用户终端／Web 核对精确 METHOD、旧值、新值与 revision，不继承或复制其它方法授权。'] : [])] });
   declare('agent status', '[--scope device]', '执行软件安装、路径和版本诊断；不是额度、认证或调用状态。', '', ['agent.status']);
   declare('agent model list', '[--backend pi|codex] [--scope device]', '默认列设备已注册命名模型（含不可选原因），不联网；显式 --backend 另查后端候选，不是登记清单。', '--scope device', ['agent.registered_models.list', 'agent.models'], 'read', {
     options: { ...scope, '--backend': enumeration(['pi', 'codex']) },

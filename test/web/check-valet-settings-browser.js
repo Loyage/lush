@@ -111,7 +111,7 @@ try {
   assert(permissionWrites.length === 1 && f.project.managementPermissions().scope === 'device'&&f.project.managementPermissions().permissions['worker.cancel']==='confirmation', 'no-project save did not publish device policy');
   assert(await run(`return document.querySelector('.cli-permissions-unconfigured').hidden`), 'successful first save still labelled unconfigured');
   await search('hooks management permission-set'); await choose('hooks management permission-set');
-  assert(await run(`const s=document.querySelector('[data-method="management.permission_set"] select');return s.value==='confirmation'&&[...s.options].map(n=>n.value).join(',')==='confirmation,unavailable'`), 'permission changes can bypass user review');
+  assert(await run(`const s=document.querySelector('[data-method="management.permission_set"] select');return s.value==='unavailable'&&[...s.options].map(n=>n.value).join(',')==='unavailable'`), 'project identity can change shared device permissions');
   await search('order'); await choose('order');
   assert(await run(`return !document.querySelector('.cli-advanced').open&&document.querySelector('.cli-results').hidden`), 'single detail / advanced hierarchy missing');
   await select('draft.add', 'confirmation');

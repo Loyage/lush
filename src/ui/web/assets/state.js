@@ -35,6 +35,7 @@ export const ui = {
   automationPage: null, disposeProjectAutomation: null,
   valetSettingsPage: null, disposeValetSettings: null,
   disposeAdministratorPage: null, // 旧全局管理员历史页离开时释放只读请求；不撤回已提交副作用。
+  disposeDeviceValetPage: null, // 设备管家离页取消读请求、清空密码；已提交请求只读核对。
   composerManagement: false, composerElevated: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
   composerWorkspace: null, openComposer: null, collapseComposer: null,
   inputEditor: null, composerKeydown: null, lastInputReceipt: null, currentPageHash: '', restoreInputContext: null,
@@ -94,6 +95,7 @@ export const mergeSelection = new Set();
 export function resetUiState() {
   ui.inputEditor?.dispose(); ui.inputEditor = null; ui.composerKeydown = null; ui.lastInputReceipt = null; ui.currentPageHash = ''; ui.restoreInputContext = null;
   ui.disposeAdministratorPage?.(); ui.disposeAdministratorPage = null;
+  ui.disposeDeviceValetPage?.(); ui.disposeDeviceValetPage = null;
   ui.disposeWorkerCli?.(); ui.disposeWorkerCli = null;
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };

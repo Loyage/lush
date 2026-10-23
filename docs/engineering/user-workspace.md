@@ -6,11 +6,13 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 ## 不变边界
 
-每项目一个 lushd；`Config.home`、`LUSH_HOME`、Store、Git 和 Worker 身份不改变。设备根沿用 `launcherStateDir(env)/shared`。Host 只管理用户配置、聚合读面与来源转发，不持有 Worker 权威事实、不调度跨项目工作。
+每项目一个 lushd；项目的 `Config.home`、`LUSH_HOME`、Store、Git 和 Worker 身份不改变。设备根沿用 `launcherStateDir(env)/shared`。Host 只管理用户配置、聚合读面与来源转发，不持有 Worker 权威事实、不调度跨项目工作。
 
 W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入和 V 管家详情中提供：仅本条、仅当前项目，重新验证当前 Web 登录密码，下一条默认普通。Host 验证密码并签发绑定 proof，不持有／调度 Worker，普通管家权限和自动选择不获得提权。旧全局 `#administrator` 只兼容历史与安全停止，不再作为创建／输入入口，也不自动迁移或删除 ADM 记录。
 
-项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#skills`、`#model-sources`、`#runners`、`#automation`、`#cli-interfaces` 和文档；项目页旧全局页面 hash 引导独立根页面，不在项目 shell 编辑设置。
+[设备管家](device-valet.md)使用独立全局 `#device-valet` 入口与设备资源服务，每条新建／追加重新验证 Web 密码；不依赖项目后台、不启动伪项目，Host 不持有其执行事实。它与项目管家及旧 ADM 历史身份隔离。
+
+项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#skills`、`#model-sources`、`#runners`、`#automation`、`#cli-interfaces`、`#device-valet` 和文档；项目页旧全局页面 hash 引导独立根页面，不在项目 shell 编辑设置。
 
 ## 后台总览开发摘要（W186／决定 #446）
 
@@ -29,7 +31,7 @@ W363／D738 的[项目管家密码提权](administrator-valet.md)在项目输入
 ## 设备配置分区
 
 - 有 `deviceHome` 的真实 Config 只以设备文件为技术设置和连接来源，项目旧文件不参与有效值或来源并集。默认公开 scope 为 device；显式 project scope 拒绝并说明项目覆盖已停用。`settingsConfigurationScope(config,scope)` 负责技术设置的有效作用域，低层 configurationHome/readLocal 选根留给显式迁移与没有 deviceHome 的独立最小测试配置，不能形成生产旁路。
-- 设备技术配置读写均用户专属，包括未显式传 scope 的 agent.config/models/resources；registry 白名单与 handler 二次检查共同守门。Agent 的 system.status 不返回完整设备 profile，安全 Worker 摘要和项目运行事实仍可读。项目采样的生命周期归属不得因为技术scope统一为device而失效。
+- 完整设备私有配置和认证仍是用户专属；项目管家仅可通过[受控管理入口](hook-signals-management.md)读取审核过的安全模型／来源资源，无需设备关键词或 scope，不能写设备共享状态。设备管家按[独立单条授权](device-valet.md)执行受限模型资源读写，不等于用户身份或任意设备权限。普通开发 Agent 不增加管理权限；system.status 不返回完整设备 profile，安全 Worker 摘要和项目运行事实仍可读。项目采样的生命周期归属不得因为技术 scope 统一为 device 而失效。
 - 完整 Worker profile 及已存在调用快照保持；AGENTS.md、可提交 `.lush-agent/` 是项目上下文，不是技术覆盖。当前调用不热切换。
 - 用户 #408 选择设备唯一 Markdown 本机补充：真实 Config 只读取 `<deviceHome>/agent/common.md` 与受支持角色 `.md`，不再读取 `<project>/.lush/agent/*.md` 作为活跃补充，缺设备文件不回退。没有 deviceHome 的最低层独立测试可保留旧根。项目 `.lush-agent/`、管理角色／Pi 默认模式的隔离规则、Prompt 组合顺序与总字节上限保持。
 - `agent prompt init --local` 用户专属、create-only 写设备补充；使用设备 settings-write 锁和私有根／目录／文件校验，不覆盖既存文件、不偷锁。读取缺失文件不创建根，拒绝 symlink／硬链接／外来所有者／公开权限／超限文件，不把原文放入错误。

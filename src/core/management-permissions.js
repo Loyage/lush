@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { check, isPlainObject } from './types.js';
 import { hookRevision } from './hooks.js';
-import { MANAGEMENT_GROUPS, managementPermissionMethods, RETIRED_MANAGEMENT_METHODS } from '../rpc/management-policy.js';
+import { MANAGEMENT_GROUPS, managementPermissionMethods, RETIRED_MANAGEMENT_METHODS, DEVICE_RESTRICTED_MANAGEMENT_METHODS } from '../rpc/management-policy.js';
 import { validateConfigurationDirectory, withConfigurationWriteLock } from './device-config.js';
 
 // Previous device policy is historical only; never read, migrate or overwrite it.
@@ -54,10 +54,11 @@ function load(config) {
     const data = JSON.parse(source);
     check(isPlainObject(data) && Object.keys(data).length === 3 && data.version === 1
       && Number.isSafeInteger(data.generation) && data.generation > 0 && isPlainObject(data.permissions), 'invalid management permissions document');
-    // Retired entries remain history and are clamped to unavailable in the read projection;
-    // do not make a previously valid device file unreadable merely by retiring a method.
+    // Old retired/device-write grants remain history, clamped to unavailable by
+    // the current ceiling. Reading never migrates the file or blocks other valid
+    // permissions merely because the project authority has been narrowed.
     for (const item of managementPermissionMethods()) if (Object.hasOwn(data.permissions, item.method)
-      && !RETIRED_MANAGEMENT_METHODS.has(item.method))
+      && !RETIRED_MANAGEMENT_METHODS.has(item.method) && !DEVICE_RESTRICTED_MANAGEMENT_METHODS.has(item.method))
       check(item.allowed_access.includes(data.permissions[item.method]), 'invalid management permission');
     check(Object.values(data.permissions).every(access => ['read','automatic','confirmation','unavailable'].includes(access)), 'invalid management permission');
     return data;

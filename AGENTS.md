@@ -6,7 +6,7 @@ Lush 是项目级多 agent 开发应用，Bun / JavaScript / SQLite；daemon 与
 
 ## 作用域
 
-- 浏览器 UI ↔ Lush Host ↔ 每 canonical 项目一个 lushd。Host 只负责登记、鉴权、设备配置、路由与来源派生读面，不持有 Worker 权威事实、不跨项目调度。项目状态固定在 `<project>/.lush/`。
+- 浏览器 UI ↔ Lush Host ↔ 每 canonical 项目一个 lushd。Host 只负责登记、鉴权、设备配置、路由与来源派生读面，不持有 Worker 权威事实、不跨项目调度。项目状态固定在 `<project>/.lush/`。独立[设备管家](docs/engineering/device-valet.md)服务仅管理设备模型资源，每条指令经 Web 密码重验；不属于项目开发树、不提供跨项目开发或任意 Shell，不能借它扩大开发 Worker 权限。
 - `lushw self/parent/children` 是有效 Worker invocation 的自身与直接父子事务入口，自动定位身份、不依赖 cwd 或自身编号；`lush` 是用户／Valet 的项目管理入口，旧项目式 `lushw` 调用不保留别名。Agent 使用 daemon 固定的 `lushw`，不能借管理入口绕过身份与亲缘限制。Valet 的跨树代理与危险确认见[管理契约](docs/engineering/hook-signals-management.md)。
 - CLI 向上发现 `.lush/project.json` 或 `.git`；其他项目必须显式 `--project PATH`。Agent worktree 通过固定 `LUSH_PROJECT` 连接原项目；不得更改 `LUSH_PROJECT`／`LUSH_HOME`／`LUSH_TASK_ID`／`LUSH_AGENT_TOKEN`，非空 `LUSH_HOME` 必须等于项目 `.lush`，不是设备全局目录。
 - 核心实体只有 Input / Worker / Agent / Message / Notice / Event，不引入整机调度。公开提交为 order，操作为 worker，不恢复 Task／say 别名；保留内部字段、事件、历史类型和路径，完整兼容边界见[核心 API](docs/engineering/core-api.md)。
@@ -67,7 +67,7 @@ bun run lush daemon stop
 | 归并合并 | [归并设计](docs/design/merge-convergence.md)、[当前范围](docs/engineering/merge-convergence-implementation.md)；按需读算法／异常，旧在途不转换，普通 Agent 不创建 integration 或操作其他分支 |
 | 内置能力、Skills／启停 | [能力理念](docs/design/agent-capabilities.md)、[契约](docs/engineering/agent-capabilities.md)；开关不关闭核心安全、权限、调度或已有 child 交付 |
 | 账号、凭证、观测与绑定 | [账号理念](docs/design/account-resources.md)、[连接](docs/engineering/agent-connections.md)、[旧历史](docs/engineering/agent-usage.md) |
-| 全局页面、设备设置／自动化与聚合 | [工作台理念](docs/design/user-workspace.md)、[契约](docs/engineering/user-workspace.md)；旧根显式迁移另读[设备迁移](docs/engineering/device-settings.md) |
+| 全局页面、设备设置／自动化与聚合 | [工作台理念](docs/design/user-workspace.md)、[契约](docs/engineering/user-workspace.md)；设备管家另读[身份与单条授权](docs/engineering/device-valet.md)，旧根显式迁移另读[设备迁移](docs/engineering/device-settings.md) |
 | 启动、项目入口与环境管理 | [工作台理念](docs/design/workbench.md)、[接入契约](docs/engineering/workbench.md)；附着 API 只读，旧页轮询不得启动停止的后台 |
 
 快速对话、Prompt 库、右键模型动作和专用模型配置已删除，不恢复；专用数据清理与正常历史保护见[退役契约](docs/engineering/project-quick-chat.md)。

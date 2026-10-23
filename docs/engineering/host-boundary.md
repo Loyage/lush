@@ -6,6 +6,7 @@ flowchart LR
   CLI["lush CLI"] -->|"项目 RPC"| D1
   Host -->|"项目 Unix socket / RPC"| D1["lushd：项目 A"]
   Host -->|"项目 Unix socket / RPC"| D2["lushd：项目 B"]
+  Host -->|"逐条验密后的私有控制通道"| DV["设备管家：仅共享模型资源"]
   D1 --> A["A/.lush/ + Git"]
   D2 --> B["B/.lush/ + Git"]
 ```
@@ -17,5 +18,7 @@ flowchart LR
 - **lushd**（`bin/lushd`、`src/daemon/`、`src/core/`、`src/persistence/`、`src/rpc/`）：一项目一进程，绑定 canonical 路径，事实仅在 `<project>/.lush/`，执行 Agent 与项目内调度。Host 不复制事实、不做跨项目调度。UI 通过有界轮询读取项目消息与状态；显式订阅的 Web Push 由 Host 后台只读派生来源 Notice 并投递，不需要页面在线，不启动离线项目，也不执行跨项目任务。推送订阅与派生游标不是项目权威事实，见[用户工作台契约](user-workspace.md#手机与后台推送)。CLI `lush` 也可直接通过项目 socket 访问 lushd。
 
 W363／D738 的[项目管家密码提权](administrator-valet.md)由当前项目原生 management Worker 执行：Host 重新验证当前 Web 登录密码，签发精确项目／内容绑定 proof；授权、调用、审计和真实执行 owner 仍归来源项目 daemon，Host 不持有 Worker。权限仅本条、仅当前项目，下一条默认普通；旧设备级 ADM 不再接受创建／输入／执行，历史和安全停止保留。
+
+[设备管家](device-valet.md)在独立设备服务中保存自己的执行事实，仅操作共享模型资源；Host 逐条验密后转发，不接管 Worker 或启动项目后台。它不恢复旧 ADM，不获得跨项目开发、Host 控制或任意 Shell。
 
 对外入口：`bun run lush host start|stop|restart|status`，`bun run lush-host`（前台），以及项目端 `bun run lush daemon start|restart|stop`（源码业务快捷包装已删除）。原 `web*` 命令、`bin/lush-web`、`/api/launcher*` 已移除；原有 `launcher.json` 和 `web.json` 留在原用户配置目录，不迁移或清除项目数据。运行中的旧 Host 不会自动换代码：确认没有需要保留的登录会话后重启 Host；项目代码变化还需分别重启相应 lushd。

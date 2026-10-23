@@ -15,6 +15,7 @@
 - [Agent 能力模块](agent-capabilities.md)：W217／D509，必需核心与可选工作能力分离，薄 Skill 入口、按需 CLI 指南及设备全局启停。
 - [账号资源连接器](account-resources.md)：区分账号、端点、现金/Key预算/套餐窗口，托管凭证且显式选择，不把查询失败当耗尽。
 - [项目管家密码提权](../engineering/administrator-valet.md)：W363／D738 的当前项目单条提权、Web 密码重验和普通／高权会话隔离；旧设备级 ADM 历史只读保留。
+- [设备管家](../engineering/device-valet.md)：W400／D782 的独立全局入口与单条密码授权，仅管理设备共享模型／来源资源，不恢复旧全局管理员或跨项目调度。
 - [Worker Hooks](hooks.md)：触发节点、条件信号、挂载配置、隔离管理与受控动作；[Valet 权限与诊断扩展评估](valet-permission-expansion.md)是 W362 待批准方案，聚焦现有管家直接跨 Valet 只读诊断，不改变现行授权。
 - [一次性整合](merge-convergence.md)：W287／D646，显式固定来源、由整合 Worker 自主选择合并策略并验证，一次性受检合入；保留普通单项与自动合并，不引入独立交付界面或持续归并设置。实际能力与历史在途兼容见工程接缝。
 - [通知与告知](notices.md)：按客户端、类别与渠道控制打扰，逐条已知但不替用户做决定。

@@ -10,7 +10,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
     'test/web/assets.test.js', // startup graph and unchanged cold-loading budgets
     'test/web/dom-built-loading-assets.test.js', // compiled root and project boot
-    'test/web/dom-administrator-page.test.js', // project Valet password elevation, ordinary fallback, unknown receipts and emergency stop
+    'test/web/dom-administrator-page.test.js', // project/device Valet password authority, unknown receipts and page ownership
     'test/web/dom-detail.test.js', // Worker detail -> independent reader
     'test/web/dom-inputs-api.test.js', // composer -> HTTP/RPC -> draft and append
     'test/web/force-acceptance-page.test.js', // authenticated acceptance -> future Valet binding ends; history and append gates remain
@@ -30,6 +30,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/management-append.test.js', // real main intake -> same Valet rounds -> acceptance and read-only history
     'test/project/administrator-execution.test.js', // native elevated occurrence -> isolated Provider/bridge -> current-project handler
     'test/administrator-runtime.test.js', // proof intake, per-occurrence authority, ordinary fallback and real-owner/unknown stop
+    'test/device-valet-runtime.test.js', // device password entrance -> isolated Provider/bridge -> shared resource read/write and true stop owners
     'test/project/merge-conditions-bridge.test.js', // real new merge syntax -> fixed parent queue
     'test/project/input-emission-protocol.test.js', // Dispatcher -> runtime -> Input/Message
     'test/project/merge-queue.test.js', // child delivery -> parent Squash -> acceptance

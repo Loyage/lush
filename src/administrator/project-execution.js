@@ -15,6 +15,7 @@ import { readProjectAdministratorSource } from './project-source.js';
 import { PROJECT_ADMINISTRATOR_RPC, PROJECT_ADMINISTRATOR_OPERATIONS, validateProjectAdministratorTool } from './project-tool-protocol.js';
 
 import { PROJECT_READS } from './project-read-methods.js';
+import { AGENT_RESOURCE_READ_METHODS } from '../core/agent-resource-policy.js';
 
 // Scope is decided from actual handlers, not USER_ONLY minus a denylist or an omitted scope parameter.
 const PROJECT_WRITES = new Set(['system.interrupt_all','system.resume_all','system.stop','system.stop_if_idle','order.submit','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove',
@@ -47,7 +48,7 @@ function authorize(project, actorId) {
 export function projectAdministratorCatalog() {
   return PROJECT_ADMINISTRATOR_OPERATIONS.map(name => ({ name, readOnly: name !== 'project.call',
     ...(name === 'project.call' ? { parameters: ['method','params'], methods: projectAdministratorMethods().map(method => ({ method, readOnly: PROJECT_READS.has(method), parameters: PARAMS[method] })) }
-      : name === 'catalog' ? { parameters: [], scope: 'current_project', no_device_settings: true, no_host_or_cross_project: true,
+      : name === 'catalog' ? { parameters: [], scope: 'current_project', no_device_settings: true, safe_agent_resources: 'read_only', no_host_or_cross_project: true,
           automation_writes: 'project_builtin_lifecycle_only', no_custom_commands_registry_or_mounts: true, no_extension_or_skill_overrides: true }
       : { parameters: ['path','offset','limit'], scope: 'current_project', private_paths: 'excluded' }) }));
 }
@@ -55,7 +56,8 @@ function validateBusiness(project, actorId, params) {
   fields(params,['method','params']);
   check(projectAdministratorMethods().includes(params.method) && isPlainObject(params.params), 'method is not a current-project administrator capability');
   privateFields(params.params);
-  check(params.params.scope !== 'device', 'device scope is unavailable to project elevation');
+  check(params.params.scope !== 'device' || AGENT_RESOURCE_READ_METHODS.includes(params.method),
+    'device scope is unavailable to project elevation except safe Agent resource reads');
   assertAllowed(params.method,params.params,null);
   if (['draft.add','draft.update','draft.remove','input.emit','order.submit'].includes(params.method)) {
     const draftId = params.method.startsWith('draft.') ? params.params.id : params.params.draft_id;

@@ -13,6 +13,7 @@
 | Agent 调用与配置 | `src/agent/` | [Runtime](modules-runtime.md#agent-运行时接缝) |
 | 项目通信与装配 | `src/rpc/`、`src/daemon/`、`src/ui/client.js` | [接口](modules-interfaces.md) |
 | 整机登记、设备设置与来源转发 | `src/host/` | [Host 边界](host-boundary.md) |
+| 设备模型资源管家执行与持久事实 | `src/device-valet/` | [设备管家](device-valet.md) |
 | 浏览器与 CLI | `src/ui/web/`、`src/cli/main.js` | [Web](modules-web.md)、[CLI](modules-interfaces.md) |
 
 ## 三条规矩
