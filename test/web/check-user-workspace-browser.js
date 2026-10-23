@@ -7,6 +7,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { makeWorld } from './dom-world.js';
 import { buildAssets } from '../../src/ui/web/build-assets.js';
+import { pwaResponse } from '../../src/ui/web/server-pwa.js';
 const compiled = process.argv.includes('--compiled');
 const restartOnly = process.argv.includes('--restart-only');
 const temp = await mkdtemp(join(tmpdir(), 'lush-user-workspace-browser-'));
@@ -15,7 +16,7 @@ if (compiled) await buildAssets(assets, temp, 'c'.repeat(32));
 const servedAssets = compiled ? temp : assets;
 const entryHtml = await Bun.file(join(servedAssets, 'index.html')).text();
 const appPath = entryHtml.match(/src="(\/[^"\n]*(?:-app-[^"\n]+|app)\.js)"/)[1];
-const world = makeWorld(), calls = [], preferenceWrites = [], assetCalls = [], restartWrites = [], projectId = 'aaaaaaaaaaaaaaaa'; let offline = false, inboxNotices = [];
+const world = makeWorld(), calls = [], preferenceWrites = [], automationWrites = [], assetCalls = [], restartWrites = [], projectId = 'aaaaaaaaaaaaaaaa'; let offline = false, inboxNotices = [];
 const inboxItem = id => ({ project_id: projectId, project_name: 'fixture', project: '/tmp/demo', online: true,
   checked_at: new Date().toISOString(), notice: { id, task_id: 1, task_worker_number: 'W1', kind: 'info', status: 'sent',
     title: `编译提醒 ${id}`, body: 'controlled fixture', created_at: new Date().toISOString(), source_event_id: id,
@@ -24,6 +25,7 @@ const inboxItem = id => ({ project_id: projectId, project_name: 'fixture', proje
 const headers = { 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'" };
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), path = url.pathname;
+  const pwa = pwaResponse({ request: req, url, headers }); if (pwa) return pwa;
   if (path === '/fixture') return new Response('<!doctype html><link rel="stylesheet" href="/fixture.css"><iframe id="viewport" src="/"></iframe>', { headers: { ...headers, 'Content-Type': 'text/html' } });
   if (path === '/fixture.css') return new Response('html,body{margin:0}iframe{display:block;width:1440px;height:900px;border:0;max-width:100%}', { headers: { 'Content-Type': 'text/css' } });
   // Track live observer-delay handles before any entry runs. This is a passive timer ledger:
@@ -62,11 +64,14 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     if (offline && path === '/api/host/automation') return Response.json({ error: 'fixture Host offline' }, { status: 503 });
     const options = { method: req.method, ...(req.method === 'POST' ? { body: await req.text() } : {}) };
     if (path === '/api/host/preferences' && req.method === 'POST') preferenceWrites.push(JSON.parse(options.body));
+    if (path === '/api/host/automation' && req.method === 'POST') automationWrites.push(JSON.parse(options.body));
     const logical = path.replace(/^\/p\/[a-f0-9]{16}(?=\/api\/)/, '') + url.search;
     const response = await world.fetchImpl(logical, options);
     return Response.json(await response.json(), { status: response.status || (response.ok ? 200 : 400) });
   }
-  if (path === '/shared/dashboard-quick-actions.js') return new Response(Bun.file(new URL('../../src/shared/dashboard-quick-actions.js', import.meta.url)), { headers: { 'Content-Type': 'text/javascript' } });
+  if (['/shared/dashboard-quick-actions.js', '/shared/web-push-protocol.js', '/administrator/protocol.js',
+    '/administrator/project-protocol.js', '/device-valet/protocol.js', '/core/agent-resource-policy.js'].includes(path))
+    return new Response(Bun.file(new URL('../../src' + path, import.meta.url)), { headers: { 'Content-Type': 'text/javascript' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) { assetCalls.push(path); return new Response(Bun.file(join(servedAssets, path.slice(1)))); }
   return new Response('not found', { status: 404 });
 } });
@@ -178,11 +183,14 @@ try {
     console.log(`PASS assembled global pages, authoritative theme, one-click/manual scopes/keyboard/cancel/busy guard and CSP: ${theme} ${width}px`);
   }
   if (!restartOnly) {
-  await execute(`Array.from(document.querySelectorAll('.project-order-form button')).find(b=>b.textContent==='创建 Worker').click()`);
-  assert(await wait(`document.querySelector('.project-order-form .project-order-status').textContent.includes('待开始')`), 'source create-only ACK not rendered');
+  await execute(`Array.from(document.querySelectorAll('.project-order-form button')).find(b=>b.textContent==='提交指令').click()`);
+  assert(await wait(`document.querySelector('.project-order-form .project-order-status').textContent.includes('尚不代表 Worker 已创建或开始')`), 'source emission ACK not rendered');
   assert(calls.filter(path => path === `/p/${projectId}/api/action`).length === 1, 'source instruction was sent to the wrong daemon or duplicated');
-  assert(world.state.actions.at(-1).method === 'order.submit' && world.state.actions.at(-1).params.branch === 'main' && world.state.actions.at(-1).params.start === false, 'backend overview did not create independent main Worker');
-  console.log('PASS backend overview source drafts, responsive lazy form and explicit create-only source routing');
+  const emission = world.state.actions.at(-1);
+  assert(emission.method === 'input.emit' && emission.params.branch === 'main' && emission.params.content === '浏览器会话中的独立指令' && typeof emission.params.client_request_id === 'string'
+    && Object.keys(emission.params).sort().join(',') === 'branch,client_request_id,content', 'backend overview lost independent main emission authority');
+  assert(await execute(`const status=document.querySelector('.project-order-status'),link=status.querySelector('a');return !document.querySelector('.project-order-form textarea').value&&link.getAttribute('href')==='/p/${projectId}/#input-draft-99'&&link.target==='_blank'`), 'emission ACK lost source receipt or draft clearing');
+  console.log('PASS backend overview source drafts, responsive lazy form and explicit main input emission/receipt routing');
   // Replace only the browser permission/delivery capability, never prefs or observer modules.
   await execute(`window.sentNotifications=[];Object.defineProperty(window,'Notification',{configurable:true,value:class {
     static permission='granted';static requestPermission(){throw Error('unexpected permission request')}
@@ -239,13 +247,18 @@ try {
   await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='开启全局自动选择').click()`);
   assert(await wait(`document.getElementById('modal').textContent.includes('已有和新到问题')`), 'authorization omitted existing questions');
   assert(await execute(`return Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='授权并开启').classList.contains('agent-call')`), 'authorization omitted Agent costs');
-  await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click();const c=document.querySelector('[aria-label="启用新指令默认自动流程"]');c.checked=true;c.dispatchEvent(new Event('change'));document.querySelector('[data-level="accept"]').click()`);
-  offline = true; await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='重新读取策略').click()`);
-  assert(await wait(`document.getElementById('modal').textContent.includes('放弃未保存更改')`), 'draft reread omitted explicit discard confirmation');
-  await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='放弃并读取').click()`);
-  assert(await wait(`document.getElementById('detail').textContent.includes('fixture Host offline')`), 'offline failure not visible');
-  assert(await execute(`const b=Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='保存设备默认'),h=b.parentElement;h.focus();return b.disabled&&h===document.activeElement&&h.getAttribute('tabindex')==='0'&&h.getAttribute('data-help').includes('重新读取')&&document.querySelector('[aria-label="启用新指令默认自动流程"]').checked&&document.querySelector('[data-level="accept"]').getAttribute('aria-pressed')==='true'`), 'offline help or unsaved authorization draft lost');
-  console.log('PASS cancelled Agent authorization and focusable offline help preserve the draft'); offline = false;
+  const originalAutomation = JSON.stringify(world.state.deviceAutomation), automationWriteCount = automationWrites.length;
+  await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click()`);
+  assert(await wait(`!document.querySelector('[data-quick-action="auto_select"]').disabled`), 'cancel did not release automation confirmation');
+  // Device completion defaults are retained history, not an editable global draft.
+  assert(await execute(`return !document.querySelector('[aria-label="启用新指令默认自动流程"],[data-level]')&&document.querySelector('.workspace-automation').textContent.includes('不再设置设备级完工默认值')`), 'retired device completion-default editor returned');
+  offline = true; await execute(`document.querySelector('.workspace-automation .workbench-hero button').click()`);
+  assert(await wait(`document.querySelector('.device-auto-select-status').textContent.includes('fixture Host offline')`), 'offline failure not visible');
+  assert(await execute(`const b=document.querySelector('[data-quick-action="auto_select"]'),h=b.parentElement;h.focus();return b.disabled&&b.textContent==='自动选择状态未知'&&h===document.activeElement&&h.getAttribute('tabindex')==='0'&&h.getAttribute('data-help').includes('重新读取')`), 'offline automation help is not focusable or falsely claims policy authority');
+  offline = false; await execute(`document.querySelector('.workspace-automation .workbench-hero button').click()`);
+  assert(await wait(`document.querySelector('[data-quick-action="auto_select"]').textContent==='开启全局自动选择'&&!document.querySelector('[data-quick-action="auto_select"]').disabled`), 'explicit reread did not restore confirmed policy');
+  assert(automationWrites.length === automationWriteCount && JSON.stringify(world.state.deviceAutomation) === originalAutomation, 'cancel/offline/reread mutated device policy or legacy defaults');
+  console.log('PASS cancelled Agent authorization, retired global defaults, focusable offline help and read-only policy recovery');
   await rpc(`/session/${session}/frame`, { id: null });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/p/${projectId}/` });
   assert(await wait(`document.getElementById('detail').dataset.view==='overview'`), 'explicit project boot failed');

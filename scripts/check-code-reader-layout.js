@@ -54,6 +54,11 @@ async function clickText(text) {
     if(!node)throw new Error('Missing button');node.dataset.browserClick='target';return '[data-browser-click="target"]';`);
   await click(selector); await execute(`document.querySelector('[data-browser-click="target"]')?.removeAttribute('data-browser-click');`);
 }
+async function checkMobileSelects(width) {
+  const selects = await execute(`return [...document.querySelectorAll('.code-toolbar select,.code-file-controls select')].filter(n=>n.getClientRects().length).map(n=>({label:n.getAttribute('aria-label'),height:n.getBoundingClientRect().height}));`);
+  assert(selects.length>0&&selects.every(n=>n.height>=44), `mobile code selectors must match adjacent touch controls (${width}): ${JSON.stringify(selects)}`);
+  console.log(`PASS mobile selector geometry ${width}: ${JSON.stringify(selects)}`);
+}
 async function resize(width, height) {
   await rpc(`/session/${session}/window/rect`, { width: Math.max(540, width + 40), height: height + 200 });
   await execute(`const frame=parent.document.querySelector('iframe');frame.style.width='${width}px';frame.style.height='${height}px';parent.scrollTo(0,0);`);
@@ -156,6 +161,7 @@ try {
       else assert(box.side.bottom <= box.body.y + 1 && box.split === 'none' && box.unified !== 'none', `mobile must stack and show unified: ${JSON.stringify(box)}`);
       if (width > 760) assert(box.filter.bottom <= box.side.bottom + 1, 'filter clipped inside sidebar');
       else {
+        await checkMobileSelects(width);
         assert(await execute(`const side=document.querySelector('.code-sidebar'),checkbox=side.querySelector('input[type=checkbox]');
           checkbox.scrollIntoView({block:'nearest'});const r=checkbox.getBoundingClientRect(),s=side.getBoundingClientRect();
           return getComputedStyle(side).overflowY==='auto'&&r.top>=s.top&&r.bottom<=s.bottom+1&&[...side.querySelectorAll('.search-field-row>button')].every(n=>n.getBoundingClientRect().height>=44);`), 'mobile file filter not scroll reachable or touch sized');
@@ -173,6 +179,7 @@ try {
   await resize(1440, 900);
   await clickText('文件内容');
   await waitFor('document.querySelector(".code-content-segment")', 'current file content');
+  await resize(320, 568); await checkMobileSelects(320); await resize(1440, 900);
   await execute(`window.savedFile=document.querySelector('.code-content-segment');document.querySelector('.code-viewport').scrollTop=100;window.savedScroll=document.querySelector('.code-viewport').scrollTop;`);
   await click('#execution-tab-transcript-101');
   await click('#execution-tab-code-101');

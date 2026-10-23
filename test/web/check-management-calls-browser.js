@@ -121,6 +121,7 @@ try {
     assert(layout.width===width&&!layout.overflow&&!layout.bodyOverflow&&layout.preview&&layout.unclipped&&layout.failureHidden
       &&layout.unified&&layout.aligned&&layout.compact&&layout.closed&&layout.unknownVisible&&layout.badgeUnclipped&&layout.ellipsis, 'layout failure '+JSON.stringify(layout));
     assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,w=d.defaultView,audit=d.querySelector('.management-audit-details'),head=audit.querySelector('summary');
+      head.style.setProperty('--motion-factor','0');
       const shape=w.getComputedStyle(head,'::before').transform; if(audit.open||head.getBoundingClientRect().height<44)return false;
       head.click();const changed=audit.open&&w.getComputedStyle(head,'::before').transform!==shape;head.click();return changed&&!audit.open;`), 'project authority audit must retain native default fold, shared caret and 44px target');
     assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,n=d.querySelector('.management-calls');

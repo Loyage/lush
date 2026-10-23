@@ -94,13 +94,15 @@ try {
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   await enterViewport();
   assert(await wait('window.ready'), 'fixture did not load');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900],[390,844]]) {
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900],[390,844],[320,780]]) {
     await resizeViewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.setRows([1,2]);`);
-    assert(await execute(`const b=document.querySelector('.notice-banner-known'),r=b.getBoundingClientRect();return r.width>=44&&r.height>=44&&r.right<=innerWidth&&document.documentElement.scrollWidth<=innerWidth&&getComputedStyle(b).display!=='none';`), `clipped known button ${theme} ${width}`);
+    const geometry = await execute(`const b=document.querySelector('.notice-banner-known'),r=b.getBoundingClientRect();return {width:r.width,height:r.height,right:r.right,scroll:document.documentElement.scrollWidth,display:getComputedStyle(b).display};`);
+    // Standalone desktop controls use 32px; only narrow/touch controls require 44px.
+    assert(geometry.width >= 44 && geometry.height >= (width <= 760 ? 44 : 32) && geometry.right <= width && geometry.scroll <= width && geometry.display !== 'none', `clipped known button ${theme} ${width}: ${JSON.stringify(geometry)}`);
     await click('.notice-banner-known'); assert(await wait('window.acks.length===1'), 'known did not ACK');
     assert(await execute(`return window.acks[0]===2&&window.opened.length===0&&document.querySelector('.notice-banner-row').dataset.noticeId==='1';`), 'known did more than ACK latest');
-    console.log(`PASS visible known button / latest-only ACK ${theme} ${width}x${height}`);
+    console.log(`PASS visible known button ${geometry.width}x${geometry.height} / latest-only ACK ${theme} ${width}x${height}`);
   }
   await execute(`window.setRows([10,11]);document.querySelector('.notice-banner-known').focus();`);
   await key('\uE007'); assert(await wait('window.acks.length===1'), 'Enter did not acknowledge');

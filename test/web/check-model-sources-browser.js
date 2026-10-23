@@ -66,8 +66,10 @@ try {
         const r=row.getBoundingClientRect(),actions=row.querySelector('.model-source-row-actions'),a=actions.getBoundingClientRect();height=r.height;
         if(!row.querySelector('[data-source-scope]')?.textContent.includes('来源'))errors.push('missing storage scope badge');
         const cache=actions.querySelector('.model-source-cache-time').getBoundingClientRect(),buttons=[...actions.querySelectorAll('button')],refresh=buttons[0].getBoundingClientRect(),detail=buttons[1].getBoundingClientRect();
-        if(buttons.map(b=>b.textContent).join(',')!=='刷新,详情')errors.push('unexpected actions');
-        if(cache.bottom>refresh.top+.5||refresh.bottom>detail.top+.5)errors.push('action order');
+        const diagnostics=actions.querySelector('.diagnostics-link'),diagnosticRect=diagnostics?.getBoundingClientRect();
+        if(buttons.map(b=>b.textContent).join(',')!=='刷新,详情'||diagnostics?.getAttribute('href')!=='/#model-sources-diagnostics?connection_id='+row.dataset.sourceId)errors.push('unexpected actions/source');
+        if(!diagnosticRect||cache.bottom>refresh.top+.5||refresh.bottom>diagnosticRect.top+.5||diagnosticRect.bottom>detail.top+.5)errors.push('action order');
+        if(diagnosticRect&&(diagnosticRect.left<a.left||diagnosticRect.right>a.right||diagnosticRect.height!==(innerWidth<=760?44:32)))errors.push('diagnostic target dimensions');
         if(a.right>r.right||a.left<r.left||detail.bottom>r.bottom)errors.push('clipped actions');
         for(const part of ['.model-source-identity','.model-source-settings','.model-source-resource-summary']){
           const b=row.querySelector(part).getBoundingClientRect();if(b.right>a.left+.5||b.bottom>r.bottom+.5)errors.push('overlap/clipping '+part);
@@ -82,9 +84,10 @@ try {
       if(document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
       return {errors,height,calls:window.calls};`);
     assert(!result.errors.length, `${theme} ${width}: ${JSON.stringify(result)}`);
-    assert(result.height === (width <= 640 ? 268 : width <= 1100 ? 168 : 144), 'unexpected row height');
+    // The retained diagnostics entry owns a reserved third action row (W801).
+    assert(result.height === (width <= 640 ? 268 : width <= 1100 ? 188 : 184), 'unexpected row height');
     assert(result.calls.length === 1, 'overview unexpectedly queried');
-    console.log(`PASS ${theme} ${width}px: ${result.height}px rows, right-hand actions, reset countdowns, no overlap/overflow`);
+    console.log(`PASS ${theme} ${width}px: ${result.height}px rows, refresh/diagnostics/detail actions, reset countdowns, no overlap/overflow`);
   }
   assert(await execute(`const row=document.querySelector('.model-source-row');row.querySelector('.model-source-details-toggle').click();const pane=document.querySelector('.model-source-detail');return pane.parentNode===row.parentNode&&pane.previousElementSibling===row&&!pane.hidden;`), 'detail did not expand inline');
   assert(await execute(`const pane=document.querySelector('.model-source-detail');[...pane.querySelectorAll('button')].find(b=>b.textContent==='编辑').click();return window.panel.node.dataset.sourcePanel==='editor'&&!pane.hidden;`), 'detail editor failed');
