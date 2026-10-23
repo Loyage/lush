@@ -17,12 +17,17 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
   const metadata = automationMetadata(feature), root = el('section', undefined, `automation-settings automation-${feature.replace('_', '-')}`);
   root.dataset.featureSettings = feature;
   const extras = el('div', undefined, 'automation-settings-extra'); root.extra = extras;
-  root.append(el('p', `功能简介：${metadata.description}`, 'automation-feature-description'), el('p', `原理简介：${metadata.principle}`, 'hint'),
-    el('p', '设置作用域：当前项目。具体 Worker 的开关／最高环节请到其自动化模块查看。', 'hint'));
+  const panel = el('section', undefined, 'automation-settings-panel'), heading = el('div', undefined, 'section-title');
+  heading.append(el('h2', feature === 'push' ? 'main 推送设置' : '项目设置'));
+  const feedback = el('div', undefined, 'automation-settings-feedback'); root.feedback = feedback;
+  panel.append(heading, feedback, el('p', '设置作用域：当前项目。具体 Worker 的开关／最高环节请到其自动化模块查看。', 'hint'));
+  const principle = el('details', undefined, 'registry-advanced automation-principle');
+  principle.append(el('summary', '原理与适用范围'), el('p', metadata.description, 'automation-feature-description'), el('p', metadata.principle, 'hint'));
+  root.append(panel, principle);
   // Convergence has one defaults API/revision. Push edits the real main mount.
   if (!['completion', 'acceptance_notice'].includes(feature)) {
-    if (feature === 'push') root.append(el('p', '挂载范围：仅 main（只读）。启停的是 main 实际挂载，不设置新 Worker 默认。', 'hint'));
-    root.append(extras); root.ready = Promise.resolve(); root.setSubpage = () => root.ready;
+    if (feature === 'push') panel.append(el('p', '挂载范围：仅 main（只读）。启停的是 main 实际挂载，不设置新 Worker 默认。', 'hint'));
+    panel.append(extras); root.ready = Promise.resolve(); root.setSubpage = () => root.ready;
     root.setActive = root.updateCatalogue = root.dispose = () => {}; return root;
   }
   const controls = el('div', undefined, 'automation-settings-controls');
@@ -52,9 +57,11 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
     }
   }
   stateField.append(group);
-  controls.append(scopeField, stateField, el('p', '挂载范围仅影响之后实际创建的适用 Worker，不回写已有挂载或授权；未挂载时不执行。main／分支所有者不适用此功能，选择“仅 main”不会给新开发 Worker 挂载。', 'hint'));
-  if (feature === 'completion') controls.append(el('p', '开启默认仅授权新用户指令。child 始终挂载且锁定自动合并，不继承用户指令的验收授权；验收包含安全资源回收，不保证业务质量。', 'hint'));
-  else controls.append(el('p', 'child 按挂载范围创建，但默认关闭，可在对应 Worker 独立开启。关闭不删除历史或屏蔽异常、未知结果与待决；自动验收成功保持静默。', 'hint'));
+  controls.append(scopeField, stateField);
+  panel.append(el('p', '仅影响之后实际创建的适用 Worker，不回写已有挂载或授权；未挂载时不执行。', 'hint'));
+  principle.append(el('p', 'main／分支所有者不适用此功能，选择“仅 main”不会给新开发 Worker 挂载。', 'hint'));
+  if (feature === 'completion') principle.append(el('p', '开启默认仅授权新用户指令。child 始终挂载且锁定自动合并，不继承用户指令的验收授权；验收包含安全资源回收，不保证业务质量。', 'hint'));
+  else principle.append(el('p', 'child 按挂载范围创建，但默认关闭，可在对应 Worker 独立开启。关闭不删除历史或屏蔽异常、未知结果与待决；自动验收成功保持静默。', 'hint'));
   const snapshot = value => ({ scope: value.mount_scopes[feature], defaults: { ...value[key] } });
   const dirty = () => !!model && !!draft && JSON.stringify(snapshot(model)) !== JSON.stringify(draft);
   const patch = () => ({ mount_scopes: { [feature]: draft.scope }, [key]: { ...draft.defaults } });
@@ -118,7 +125,7 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
   for (const control of [save, reload, ...choices.map(item => item.control)]) { const click = control.onclick; control.onclick = async () => { await click(); sync(); }; }
   scope.onchange = () => { if (owns() && !scope.disabled && draft) { draft.scope = scope.value; sync(); } };
   const actions = el('div', undefined, 'actions hook-actions'); actions.append(saveHost, reloadHost);
-  root.append(controls, status, actions, extras);
+  feedback.append(status); panel.append(controls, actions, extras);
   root.setSubpage = () => { if (owns() && late) { status.textContent = '离开期间的保存结果尚未核对；草稿保留，请重新读取设置，勿重复提交。'; status.className = 'error automation-settings-status'; late = false; } sync(); return root.ready; };
   root.setActive = active => { if (active) root.setSubpage(); };
   root.updateCatalogue = value => { if (!dirty() && !busy && !uncertain) receive(value); };

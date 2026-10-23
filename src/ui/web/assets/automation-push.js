@@ -90,7 +90,7 @@ export function renderPushAutomation(options) {
     }
     const summary = el('p', available ? `main 当前授权：${mount.enabled ? '开启' : '关闭'}（不是执行结果）。` : reason, available ? 'hint' : 'error');
     if (available && reason && !saving) summary.append(el('span', ` ${reason}`, 'error'));
-    const mainLink = button('查看 main Worker 自动化', () => owns() && source?.worker_id ? detail(source.worker_id) : undefined, 'ghost', { worker: source?.worker_id });
+    const mainLink = button('查看 main Worker 自动化', () => owns() && source?.worker_id ? detail(source.worker_id) : undefined, 'nav-link', { worker: source?.worker_id });
     mainLink.disabled = !Number.isSafeInteger(source?.worker_id) || source.worker_id < 1;
     advanced.replaceChildren(el('h2', '引用指令（只读）'), el('p', '挂载参数编辑及旧内联导入请到 main 自动化。定义修订请回项目登记目录；修订不改变旧挂载，须另行选择版本升级。这里不展示执行收据或运行记录。', 'hint'));
     if (!validCommands(catalogue?.commands)) advanced.append(el('p', '快捷指令目录不可用；不能校验指令引用。', 'error'));
@@ -102,7 +102,8 @@ export function renderPushAutomation(options) {
     const diagnostic = mount && (['failed', 'unknown'].includes(mount.state) || mount.reason);
     if (diagnostic) summary.append(el('span', ` · 需要核查：${mount.state === 'unknown' ? '结果未知，不自动重放。' : mount.state === 'failed' ? '执行失败。' : ''}${mount.reason || ''} 请到 main Worker 自动化查看诊断。`, 'error'));
     const actions = el('div', undefined, 'actions hook-actions'); actions.append(reload, mainLink, openAdvanced);
-    host.replaceChildren(summary, group, status, actions, advanced);
+    node.feedback.replaceChildren(summary, status);
+    host.replaceChildren(group, actions, advanced);
   }
   const select = node.setSubpage;
   node.setSubpage = () => { select(); paint(); return node.ready; };

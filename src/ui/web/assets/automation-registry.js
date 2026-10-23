@@ -20,7 +20,9 @@ const locked = (control, reason) => {
 };
 export function registryFacts(item) {
   const node = el('section', undefined, 'registry-facts');
-  node.append(el('h1', item.name), ...(item.temporary ? [badge('临时'), ...(item.lifecycle === 'reclaimed' ? [badge('已回收 · 只读')] : [])] : []), el('p', item.purpose), badge(registryOrigin(item.origin)), badge(`当前登记 v${item.version}`), badge(`${item.mount_count} 个真实挂载`));
+  const metadata = el('div', undefined, 'registry-metadata');
+  metadata.append(...(item.temporary ? [badge('临时'), ...(item.lifecycle === 'reclaimed' ? [badge('已回收 · 只读')] : [])] : []), badge(registryOrigin(item.origin)), badge(`当前登记 v${item.version}`), badge(`${item.mount_count} 个真实挂载`));
+  node.append(el('h1', item.name), metadata, el('p', item.purpose, 'automation-feature-description'));
   if (item.reason) node.append(el('p', item.reason, item.readonly ? 'hint' : 'error'));
   const targets = el('details', undefined, 'registry-targets'); targets.append(el('summary', '挂载目标与版本'));
   targets.append(el('p', item.targets_complete ? `已列出全部 ${item.mount_count} 个挂载。` : `目标未列全：仅列出 ${item.targets.length} / ${item.mount_count} 个挂载（上限 100）；不能据此判断其他 Worker 未挂载。`, item.targets_complete ? 'hint' : 'error'));
@@ -64,7 +66,7 @@ export function registeredMountPicker({ catalogue, workerId, model, mount = null
       if (!ownsPage()) return;
       status.textContent = '挂载授权已保存；未立即执行。';
       try { await onSaved(result); } catch (error) { if (ownsPage()) status.textContent = `挂载已保存，但刷新失败：${error.message}；不要重复挂载。`; }
-    } catch (error) { if (ownsPage()) { status.className = 'error'; status.textContent = `${error.message}；${submitted ? '结果须只读核验，不自动重发；请刷新 Worker 挂载。' : '未提交挂载。'}`; } }
+    } catch (error) { if (ownsPage()) { status.className = 'error settings-error'; status.textContent = `${error.message}；${submitted ? '结果须只读核验，不自动重发；请刷新 Worker 挂载。' : '未提交挂载。'}`; } }
     finally { busy = false; if (ownsPage()) paint(); }
   }, 'hook-button');
   const host = locked(save, () => busy ? '正在确认或保存。' : submitted ? saved ? '已保存；不重复提交。' : '结果待核验，请刷新 Worker 挂载，不自动重发。' : !selected() || !version.input.value ? '须先选择登记功能及明确版本。' : model.can_attach === false && !mount ? '当前 Worker 不允许新增挂载。' : mount && (mount.editable !== true || mount.locked) ? mount.reason || '挂载已锁定。' : null);
@@ -75,7 +77,7 @@ export function registeredMountPicker({ catalogue, workerId, model, mount = null
       const next = await api(`/api/hooks?include_reclaimed=${catalogue.registry.include_reclaimed === true}&after=${encodeURIComponent(cursor)}`); if (!ownsPage()) return;
       if (next.registry.revision !== catalogue.registry.revision) throw Error('目录已变化，请关闭选择并重新读取。');
       addItems(next); catalogue.templates = [...(catalogue.templates || []), ...(next.templates || [])]; cursor = next.registry.next_cursor; paintPage();
-    } catch (error) { if (ownsPage()) { pageStatus.className = 'error'; pageStatus.textContent = `续读失败：${error.message}；当前选择列表不代表全部。`; } }
+    } catch (error) { if (ownsPage()) { pageStatus.className = 'error settings-error'; pageStatus.textContent = `续读失败：${error.message}；当前选择列表不代表全部。`; } }
     finally { reading = false; more.disabled = submitted; }
   }, 'ghost');
   const paintPage = () => { more.hidden = !cursor; pageStatus.textContent = cursor ? '可选目录未列全，可显式继续读取；已回收项不可挂载。' : '当前目录已读完；活动临时定义虽不可编辑，仍可固定版本挂载。'; };
@@ -86,6 +88,7 @@ export function registeredMountPicker({ catalogue, workerId, model, mount = null
 
 function projectMount({ catalogue, item, ownsPage, onSaved }) {
   const node = el('div', undefined, 'registry-mount'), worker = field('选择目标 Worker', 'select'), status = el('p', '', 'hint'), host = el('div');
+  status.setAttribute('role', 'status');
   worker.input.append(option('', '请选择 Worker（不默认选择 main）'));
   let cursor = null, generation = 0, loading = false, loaded = false;
   const seen = new Set();
@@ -171,7 +174,7 @@ export function registrationEditor({ catalogue, item = null, ownsPage, onSaved }
 }
 
 function temporaryUsage({ catalogue, item, ownsPage, onSaved, onState }) {
-  const node = el('section', undefined, 'temporary-usage'), usage = el('p', '正在核验使用状态…', 'hint'), status = el('p', '', 'hint'); status.setAttribute('role', 'status');
+  const node = el('section', undefined, 'temporary-usage'), usage = el('p', '正在核验使用状态…', 'hint temporary-usage-summary'), status = el('p', '', 'hint'); status.setAttribute('role', 'status');
   const audit = el('details', undefined, 'registry-targets'), rows = el('ol'), auditStatus = el('p', '', 'hint'); audit.append(el('summary', '使用审计（只读摘要）'), auditStatus, rows);
   let history = null, cursor = null, loading = false, submitted = false, saved = false, readRequest = 0;
   const clientId = globalThis.crypto.randomUUID();
@@ -192,7 +195,7 @@ function temporaryUsage({ catalogue, item, ownsPage, onSaved, onState }) {
       onState?.(history);
       const u = history.usage;
       usage.textContent = `创建 ${history.created_at}${history.reclaimed_at ? ` · 回收 ${history.reclaimed_at}` : ''} · 固定 v${history.template_version} · ${history.lifecycle === 'reclaimed' ? '已回收 · 只读' : '活动临时定义（不可修改，可另行挂载）'}。实际挂载 ${u.mount_count} · 待执行 ${u.pending_count} · 执行／收尾 ${u.running_count} · 结果未知 ${u.unknown_count}。累计挂载 ${u.attached_total} · 成功 ${u.succeeded_total} · 失败 ${u.failed_total} · 跳过 ${u.skipped_total}。成功只表示对应动作提交或执行收口，不表示 Agent 工作完成。`;
-      usage.className = u.unknown_count || u.failed_total ? 'error' : 'hint';
+      usage.className = `${u.unknown_count || u.failed_total ? 'error' : 'hint'} temporary-usage-summary`;
     }
     reason.textContent = blocked() || '当前可申请安全回收；提交时后台会重检全部引用和执行事实。'; reclaimHost.sync();
   };
@@ -255,7 +258,9 @@ export function renderRegistryAutomation({ catalogue, item, ownsPage, onSaved, m
       catch (error) { if (owns()) { status.textContent = `${error.message}；现场保留，请只读刷新核对，不自动重试。`; status.className = 'error'; } }
       finally { host.sync(); }
     }, 'hook-button', { help: '显式补登记并关联旧规则；不重放，旧内联 Shell 与执行中规则会拒绝。' });
-    const host = locked(upgrade, () => submitted ? '已提交，请返回目录只读核验，不重复升级。' : null); node.append(el('h1', '升级旧规则'), status, host); return node;
+    status.setAttribute('role', 'status');
+    const host = locked(upgrade, () => submitted ? '已提交，请返回目录只读核验，不重复升级。' : null), panel = el('section', undefined, 'registry-upgrade-panel');
+    panel.append(el('h2', '升级旧规则'), status, host); node.append(panel); return node;
   }
   const facts = registryFacts(item); node.append(facts);
   if (item.temporary) {

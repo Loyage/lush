@@ -1,4 +1,4 @@
-import { $, el, button, badge } from './dom.js';
+import { $, el, button, badge, pageModules } from './dom.js';
 import { api, projectApi } from './api.js';
 import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -11,6 +11,29 @@ import { automationFeature, automationHash } from './automation-features.js';
 export const automationOrigin = origin => ({ builtin: '内置', custom: '自定义', system: '系统' })[origin] || '未知来源';
 const builtinId = (feature, catalogue) => feature === 'completion' ? 'builtin:completion' : feature === 'acceptance_notice' ? 'builtin:acceptance-notice' : feature === 'push' ? catalogue?.command_example?.template_id : feature;
 const builtinFeature = (id, catalogue) => id === 'builtin:completion' ? 'completion' : id === 'builtin:acceptance-notice' ? 'acceptance_notice' : id === catalogue?.command_example?.template_id ? 'push' : null;
+
+/** Apply the same explicit, non-clipping editor modules as other settings pages. */
+function presentFeature(node, feature) {
+  const sections = ['automation-settings-panel', 'registry-mount', 'registry-registration', 'temporary-usage', 'registry-upgrade-panel']
+    .flatMap(name => [...node.querySelectorAll(`.${name}`)])
+    .filter(section => [...section.children].some(child => child.tagName === 'H2' || child.classList.contains('section-title')));
+  const feedback = new Map();
+  for (const section of sections) {
+    section.classList.add('block');
+    if (section.classList.contains('ui-module')) continue;
+    let heading = [...section.children].find(child => child.classList.contains('section-title'));
+    if (!heading) {
+      const title = [...section.children].find(child => child.tagName === 'H2');
+      if (!title) continue;
+      heading = el('div', undefined, 'section-title'); section.insertBefore(heading, title); heading.insertBefore(title, null);
+    }
+    feedback.set(section, [...section.children].filter(child => child.getAttribute('role') === 'status'
+      || child.classList.contains('automation-settings-feedback') || child.classList.contains('temporary-usage-summary') || child.classList.contains('temporary-reclaim-reason')));
+  }
+  const views = pageModules(node, { scope: 'project-automation', entries: sections.map((section, index) => ({ section, key: `${feature}:${index}`, mode: 'fold' })) });
+  // Save receipts and safety diagnostics remain visible even when an editor is explicitly folded.
+  for (const view of views) for (const message of feedback.get(view.section) || []) view.section.insertBefore(message, view.summary);
+}
 
 /** Retained project/document/view shell. Definitions and builtin settings stay lazy. */
 export async function openProjectAutomation({ feature = null, subpage = 'settings', push = true } = {}) {
@@ -40,12 +63,14 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
   const list = el('ol', undefined, 'automation-feature-list'); list.setAttribute('aria-label', '自动化功能');
   const status = el('p', '', 'hint'); status.setAttribute('role', 'status');
   const controls = el('div', undefined, 'actions hook-actions');
-  const reclaimed = el('label', '包含已回收临时项', 'hook-field'), reclaimedInput = el('input'); reclaimedInput.type = 'checkbox'; reclaimedInput.setAttribute('aria-label', '包含已回收临时项'); reclaimed.append(reclaimedInput);
+  const reclaimed = el('label', undefined, 'filter-check'), reclaimedInput = el('input'); reclaimedInput.type = 'checkbox'; reclaimedInput.setAttribute('aria-label', '包含已回收临时项'); reclaimed.append(reclaimedInput, el('span', '包含已回收临时项'));
   reclaimedInput.onchange = () => { state.includeReclaimed = reclaimedInput.checked; return state.reload(); };
   const more = button('继续读取功能', () => state.reload(true), 'ghost'); more.hidden = true;
   controls.append(reclaimed, button('登记新功能', () => openProjectAutomation({ feature: 'register' }), 'nav-link'), button('刷新目录', () => state.reload(), 'ghost'));
-  card.append(heading, status, list, empty, more); browse.append(hero, search.root, controls, card);
-  listSurface({ root: browse, tools: search.root, card, heading, body: list });
+  const tools = el('div', undefined, 'resource-tools automation-directory-tools'), pagination = el('div');
+  tools.append(search.root, controls); pagination.append(status, more);
+  card.append(heading, list, empty); browse.append(hero, tools, card, pagination);
+  listSurface({ root: browse, tools, card, heading, body: list, pagination });
   const panel = el('section', undefined, 'automation-feature-page'); panel.hidden = true;
   root.append(browse, panel); $('detail').replaceChildren(root);
   state.dispose = () => { state.disposed = true; ++state.request; for (const node of state.nodes.values()) node.dispose?.(); state.nodes.clear(); };
@@ -88,17 +113,19 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     const request = ++state.request; state.feature = id;
     for (const [key, node] of state.nodes) { node.hidden = key !== id; node.setActive?.(key === id); }
     browse.hidden = Boolean(id); panel.hidden = !id;
-    if (!id) { panel.replaceChildren(); return; }
+    if (!id) { pageModules(panel, { scope: 'project-automation' }); panel.replaceChildren(); return; }
     const current = () => owns() && state.feature === id && request === state.request;
     let node = state.nodes.get(id);
     const content = el('div', undefined, 'automation-feature-content');
-    panel.replaceChildren(button('← 返回自动化功能列表', () => openProjectAutomation(), 'nav-link nav-back'), button('重新读取此功能', async () => {
+    const navigation = el('div', undefined, 'breadcrumb actions automation-detail-navigation');
+    navigation.append(button('← 返回自动化功能列表', () => openProjectAutomation(), 'nav-link nav-back'), button('重新读取此功能', async () => {
       if (!current()) return;
       if (!await confirmDialog({ title: '重新读取功能？', message: '放弃此功能页面的未保存草稿并只读核验最新目录；不会重新提交登记或挂载。', confirmLabel: '放弃草稿并读取', confirmHelp: '只读刷新并释放当前草稿，不重放未知写请求。' }) || !current()) return;
       const next = await state.reload(); if (!current() || !next) return;
       state.nodes.get(id)?.dispose?.(); state.nodes.delete(id); return state.select(id);
-    }, 'ghost'), content);
-    if (node) { node.hidden = false; content.append(node); node.setSubpage?.('settings'); return node.ready; }
+    }, 'ghost'));
+    panel.replaceChildren(navigation, content);
+    if (node) { node.hidden = false; content.append(node); presentFeature(node, id); node.setSubpage?.('settings'); return node.ready; }
     content.append(el('p', '正在读取功能…', 'hint'));
     try {
       const catalogue = state.catalogue || await state.loading; if (!current()) return;
@@ -124,7 +151,7 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
         const { renderRegistryAutomation } = await import('./automation-registry.js'); if (!current()) return;
         node = renderRegistryAutomation({ ...options, mode: id });
       }
-      state.nodes.set(id, node); content.replaceChildren(node); await node.ready;
+      state.nodes.set(id, node); content.replaceChildren(node); presentFeature(node, id); await node.ready;
     } catch (error) { if (current()) content.replaceChildren(el('p', `功能读取失败：${error.message}`, 'error'), button('重新读取', () => state.select(id), 'ghost')); }
   };
   state.loading = state.reload(); await state.loading; return state.select(feature);

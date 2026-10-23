@@ -26,6 +26,34 @@
 .automation-directory .ui-list-entry { box-sizing: border-box; }
 @media (max-width: 600px) { .automation-feature-head { align-items: flex-start; } .automation-feature-head .badge { white-space: normal; } }
 .hooks-page { display: grid; gap: 1rem; max-width: 1100px; margin-inline: auto; }
+/* Project automation uses shared list chrome and explicit settings modules. */
+.project-automation { max-width: 1180px; }
+.automation-directory-tools > .search-field { flex: 1 1 26rem; min-width: 0; }
+.automation-directory-tools > .hook-actions { flex: 1 1 auto; justify-content: flex-end; }
+.automation-directory-tools .filter-check { gap: .45rem; color: var(--muted); cursor: pointer; }
+.automation-directory-tools .filter-check input { width: auto; }
+.automation-detail-navigation { flex-wrap: wrap; justify-content: space-between; gap: .5rem; margin: 0; }
+.project-automation .registry-facts { padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
+.project-automation .registry-facts h1 { font-size: clamp(22px, 2.5vw, 30px); overflow-wrap: anywhere; }
+.registry-metadata { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.project-automation .registry-facts p { margin: 0; }
+.project-automation .automation-settings { display: grid; gap: 1rem; min-width: 0; }
+.project-automation .block { margin-top: 0; }
+.project-automation .block > .module-body > .module-content { display: grid; gap: .8rem; min-width: 0; }
+.project-automation .automation-settings-feedback { min-width: 0; overflow-wrap: anywhere; }
+.project-automation .automation-settings-feedback:empty { display: none; }
+.project-automation .registry-advanced > summary, .project-automation .registry-targets > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding-block: var(--control-padding-y); min-height: var(--control-height); box-sizing: border-box; }
+.project-automation summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
+.project-automation .automation-settings-controls > .hook-field { grid-template-columns: minmax(140px, 210px) minmax(0, 420px); align-items: center; gap: 1rem; padding: .65rem 0; border-bottom: 1px solid var(--line-soft); }
+.project-automation .hook-field :is(input:not([type="checkbox"]), select, textarea) { box-sizing: border-box; min-width: 0; max-width: 100%; min-height: var(--control-height); padding: var(--control-padding-y) var(--control-padding-x); background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-size: 12px; }
+.project-automation .hook-field input[type="checkbox"] { width: auto; justify-self: start; }
+.project-automation .hook-completion-level { min-height: var(--control-height); }
+@media (max-width: 760px) {
+  .automation-directory-tools > .hook-actions { flex-basis: 100%; justify-content: flex-start; }
+  .project-automation .automation-settings-controls > .hook-field { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+  .project-automation .hook-field :is(input:not([type="checkbox"]), select, textarea) { font-size: 16px; }
+  .automation-detail-navigation { justify-content: flex-start; }
+}
 .hooks-page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .hook-help-link { margin-left: auto; font-size: .85rem; }
 .hook-help-link.nav-link { white-space: normal; }

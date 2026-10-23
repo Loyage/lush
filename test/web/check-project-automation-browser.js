@@ -61,7 +61,10 @@ async function pointer(selector, actions) {
     { type: 'pointerMove', duration: 0, origin: await element(selector), x: 0, y: 0 }, ...actions,
   ] }] });
 }
-async function screenshot(name) { fs.writeFileSync(path.join(evidence, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); }
+async function screenshot(name) {
+  assert(await wait(`!document.querySelector('[data-disclosure-motion]')`), 'disclosure animation did not settle');
+  fs.writeFileSync(path.join(evidence, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+}
 try {
   await repo(f.root); const main = await f.project.bootstrapMain();
   const old = (await f.project.order('Browser existing Worker', 'main', [], null, false)).task;
@@ -115,7 +118,19 @@ try {
     for (const feature of [null, 'completion', 'push', 'acceptance_notice']) {
       await route(feature ? `#hooks-${feature}` : '#hooks', feature);
       assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.page-subnav')`), `overflow ${theme}/${width}/${feature}`);
-      if (feature) assert(await execute(`return [...document.querySelectorAll('.automation-settings .hook-actions button')].every(b=>{const r=b.getBoundingClientRect();return r.width<innerWidth*.8&&r.right<=innerWidth})`), `full-line buttons ${theme}/${width}/${feature}`);
+      if (feature) {
+        assert(await execute(`const panel=document.querySelector('.automation-settings-panel'),head=panel.querySelector('.section-title'),feedback=panel.querySelector('.automation-settings-feedback');return panel.classList.contains('ui-module')&&panel.classList.contains('module-fold')&&getComputedStyle(head).position==='sticky'&&!panel.querySelector('.module-body').hidden&&feedback.parentElement===panel&&!document.querySelector('.automation-principle').open&&getComputedStyle(document.querySelector('.registry-metadata')).display==='flex'`), `shared settings hierarchy ${theme}/${width}/${feature}`);
+        assert(await execute(`return [...document.querySelectorAll('.automation-settings .hook-actions button')].every(b=>{const r=b.getBoundingClientRect();return r.width<innerWidth*.8&&r.right<=innerWidth&&r.height>=${width<=390?44:32}})`), `full-line or small buttons ${theme}/${width}/${feature}`);
+        await execute(`window.retainedAutomationControls=[...document.querySelectorAll('.automation-settings :is(select,button)')];`);
+        await click('.automation-settings-panel .module-toggle');
+        assert(await execute(`const p=document.querySelector('.automation-settings-panel');return p.querySelector('.module-body').hidden&&p.querySelector('.automation-settings-feedback').getClientRects().length&&retainedAutomationControls.every(n=>n.isConnected)`), `fold lost feedback or controls ${theme}/${width}/${feature}`);
+        await route('#hooks'); await route(`#hooks-${feature}`, feature);
+        assert(await execute(`return document.querySelector('.automation-settings-panel .module-body').hidden`), 'feature navigation lost module state');
+        await click('.automation-settings-panel .module-toggle');
+        assert(await wait(`(()=>{const body=document.querySelector('.automation-settings-panel .module-body');return !body.hasAttribute('data-disclosure-motion')&&!body.hidden&&getComputedStyle(body).overflowY==='visible'&&body.clientHeight>=body.scrollHeight-1})()`), `settings form clipped ${theme}/${width}/${feature}`);
+      } else {
+        assert(await execute(`const tools=document.querySelector('.automation-directory-tools');return tools.classList.contains('ui-list-tools')&&!!tools.querySelector('.search-field')&&!!tools.querySelector('[aria-label="包含已回收临时项"]')&&!!tools.querySelector('.hook-actions')&&!!document.querySelector('.ui-list-pagination [role="status"]')`), `shared directory tools ${theme}/${width}`);
+      }
       await screenshot(`${theme}-${width}-${feature || 'directory'}`);
     }
     for (const worker of [main, old, child, unmounted]) {
@@ -198,7 +213,7 @@ try {
   for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}';location.hash='#hooks-feature-${registered.id}'`);
     assert(await wait(`document.querySelector('.registry-automation')`), 'registry layout route missing');
-    assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.registry-advanced').open&&!document.querySelector('.registry-targets').open`), `registry hierarchy/overflow ${theme}/${width}`);
+    assert(await execute(`const mount=document.querySelector('.registry-mount');return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.registry-advanced').open&&!document.querySelector('.registry-targets').open&&mount.classList.contains('ui-module')&&!mount.querySelector('.module-body').hidden&&getComputedStyle(mount.querySelector('.section-title')).position==='sticky'`), `registry hierarchy/overflow ${theme}/${width}`);
     await screenshot(`registry-${theme}-${width}`);
     await execute(`document.querySelector('.registry-advanced').open=true;document.querySelector('.registry-targets').open=true`);
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth`), `expanded registry overflow ${theme}/${width}`); await screenshot(`registry-expanded-${theme}-${width}`);
@@ -217,7 +232,7 @@ try {
   assert(await wait(`document.querySelector('.temporary-reclaim-reason')?.textContent.includes('残留挂载')`), 'disabled mount did not block reclaim');
   for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}'`);
-    assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.registry-advanced').open`), `temporary hierarchy/overflow ${theme}/${width}`);
+    assert(await execute(`const usage=document.querySelector('.temporary-usage');return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.registry-advanced').open&&usage.classList.contains('ui-module')&&usage.querySelector('.temporary-usage-summary').parentElement===usage&&usage.querySelector('.temporary-reclaim-reason').parentElement===usage`), `temporary hierarchy/overflow ${theme}/${width}`);
     await screenshot(`temporary-${theme}-${width}`);
     await execute(`document.querySelector('.registry-advanced').open=true;document.querySelector('.temporary-usage details').open=true`);
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth`), `temporary expanded overflow ${theme}/${width}`); await screenshot(`temporary-expanded-${theme}-${width}`);
