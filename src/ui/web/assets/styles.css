@@ -777,7 +777,17 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-actions-title{font-size:13px;white-space:normal}
 .task-graph-actions-popover .delivery-controls,.task-graph-actions-popover .iteration-controls{margin:0}
 .task-graph-actions-popover button{white-space:normal;text-align:left}
-@media(max-width:760px),(pointer:coarse){.task-graph-minimal .task-graph-card{height:auto;min-height:86px;grid-template-rows:44px auto}}
+/* Match the title's compact visible label while retaining a full-size touch target. */
+@media(max-width:760px),(pointer:coarse){
+  .task-graph-minimal .task-graph-card{height:auto;min-height:86px;grid-template-columns:minmax(0,1fr) 44px;grid-template-rows:44px auto}
+  .task-graph-more{display:flex;align-items:center}
+  .task-graph-minimal .task-graph-more{grid-row:1;align-self:start}
+  .task-graph-minimal-summary{grid-column:1/-1}
+  button.task-graph-more-trigger{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-color:transparent;background:transparent}
+  button.task-graph-more-trigger:hover{background:transparent;border-color:transparent;box-shadow:none}
+  .task-graph-more-label{display:inline-flex;align-items:center;justify-content:center;width:30px;height:22px;border:1px solid var(--line);border-radius:5px}
+  .task-graph-more-trigger:hover>.task-graph-more-label{background:var(--panel-2);border-color:var(--dim)}
+}
 @media(max-width:640px){
   .task-graph-actions-popover{right:16px;bottom:16px}
   .task-graph-minimal .task-graph-card{height:auto;min-height:68px;grid-template-rows:44px auto}
@@ -788,5 +798,4 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
   .task-graph-minimal-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;min-width:0}
   .task-graph-minimal-meta>.task-graph-usage{flex:0 1 auto;min-width:0;flex-wrap:wrap;gap:0 7px;white-space:normal}
   .task-graph-minimal-meta>.task-graph-usage>span{white-space:nowrap}
-  .task-graph-minimal .task-graph-more{grid-row:1;align-self:start}
 }

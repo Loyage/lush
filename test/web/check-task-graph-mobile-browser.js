@@ -17,7 +17,7 @@ window.graph={total:6,archived_count:2,management_count:3,nodes:[
 {id:1,worker_number:'W1',title:'main',branch:'main',role:'agent',task_kind:'main',status:'waiting',children_total:2,
 resources:{own,subtree:{...own,input:242000,cost:448.48}}},
 {id:2,parent_id:1,worker_number:'W2',title:'手机进度与消耗分行展示',role:'agent',task_kind:'order',status:'running',integration:'pending',delivery_summary:{stage:'pending'},reservation:{version:2,status:'pending'},
-progress:{total:3,completed:1,current:{label:'验证较长的进度说明和移动端布局，不应被消耗信息挤走'}},resources:{own}},
+progress:{total:3,completed:1,current:{label:'验证较长的进度说明和移动端布局，不应被消耗信息挤走，换行后仍须完整显示'}},resources:{own}},
 {id:3,parent_id:2,worker_number:'W2-1',title:'等待中的子 Worker',role:'agent',task_kind:'child',status:'waiting',integration:'merged',delivery_summary:{stage:'integrated'},
 waiting_reason:'等待父 Worker 确认接口，保留完整的等待原因',input_queue:{buffered:2},freeze:{task_id:1},resources:{own}},
 {id:4,parent_id:1,worker_number:'V21',title:'运行中的项目管家',role:'manager',task_kind:'management',status:'running',agent_last_seen_at:'2026-10-22T12:00:00.000Z',management_attention:true,management:{state:'running',reason:'正在管理本项目，不进入开发分支'}},
@@ -50,6 +50,20 @@ async function rpc(path,body,method='POST'){
 const execute=script=>rpc(`/session/${session}/execute/sync`,{script,args:[]});
 const wait=expression=>rpc(`/session/${session}/execute/async`,{script:`const done=arguments[0];let n=0;const check=()=>(${expression})?done(true):++n>100?done(false):setTimeout(check,20);check();`,args:[]});
 function assert(value,message){if(!value)throw Error(message);}
+async function checkMoreActions(width){
+  const actions=await execute(`return [...document.querySelectorAll('.task-graph-more-trigger')].map(button=>{
+    const card=button.closest('.task-graph-card'),title=card.querySelector('.task-graph-title').getBoundingClientRect();
+    const target=button.getBoundingClientRect(),label=(button.firstElementChild||button).getBoundingClientRect(),bounds=card.getBoundingClientRect();
+    const style=getComputedStyle(button);
+    return {width:target.width,height:target.height,labelHeight:label.height,titleHeight:title.height,
+      transparent:style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.borderTopColor==='rgba(0, 0, 0, 0)',
+      aligned:!card.closest('.task-graph-minimal')||Math.abs((target.top+target.bottom-title.top-title.bottom)/2)<=1,
+      clear:(target.left>=title.right||target.top>=title.bottom)&&target.left>=bounds.left&&target.right<=bounds.right&&target.top>=bounds.top&&target.bottom<=bounds.bottom};
+  });`);
+  assert(actions.length>0&&actions.every(action=>width<=760
+    ? action.width===44&&action.height===44&&action.labelHeight<=22&&action.transparent&&action.titleHeight===action.height&&action.aligned&&action.clear
+    : action.width===30&&action.height===36),`more actions must match the compact header without shrinking touch targets (${width}): ${JSON.stringify(actions)}`);
+}
 async function resize(width){
   await rpc(`/session/${session}/frame`,{id:null});
   await execute(`document.querySelector('#viewport').style.width='${width}px';`);
@@ -84,6 +98,7 @@ try{
     assert(compact.indent===(width<=640?10:22),`tree indentation: ${JSON.stringify(compact)}`);
     assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
     assert(width>760||(compact.titleHeight>=44&&compact.titleLabelHeight<=22),`compact title label/clear touch target: ${JSON.stringify(compact)}`);
+    await checkMoreActions(width);
     assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
     const valet=await execute(`const card=document.querySelector('[data-task-id="1"]'),links=[...document.querySelectorAll('.task-graph-valet-link')],link=links[0],r=link.getBoundingClientRect(),label=link.querySelector('.task-graph-link-label').getBoundingClientRect(),c=card.getBoundingClientRect();return {count:links.length,id:link.dataset.valetId,text:link.textContent,height:r.height,labelHeight:label.height,contained:r.left>=c.left&&r.right<=c.right&&r.top>=c.top&&r.bottom<=c.bottom,panel:!!document.querySelector('.project-management')};`);
     assert(valet.count===1&&valet.id==='4'&&valet.text==='Valet V21 · 运行中'&&!valet.panel, 'only a running Valet tag should remain on main');
@@ -100,7 +115,7 @@ try{
     }
     assert(geometry[1].text.includes('1/3 · 验证较长')&&geometry[1].usage.includes('1 d 2 h 3 m 4 s'),'progress or statistics lost');
     if(width<=390)assert(geometry[1].noteHeight>20,'long progress did not wrap');
-    console.log('PASS',theme,width,'progress/usage separation, nesting, long duration, desktop baseline');
+    console.log('PASS',theme,width,'compact action labels/clear touch targets, progress/usage separation, nesting, desktop baseline');
   }
   for(const width of [390,1440]){
     await resize(width);
@@ -141,11 +156,12 @@ try{
   await execute(`document.querySelector('#task-graph-actions-2').hidePopover();window.setMode(false);`);
   for(const width of [390,1440]){
     await resize(width);await execute(`window.paint();`);
+    await checkMoreActions(width);
     assert(await execute(`const fold=document.querySelector('.task-graph-fold'),f=fold.getBoundingClientRect(),t=fold.nextElementSibling.getBoundingClientRect(),c=fold.closest('.task-graph-card').getBoundingClientRect();
       const title=document.querySelector('.task-graph-title'),label=title.querySelector('.task-graph-link-label').getBoundingClientRect();
       return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&(innerWidth>760||(t.height>=44&&label.height<=22))&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/title/filter spacing');
   }
-  console.log('PASS compact detail-mode caret and filter badges at mobile/desktop widths');
+  console.log('PASS compact detail-mode actions, caret and filter badges at mobile/desktop widths');
   for(const width of [320,1440]){
     await resize(width);await execute(`window.graph=structuredClone(normalGraph);window.paint();`);
     assert(await execute(`const link=document.querySelector('.task-graph-valet-link'),r=link.getBoundingClientRect(),c=link.closest('.task-graph-card').getBoundingClientRect();return r.left>=c.left&&r.right<=c.right&&r.bottom<=c.bottom&&!document.querySelector('.project-management')&&document.querySelectorAll('.task-graph-valet-link').length===1;`),'detail mode must keep only the running link inside main');

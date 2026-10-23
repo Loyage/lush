@@ -322,7 +322,10 @@ function taskActionsMenu(node, inputWorkers) {
   panel.setAttribute('popover', 'auto');
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-label', `Worker ${workerLabel(node)} 更多操作`);
-  const trigger = el('button', '⋯', 'ghost task-graph-more-trigger');
+  const trigger = el('button', undefined, 'ghost task-graph-more-trigger');
+  const label = el('span', '⋯', 'task-graph-more-label');
+  label.setAttribute('aria-hidden', 'true');
+  trigger.append(label);
   trigger.type = 'button';
   trigger.setAttribute('popovertarget', panel.id);
   bindWorkerPreview(trigger, node);
