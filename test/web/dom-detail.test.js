@@ -3,7 +3,17 @@ import { installDom, findByText } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 
-const world = makeWorld(), dom = installDom({ fetch: world.fetchImpl });
+const world = makeWorld();
+let maintenance = { version: 1, paused: true, phase: 'pausing', ready_to_restart: false,
+  active_calls: 1, pending_operations: 0, affected_count: 1, blockers: [] };
+const dom = installDom({ fetch: async (url, options) => {
+  const response = await world.fetchImpl(url, options);
+  if (String(url).split('?')[0].endsWith('/api/snapshot')) {
+    const data = await response.json(); data.status.maintenance = maintenance;
+    return { ...response, json: async () => data };
+  }
+  return response;
+} });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 dom.node('side-nav').replaceChildren(); await boot();
 afterAll(() => dom.restore());
@@ -15,6 +25,9 @@ test('Worker detail links its original Input and opens the execution reader on d
   const input = findByText(detail.querySelector('.head'), '输入 O1');
   expect(input.tagName).toBe('A'); expect(input.getAttribute('href')).toBe('#input-input-1');
   expect(world.state.transcriptAfter).toEqual([]);
+  const banner = dom.node('project-pause-banner');
+  expect(banner.hidden).toBe(false); expect(findByText(banner, '等待安全收尾')).toBeTruthy();
+  expect(banner.querySelector('button')).toBeNull();
   for (const name of ['conversation-panel', 'worker-timeline-panel']) {
     const head = detail.querySelector(`.${name}`).querySelector('.section-title');
     const actions = head.querySelector('.module-actions');
@@ -37,4 +50,8 @@ test('Worker detail links its original Input and opens the execution reader on d
   expect(findByText(panel(), '返回 Worker')).toBeNull();
   const reader = panel(); reader.onkeydown({ key: 'Escape', preventDefault() {} }); expect(panel()).toBe(reader);
   dom.location.hash = '#workers'; await dom.fire('hashchange'); expect(panel()).toBeNull();
+  expect(banner.hidden).toBe(false);
+  maintenance = { ...maintenance, paused: false, phase: 'running' };
+  const { refresh } = await import('../../src/ui/web/assets/refresh.js');
+  await refresh(); expect(banner.hidden).toBe(true);
 });

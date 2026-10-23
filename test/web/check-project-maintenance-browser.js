@@ -15,6 +15,7 @@ const servedAssets = compiled ? temp : assets;
 const entry = await Bun.file(join(servedAssets, 'index.html')).text();
 const appPath = entry.match(/src="(\/[^"\n]*(?:-app-[^"\n]+|app)\.js)"/)[1];
 const world = makeWorld(), mutations = [], project = 'aaaaaaaaaaaaaaaa';
+world.state.deviceAutomation.auto_select.enabled = true;
 world.state.notices = [{ id: 71, task_id: 1, kind: 'info', status: 'sent', source_event_id: 171,
   lifecycle_type: 'idle', read_at: null, title: '兼容检查告知', body: '只读导航，不自动已读', created_at: '2026-10-10T05:00:00Z' }];
 const running = { version: 1, paused: false, phase: 'running', ready_to_restart: false, active_calls: 2,
@@ -56,6 +57,10 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     const response = await world.fetchImpl(logical + url.search, options);
     return Response.json(await response.json(), { status: response.status || (response.ok ? 200 : 400) });
   }
+  // Source ESM also imports the browser-safe protocol modules outside the asset directory.
+  if (!compiled && ['/shared/web-push-protocol.js', '/shared/dashboard-quick-actions.js',
+    '/administrator/protocol.js', '/administrator/project-protocol.js', '/device-valet/protocol.js',
+    '/core/agent-resource-policy.js'].includes(path)) return new Response(Bun.file(new URL(`../../src${path}`, import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(servedAssets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -99,7 +104,8 @@ try {
     for (const next of [running, pausing, paused]) {
       await state({ model: next });
       assert(await wait(`document.querySelector('#project-maintenance').dataset.phase===${JSON.stringify(next.phase)}`), 'maintenance projection did not update');
-      assert(await execute(`return innerWidth===${width} && document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('#project-maintenance button')].every(b=>{const r=b.getBoundingClientRect();return r.width>=70&&r.height>=${width<=390?44:36}&&r.left>=0&&r.right<=innerWidth;}) && document.querySelector('#input').value==='保留下一条输入';`), `clipped/undersized controls or lost input: ${theme}/${width}/${next.phase}`);
+      assert(await execute(`const banner=document.querySelector('#project-pause-banner');const r=banner.getBoundingClientRect();return banner.hidden===${!next.paused}&&(${!next.paused}||(r.width>0&&r.left>=0&&r.right<=innerWidth&&banner.textContent.includes(${JSON.stringify(next.phase === 'pausing' ? '等待安全收尾' : '处于暂停状态')})))&&!document.querySelector('#auto-select-banner').hidden;`), `pause/auto-select banner state or layout: ${theme}/${width}/${next.phase}`);
+      assert(await execute(`return innerWidth===${width} && document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('#project-maintenance button')].every(b=>{const r=b.getBoundingClientRect();return r.width>=70&&r.height>=${width<=390?44:32}&&r.left>=0&&r.right<=innerWidth;}) && document.querySelector('#input').value==='保留下一条输入';`), `clipped/undersized controls or lost input: ${theme}/${width}/${next.phase} `+JSON.stringify(await execute(`return {width:innerWidth,scroll:document.documentElement.scrollWidth,input:document.querySelector('#input').value,buttons:[...document.querySelectorAll('#project-maintenance button')].map(b=>{const r=b.getBoundingClientRect();return {width:r.width,height:r.height,left:r.left,right:r.right}})};`)));
     }
     await execute(`document.querySelector('#project-maintenance .help-host').focus()`);
     assert(await execute(`const h=document.querySelector('#project-maintenance .help-host');return document.activeElement===h && h.getBoundingClientRect().width>0 && h.getAttribute('data-help').includes('维护暂停')`), 'disabled help host has no focusable box');
@@ -107,24 +113,29 @@ try {
     await Bun.write(join(temp, `${theme}-${width}.png`), Buffer.from(screenshot, 'base64'));
     console.log(`PASS overview maintenance phase/input/help/CSP layout: ${theme} ${width}px`);
   }
+  // The layout loop checked input preservation; clear its unsaved text before testing navigation.
+  await execute(`document.querySelector('#input').value=''`);
   assert(await execute(`return document.querySelector('#project-maintenance').parentElement===document.querySelector('#detail')&&document.querySelector('#detail').dataset.view==='overview'&&!document.querySelector('.project-banners .project-maintenance')`), 'maintenance controls are outside the overview');
   await execute(`location.hash='#workers'`);
   assert(await wait(`document.querySelector('#detail').hidden&&(!document.querySelector('#project-maintenance')||!document.querySelector('#project-maintenance').getClientRects().length)`), 'maintenance leaked into the Worker list');
   await execute(`location.hash='#worker-1'`);
   assert(await wait(`document.querySelector('#detail').dataset.view==='task'&&!document.querySelector('#project-maintenance')`), 'maintenance leaked into Worker detail');
   await execute(`location.hash='#notices-71'`);
-  assert(await wait(`document.querySelector('#notice-record-detail')?.textContent.includes('兼容检查告知')&&document.querySelector('#detail').hidden`), 'parent source-record route did not open its exact record');
-  assert(await execute(`return !document.querySelector('#project-maintenance')&&!!document.querySelector('#notice-record-detail .notice-info')&&document.querySelector('#input').value==='保留下一条输入'`), 'maintenance or navigation broke the source record page/input');
+  assert(await wait(`document.querySelector('#notice-record-detail')?.textContent.includes('兼容检查告知')&&document.querySelector('#detail').dataset.view==='notice'`), 'parent source-record route did not open its exact record');
+  assert(await execute(`return !document.querySelector('#project-maintenance')&&!!document.querySelector('#notice-record-detail .notice-info')&&document.querySelector('#input').value===''`), 'maintenance or navigation broke the source record page/input');
+  assert(await execute(`return !document.querySelector('#project-pause-banner').hidden&&document.querySelector('#project-pause-banner').parentElement.classList.contains('project-banners')&&!document.querySelector('#project-pause-banner button')`), 'pause banner lost across project page navigation or exposes mutations');
   assert(mutations.length===0, 'source record navigation performed a mutation');
+  await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='1440px'`); await frame();
   await state({ model: running });
   await click('#overview-open');
   assert(await wait(`document.querySelector('#project-maintenance button')&&!document.querySelector('#project-maintenance button').disabled`), 'return to overview did not restore maintenance');
-  console.log('PASS overview-only placement, Worker list/detail/source-record absence, read-only record navigation and return');
+  console.log('PASS overview-only controls, persistent read-only pause banner, source-record navigation and return');
   const before = mutations.length; await click('#project-maintenance button');
   assert(await execute(`return document.querySelector('#modal').textContent.includes('包括子 Worker')&&document.querySelector('#modal').textContent.includes('不强杀')&&document.querySelector('#modal').textContent.includes('后台重启后仍保持');`), 'confirmation lost safety/descendant scope');
   await click('#modal .ghost'); assert(mutations.length === before, 'cancel sent mutation');
-  await click('#project-maintenance button'); await click('#modal .modal-actions button:last-child');
+  await click('#project-maintenance button'); await click('#modal .modal-confirm');
   assert(await wait(`document.querySelector('#project-maintenance').dataset.phase==='pausing'&&!document.querySelector('#project-maintenance .agent-call').disabled`), 'pause ACK did not keep continue available');
+  assert(await execute(`return !document.querySelector('#project-pause-banner').hidden&&document.querySelector('#project-pause-banner').textContent.includes('等待安全收尾')`), 'pause ACK did not update banner');
   assert(mutations.length === before + 1, 'pause was duplicated');
   await state({ model: paused, reject: true });
   assert(await wait(`document.querySelector('#project-maintenance').dataset.phase==='paused'`), 'paused reset failed');
@@ -133,17 +144,25 @@ try {
   await state({ model: paused });
   await click('#project-maintenance .agent-call');
   assert(await wait(`document.querySelector('#project-maintenance').dataset.phase==='running'`), 'resume did not apply ACK');
+  assert(await execute(`return document.querySelector('#project-pause-banner').hidden`), 'resume did not hide pause banner');
   assert(mutations.length === before + 3 && mutations.every(call => call.path===`/p/${project}/api/action`&&Object.keys(call.params).length===0), 'wrong scope/params or duplicate/restart mutation');
+  await state({ model: paused });
+  assert(await wait(`document.querySelector('#project-maintenance').dataset.phase==='paused'`), 'latest pause was not observed before disconnect');
   await state({ model: paused, offline: true });
   assert(await wait(`document.querySelector('#project-maintenance').textContent.includes('离线')`), 'offline projection not observed');
+  assert(await execute(`return !document.querySelector('#project-pause-banner').hidden&&document.querySelector('#project-pause-banner').textContent.includes('最近确认')&&document.querySelector('#project-pause-banner').textContent.includes('未确认')`), 'offline pause banner claimed current state');
   assert(await execute(`return !document.querySelector('#project-maintenance').textContent.includes('当前可重启')&&[...document.querySelectorAll('#project-maintenance button')].every(b=>b.disabled)`), 'offline retained stale readiness');
   await state({ model: null }); assert(await wait(`document.querySelector('#project-maintenance').textContent.includes('暂不可用')`), 'legacy capability absence not observed');
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   assert(await wait(`document.documentElement.dataset.lushSpace==='global'`), 'global shell not ready');
-  assert(await execute(`return !document.querySelector('#project-maintenance')`), 'global shell exposes project mutation');
+  assert(await execute(`return !document.querySelector('#project-maintenance')&&document.querySelector('#project-pause-banner').hidden`), 'global shell exposes project mutation or another project pause banner');
   console.log('PASS application confirmation/cancel, scoped actions, failure/retry, offline/legacy/root safety');
   passed = true; console.log('Screenshots/log fixture:', temp);
-} catch (error) { console.error('Browser check failed; fixture/log:', temp, log); throw error; }
+} catch (error) {
+  console.error('Browser check failed; fixture/log:', temp, log);
+  if (session) console.error('Page diagnostics:', await execute(`return {url:location.href,error:document.querySelector('#error')?.textContent,maintenance:document.querySelector('#project-maintenance')?.outerHTML};`).catch(() => null));
+  throw error;
+}
 finally {
   if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} }
   driver.kill(); await driver.exited; server.stop(true);

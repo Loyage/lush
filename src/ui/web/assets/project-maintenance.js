@@ -47,7 +47,19 @@ function stateFor(host) {
   host.replaceChildren(copy, controls);
   return state;
 }
+function renderPauseBanner(model, { offline = false } = {}) {
+  const host = $('project-pause-banner'); if (!host) return;
+  host.hidden = !projectRoute() || !validMaintenance(model) || !model.paused;
+  if (host.hidden) { host.replaceChildren(); return; }
+  const copy = el('div', undefined, 'project-pause-copy');
+  const title = offline ? '当前项目最近确认为暂停 · 后台当前不可达'
+    : model.phase === 'pausing' ? '当前项目已暂停新调用 · 等待安全收尾' : '当前项目处于暂停状态';
+  const description = offline ? '当前维护状态未确认，不能据此判断可重启；请等待后台恢复后核对。'
+    : '当前项目不会启动新的 Agent 调用；暂停在后台重启后仍保留。如需恢复，请在项目概览点击“全部继续”。';
+  copy.append(el('strong', title), el('p', description)); host.replaceChildren(copy);
+}
 function paint(host, state) {
+  renderPauseBanner(state.model, { offline: state.offline });
   host.hidden = !state.project;
   if (host.hidden) return;
   const model = state.model;
@@ -85,9 +97,10 @@ export function projectMaintenanceRegion(model, { offline = false } = {}) {
   renderProjectMaintenance(model, { offline });
   return host;
 }
-/** Polling updates the overview region, including while detached; it never creates a page-wide banner. */
+/** Polling keeps the read-only shell banner and overview controls in sync, even off the overview. */
 export function renderProjectMaintenance(model, { offline = false } = {}) {
-  const host = currentHost(); if (!host) return;
+  const host = currentHost();
+  if (!host) { renderPauseBanner(model, { offline }); return; }
   const state = stateFor(host);
   state.offline = offline;
   const next = validMaintenance(model) ? model : null;
