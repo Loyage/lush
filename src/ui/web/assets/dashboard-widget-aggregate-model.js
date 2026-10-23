@@ -1,4 +1,4 @@
-import { newWidget, validateWidgets, isRetiredDashboardLink, GLOBAL_LINKS, PROJECT_LINKS, WIDGET_SECTIONS } from './dashboard-widget-model.js';
+import { newWidget, validateWidgets, isRetiredDashboardLink, GLOBAL_LINKS, PROJECT_LINKS, WIDGET_SECTIONS, dashboardSizing } from './dashboard-widget-model.js';
 import { PROJECT_CARD_DEFAULTS } from './project-dashboard-content.js';
 
 export const ACCOUNT_DEFAULTS = ['quota', 'balance', 'reset', 'observed'];
@@ -145,16 +145,16 @@ export function toggleAggregateLink(config, projects, item, selected) {
   }
 }
 
-/** Original 5px top border: 140px shell, independent of counts and text. */
+/** Fixed card geometry; ordinary rows and shell follow the shared control token. */
 export function aggregateBudget(sections, geometry = AGGREGATE_SIZES.project) {
-  const body = Math.max(0, (Number.isFinite(geometry?.h) ? geometry.h : 24) * 24 - 140);
+  const size = dashboardSizing(), body = Math.max(0, (Number.isFinite(geometry?.h) ? geometry.h : 24) * 24 - size.shell);
   let used = 0, groups = 0;
   const visible = [];
   // Two message rows remain the highest priority at the minimum 4x10 geometry.
-  for (const [section, height] of [['messages', 92], ['metrics', 92], ['distribution', 44], ['delivery', 44]]) {
+  for (const [section, height] of [['messages', size.control * 2 + 4], ['metrics', 92], ['distribution', size.control], ['delivery', size.control]]) {
     if (!sections.includes(section) || used + (groups ? 6 : 0) + height > body) continue;
     used += (groups ? 6 : 0) + height; groups++; visible.push(section);
   }
   const remaining = Math.max(0, body - used - (groups ? 6 : 0));
-  return { body, visible, workers: sections.includes('recent') ? Math.max(0, Math.min(12, Math.floor((remaining + 4) / 48))) : 0 };
+  return { body, visible, workers: sections.includes('recent') ? Math.max(0, Math.min(12, Math.floor((remaining + size.gap) / (size.control + size.gap)))) : 0 };
 }

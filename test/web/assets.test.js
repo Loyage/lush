@@ -68,7 +68,8 @@ test('production startup and complete lazy module graph are served within the co
     // (including the global/document fallback) is checked by check-detail-preview-browser.js.
     const css = seen.get(styles[0]);
     expect(css).toContain('--control-height:32px');
-    expect(css).toContain('--control-height:44px');
+    expect(css).toContain('--control-primary-height:44px');
+    expect(css).not.toContain(':root{--control-height:44px}');
     expect(css).toContain('.section-title>.module-actions');
     expect(css).toContain('--module-mobile-sticky-top:-14px');
     expect(css).toContain('html[data-lush-space="project"] .project-banners { position:static; }');

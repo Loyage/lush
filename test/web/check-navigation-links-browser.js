@@ -82,11 +82,18 @@ try {
     await rpc(`/session/${session}/frame`, { id: null });
     await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.reducedMotion='true';document.documentElement.dataset.theme='${theme}';`);
-    const result = await execute(`const links=[...document.querySelectorAll('.doc-row .nav-link')];return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,links:links.map(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return {text:n.textContent,left:r.left,right:r.right,height:r.height,decoration:s.textDecorationLine,radius:s.borderRadius,border:s.borderTopWidth,color:s.color,background:s.backgroundColor,arrow:getComputedStyle(n,'::after').clipPath}}),sidebarDecoration:getComputedStyle(document.querySelector('#docs-open')).textDecorationLine};`);
+    const result = await execute(`const links=[...document.querySelectorAll('.doc-row .nav-link')];return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,links:links.map(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return {text:n.textContent,left:r.left,right:r.right,height:r.height,minHeight:s.minHeight,expected:parseFloat(s.getPropertyValue('--control-height')),decoration:s.textDecorationLine,radius:s.borderRadius,border:s.borderTopWidth,color:s.color,background:s.backgroundColor,arrow:getComputedStyle(n,'::after').clipPath}}),sidebarDecoration:getComputedStyle(document.querySelector('#docs-open')).textDecorationLine};`);
     layouts.push({ theme, ...result });
     assert(result.width === width && !result.overflow, `document overflow ${theme}/${width}`);
-    assert(result.links.every(n => n.left >= 0 && n.right <= width && n.height >= (width <= 760 ? 44 : 32) && n.decoration === 'none' && n.radius === '8px' && n.border === '1px' && n.arrow.startsWith('polygon(')), `navigation style/fit ${theme}/${width}`);
+    assert(result.links.every(n => n.left >= 0 && n.right <= width && n.expected === 32 && n.height >= n.expected && n.minHeight === '32px' && n.decoration === 'none' && n.radius === '8px' && n.border === '1px' && n.arrow.startsWith('polygon(')), `navigation style/fit ${theme}/${width}`);
     assert(result.sidebarDecoration === 'none', 'sidebar gained an underline');
+    if (width <= 760) {
+      const rows = await execute(`const toggle=document.querySelector('#sidebar-toggle'),open=toggle.getAttribute('aria-expanded')==='true';
+        if(!open)toggle.click();
+        const rows=[...document.querySelectorAll('#sidebar .workspace-link,#sidebar .nav-item')].filter(n=>n.getClientRects().length).map(n=>({text:n.textContent,height:n.getBoundingClientRect().height}));
+        if(!open)toggle.click();return rows;`);
+      assert(rows.length > 0 && rows.every(row => row.height === 32), `mobile navigation rows must actually shrink: ${JSON.stringify(rows)}`);
+    }
     await screenshot(`${theme}-${width}`);
   }
   // Real callback route and Enter activation, with a visible keyboard focus ring.
@@ -101,7 +108,7 @@ try {
   // Native new-tab link, plus exclusions and hidden/long-label regression probes,
   // rendered by the same production factories under the complete real stylesheet stack.
   await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];Promise.all([import('/render-hooks.js'),import('/worker-links.js')]).then(([hooks,refs])=>{const root=document.createElement('section');root.id='navigation-probes';root.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin:16px 0';const help=hooks.hookHelpLink();help.id='help-probe';const hidden=help.cloneNode(true);hidden.id='hidden-probe';hidden.hidden=true;const long=help.cloneNode(true);long.id='long-probe';long.textContent='打开非常长的页面名称用于验证导航入口在窄屏可以完整换行而不会撑出页面';const text=document.createElement('p');text.textContent='自动引用 W283 D12 N13 O5';refs.linkWorkerNumbers(text);root.append(help,hidden,long,text);document.querySelector('#detail').prepend(root);done(true)}).catch(e=>done(String(e)));` });
-  assert(await execute(`const hidden=document.querySelector('#hidden-probe'),long=document.querySelector('#long-probe'),r=long.getBoundingClientRect();return getComputedStyle(hidden).display==='none'&&r.right<=innerWidth&&r.height>=44&&getComputedStyle(document.querySelector('.worker-link')).textDecorationLine==='underline'&&[...document.querySelectorAll('.record-link')].every(n=>getComputedStyle(n).textDecorationLine==='underline');`), 'hidden/long-label/reference regression');
+  assert(await execute(`const hidden=document.querySelector('#hidden-probe'),long=document.querySelector('#long-probe'),r=long.getBoundingClientRect();return getComputedStyle(hidden).display==='none'&&r.right<=innerWidth&&r.height>=parseFloat(getComputedStyle(long).getPropertyValue('--control-height'))&&getComputedStyle(document.querySelector('.worker-link')).textDecorationLine==='underline'&&[...document.querySelectorAll('.record-link')].every(n=>getComputedStyle(n).textDecorationLine==='underline');`), 'hidden/long-label/reference regression');
   const original = await rpc(`/session/${session}/window`, undefined, 'GET');
   await click('#help-probe');
   let handles = [];
@@ -125,8 +132,8 @@ try {
     await rpc(`/session/${session}/frame`, { id: null });
     await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`);
-    const source = await execute(`const n=document.querySelector('.agent-status-head .agent-sources-link'),s=getComputedStyle(n),r=n.getBoundingClientRect();return {href:n.getAttribute('href'),display:s.display,decoration:s.textDecorationLine,left:r.left,right:r.right,height:r.height};`);
-    assert(source.href === '/#model-sources' && source.display === 'inline-flex' && source.decoration === 'none' && source.left >= 0 && source.right <= width && source.height >= (width <= 760 ? 44 : 32), `source management navigation ${theme}/${width}: ${JSON.stringify(source)}`);
+    const source = await execute(`const n=document.querySelector('.agent-status-head .agent-sources-link'),s=getComputedStyle(n),r=n.getBoundingClientRect();return {href:n.getAttribute('href'),display:s.display,decoration:s.textDecorationLine,left:r.left,right:r.right,height:r.height,expected:parseFloat(s.getPropertyValue('--control-height'))};`);
+    assert(source.href === '/#model-sources' && source.display === 'inline-flex' && source.decoration === 'none' && source.left >= 0 && source.right <= width && source.expected === 32 && source.height === source.expected, `source management navigation ${theme}/${width}: ${JSON.stringify(source)}`);
     layouts.push({ theme, width, source });
     await screenshot(`sources-entry-${theme}-${width}`);
   }
@@ -175,8 +182,8 @@ try {
   for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`);
-    const bounds = await execute(`const p=document.querySelector('.runtime-diagnostics-page');return {overflow:document.documentElement.scrollWidth-innerWidth,page:p.scrollWidth-p.clientWidth,controls:[...p.querySelectorAll('button,input,select')].filter(n=>n.getClientRects().length).map(n=>{const r=n.getBoundingClientRect();return {name:n.className||n.dataset.diagnosticFilter,width:r.width,height:r.height}}),folds:[...p.querySelectorAll('.block')].map(n=>n.querySelector('.module-body').hidden)};`);
-    assert(bounds.overflow <= 1 && bounds.page <= 1 && bounds.controls.every(n=>n.width<=width&&n.height>=44) && JSON.stringify(bounds.folds) === '[false,false,false,true,true,true]', `diagnostic layout ${theme}/${width}: ${JSON.stringify(bounds)}`);
+    const bounds = await execute(`const p=document.querySelector('.runtime-diagnostics-page');return {overflow:document.documentElement.scrollWidth-innerWidth,page:p.scrollWidth-p.clientWidth,controls:[...p.querySelectorAll('button,input,select')].filter(n=>n.getClientRects().length).map(n=>{const r=n.getBoundingClientRect();return {name:n.className||n.dataset.diagnosticFilter,width:r.width,height:r.height,expected:parseFloat(getComputedStyle(n).getPropertyValue('--control-height'))}}),folds:[...p.querySelectorAll('.block')].map(n=>n.querySelector('.module-body').hidden)};`);
+    assert(bounds.overflow <= 1 && bounds.page <= 1 && bounds.controls.every(n=>n.width<=width&&n.height>=n.expected) && JSON.stringify(bounds.folds) === '[false,false,false,true,true,true]', `diagnostic layout ${theme}/${width}: ${JSON.stringify(bounds)}`);
     layouts.push({ theme, width, diagnostics: bounds }); await screenshot(`diagnostics-${theme}-${width}`);
   }
   holdDiagnostic = true;
@@ -231,11 +238,11 @@ try {
         const nodes=[...bar.querySelectorAll('a,button,summary')].filter(n=>n.getClientRects().length&&n.getBoundingClientRect().height>0);
         return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,first:bar.firstElementChild.textContent,
           beforeFacts:bar.previousElementSibling.classList.contains('task-hero'),count:document.querySelectorAll('.worker-workbench-open').length,
-          expanded:more.open,controls:nodes.map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,left:r.left,right:r.right,height:r.height}}),
+          expanded:more.open,controls:nodes.map(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return {text:n.textContent,left:r.left,right:r.right,height:r.height,minHeight:s.minHeight,expected:parseFloat(s.getPropertyValue('--control-height')),primary:n.matches('.agent-call,.control-primary,.modal-confirm,[type="submit"]')}}),
           settingsVisible:!!more.querySelector('.worker-action-settings button')?.getClientRects().length};`);
       assert(result.width === width && !result.overflow && result.first === '打开工作台' && result.beforeFacts && result.count === 1, `toolbar hierarchy ${theme}/${width}: ${JSON.stringify(result)}`);
       assert(result.expanded === expanded && result.settingsVisible === expanded, `toolbar disclosure ${theme}/${width}`);
-      assert(result.controls.every(n => n.left >= 0 && n.right <= width && n.height >= (width <= 760 ? 44 : 30)), `toolbar targets/fit ${theme}/${width}: ${JSON.stringify(result)}`);
+      assert(result.controls.every(n => n.left >= 0 && n.right <= width && n.expected === (width <= 760 && n.primary ? 44 : 32) && n.height >= n.expected && n.minHeight === `${n.expected}px`), `toolbar targets/fit ${theme}/${width}: ${JSON.stringify(result)}`);
       layouts.push({ theme, width, toolbar: result });
       await screenshot(`toolbar-${theme}-${width}-${expanded ? 'expanded' : 'compact'}`);
     };
@@ -291,9 +298,9 @@ try {
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`);
-    const layout = await execute(`const root=document.querySelector('.performance-view'),r=root.getBoundingClientRect(),rank=document.querySelector('.performance-ranks'),buttons=[...root.querySelectorAll('button')].filter(n=>n.getClientRects().length);return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth||root.scrollWidth>root.clientWidth,columns:getComputedStyle(rank).gridTemplateColumns.split(' ').length,height:r.height,inside:r.left>=0&&r.right<=innerWidth,buttons:buttons.every(n=>n.getBoundingClientRect().height>=${width <= 760 ? 44 : 30}),metrics:document.querySelector('.performance-summary').textContent,order:[...document.querySelectorAll('.performance-slow .performance-command')].map(n=>n.textContent)};`);
-    assert(layout.width === width && !layout.overflow && layout.inside && layout.height > 150 && layout.buttons && layout.columns === (width <= 760 ? 1 : 2), `performance layout ${theme}/${width}: ${JSON.stringify(layout)}`);
-    assert(layout.metrics.includes('14 秒') && layout.order[0] === 'sleep 12', 'command timing/failure ranking missing'); layouts.push({ theme, performance: layout });
+    const layout = await execute(`const root=document.querySelector('.performance-view'),r=root.getBoundingClientRect(),rank=document.querySelector('.performance-ranks'),buttons=[...root.querySelectorAll('button')].filter(n=>n.getClientRects().length);return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth||root.scrollWidth>root.clientWidth,columns:getComputedStyle(rank).gridTemplateColumns.split(' ').length,height:r.height,inside:r.left>=0&&r.right<=innerWidth,ordinary:parseFloat(getComputedStyle(root).getPropertyValue('--control-height')),buttons:buttons.every(n=>n.getBoundingClientRect().height>=parseFloat(getComputedStyle(n).getPropertyValue('--control-height'))),toolbarHeight:document.querySelector('.performance-controls').getBoundingClientRect().height,selects:[...root.querySelectorAll('.performance-sort select')].map(n=>n.getBoundingClientRect().height),metrics:document.querySelector('.performance-summary').textContent,order:[...document.querySelectorAll('.performance-slow .performance-command')].map(n=>n.textContent)};`);
+    assert(layout.width === width && !layout.overflow && layout.inside && layout.height > 150 && layout.buttons && layout.toolbarHeight===layout.ordinary && layout.selects.every(height=>height===layout.ordinary) && layout.columns === (width <= 760 ? 1 : 2), `performance layout ${theme}/${width}: ${JSON.stringify(layout)}`);
+    assert(layout.metrics.includes('14 秒') && layout.order[0] === 'sleep 12', 'command timing/failure ranking missing'); layouts.push({ theme, performance: layout });console.log(`PASS performance ordinary density ${theme}/${width}: toolbar=${layout.toolbarHeight}, selects=${layout.selects.join(',')}`);
     await screenshot(`performance-${theme}-${width}`);
   }
   await execute(`window.performanceFetch=window.fetch;window.performanceRefreshReads=0;

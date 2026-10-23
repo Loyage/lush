@@ -9,7 +9,7 @@
 .delivery-helpers,.delivery-sources{margin:12px 0;padding-left:10px;border-left:2px solid var(--line)}
 .delivery-source,.delivery-helper{padding:8px 0;min-width:0}
 .delivery-evidence{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
-.delivery-evidence summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.delivery-evidence summary{cursor:pointer;min-height:var(--control-height);display:flex;align-items:center}
 .delivery-view p,.delivery-view .mono,.source-delivery{white-space:normal;overflow-wrap:anywhere}
 .delivery-node{padding:8px;border-bottom:1px solid var(--line)}
 .delivery-node .nav-link{margin-left:8px}
@@ -23,6 +23,6 @@
   .delivery-header,.delivery-target{padding:8px}
   .delivery-card{padding:8px}
   .delivery-helpers,.delivery-sources{padding-left:6px}
-  .delivery-view .nav-link,.source-delivery .nav-link{white-space:normal;min-height:44px;max-width:100%}
+  .delivery-view .nav-link,.source-delivery .nav-link{white-space:normal;min-height:var(--control-height);max-width:100%}
   .delivery-helper{align-items:flex-start;flex-direction:column;gap:3px}
 }

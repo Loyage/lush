@@ -13,5 +13,5 @@
 #task-filters .search-field .search-field-input{padding:7px 10px}
 .transcript-search-filters>.search-field{grid-column:1 / -1}
 @media(max-width:760px){.search-field .search-field-label{flex-basis:100%}.search-field .search-field-label>input.search-field-input{font-size:16px}}
-@media(max-width:760px),(pointer:coarse){.search-field .search-field-row>button{min-width:44px;min-height:44px}.search-field .search-field-label>input.search-field-input{height:44px;font-size:16px}}
+@media(max-width:760px),(pointer:coarse){.search-field .search-field-row>button{min-width:var(--control-height);min-height:var(--control-height)}.search-field .search-field-label>input.search-field-input{height:var(--control-height);padding-block:4px;font-size:16px}}
 @media(max-width:400px){.search-field-row{gap:6px}.search-field-help{gap:2px 8px}}

@@ -1,10 +1,10 @@
 /* Read-only code workspace inside the execution dialog. No project navigation selectors. */
-.execution-navigation{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 20px 8px;border-bottom:1px solid var(--line);background:var(--panel);flex:none;min-width:0}.execution-tabs{display:flex;gap:6px;min-width:0}.execution-tabs button{white-space:nowrap;padding:7px 10px;font-size:12px}
+.execution-navigation{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 20px 8px;border-bottom:1px solid var(--line);background:var(--panel);flex:none;min-width:0}.execution-tabs{display:flex;gap:6px;min-width:0}.execution-tabs button{white-space:nowrap;min-height:var(--control-height);padding:var(--control-padding-y) 10px;font-size:12px}
 .execution-tabs button[aria-selected="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 .transcript-layout[hidden],.code-view[hidden]{display:none}
 .code-view{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
 .code-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;border-bottom:1px solid var(--line);flex:none}
-.code-toolbar select,.code-file-controls select{max-width:100%;min-height:var(--control-height);padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font:inherit}
+.code-toolbar select,.code-file-controls select{max-width:100%;min-height:var(--control-height);height:var(--control-height);padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font:inherit}
 .code-snapshot{flex:1;min-width:240px;margin:0;font-size:11px;overflow-wrap:anywhere}.code-summary{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;color:var(--text)}.code-summary span{white-space:nowrap;font-variant-numeric:tabular-nums}.code-provenance{margin:3px 0 0;font-size:11px;color:var(--muted)}.code-sample-details{font-size:11px;color:var(--muted)}.code-sample-details summary{cursor:pointer}.code-sample-details p{margin:4px 0}.code-snapshot-warning{margin:4px 0 0;color:var(--waiting)}
 .code-update-banner{display:flex;align-items:center;gap:12px;padding:8px 20px;border-bottom:1px solid var(--line);background:var(--amber-soft);color:var(--waiting);font-size:12px;flex:none}.code-update-banner[hidden]{display:none}
 .code-update-banner span{flex:1}

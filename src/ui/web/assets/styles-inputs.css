@@ -65,13 +65,14 @@ button.input-draft-row{grid-template-rows:18px 44px 34px 23px;height:163px}
 .draft-condition-status{display:flex;flex-wrap:wrap;gap:8px;min-width:0;width:100%}.draft-condition-status:empty{display:none}.draft-condition-status p{flex-basis:100%;margin:0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.draft-condition-status a{max-width:100%;white-space:normal;overflow-wrap:anywhere}.draft-condition-error{color:var(--failed)}
 #input-form[data-mode="management"] #input{border-style:double}
 @media(max-width:760px){
-  .draft-condition-valet{padding:10px;width:100%;box-sizing:border-box}.draft-condition-valet button,.draft-condition-status a{min-height:44px}#input-form .draft-condition-label textarea{font-size:16px}
-  .emission-field input:not([type="checkbox"]),.emission-field select{font-size:16px;min-height:44px}.emission-conditions button,.input-actions button{min-height:44px}
-  .emission-conditions{padding:10px}.emission-conditions-layout{gap:14px}.emission-configured{padding:10px}.emission-field:has(input[type="checkbox"]){min-height:44px;line-height:1.6}
+  .draft-condition-valet{padding:10px;width:100%;box-sizing:border-box}.draft-condition-valet button,.draft-condition-status a{min-height:var(--control-height)}#input-form .draft-condition-label textarea{font-size:16px}
+  .emission-field input:not([type="checkbox"]),.emission-field select{font-size:16px;min-height:var(--control-height);height:var(--control-height);padding-block:3px;line-height:1.5}.emission-conditions button,.input-actions button{min-height:var(--control-height)}
+  .emission-conditions{padding:10px}.emission-conditions-layout{gap:14px}.emission-configured{padding:10px}.emission-field:has(input[type="checkbox"]){min-height:var(--control-height);line-height:1.6}
   .inputs-filters{flex-direction:row;align-items:flex-end;gap:9px}.input-search{flex-basis:100%}.input-filter{flex:1 1 120px}
   .inputs-filters input,.inputs-filters select,.input-detail textarea,.input-detail select{font-size:16px}
-  .input-advanced-filters summary,.input-runtime-settings summary{min-height:44px;display:flex;align-items:center}
-  .input-mode-toggle{min-height:44px}.input-mode-filters{gap:6px}.input-mode-label{flex-basis:100%}.input-record-head{gap:6px}
-  .input-detail .text-editor-controls button{min-height:44px;min-width:64px}
+  .inputs-filters select{height:var(--control-height);padding-block:3px;line-height:1.5}
+  .input-advanced-filters summary,.input-runtime-settings summary{min-height:var(--control-height);padding-block:4px;display:flex;align-items:center}
+  .input-mode-toggle{min-height:var(--control-height)}.input-mode-filters{gap:6px}.input-mode-label{flex-basis:100%}.input-record-head{gap:6px}
+  .input-detail .text-editor-controls button{min-height:var(--control-height);min-width:var(--control-height)}
   button.input-row,a.input-row{padding-left:10px;padding-right:10px}.input-open-label{font-size:10px}.input-detail h2{font-size:18px}
 }

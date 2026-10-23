@@ -1,4 +1,5 @@
 import { PROJECT_COLORS } from './project-colors.js';
+import { dashboardSizing } from './dashboard-widget-model.js';
 
 const validId = id => typeof id === 'string' && /^(?:widget:[a-z0-9][a-z0-9-]{0,79}|accounts|[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
 const widgetType = row => row.widget_type || row.widget?.type || row.type;
@@ -135,6 +136,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   }
   function paint(source = layout) {
     const projected = projection(source);
+    const size = dashboardSizing(), sizingKey = `${size.control}:${size.primary}`;
     const occupied = [];
     for (const cell of projected) occupied.push(place(cell, occupied, columns, Infinity));
     for (const cell of occupied) {
@@ -143,8 +145,8 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
       setStyle(entry.item, 'grid-column', `${cell.x + 1} / span ${cell.w}`);
       setStyle(entry.item, 'grid-row', `${cell.y + 1} / span ${cell.h}`);
       entry.row.geometry = { ...cell }; displayedGeometry.add(entry.row.geometry);
-      if (changed([cell], [entry.geometry])) {
-        entry.geometry = { ...cell };
+      if (changed([cell], [entry.geometry]) || entry.sizingKey !== sizingKey) {
+        entry.geometry = { ...cell }; entry.sizingKey = sizingKey;
         onGeometryChange?.(entry.row, { ...cell }, entry.item);
       }
     }
@@ -172,7 +174,8 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     }
     paint(gesture?.candidate || layout);
   }
-  // Only board width can change the display projection, never content height.
+  // Width projects cells; responsive control tokens also refresh their slot budgets.
+  // Content height never changes canonical geometry.
   let resizeFrame = null, mounted = false;
   function scheduleMeasure() {
     if (!active()) { if (mounted || generation > 0) dispose(); return; }

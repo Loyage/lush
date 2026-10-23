@@ -78,10 +78,19 @@ export function reflowWidgetPage(state, capacity) {
   state.capacity = capacity;
 }
 
+/** The same ordinary-control token sizes CSS rows and renderer pagination. */
+export function dashboardSizing() {
+  const style = globalThis.document?.documentElement && globalThis.getComputedStyle?.(document.documentElement);
+  const control = parseFloat(style?.getPropertyValue?.('--control-height')) || 32;
+  const primary = parseFloat(style?.getPropertyValue?.('--control-primary-height')) || control;
+  return { control, primary, shell: 52 + control * 2, account: control + 44, gap: 4 };
+}
+
 /** Fixed slot capacity depends on geometry, not business count or label length. */
 export function widgetSlots(type, geometry = WIDGET_SIZES[type]) {
   const h = Number.isFinite(geometry?.h) ? geometry.h : WIDGET_SIZES[type].h;
-  // Original shell: margin12 + border6 + padding22 + header/footer88 + gaps12.
-  const body = Math.max(0, h * 24 - 140), rowHeight = type === 'accounts' ? 88 : 44;
-  return Math.max(0, Math.min(12, Math.floor((body + 4) / (rowHeight + 4))));
+  // Margin12 + border6 + padding22 + gaps12; header/footer follow the token.
+  const size = dashboardSizing(), body = Math.max(0, h * 24 - size.shell);
+  const rowHeight = type === 'accounts' ? size.account : size.control;
+  return Math.max(0, Math.min(12, Math.floor((body + size.gap) / (rowHeight + size.gap))));
 }

@@ -7,7 +7,7 @@ import { onlineDashboardProject } from './project-dashboard-content.js';
 import { renderAccountGroup } from './dashboard-accounts-group.js';
 import { createWidgetRenderer } from './dashboard-widget-render.js';
 import { widgetPagination } from './dashboard-widget-pagination.js';
-import { GLOBAL_LINKS, PROJECT_LINKS, reflowWidgetPage } from './dashboard-widget-model.js';
+import { GLOBAL_LINKS, PROJECT_LINKS, reflowWidgetPage, widgetSlots } from './dashboard-widget-model.js';
 import { aggregateBudget } from './dashboard-widget-aggregate-model.js';
 
 export function dashboardNavigation(links, { name = '' } = {}) {
@@ -95,7 +95,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
         widgets.mountMessages(content, messageBody, row, () => current() && inModal(), { footer: false, viewKey: `${row.id}:details` });
       }
       content.append(dashboardNavigation(navigationLinks(), { name: row.name }));
-      void formDialog({ title: row.name || '项目详情', content, confirmLabel: '关闭' });
+      void formDialog({ title: row.name || '项目详情', content, confirmLabel: '关闭', confirmPrimary: false });
     }
     function navigationLinks() {
       const links = [...row.links];
@@ -123,7 +123,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
         const button = el('button', hasDetails ? '详情' : '入口', `ghost dashboard-project-${key}`); button.type = 'button';
         button.dataset.help = '弹窗查看所选内容及项目入口；链接原生新标签打开，不答复、不已读、不调用 Agent。';
         button.onclick = hasDetails ? details : () => {
-          if (current()) void formDialog({ title: `${row.name || '项目'}入口`, content: dashboardNavigation(navigationLinks()), confirmLabel: '关闭' });
+          if (current()) void formDialog({ title: `${row.name || '项目'}入口`, content: dashboardNavigation(navigationLinks()), confirmLabel: '关闭', confirmPrimary: false });
         };
         footerControls.set(key, button);
       }
@@ -133,7 +133,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
       const budget = aggregateBudget(row.sections, next), visible = new Set(budget.visible);
       navigationGeometry = next;
       if (navigationOnly) {
-        const capacity = Math.max(0, Math.min(12, Math.floor((budget.body + 4) / 48)));
+        const capacity = widgetSlots('shortcuts', next);
         reflowWidgetPage(navigationState, capacity);
         const pages = capacity ? Math.max(1, Math.ceil(navigationItems.length / capacity)) : 1;
         navigationState.index = Math.min(navigationState.index, pages - 1);

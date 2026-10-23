@@ -23,7 +23,7 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell[data-open="true"] .composer-launcher { position:absolute; top:8px; right:16px; bottom:auto; width:32px; height:32px; min-height:32px; font-size:20px; }
 .composer-launcher[data-pending="true"]::after { content:''; position:absolute; top:2px; right:2px; width:10px; height:10px; border-radius:50%; background:var(--waiting); border:2px solid var(--bg); }
 #composer-shell .composer-menu { position:fixed; bottom:max(80px,calc(env(safe-area-inset-bottom) + 72px)); right:16px; z-index:9; width:min(320px,calc(100vw - 32px)); padding:8px; border:1px solid var(--line); border-radius:14px; background:var(--panel); box-shadow:0 6px 24px #0003; display:flex; flex-direction:column; gap:6px; max-height:55dvh; overflow:auto; }
-#composer-shell .composer-menu button { min-height:44px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+#composer-shell .composer-menu button { min-height:var(--control-height); text-align:left; white-space:normal; overflow-wrap:anywhere; }
 #composer-shell .composer-category { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 8px; }
 .composer-pending-count { font-size:11px; font-weight:normal; white-space:nowrap; }
 .composer-category[data-pending="true"] .composer-pending-count::before { content:''; display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:50%; background:var(--waiting); }
@@ -49,7 +49,7 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #composer-shell .composer-resize:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 #composer-shell textarea, #composer-shell textarea:focus { height:var(--composer-input-height,88px); min-height:64px; max-height:50dvh; font-size:16px; line-height:22px; padding:10px 40px 10px 10px; }
 #input-form .composer-draft-list { display:grid; gap:6px; max-height:240px; overflow:auto; margin:6px 0; min-width:0; }
-#input-form .composer-draft-list button { min-height:44px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
+#input-form .composer-draft-list button { min-height:var(--control-height); white-space:normal; text-align:left; overflow-wrap:anywhere; }
 #input-form .composer-draft-choice { display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0; }
 #input-form .composer-draft-choice strong { font-size:12px; }
 #input-form .composer-draft-preview { font-size:12px; max-width:100%; overflow-wrap:anywhere; }
@@ -64,7 +64,7 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #input-form .composer-shortcuts { flex-basis:100%; display:block; margin:2px 0; font-size:11px; line-height:1.7; }
 #input-form .composer-shortcuts kbd { white-space:nowrap; }
 #composer-shell #input-form[data-expanded="false"] :is(#input-history,#input-drafts,.composer-run-settings,#composer-reset,.composer-management-result) { display:none; }
-#composer-shell .composer-target select { min-height:44px; font-size:13px; }
+#composer-shell .composer-target select { min-height:var(--control-height); font-size:13px; }
 #composer-shell #input-form[data-mode="management"] #input { border-style:double; }
 html[data-lush-space="global"] #composer-shell { display:none; }
 /* The exact same form is moved into the detail page, including its controls and undo stack. */
@@ -107,17 +107,18 @@ html[data-lush-space="global"] #composer-shell { display:none; }
 #composer-shell[data-detail="true"] { height:0; padding:0; border:0; overflow:visible; }
 #composer-shell[data-detail="true"] #composer-launcher { display:none; }
 @media(max-width:760px), (pointer:coarse) {
-  #input-form :is(button,select,input:not([type="checkbox"])) { min-height:44px; }
-  #input-form .composer-foot button { min-height:44px; }
+  #input-form :is(button,select,input:not([type="checkbox"])) { min-height:var(--control-height); }
+  #input-form .composer-foot button { min-height:var(--control-height); }
+  #input-form :is(select,input:not([type="checkbox"])) { height:var(--control-height);padding-block:3px;line-height:1.5; }
   #input-form .unified-editor-advanced > :is(section,details) { padding:10px; }
-  #input-form .unified-editor-advanced summary { min-height:44px; }
-  #input-form .draft-condition-summary { min-height:44px; }
+  #input-form .unified-editor-advanced summary { min-height:var(--control-height); }
+  #input-form .draft-condition-summary { min-height:var(--control-height); }
   #input-form .draft-run-settings :is(.retry-profile-grid,.retry-resource-choices,.retry-model-box) { grid-template-columns:minmax(0,1fr); }
   #input-form .draft-run-settings :is(input,select,textarea) { font-size:16px; }
-  #input-form .text-editor-controls button { min-width:44px; }
-  #input-form .composer-help { min-width:44px; }
-  #composer-shell .composer-context { min-height:44px; padding-right:48px; }
-  #composer-shell[data-open="true"] .composer-launcher { width:44px; height:44px; min-height:44px; top:6px; right:10px; }
+  #input-form .text-editor-controls button { min-width:var(--control-height); }
+  #input-form .composer-help { min-width:var(--control-height); }
+  #composer-shell .composer-context { min-height:var(--control-height); padding-right:36px; }
+  #composer-shell[data-open="true"] .composer-launcher { width:var(--control-height); height:var(--control-height); min-height:var(--control-height); top:6px; right:10px; }
   #composer-shell .composer-resize { width:44px; height:44px; }
   #composer-shell textarea, #composer-shell textarea:focus { padding-right:50px; }
   #input-form[data-host="detail"] #input { min-height:220px; }

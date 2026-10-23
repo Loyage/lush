@@ -162,7 +162,7 @@ export function renderDiagnosticsCard(row, { geometry = row.geometry, state, ref
       for (const project of snapshot.projects) sources.append(el('li', `${project.name} · ${STATES[project.state]} · ${project.generated_at ? clock(project.generated_at) : '无更新时间'}${project.error ? ` · ${project.error}` : ''}`));
       content.append(sources);
     }
-    void formDialog({ title: '简版诊断快照（1／5分钟及10分钟趋势）', content, confirmLabel: '关闭' });
+    void formDialog({ title: '简版诊断快照（1／5分钟及10分钟趋势）', content, confirmLabel: '关闭', confirmPrimary: false });
   };
   const analysis = diagnosticsLink(el, {}, '分析'); analysis.setAttribute('aria-label', '打开完整运行诊断分析页');
   footer.append(updated, host, details, analysis); root.append(header, body, footer);

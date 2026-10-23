@@ -276,7 +276,7 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
       content.append(metrics);
       if (selected.has('provenance') || selected.has('details')) {
         const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
-        details.onclick = () => { if (ownsPage()) { const body = el('div'); note(body, `所选来源：${row.connection_id}`); void formDialog({ title: '来源已删除或不可用', content: body, confirmLabel: '关闭' }); } };
+        details.onclick = () => { if (ownsPage()) { const body = el('div'); note(body, `所选来源：${row.connection_id}`); void formDialog({ title: '来源已删除或不可用', content: body, confirmLabel: '关闭', confirmPrimary: false }); } };
         header.append(details);
       }
     } else if (selected.has('provenance')) note(content, `所选来源：${row.connection_id}`);
@@ -311,7 +311,7 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
         note(body, '历史成功观测（非当前值）', true); body.append(renderObservation(connection.last_success.observation, selected));
       }
       if (selected.has('provenance')) { note(body, PROVIDERS[connection.provider] || '服务商未知'); note(body, text(connection.endpoint, '端点未知')); }
-      void formDialog({ title: text(connection.label, '账户详情'), content: body, confirmLabel: '关闭' });
+      void formDialog({ title: text(connection.label, '账户详情'), content: body, confirmLabel: '关闭', confirmPrimary: false });
     };
     boundedPaint = error => {
       failure = error || null;

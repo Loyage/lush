@@ -109,14 +109,17 @@ try {
       for(const tab of tabs){const r=tab.getBoundingClientRect();if(r.right>innerWidth+1||r.left<0)errors.push('clipped tab');}
       if(innerWidth===320&&tabs.at(-1).getBoundingClientRect().top<=tabs[0].getBoundingClientRect().top)errors.push('narrow tabs must wrap');
       for(const control of [input,run,...panel.querySelectorAll('.worker-cli-examples button')]){const r=control.getBoundingClientRect();if(r.right>innerWidth+1||r.left<0)errors.push('clipped control');}
-      if(b.height<44)errors.push('small touch target');
+      const precheck=panel.querySelector('.worker-cli-actions>button').getBoundingClientRect(),summary=panel.querySelector('.worker-cli-advanced>summary').getBoundingClientRect();
+      const ordinary=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'));
+      const primary=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-primary-height'))||ordinary;
+      if(b.height!==primary||precheck.height!==ordinary||summary.height!==ordinary||!run.classList.contains('control-primary'))errors.push('ordinary/primary control density');
       if(document.documentElement.scrollWidth>innerWidth)errors.push('page overflow');
       if(output.scrollWidth<=output.clientWidth||getComputedStyle(output).overflowX!=='auto')errors.push('long output not independently scrollable');
       if(!output.textContent.endsWith('<literal-output>')||output.querySelector('literal-output'))errors.push('output not literal');
       if(!panel.querySelector('.worker-cli-advanced').open)errors.push('disclosure lost');
-      return {errors,browserErrors:window.errors,calls};`);
+      return {errors,browserErrors:window.errors,calls,geometry:{ordinary,primary,precheck:precheck.height,summary:summary.height,execute:b.height}};`);
     assert(!result.errors.length&&!result.browserErrors.length,`${theme} ${width}: ${JSON.stringify(result)}`);
-    console.log(`PASS ${theme} ${width}px: stacked narrow controls, 44px actions, wrapped cwd, plain scrollable output, no page overflow`);
+    console.log(`PASS ${theme} ${width}px: actual ordinary/primary density ${JSON.stringify(result.geometry)}, wrapped cwd, plain scrollable output, no page overflow`);
   }
   await execute('const input=panel.querySelector("textarea");input.value="lush status";input.dispatchEvent(new Event("input",{bubbles:true}));panel.querySelector(".worker-cli-run").click();');
   assert(await untilScript('panel.querySelectorAll(".worker-cli-result").length===2 && panel.querySelector(".worker-cli-status").textContent==="执行成功。"'),'multiple ordered results missing');
@@ -128,7 +131,7 @@ try {
   assert(await execute('return ui.transcriptView.cli===panel&&panel.querySelector("textarea").value==="next draft"&&panel.querySelector(".worker-cli-result")===saved;'),'tab switching lost history/draft');
   await execute('const input=panel.querySelector("textarea");input.value="lush order example";input.dispatchEvent(new Event("input",{bubbles:true}));panel.querySelector(".worker-cli-run").click();');
   assert(await untilScript('document.querySelector(".worker-cli-confirm")'),'Agent confirmation missing');
-  assert(await execute(`const button=document.querySelector('#modal .agent-call');return !!button&&!!button.dataset.help&&calls.length===5&&document.documentElement.scrollWidth<=innerWidth&&button.closest('dialog')?.open&&document.elementFromPoint(button.getBoundingClientRect().x+3,button.getBoundingClientRect().y+3)===button;`),'Agent action marking, pre-confirm execution or confirmation overflow');
+  assert(await execute(`const button=document.querySelector('#modal .agent-call');return !!button&&!!button.dataset.help&&button.getBoundingClientRect().height===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-primary-height'))||parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')))&&calls.length===5&&document.documentElement.scrollWidth<=innerWidth&&button.closest('dialog')?.open&&document.elementFromPoint(button.getBoundingClientRect().x+3,button.getBoundingClientRect().y+3)===button;`),'Agent action marking, pre-confirm execution or confirmation overflow');
   await execute(`const buttons=[...document.querySelectorAll('#modal button')];buttons.find(b=>b.textContent==='取消').click();`);
   assert(await untilScript(`panel.querySelector('.worker-cli-status').textContent==='已取消，未执行。'`),'cancel failed');
   assert(await execute('return calls.length===5;'),'cancel executed command');

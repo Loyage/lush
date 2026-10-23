@@ -18,7 +18,8 @@
 .workbench-service-restart p{overflow-wrap:anywhere}.workbench-service-restart .settings-runtime-actions{flex-wrap:wrap}
 /* Override legacy remove/restart/form sizes with one overview action type scale. */
 .project-manager button{font-family:inherit;font-size:12px;font-weight:600;line-height:1.5}
-.workbench-service-restart button,.project-item-actions button{white-space:normal;min-height:var(--control-height)}
+.workbench-service-restart button,.project-item-actions button{white-space:normal;min-height:var(--control-height);padding-block:var(--control-padding-y)}
+.workbench-service-restart button.agent-call,.workspace-automation button.agent-call{min-height:var(--control-primary-height,var(--control-height))}
 .project-manager-list .project-status{white-space:normal;overflow-wrap:anywhere;text-align:right;max-width:320px}
 .project-development{grid-column:1/-1;min-width:0;display:grid;gap:12px;border-top:1px solid var(--line-soft);padding-top:14px}
 .project-development-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
@@ -44,6 +45,7 @@
 .project-order-actions .help-host{display:inline-flex;min-width:0;max-width:100%}
 .project-order-actions .help-host:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .project-order-actions button{white-space:normal}
+.project-order-actions button.agent-call,.dashboard-input-modal button.agent-call{min-height:var(--control-primary-height,var(--control-height))}
 .project-order-status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}
 /* The dashboard is a panel, not a second page hero. Keep settings outside movable cards. */
@@ -53,7 +55,7 @@
 .dashboard-layout-editing .dashboard-toolbar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-bottom:8px}
 .dashboard-edit-status{margin-right:auto;color:var(--muted);font-size:12px}
 .dashboard-library-searchbar{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
-.dashboard-library-search{flex:1 1 180px;min-width:0;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
+.dashboard-library-search{flex:1 1 180px;min-width:0;height:var(--control-height);min-height:var(--control-height);padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
 .dashboard-library-list{display:grid;gap:8px;min-width:0}
 .dashboard-library-item{padding:8px;border:1px solid var(--line-soft);border-radius:8px;min-width:0}
 .dashboard-library-item .dashboard-option{border:0;padding:0}
@@ -74,7 +76,7 @@
 .dashboard-settings-header h2{margin:0;font-size:17px;overflow-wrap:anywhere}
 .dashboard-settings-panel fieldset{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:12px;border:1px solid var(--line-soft);border-radius:10px}
 .dashboard-settings-panel legend{font-size:12px;font-weight:600;padding:0 5px}
-.dashboard-option{display:flex;align-items:center;gap:8px;min-height:44px;max-width:100%;padding:6px 10px;border:1px solid var(--line-soft);border-radius:8px;overflow-wrap:anywhere;cursor:pointer;font-size:12px}
+.dashboard-option{display:flex;align-items:center;gap:8px;min-height:var(--control-height);max-width:100%;padding:4px 10px;border:1px solid var(--line-soft);border-radius:8px;overflow-wrap:anywhere;cursor:pointer;font-size:12px}
 .dashboard-option input{width:18px;height:18px;flex:none;accent-color:var(--accent)}
 .dashboard-option:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .dashboard-settings-actions{display:flex;flex-wrap:wrap;gap:8px}
@@ -84,9 +86,9 @@
 .dashboard-settings-status{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .dashboard-settings-status.error{color:var(--failed)}
 .dashboard-settings-status[hidden]{display:none}
-.dashboard-account-view{box-sizing:border-box;width:100%;max-width:320px;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
+.dashboard-account-view{box-sizing:border-box;width:100%;max-width:320px;height:var(--control-height);min-height:var(--control-height);padding:4px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
 .project-board .dashboard-card-settings-host{position:absolute;right:10px;top:10px;z-index:2;display:block}
-.project-board .dashboard-card-settings{display:grid;place-items:center;width:44px;height:var(--control-height);min-height:var(--control-height);max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
+.project-board .dashboard-card-settings{display:grid;place-items:center;width:var(--control-height);height:var(--control-height);min-height:var(--control-height);max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
 .dashboard-editor-more{position:relative;min-width:0;max-width:100%;font-size:12px}
 .dashboard-editor-more>summary{cursor:pointer;min-height:var(--control-height);display:flex;align-items:center;padding:0 8px;box-sizing:border-box;color:var(--muted)}
 .dashboard-editor-more[open]{display:flex;flex-wrap:wrap;gap:8px}
@@ -99,7 +101,7 @@
 .project-board-geometry-feedback{position:absolute;bottom:4px;left:50px;right:50px;pointer-events:none;font-size:10px;line-height:14px;text-align:center;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-project-card .dashboard-widget-header{padding-right:0}
 .project-board-editing .dashboard-project-card .dashboard-widget-header{padding-right:100px}
-.project-board .dashboard-project-input{flex:none;min-width:44px;min-height:var(--control-height);padding:6px 8px}
+.project-board .dashboard-project-input{flex:none;min-width:var(--control-height);min-height:var(--control-height);padding:6px 8px}
 .dashboard-input-modal{width:min(640px,100%);min-width:0;box-sizing:border-box}
 .dashboard-input-modal .modal-message{overflow-wrap:anywhere;font-size:12px;color:var(--muted)}
 .dashboard-input-modal .modal-cancel{display:none}
@@ -114,25 +116,25 @@
 .project-dashboard-section-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px}
 .project-dashboard-section-head h3{margin:0;font-size:12px;color:var(--muted)}
 .project-dashboard-section-head a,.project-dashboard-shortcuts a{color:var(--accent);text-underline-offset:3px}
-.project-dashboard-message{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;min-width:0;min-height:44px;box-sizing:border-box;padding:5px 7px;border:1px solid color-mix(in srgb,var(--tone) 25%,var(--line));border-radius:8px;background:var(--tint);color:var(--tone);text-decoration:none;font-size:11px}
+.project-dashboard-message{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;min-width:0;min-height:var(--control-height);box-sizing:border-box;padding:4px 7px;border:1px solid color-mix(in srgb,var(--tone) 25%,var(--line));border-radius:8px;background:var(--tint);color:var(--tone);text-decoration:none;font-size:11px}
 .project-dashboard-message strong{flex:1;min-width:80px;overflow-wrap:anywhere;font-weight:500}
 .project-dashboard-message small{font-size:10px}
 .project-dashboard-message:hover{text-decoration:underline;text-underline-offset:3px}
 .project-dashboard-shortcuts{display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid var(--line-soft);padding-top:6px;font-size:11px}
-.project-dashboard-shortcuts a{box-sizing:border-box;display:flex;align-items:center;min-height:44px;padding:5px 7px;border:1px solid var(--line-soft);border-radius:6px;background:var(--panel)}
+.project-dashboard-shortcuts a{box-sizing:border-box;display:flex;align-items:center;min-height:var(--control-height);padding:4px 7px;border:1px solid var(--line-soft);border-radius:6px;background:var(--panel)}
 /* Bounded legacy project sections: never wrap message/action rows or clip controls.
    Renderers select row capacity and page whole lists before inserting them. */
 .project-board .project-dashboard-content{gap:6px;min-height:0}
 .project-board .dashboard-widget-body .project-development{margin-top:0}
 .project-board .project-development-value{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-board .project-dashboard-message{align-items:center;flex-wrap:nowrap;height:44px;min-height:44px;padding:0 6px;gap:4px;white-space:nowrap}
+.project-board .project-dashboard-message{align-items:center;flex-wrap:nowrap;height:var(--control-height);min-height:var(--control-height);padding:0 6px;gap:4px;white-space:nowrap}
 .project-board .project-dashboard-message strong{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
 .project-board .project-dashboard-message .tid{flex:none;font-size:10px;white-space:nowrap}
 .project-board .project-dashboard-message small{flex:0 1 auto;min-width:0;max-width:55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .project-development-distribution{flex-wrap:nowrap;min-width:0}
 .project-board .project-development-distribution .chip{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .project-development-delivery{margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
-.project-board .project-development-worker{align-items:center;flex-wrap:nowrap;min-height:44px;box-sizing:border-box;padding:0;gap:4px}
+.project-board .project-development-worker{align-items:center;flex-wrap:nowrap;min-height:var(--control-height);box-sizing:border-box;padding:0;gap:4px}
 .project-board .project-development-worker-link{min-width:0}
 .project-board .project-development-worker-link>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
 .project-board .project-development-worker-link .tid{max-width:40%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -152,32 +154,31 @@
 .project-board .project-development-recent{padding-top:6px}
 .project-board .project-development-recent h3,.project-board .project-dashboard-section-head h3{font-size:11px;margin-bottom:3px}
 .project-board .project-development-worker{gap:3px 6px;padding:3px 0}
-.project-board .project-development-worker-link{box-sizing:border-box;min-height:44px;align-items:center;gap:5px;font-size:11px}
+.project-board .project-development-worker-link{box-sizing:border-box;min-height:var(--control-height);align-items:center;gap:5px;font-size:11px}
 .project-board .project-development-worker .chip{font-size:10px}
-/* Fixed aggregate budget: 92 + 44 + 44 + 92 + four 6px gaps = 296px.
-   At h24, the remaining 140px holds three 44px Worker rows with 4px gaps.
-   Section headings/extra notes belong to the renderer's full detail view. */
+/* Metrics retain their readable 92px preview; ordinary message, delivery and
+   Worker rows follow the token used by aggregateBudget for pagination. */
 .project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development{margin-top:0;padding-top:0;border-top:0;gap:6px;min-height:0}
 .project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-metrics{box-sizing:border-box;height:92px;min-height:92px;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));gap:4px}
 .project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-metric{box-sizing:border-box;min-height:0;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:1px 6px}
 .project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-metric .metric-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-value{flex:0 1 auto;max-width:65%;min-width:0}
-.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-distribution{box-sizing:border-box;height:44px;min-height:44px;align-items:center}
-.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-delivery{box-sizing:border-box;height:44px;min-height:44px;line-height:44px}
-.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-dashboard-messages{box-sizing:border-box;height:92px;min-height:92px;align-content:start;padding-top:0;border-top:0;gap:4px}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-distribution{box-sizing:border-box;height:var(--control-height);min-height:var(--control-height);align-items:center}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-delivery{box-sizing:border-box;height:var(--control-height);min-height:var(--control-height);line-height:var(--control-height)}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-dashboard-messages{box-sizing:border-box;height:calc(var(--control-height) * 2 + 4px);min-height:calc(var(--control-height) * 2 + 4px);align-content:start;padding-top:0;border-top:0;gap:4px}
 .project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-recent{display:grid;align-content:start;gap:4px;min-height:0;padding-top:0;border-top:0}
-.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-worker{height:44px;min-height:44px;padding:0}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-worker{height:var(--control-height);min-height:var(--control-height);padding:0}
 .project-overview .dashboard-toolbar button{font-size:11px}
 .project-overview{container-type:inline-size;container-name:dashboard-overview}
 .dashboard-global-direct-links{display:none;align-items:center;gap:4px;min-width:0;margin-right:auto}
-.dashboard-global-direct-links a{display:flex;align-items:center;min-height:44px;padding:4px 6px;box-sizing:border-box;white-space:nowrap;color:var(--accent);font-size:11px;text-decoration:none}
+.dashboard-global-direct-links a{display:flex;align-items:center;min-height:var(--control-height);padding:4px 6px;box-sizing:border-box;white-space:nowrap;color:var(--accent);font-size:11px;text-decoration:none}
 .dashboard-global-direct-links a:hover{text-decoration:none;background:var(--accent-soft)}
 @container dashboard-overview (min-width:1000px){.project-overview:not(.dashboard-layout-editing) .dashboard-global-direct-links{display:flex}.project-overview:not(.dashboard-layout-editing):has(.dashboard-global-direct-links a) .dashboard-navigation-open{display:none}}
-@media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:44px;display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}
+@media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:var(--control-height);display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}
 /* Project automation is settings-only; retained editors never need a horizontal scroll. */
 .project-automation .automation-settings,.project-automation .automation-settings-controls,.project-automation .automation-settings-extra,.project-automation .push-main-settings{display:grid;gap:12px;min-width:0}
 .project-automation .automation-settings p,.project-automation .automation-settings label,.project-automation .automation-settings button{overflow-wrap:anywhere;white-space:normal}
-.project-automation .automation-settings select{box-sizing:border-box;min-width:0;max-width:100%;width:100%;min-height:44px}
+.project-automation .automation-settings select{box-sizing:border-box;min-width:0;max-width:100%;width:100%;height:var(--control-height);min-height:var(--control-height);padding-block:4px}
 .project-automation .automation-settings button{min-height:var(--control-height);max-width:100%}
 .project-automation .push-advanced-settings[hidden]{display:none}
 .project-automation .push-advanced-settings{display:grid;gap:10px;min-width:0}

@@ -100,18 +100,19 @@ try {
     document.querySelector('[data-call-id="${fault.call_id}"] .management-call-body').textContent.includes('后台接口：worker.resume')&&
     !document.querySelector('.management-calls').textContent.includes('PRIVATE-NOT-DISPLAYED');`), 'tail window/CLI label/status/redaction failed');
   // Firefox desktop window minimum is wider than 320px: iframe provides exact CSS viewports.
-  for (const width of [1440,390,320]) {
+  for (const theme of ['light','dark']) for (const width of [1440,390,320]) {
     await rpc(`/session/${session}/window/rect`, { width: 1500, height: 1000 });
     await execute(`const frame=document.createElement('iframe');frame.id='layout-frame';frame.style.cssText='position:fixed;inset:0;width:${width}px;height:850px;border:0;z-index:99999';frame.src='/';document.body.append(frame);`);
     assert(await wait(`document.getElementById('layout-frame').contentWindow.ready&&document.getElementById('layout-frame').contentDocument.querySelector('.management-call')`), 'frame did not load');
     assert(await wait(`document.getElementById('layout-frame').contentDocument.querySelector('.management-calls-has-failures')`), 'failure summary not ready '+width);
     const layout = await execute(`const frame=document.getElementById('layout-frame'),d=frame.contentDocument,w=frame.contentWindow,n=d.querySelector('.management-calls');
+      d.documentElement.dataset.theme='${theme}';
       n.querySelector('code').textContent='worker.very_long_method_name_for_ellipsis'.repeat(8);
-      return {width:w.innerWidth,overflow:n.scrollWidth>n.clientWidth+1,bodyOverflow:d.documentElement.scrollWidth>w.innerWidth+1,
-      compact:[...n.querySelectorAll('.management-call')].every(row=>row.getBoundingClientRect().height<=46&&row.querySelector('summary').getBoundingClientRect().height>=44),
+      return {width:w.innerWidth,headHeight:n.querySelector('.management-call-head').getBoundingClientRect().height,rowHeight:n.querySelector('.management-call').getBoundingClientRect().height,overflow:n.scrollWidth>n.clientWidth+1,bodyOverflow:d.documentElement.scrollWidth>w.innerWidth+1,
+      compact:[...n.querySelectorAll('.management-call')].every(row=>row.getBoundingClientRect().height<=parseFloat(w.getComputedStyle(row).getPropertyValue('--control-height'))+2&&row.querySelector('summary').getBoundingClientRect().height===parseFloat(w.getComputedStyle(row).getPropertyValue('--control-height'))),
       closed:[...n.querySelectorAll('.management-call-fold')].every(f=>!f.open),
       unified:n.querySelectorAll('.management-calls-order button').length===1&&n.querySelector('.management-calls-order button').textContent==='最早在前'
-        &&[...n.querySelectorAll('.module-actions .view-control:not(.view-disclosure)')].filter(b=>!b.hidden).every(b=>b.getBoundingClientRect().height===(w.innerWidth<=760?44:32)),
+        &&[...n.querySelectorAll('.module-actions .view-control:not(.view-disclosure)')].filter(b=>!b.hidden).every(b=>b.getBoundingClientRect().height>=parseFloat(w.getComputedStyle(n).getPropertyValue('--control-height'))),
       aligned:Math.abs(n.querySelector('.module-actions').getBoundingClientRect().right-n.querySelector('.section-title').getBoundingClientRect().right)<1,
       preview:n.classList.contains('detail-preview'),unclipped:w.getComputedStyle(n.querySelector('.module-body')).maxHeight==='none',
       failureHidden:d.querySelector('[data-call-id="${fault.call_id}"] .management-call-failure').getBoundingClientRect().height===0,
@@ -122,13 +123,13 @@ try {
       &&layout.unified&&layout.aligned&&layout.compact&&layout.closed&&layout.unknownVisible&&layout.badgeUnclipped&&layout.ellipsis, 'layout failure '+JSON.stringify(layout));
     assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,w=d.defaultView,audit=d.querySelector('.management-audit-details'),head=audit.querySelector('summary');
       head.style.setProperty('--motion-factor','0');
-      const shape=w.getComputedStyle(head,'::before').transform; if(audit.open||head.getBoundingClientRect().height<44)return false;
-      head.click();const changed=audit.open&&w.getComputedStyle(head,'::before').transform!==shape;head.click();return changed&&!audit.open;`), 'project authority audit must retain native default fold, shared caret and 44px target');
+      const shape=w.getComputedStyle(head,'::before').transform; if(audit.open||head.getBoundingClientRect().height<parseFloat(w.getComputedStyle(head).getPropertyValue('--control-height')))return false;
+      head.click();const changed=audit.open&&w.getComputedStyle(head,'::before').transform!==shape;head.click();return changed&&!audit.open;`), 'project authority audit must retain native default fold, shared caret and ordinary-control target');
     assert(await execute(`const d=document.getElementById('layout-frame').contentDocument,n=d.querySelector('.management-calls');
       n.querySelector('.management-call-head').click();
       d.querySelector('[data-call-id="${fault.call_id}"] .management-call-head').click();
       return n.querySelector('details').open&&d.defaultView.getComputedStyle(n.querySelector('pre')).overflowY==='visible'
-      &&[...d.querySelectorAll('[data-call-id="${fault.call_id}"] .management-diagnostic-controls button,[data-call-id="${fault.call_id}"] .management-diagnostic-controls a')].every(e=>e.getBoundingClientRect().height>=(d.defaultView.innerWidth<=760?44:32))
+      &&[...d.querySelectorAll('[data-call-id="${fault.call_id}"] .management-diagnostic-controls button,[data-call-id="${fault.call_id}"] .management-diagnostic-controls a')].every(e=>e.getBoundingClientRect().height>=parseFloat(d.defaultView.getComputedStyle(e).getPropertyValue('--control-height')))
       &&n.scrollWidth<=n.clientWidth+1&&d.documentElement.scrollWidth<=d.defaultView.innerWidth+1;`), 'expanded main-scroll/touch reading failed');
     await execute(`const w=document.getElementById('layout-frame').contentWindow;w.savedCall=w.document.querySelector('.management-call');w.savedCall.querySelector('summary').focus();`);
     // Native focus scrolling and shared module ResizeObserver settle before the baseline.
@@ -140,7 +141,7 @@ try {
       open:w.savedCall.querySelector('details').open,focused:w.document.activeElement===w.savedCall.querySelector('summary'),
       delta:w.savedCall.querySelector('summary').getBoundingClientRect().top-w.savedTop};`);
     assert(refreshed.unclipped&&refreshed.same&&refreshed.open&&refreshed.focused&&Math.abs(refreshed.delta)<=1, 'viewport refresh lost reading state '+width+' '+JSON.stringify(refreshed));
-    console.log('PASS exact viewport, single-line collapsed rows/explicit alerts/ellipsis/touch expansion and retained refresh', width);
+    console.log('PASS exact viewport, collapsed head/row geometry, alerts/ellipsis/expansion and retained refresh', theme, width, JSON.stringify({head:layout.headHeight,row:layout.rowHeight}));
     await execute(`document.getElementById('layout-frame').remove();`);
   }
   await execute(`document.querySelector('[data-call-id="${fault.call_id}"] .management-call-head').focus();`);

@@ -127,6 +127,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         doc.querySelector('#detail').scrollTo({top:40,behavior:'instant'});const contextHash=win.location.hash,contextView=win.ui.view.id,readingScroll=doc.querySelector('#detail').scrollTop;
         const retained=box.value.includes('便携正文')&&win.rows.filter(row=>row.id===id).length===1;
         const basic=!doc.querySelector('#composer-editor-tools').hidden&&!doc.querySelector('#input-buffer').hidden&&doc.querySelector('.unified-editor-advanced').hidden&&doc.querySelector('#composer-expand').textContent==='详细编辑';
+        const expectedHeight=node=>${width}<=760&&node.matches('.agent-call,.control-primary,.modal-confirm,[type="submit"]')?44:32;
         const submit=doc.querySelector('#draft-commit'),agent=submit.classList.contains('agent-call')&&submit.hasAttribute('data-help');
         await win.ui.inputEditor.detail();
         const formal=doc.querySelector('#input')===before&&doc.querySelectorAll('#input').length===1&&doc.querySelector('#input-form').dataset.host==='detail';
@@ -146,7 +147,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         const formalFits=[doc.querySelector('#input-form'),natural,runtime].every(node=>node.scrollWidth<=node.clientWidth+1);
         runtime.open=false;
         submit.scrollIntoView({block:'center',behavior:'instant'});const submitRect=submit.getBoundingClientRect();
-        const formalActions=submitRect.top>=0&&submitRect.bottom<=win.innerHeight+1&&[...doc.querySelector('#input-form').querySelectorAll('button')].filter(node=>node.getClientRects().length).every(node=>${width}>760||node.getBoundingClientRect().height>=44);
+        const formalActions=submitRect.top>=0&&submitRect.bottom<=win.innerHeight+1&&[...doc.querySelector('#input-form').querySelectorAll('button')].filter(node=>node.getClientRects().length).every(node=>node.getBoundingClientRect().height>=expectedHeight(node));
         box.value+=' · 详情修改';box.dispatchEvent(new win.Event('input'));
         const plain=new win.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});box.dispatchEvent(plain);
         const savedRevision=win.workspace.currentEdit().saved.revision;
@@ -161,14 +162,16 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         await new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));
         const form=doc.querySelector('#input-form'),r=form.getBoundingClientRect();
         const visible=[...form.querySelectorAll('button')].filter(node=>node.getClientRects().length);
-        const controlsFit=visible.every(node=>{const b=node.getBoundingClientRect();return b.left>=0&&b.right<=win.innerWidth+1&&(${width}>760||b.height>=44);});
+        const controlsFit=visible.every(node=>{const b=node.getBoundingClientRect();return b.left>=0&&b.right<=win.innerWidth+1&&b.height>=expectedHeight(node);});
         const fits=doc.documentElement.scrollWidth<=win.innerWidth+1&&form.scrollWidth<=form.clientWidth+1&&r.width>0;
         const shellHeight=doc.querySelector('#composer-shell').getBoundingClientRect().height;
         const tool=doc.querySelector('#composer-expand'),tools=doc.querySelector('.composer-tools'),actions=doc.querySelector('.composer-actions');
-        const compact=box.getBoundingClientRect().height===88&&shellHeight<=(${width}>760?210:300)
+        const compact=box.getBoundingClientRect().height===88&&shellHeight<=(${width}>760?210:260)
           &&doc.querySelector('#composer-shortcuts').hidden&&tool.scrollWidth<=tool.clientWidth+1
-          &&tools.getBoundingClientRect().height<=(${width}<=760?44:32)
-          &&actions.getBoundingClientRect().height<=(${width}<=760?44:32)
+          &&tools.getBoundingClientRect().height===32
+          &&doc.querySelector('#input-buffer').getBoundingClientRect().height===32
+          &&actions.getBoundingClientRect().height===expectedHeight(submit)
+          &&submit.getBoundingClientRect().height===expectedHeight(submit)
           &&doc.querySelector('#composer-draft-status').textContent==='已保存 · 未提交';
         const handle=doc.querySelector('#composer-resize');handle.dispatchEvent(new win.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
         await new Promise(resolve=>win.requestAnimationFrame(resolve));
@@ -191,7 +194,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
           for(const entry of win.ui.composerWorkspace.entries.values())if(entry.mode===mode&&(entry.content?.trim()||entry.references?.length||entry.saved))keys.add(entry.saved?'draft:'+entry.saved.id:entry.key);
           return node.lastElementChild.textContent===keys.size+' 份草稿';
         });
-        const menuFits=menu.scrollWidth<=menu.clientWidth+1&&categories.every(node=>{const r=node.getBoundingClientRect();return r.left>=0&&r.right<=win.innerWidth+1&&r.height>=44;});
+        const menuFits=menu.scrollWidth<=menu.clientWidth+1&&categories.every(node=>{const r=node.getBoundingClientRect();return r.left>=0&&r.right<=win.innerWidth+1&&r.height===32;});
         doc.querySelector('#composer-menu-order').click();await until(()=>!doc.querySelector('#input-form').hidden&&doc.querySelector('#composer-menu').hidden);
         const choose=doc.querySelector('#composer-choose-draft'),list=doc.querySelector('#composer-draft-list');
         const chooseVisible=choose.getClientRects().length>0,parent=choose.parentNode,next=choose.nextElementSibling;
@@ -220,7 +223,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         await Bun.write(join(output, `settings-${theme}-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
         await frame('doc.querySelector(".unified-editor-runtime").open=false;await win.ui.inputEditor.continuePortable();return true;');
       }
-      console.log(`PASS ${scope} ${theme}/${width}: ${layout.shellHeight}px dock, compact tools/actions, preserved manual height, on-demand shortcuts, same DOM/state/ID, autosave, hierarchy, Agent help, touch targets, no overflow`);
+      console.log(`PASS ${scope} ${theme}/${width}: ${layout.shellHeight}px dock, 32px tools/save/menu rows + 44px mobile submission, preserved manual height, on-demand shortcuts, same DOM/state/ID, autosave, hierarchy, Agent help, touch targets, no overflow`);
     }
     if (scope === 'history') {
       assert(await frame(`
@@ -269,7 +272,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         check(selected()==='order,append'&&win.rows.find(row=>row.kind==='draft'&&row.id===3).content===body.value,'detail return must preserve selection and save body');
         await mode('management').onclick();check(selected()==='order,append,management','all draft categories must remain independently selected');
         const rects=modes.map(node=>node.getBoundingClientRect());
-        check(rects.every(box=>box.left>=0&&box.right<=win.innerWidth+1&&box.height>=44)&&modes.every(node=>node.dataset.help),'draft toggles must fit narrow layout and explain multiselect');
+        check(rects.every(box=>box.left>=0&&box.right<=win.innerWidth+1&&box.height===32)&&modes.every(node=>node.dataset.help),'draft toggles must fit narrow layout and explain multiselect');
         await mode('order').onclick();await mode('append').onclick();await mode('management').onclick();
         await win.inputPages.openInputs({item:{kind:'draft',id:4}});
         check(selected()==='management','deep link must reveal its category from empty selection');
@@ -334,6 +337,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         change(env,'INLINE_TEST=kept','input');change(prompt,'自定义 Worker 规则','input');
         const submitting=win.ui.inputEditor.submit();await until(()=>!doc.querySelector('#modal').hidden);
         check(doc.querySelector('.modal-title').textContent.includes('自定义 Prompt'),'inline custom Prompt still needs risk confirmation');
+        check(doc.querySelector('.modal-confirm').getBoundingClientRect().height===44&&doc.querySelector('.modal-cancel').getBoundingClientRect().height===32,'mobile final authorization must remain 44px while cancel is 32px');
         doc.querySelector('.modal-cancel').click();await submitting;
         check(win.calls.filter(call=>call.method==='input.emit').length===before&&prompt.value==='自定义 Worker 规则','cancelled Prompt confirmation must not authorize or discard edits');
         runtime.querySelector('.draft-run-settings > button').click();

@@ -7,9 +7,10 @@ import { makeWorld } from './dom-world.js';
 import { AGENT_CAPABILITIES } from '../../src/agent/capabilities.js';
 
 const logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-agent-layout-'));
-const output = path.resolve(process.argv[2] || path.join(logs, 'screenshots'));
+const output = path.resolve(process.argv.slice(2).find(arg=>!arg.startsWith('--')) || path.join(logs, 'screenshots'));
 fs.mkdirSync(output, { recursive: true });
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
+const compact = process.argv.includes('--compact-controls');
 const world = makeWorld(), calls = [], capabilityWrites = [];
 const capabilityKeys = AGENT_CAPABILITIES.map(entry => entry.setting);
 const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
@@ -39,7 +40,7 @@ Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
 for (const row of world.state.agentConnections.connections) row.storage_scope='device';
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
+<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css">${compact ? '<style>:root{--control-height:32px;--control-primary-height:32px}@media(max-width:760px),(pointer:coarse){:root{--control-primary-height:44px}}</style>' : ''}</head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 window.browserErrors=[];window.resizeDiagnostics=[];addEventListener('error',e=>{if(!e.error&&e.message==='ResizeObserver loop completed with undelivered notifications.')resizeDiagnostics.push(e.message);else browserErrors.push(e.message)});addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
@@ -153,6 +154,11 @@ try {
   await execute(`return window.openSources()`);
   assert(await execute(`return window.oldSecret.value===''&&!document.querySelector('.agent-connections-panel').checkVisibility()`), 'Leaving source tab retained a login secret');
   async function layout(name, width) {
+    if (compact) {
+      const ordinary=await execute(`return [...document.querySelectorAll('.model-source-row-actions button,.registered-model-field input,.skill-toggle,.skill-source summary,.skills-tools button')].filter(n=>n.getClientRects().length).map(n=>({text:(n.textContent||n.getAttribute('aria-label')||n.tagName).slice(0,30),height:n.getBoundingClientRect().height}));`);
+      assert(ordinary.every(n=>n.height===32),`ordinary device controls/rows must be 32px ${name}: ${JSON.stringify(ordinary)}`);
+      if(ordinary.length)console.log('CONTROL',name,JSON.stringify(ordinary));
+    }
     const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view,.skills-page');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
     assert(result.page<=1 && result.root<=1 && result.controls && result.noScope, `Device layout ${name}: ${JSON.stringify(result)}`);
     await screenshot(name);

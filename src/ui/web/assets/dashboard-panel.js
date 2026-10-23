@@ -213,7 +213,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     const identity = { id: row.id, form }; inputDialog = identity;
     void formDialog({ title: `${cardName(row)} · 输入工作指令`,
       message: row.project || `项目 ${row.id}`, content: form.root, cardClass: 'dashboard-input-modal',
-      confirmLabel: '关闭', cancelLabel: '关闭', initialFocus: form.root.querySelector('textarea'),
+      confirmLabel: '关闭', cancelLabel: '关闭', confirmPrimary: false, initialFocus: form.root.querySelector('textarea'),
     }).then(() => {
       if (inputDialog !== identity) return;
       inputDialog = null;
@@ -627,7 +627,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   settings.onclick = () => { if (!active() || busy) return; if (!ownsDialog()) openSettings(); else { closeEditor(); settings.focus?.(); } };
   edit.onclick = () => startEditing();
   navigation.onclick = () => {
-    if (active() && !busy && config) void formDialog({ title: '常用入口', content: dashboardNavigation(aggregateLinks(config)), confirmLabel: '关闭' });
+    if (active() && !busy && config) void formDialog({ title: '常用入口', content: dashboardNavigation(aggregateLinks(config)), confirmLabel: '关闭', confirmPrimary: false });
   };
   add.onclick = emptyAdd.onclick = openLibrary;
   undo.onclick = () => restoreHistory('undo'); redo.onclick = () => restoreHistory('redo');

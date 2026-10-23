@@ -1,14 +1,14 @@
 .project-elevation-choice,.project-elevation-receipts{flex:1 1 100%;min-width:0;width:100%}
-.project-elevation-label{display:flex;align-items:center;gap:8px;min-height:44px;font-size:13px;color:var(--text);cursor:pointer}
+.project-elevation-label{display:flex;align-items:center;gap:8px;min-height:var(--control-height);font-size:13px;color:var(--text);cursor:pointer}
 .project-elevation-label input{width:18px;height:18px;flex:none;accent-color:var(--failed)}
 .project-elevation-risk{margin:8px 0;padding:10px;border-left:3px solid var(--failed);background:var(--amber-soft);color:var(--text);border-radius:7px;white-space:pre-wrap;overflow-wrap:anywhere}
 .project-elevation-risk[hidden],.project-elevation-choice[hidden],.project-elevation-receipts[hidden]{display:none}
 .project-elevation-confirmation{min-width:0;max-width:100%}
 .project-elevation-confirmation label{display:flex;flex-direction:column;gap:6px;color:var(--text)}
-.project-elevation-password{min-height:44px;width:100%;max-width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--code)}
+.project-elevation-password{min-height:var(--control-height);height:var(--control-height);width:100%;max-width:100%;padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:var(--code)}
 .project-elevation-full-content{max-height:none!important;overflow:visible!important;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-width:0;max-width:100%}
 .project-elevation-confirmation button,.project-elevation-receipts button,.project-elevation-modal button{min-height:var(--control-height);max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .project-elevation-modal{width:min(840px,100%);min-width:0}
 .management-authority{font-weight:650;overflow-wrap:anywhere}.management-authority-administrator{color:var(--failed);padding:9px 12px;background:var(--amber-soft);border-radius:7px}
-details.management-audit-details>summary{min-height:44px;padding:10px 0;cursor:pointer}
+details.management-audit-details>summary{min-height:var(--control-height);padding:4px 0;cursor:pointer}
 @media(max-width:640px){.project-elevation-modal .modal-actions{flex-direction:column;align-items:stretch}.project-elevation-modal .modal-actions button,.project-elevation-receipts button{width:100%}.project-elevation-confirmation{width:100%}}

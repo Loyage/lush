@@ -9,12 +9,13 @@ import { makeWorld } from './dom-world.js';
 import { buildAssets } from '../../src/ui/web/build-assets.js';
 import { pwaResponse } from '../../src/ui/web/server-pwa.js';
 const compiled = process.argv.includes('--compiled');
+const compact = process.argv.includes('--compact-controls');
 const restartOnly = process.argv.includes('--restart-only');
 const temp = await mkdtemp(join(tmpdir(), 'lush-user-workspace-browser-'));
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 if (compiled) await buildAssets(assets, temp, 'c'.repeat(32));
 const servedAssets = compiled ? temp : assets;
-const entryHtml = await Bun.file(join(servedAssets, 'index.html')).text();
+const entryHtml = (await Bun.file(join(servedAssets, 'index.html')).text()).replace('</head>', `${compact ? '<link rel="stylesheet" href="/fixture-controls.css">' : ''}</head>`);
 const appPath = entryHtml.match(/src="(\/[^"\n]*(?:-app-[^"\n]+|app)\.js)"/)[1];
 const world = makeWorld(), calls = [], preferenceWrites = [], automationWrites = [], assetCalls = [], restartWrites = [], projectId = 'aaaaaaaaaaaaaaaa'; let offline = false, inboxNotices = [];
 const inboxItem = id => ({ project_id: projectId, project_name: 'fixture', project: '/tmp/demo', online: true,
@@ -27,6 +28,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), path = url.pathname;
   const pwa = pwaResponse({ request: req, url, headers }); if (pwa) return pwa;
   if (path === '/fixture') return new Response('<!doctype html><link rel="stylesheet" href="/fixture.css"><iframe id="viewport" src="/"></iframe>', { headers: { ...headers, 'Content-Type': 'text/html' } });
+  if (path === '/fixture-controls.css') return new Response(':root{--control-height:32px;--control-primary-height:32px}@media(max-width:760px),(pointer:coarse){:root{--control-primary-height:44px}}', { headers: { 'Content-Type': 'text/css' } });
   if (path === '/fixture.css') return new Response('html,body{margin:0}iframe{display:block;width:1440px;height:900px;border:0;max-width:100%}', { headers: { 'Content-Type': 'text/css' } });
   // Track live observer-delay handles before any entry runs. This is a passive timer ledger:
   // real browser time still advances, and cleared/fired timers are removed exactly as scheduled.

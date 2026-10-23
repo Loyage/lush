@@ -253,7 +253,7 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
           const nav = el('nav');
           for (const item of row.links) nav.append(link(`${item.scope === 'project' ? `${row.linkLabels?.[row.links.indexOf(item)] || '来源项目不可用'} · ` : ''}${(item.scope === 'global' ? GLOBAL_LINKS : PROJECT_LINKS).find(([target]) => target === item.target)?.[1] || item.target}`,
             item.scope === 'global' ? `/#${item.target}` : projectHref(item.project_id, `/#${item.target}`)));
-          void formDialog({ title: '常用入口', content: nav, confirmLabel: '关闭' });
+          void formDialog({ title: '常用入口', content: nav, confirmLabel: '关闭', confirmPrimary: false });
         }; footer.append(more);
       }
     }

@@ -13,4 +13,4 @@
 .integration-details .integration-sources{display:flex;flex-direction:column;gap:6px;padding-left:20px}
 .integration-details .nav-link{white-space:normal;overflow-wrap:anywhere}
 .integration-evidence .mono{white-space:normal;overflow-wrap:anywhere}
-@media(max-width:600px){.integration-control{display:block}.integration-control>.help-host{width:100%}.integration-control>.help-host>button{width:100%;min-height:44px}.integration-summary{align-items:flex-start}.integration-summary>.nav-link{flex-basis:100%}.integration-actions{flex-direction:column;align-items:stretch}}
+@media(max-width:600px){.integration-control{display:block}.integration-control>.help-host{width:100%}.integration-control>.help-host>button{width:100%;min-height:var(--control-height)}.integration-summary{align-items:flex-start}.integration-summary>.nav-link{flex-basis:100%}.integration-actions{flex-direction:column;align-items:stretch}}

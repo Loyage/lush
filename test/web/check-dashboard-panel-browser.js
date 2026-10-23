@@ -16,7 +16,8 @@ const output = process.argv[2] || join(tmpdir(), 'lush-widget-panel-results');
 await mkdir(output, { recursive: true });
 const assets = join(temp, 'assets');
 await buildAssets(new URL('../../src/ui/web/assets/', import.meta.url).pathname, assets, 'd'.repeat(32));
-const entry = await Bun.file(join(assets, 'index.html')).text();
+const compact = process.argv.includes('--compact-controls');
+const entry = (await Bun.file(join(assets, 'index.html')).text()).replace('</head>', `${compact ? '<link rel="stylesheet" href="/fixture-controls.css">' : ''}</head>`);
 const config = { deviceHome: join(temp, 'shared') }, P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb', R = 'cccccccccccccccc';
 const ids = Array.from({ length: 100 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
 const world = makeWorld(), calls = [], queries = [], saves = [], reads = [];
@@ -78,6 +79,7 @@ const csp = "default-src 'self'; script-src 'self'; style-src 'self'; connect-sr
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), path = url.pathname;
   if (path === '/fixture') return new Response('<!doctype html><link rel="stylesheet" href="/fixture.css"><iframe id="viewport" src="/"></iframe>', { headers: { 'Content-Type': 'text/html', 'Content-Security-Policy': csp } });
+  if (path === '/fixture-controls.css') return new Response(':root{--control-height:32px;--control-primary-height:32px}@media(max-width:760px),(pointer:coarse){:root{--control-primary-height:44px}}', { headers: { 'Content-Type': 'text/css' } });
   if (path === '/fixture.css') return new Response('html,body{margin:0}iframe{display:block;width:1440px;height:900px;border:0;max-width:100%}', { headers: { 'Content-Type': 'text/css' } });
   if (path === '/fixture-errors.js') return new Response("window.fixtureErrors=[];addEventListener('error',e=>fixtureErrors.push(e.message));addEventListener('unhandledrejection',e=>fixtureErrors.push(String(e.reason)));addEventListener('securitypolicyviolation',e=>fixtureErrors.push('CSP:'+e.violatedDirective));", { headers: { 'Content-Type': 'text/javascript' } });
   if (path === '/') return new Response(entry.replace('<head>', '<head><script src="/fixture-errors.js"></script>'), { headers: { 'Content-Type': 'text/html', 'Content-Security-Policy': csp } });
@@ -176,9 +178,16 @@ const quickGeometry = () => execute(`const controls=document.querySelector('.das
   return [[controls,'button[data-quick-action],button[data-service-restart]'],[board,'.dashboard-widget']].flatMap(([root,selector])=>{
     const origin=root.getBoundingClientRect();return [...root.querySelectorAll(selector)].map(node=>{const r=node.getBoundingClientRect();return [node.dataset.quickAction||node.dataset.serviceRestart||node.dataset.cardId,...(r.width||r.height?[r.x-origin.x,r.y-origin.y,r.width,r.height]:[0,0,0,0])]});
   });`);
-async function stableQuickGeometry(before, phase) {
+async function stableQuickGeometry(before, phase, autoHeight = null) {
   const after = await quickGeometry();
-  assert(before.length===after.length && before.every((row,i)=>row[0]===after[i][0]&&row.slice(1).every((value,j)=>Math.abs(value-after[i][j+1])<0.6)), `quick geometry changed ${phase}: ${JSON.stringify({before,after})}`);
+  const actions = new Set(['safe','auto_select','pause','resume','all']);
+  assert(before.length===after.length && before.every((row,i)=>row[0]===after[i][0]&&(autoHeight!==null&&actions.has(row[0])||row.slice(1).every((value,j)=>Math.abs(value-after[i][j+1])<0.6))), `quick geometry changed ${phase}: ${JSON.stringify({before,after})}`);
+  if (autoHeight!==null) {
+    assert(after.find(row=>row[0]==='auto_select')?.[4]===autoHeight, 'auto-select height must follow its current authorization semantics');
+    assert(await execute(`const buttons=[...document.querySelectorAll('.dashboard-quick-actions-controls button[data-quick-action],.dashboard-quick-actions-controls button[data-service-restart]')].filter(n=>n.getBoundingClientRect().height);
+      const style=getComputedStyle(document.documentElement),ordinary=parseFloat(style.getPropertyValue('--control-height')),primary=parseFloat(style.getPropertyValue('--control-primary-height'))||ordinary;
+      return buttons.every((button,i)=>{const r=button.getBoundingClientRect(),previous=buttons[i-1]?.getBoundingClientRect();return r.height===(button.matches('.agent-call,.control-primary')?primary:ordinary)&&(!previous||Math.abs(r.top-previous.bottom-6)<1);});`), 'compact quick actions must keep exact semantic heights and 6px flow gaps');
+  }
 }
 async function frame() { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); }
 async function screenshot(name) {
@@ -206,8 +215,16 @@ try {
   for (const theme of ['light', 'dark']) for (const width of [1440, 1040, 900, 640, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`${theme}/${width}`);
-    assert(await execute(`return document.querySelectorAll('.dashboard-project-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/')&&getComputedStyle(a).flexWrap==='nowrap')&&document.querySelector('[data-card-id="${P}"] .dashboard-widget-body').getBoundingClientRect().height===436&&document.querySelector('[data-card-id="${P}"]').dataset.workerSlots==='3'&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'aggregate body/source links/two rows');
-    assert(await execute(`const nav=document.querySelector('[data-card-id="${P}"] .dashboard-project-direct-links');return nav.querySelectorAll('a').length===3&&(innerWidth!==1440||getComputedStyle(nav).display!=='none')&&document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').querySelectorAll('a').length===2&&(innerWidth!==1440||getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display!=='none')`), 'flat project/global navigation or bounded pure navigation missing');
+    const controlGeometry = await execute(`const card=document.querySelector('[data-card-id="${P}"]'),account=document.querySelector('.dashboard-account-embedded');
+      const style=getComputedStyle(document.documentElement),control=parseFloat(style.getPropertyValue('--control-height'));
+      return {control,primary:parseFloat(style.getPropertyValue('--control-primary-height'))||control,safe:document.querySelector('.dashboard-quick-actions-controls [data-service-restart="safe"]').getBoundingClientRect().height,
+        header:card.querySelector('.dashboard-widget-header').getBoundingClientRect().height,footer:card.querySelector('.dashboard-widget-footer').getBoundingClientRect().height,
+        message:card.querySelector('.dashboard-widget-message').getBoundingClientRect().height,worker:card.querySelector('.dashboard-widget-worker').getBoundingClientRect().height,
+        accountHeader:account.querySelector('.dashboard-account-header').getBoundingClientRect().height,account:account.getBoundingClientRect().height};`);
+    assert(['header','footer','message','worker','accountHeader'].every(key=>controlGeometry[key]===controlGeometry.control)&&controlGeometry.account===controlGeometry.control+44&&controlGeometry.safe===controlGeometry.primary,'card rows must follow control token: '+JSON.stringify(controlGeometry));
+    console.log('CONTROL',theme,width,JSON.stringify(controlGeometry));
+    assert(await execute(`return document.querySelectorAll('.dashboard-project-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/')&&getComputedStyle(a).flexWrap==='nowrap')&&document.querySelector('[data-card-id="${P}"] .dashboard-widget-body').getBoundingClientRect().height===576-(52+2*parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')))&&Number(document.querySelector('[data-card-id="${P}"]').dataset.workerSlots)===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))===32?6:3)&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'aggregate body/source links/two rows');
+    assert(await execute(`const nav=document.querySelector('[data-card-id="${P}"] .dashboard-project-direct-links');return nav.querySelectorAll('a').length===3&&(innerWidth!==1440||getComputedStyle(nav).display!=='none')&&document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').querySelectorAll('a').length===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))===32?3:2)&&(innerWidth!==1440||getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display!=='none')`), 'flat project/global navigation or bounded pure navigation missing');
     await screenshot(`${theme}-${width}`);
     await execute("document.querySelector('.dashboard-diagnostics-card').scrollIntoView({block:'center'})"); await settle();
     assert(await execute("const bar=document.querySelector('.diagnostics-trend-output .diagnostics-trend-slot:last-child .diagnostics-trend-bar');return bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundColor!=='rgba(0, 0, 0, 0)'"), 'output trend is invisible');
@@ -218,7 +235,7 @@ try {
     }
     await execute("document.querySelector('.dashboard-toolbar').scrollIntoView({block:'start'})"); await settle();
     await clickText('编辑模式'); await settle();
-    assert(await execute("return [...document.querySelectorAll('.dashboard-card-settings')].every(b=>b.getClientRects().length&&!b.disabled&&b.getBoundingClientRect().height===(innerWidth<=760?44:32))&&[...document.querySelectorAll('.dashboard-toolbar button')].filter(b=>b.getClientRects().length).every(b=>b.getBoundingClientRect().height===(innerWidth<=760?44:32))"), 'edit mode must reveal every card setting and retain unified compact toolbar sizes');
+    assert(await execute("return [...document.querySelectorAll('.dashboard-card-settings')].every(b=>b.getClientRects().length&&!b.disabled&&b.getBoundingClientRect().height===parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')))&&[...document.querySelectorAll('.dashboard-toolbar button')].filter(b=>b.getClientRects().length).every(b=>b.getBoundingClientRect().height===parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')))"), 'edit mode must reveal every card setting and retain unified compact toolbar sizes');
     await execute(`window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-settings-open').click()`);
     assert(await execute(`const r=document.querySelector('#modal .modal-card').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))`), 'modal moved grid/overflow'); await clickText('取消');
     await containment(`${theme}/${width}/editing`);
@@ -229,10 +246,11 @@ try {
   phase = 'overview input';
   assert(await execute(`return document.querySelectorAll('.dashboard-project-input').length===3&&[...document.querySelectorAll('.dashboard-project-input')].every(b=>!b.classList.contains('agent-call')&&b.getClientRects().length)`), 'project input must be permanently discoverable without authorizing Agent');
   await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-input').click()`);
-  assert(await execute(`const modal=document.querySelector('.dashboard-input-modal'),r=modal.getBoundingClientRect();return modal.textContent.includes('项目A')&&modal.textContent.includes('/fixture/project-a')&&r.left>=0&&r.right<=innerWidth&&modal.scrollWidth<=modal.clientWidth&&document.activeElement.tagName==='TEXTAREA'&&modal.querySelector('.agent-call').dataset.help.includes('token')`), 'input modal identity/focus/costs/320px containment');
+  assert(await execute(`const modal=document.querySelector('.dashboard-input-modal'),r=modal.getBoundingClientRect();return modal.textContent.includes('项目A')&&modal.textContent.includes('/fixture/project-a')&&r.left>=0&&r.right<=innerWidth&&modal.scrollWidth<=modal.clientWidth&&document.activeElement.tagName==='TEXTAREA'&&modal.querySelector('.agent-call').dataset.help.includes('token')&&modal.querySelector('.agent-call').getBoundingClientRect().height===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-primary-height'))||parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')))`), 'input modal identity/focus/costs/44px primary/320px containment');
   const typeInput = text => execute(`const input=document.querySelector('#modal textarea');input.value=${JSON.stringify(text)};input.dispatchEvent(new Event('input',{bubbles:true}))`);
   await typeInput('项目A的指令'); await settle();
   assert(await execute("const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented"), 'input reload protection');
+  assert(await execute(`const actions=[...document.querySelectorAll('.dashboard-input-modal>.modal-actions button')].filter(button=>button.getClientRects().length);return actions.length===1&&actions.every(button=>button.getBoundingClientRect().height===32)&&document.querySelector('.dashboard-input-modal>.modal-actions .modal-confirm').classList.contains('control-secondary');`), 'read-only close actions must stay ordinary beside the 44px actual submit');
   await screenshot('input-320'); await clickText('关闭');
   assert(await execute(`return document.activeElement===document.querySelector('[data-card-id="${P}"] .dashboard-project-input')`), 'input close focus');
   await execute(`document.querySelector('[data-card-id="${Q}"] .dashboard-project-input').click()`);
@@ -432,7 +450,7 @@ try {
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
   assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'auto enable'); await execute("document.querySelector('#modal .modal-confirm').click()");
   assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status')?.textContent.includes('已确认开启')&&!document.getElementById('auto-select-banner').hidden"), 'card/banner did not share enable state');
-  await stableQuickGeometry(beforeAutoSelect, 'auto enabled');
+  await stableQuickGeometry(beforeAutoSelect, 'auto enabled', await execute("return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))"));
   await execute("document.querySelector('#auto-select-banner button').click()");
   assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('已确认关闭')&&document.getElementById('auto-select-banner').hidden"), 'banner close not reflected in card');
   await stableQuickGeometry(beforeAutoSelect, 'auto disabled');
@@ -440,7 +458,7 @@ try {
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
   assert(await wait("document.getElementById('modal').textContent.includes('授权并开启')"), 'unknown ACK confirmation'); await execute("document.querySelector('#modal .modal-confirm').click()");
   assert(await wait("document.querySelector('.dashboard-quick-actions-card .device-auto-select-status').textContent.includes('状态未知')&&document.querySelector('.dashboard-quick-actions-card button[data-quick-action=auto_select]').disabled"), 'unknown ACK not locked');
-  await stableQuickGeometry(beforeAutoSelect, 'auto unknown');
+  await stableQuickGeometry(beforeAutoSelect, 'auto unknown', await execute("return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))"));
   assert(await execute("const b=document.querySelector('.dashboard-quick-actions-card button[data-quick-action=auto_select]');return b.parentElement.tabIndex===0&&!!b.parentElement.dataset.help"), 'unknown disabled help unavailable');
   const failedWrites = automationWrites;
   await execute("document.querySelector('.dashboard-quick-actions-details').click();document.querySelector('#modal button[data-quick-action=auto_select]').click()");
@@ -513,8 +531,9 @@ try {
   console.log('PASS layout editor: content/library discovery, presets and move buttons, form cancel, undo/redo, page cancel/save, visible geometry feedback and canonical preset persistence at 320px');
   phase = 'account and Worker paging';
   // Real account and Worker pages; no implicit writes/provider queries.
+  const accountCapacity = await execute("return Number(document.querySelector('[data-card-id=\"accounts\"] .dashboard-accounts-items').dataset.slotCount)");
   await execute("document.querySelector('[data-card-id=\"accounts\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
-  assert(await wait("document.querySelector('[data-card-id=\"accounts\"]').textContent.includes('账户3')"), 'account next page');
+  assert(await wait(`document.querySelector('[data-card-id="accounts"]').textContent.includes('账户${accountCapacity+1} ')`), 'account next page');
   await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
   assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('第 2 页')`), 'Worker next page');
   await execute(`document.querySelector('[data-card-id="${R}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
@@ -559,10 +578,10 @@ try {
   // A hundred sources still only occupy the selected fixed page, even with 8 resources each.
   const current = readDashboardSettings(config); current.widgets.find(w => w.type === 'accounts').connection_ids = ids;
   saveDashboardSettings(config, { widgets: current.widgets }, current.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
-  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===2&&document.querySelectorAll('.dashboard-account-metric-slot').length===4&&document.querySelector('[data-card-id=\"accounts\"]').textContent.includes('50')"), '100 sources not paged'); await containment('100 sources');
+  assert(await execute("const card=document.querySelector('[data-card-id=\"accounts\"]'),capacity=Number(card.querySelector('.dashboard-accounts-items').dataset.slotCount);return capacity>0&&document.querySelectorAll('.dashboard-account-embedded').length===capacity&&document.querySelectorAll('.dashboard-account-metric-slot').length===capacity*2&&card.textContent.includes(String(Math.ceil(100/capacity)))"), '100 sources not paged'); await containment('100 sources');
   const boundary = readDashboardSettings(config); boundary.layout.find(c => c.id === 'accounts').h = 17;
   saveDashboardSettings(config, { layout: boundary.layout }, boundary.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
-  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===2"), 'h17 exceeds exact 268px body budget'); await containment('h17 accounts');
+  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))===32?3:2)"), 'h17 exceeds token-derived account body budget'); await containment('h17 accounts');
   const small = readDashboardSettings(config); small.layout.find(c => c.id === 'accounts').h = 10;
   Object.assign(small.layout.find(c => c.id === P), { w: 4, h: 10 });
   Object.assign(small.layout.find(c => c.id === 'widget:diagnostics'), { w: 4, h: 10 });

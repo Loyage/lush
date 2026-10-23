@@ -50,7 +50,7 @@ export function renderAccountGroup(row, { mode = 'list', sections, sectionsForAc
           const content = el('ul', undefined, 'dashboard-accounts-details-list');
           for (const account of accounts) content.append(renderAccountCard(account, { sections: sectionsForAccount?.(account) ?? sections }));
           const more = el('a', '模型来源', 'nav-link'); more.href = '/#model-sources-connections'; more.target = '_blank'; more.rel = 'noopener'; content.append(more);
-          void formDialog({ title: '额度与余额', content, confirmLabel: '关闭' });
+          void formDialog({ title: '额度与余额', content, confirmLabel: '关闭', confirmPrimary: false });
         }; footer.append(details);
       }
     }

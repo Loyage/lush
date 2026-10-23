@@ -139,7 +139,7 @@ export function createDeviceValetPage({ container, request = api, send, isCurren
     const actions = el('div', undefined, 'device-valet-actions');
     const append = button('追加指令', () => { appendOpen = !appendOpen; ++editGeneration; syncDeviceValetSecrets(); paintDetail(); }, 'ghost');
     actions.append(helpHost(append)); disabled(append, !worker.can_append ? worker.append_reason || '当前不能追加。' : null);
-    const stop = button('停止设备管家', () => stopWorker(worker.id), 'danger', { busyLabel: '请求中…', help: '停止此设备管家并撤销未开始执行；保留历史与未知副作用，停止中不代表实际退出。' });
+    const stop = button('停止设备管家', () => stopWorker(worker.id), 'danger control-primary', { busyLabel: '请求中…', help: '停止此设备管家并撤销未开始执行；保留历史与未知副作用，停止中不代表实际退出。' });
     actions.append(helpHost(stop)); disabled(stop, uncertainStops.has(worker.id) ? '停止结果未知，请只读核对，不重复请求。'
       : stopping.has(worker.id) ? '停止请求处理中。' : !worker.can_stop ? '当前没有可请求停止的执行。' : null);
     summary.append(actions); detail.append(summary);

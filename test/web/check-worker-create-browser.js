@@ -48,6 +48,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
   if (path === '/') return new Response('<html><body style="margin:0"><iframe id="viewport" src="/fixture" style="width:390px;height:844px;border:0"></iframe></body></html>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/administrator/project-protocol.js') return new Response(Bun.file(new URL('../../src/administrator/project-protocol.js', import.meta.url)));
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -78,13 +79,13 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1100 }); await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   await resize(390, 844); assert(await wait('window.ready'), 'fixture load failed');
   await execute('window.list();window.graph();');
-  assert(await execute(`return [...document.querySelectorAll('#detail button')].some(b=>b.textContent==='空白创建')&&[...document.querySelectorAll('#side-tasks button')].some(b=>b.textContent==='空白创建');`), 'missing permanent graph/list creation entry');
+  assert(await execute(`return ![...document.querySelectorAll('#detail button')].some(b=>b.textContent==='空白创建')&&[...document.querySelectorAll('#side-tasks button')].some(b=>b.textContent==='空白创建');`), 'graph must stay compact while the Worker list retains the creation entry');
   await click('.task-graph-more-trigger'); assert(await execute(`return [...document.querySelectorAll('.task-graph-actions-popover button')].some(b=>b.textContent==='创建子 Worker'&&!b.classList.contains('agent-call'))&&!document.querySelector('.task-graph-actions-popover').textContent.includes('复制创建');`), 'missing unique non-Agent child action');
   await keys(['\uE00C']);
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await resize(width, 900); await execute(`window.page();document.documentElement.dataset.theme='${theme}';window.create(false);`);
     assert(await wait(`!document.querySelector('#modal').hidden`), 'spawn dialog did not open');
-    assert(await execute(`const p=document.querySelector('[data-create-field=parent]');const r=p.getBoundingClientRect();return document.querySelector('[data-create-field=mode]').value==='spawn'&&r.height>=44&&r.left>=0&&r.right<=innerWidth&&document.querySelector('.worker-create-modal').scrollWidth<=document.querySelector('.worker-create-modal').clientWidth+1;`), `spawn parent/layout ${theme}/${width}`);
+    assert(await execute(`const p=document.querySelector('[data-create-field=parent]');const r=p.getBoundingClientRect();return document.querySelector('[data-create-field=mode]').value==='spawn'&&r.height===32&&r.left>=0&&r.right<=innerWidth&&document.querySelector('.worker-create-modal').scrollWidth<=document.querySelector('.worker-create-modal').clientWidth+1;`), `spawn parent/layout ${theme}/${width}`);
     await execute(`window.holdSource=true;const mode=document.querySelector('[data-create-field=mode]');mode.value='fork';mode.dispatchEvent(new Event('change'));document.querySelector('.worker-create-modal .emission-worker-picker input').value='W735-2';`);
     await click('.worker-create-modal .emission-worker-picker .emission-picker-row:nth-child(2) button');
     assert(await wait(`window.releaseSource&&document.querySelector('.worker-create-parent').dataset.sourceState==='loading'`), 'W lookup did not request source detail');
@@ -96,7 +97,8 @@ try {
     await keys(['\uE00C']); await execute('window.create(true);');
     assert(await wait(`!document.querySelector('#modal').hidden&&document.querySelector('.worker-create-parent').dataset.sourceState==='ready'`), 'creation dialog source did not load');
     assert(await execute(`return document.querySelector('[data-create-field=mode]').value==='fork'&&!document.querySelector('.worker-create-advanced').open&&document.querySelector('.worker-create-parent').textContent.includes('W735')&&!document.querySelector('.modal-confirm').classList.contains('agent-call')&&window.calls.filter(c=>c.method==='worker.create').length===${(theme === 'light' ? 0 : 3) + [1440,390,320].indexOf(width)};`), `default source/layout/unauthorized creation ${theme}/${width}`);
-    const fits = await execute(`const card=document.querySelector('.worker-create-modal');const controls=[...card.querySelectorAll('button,select,input:not([type=checkbox]),summary')].filter(n=>n.getClientRects().length);return {overflow:card.scrollWidth-card.clientWidth,page:document.documentElement.scrollWidth-innerWidth,bad:controls.filter(n=>{const r=n.getBoundingClientRect();return r.width<1||r.left<0||r.right>innerWidth+1||r.height<44}).map(n=>[n.textContent,n.getBoundingClientRect().toJSON()])};`);
+    const fits = await execute(`const card=document.querySelector('.worker-create-modal');const controls=[...card.querySelectorAll('button,select,input:not([type=checkbox]),summary')].filter(n=>n.getClientRects().length);return {overflow:card.scrollWidth-card.clientWidth,page:document.documentElement.scrollWidth-innerWidth,bad:controls.filter(n=>{const r=n.getBoundingClientRect();return r.width<1||r.left<0||r.right>innerWidth+1||r.height<(innerWidth<=760&&n.matches('.modal-confirm,.agent-call,.control-primary')?44:32)}).map(n=>[n.textContent,n.getBoundingClientRect().toJSON()])};`);
+    if (width <= 760) assert(await execute(`return document.querySelector('.worker-create-advanced>summary').getBoundingClientRect().height===32&&document.querySelector('.modal-confirm').getBoundingClientRect().height===44&&document.querySelector('.modal-cancel').getBoundingClientRect().height===32;`), 'ordinary disclosure/cancel must actually shrink, final confirmation stays 44px');
     assert(fits.overflow <= 1 && fits.page <= 1 && fits.bad.length === 0, `clipped/small controls ${theme}/${width}: ${JSON.stringify(fits)}`);
     assert(await execute(`return document.activeElement===document.querySelector('[data-create-field=mode]')&&document.querySelector('.modal-title').getBoundingClientRect().top>=document.querySelector('.worker-create-modal').getBoundingClientRect().top;`), 'default focus scrolled past the main creation fields');
     // Native keyboard focus stays in DOM order, includes advanced disclosure and skips hidden controls.
@@ -118,7 +120,7 @@ try {
     await execute(`document.querySelector('#composer-launcher').click();window.quiet();[...document.querySelectorAll('#detail button')].find(b=>b.textContent==='展开高级设置：静息等待').click();`);
     assert(await execute(`const hint=document.querySelector('.emission-quiet-limit');return hint.getClientRects().length>0&&hint.textContent.includes('空 Worker 或暂停 Worker')&&hint.textContent.includes('需取消静息条件提交')&&document.documentElement.scrollWidth<=innerWidth&&hint.getBoundingClientRect().right<=innerWidth+1;`), `quiet limitation missing/clipped ${theme}/${width}`);
     await Bun.write(join(evidence, `${theme}-${width}-quiet.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-    console.log(`PASS ${theme} ${width}px: minimal W lookup -> loading gate -> verified parent, quiet limitation, permanent entries, collapsed/inline settings, 44px controls, Tab, waiting detail, first-input editor, no overflow`);
+    console.log(`PASS ${theme} ${width}px: minimal W lookup -> loading gate -> verified parent, quiet limitation, permanent entries, collapsed/inline settings, 32px ordinary/44px mobile confirmation controls, Tab, waiting detail, first-input editor, no overflow`);
   }
   await execute('window.page();window.create(false);'); await keys(['\uE00C']);
   assert(await execute(`return document.querySelector('#modal').hidden&&window.calls.filter(c=>c.method==='worker.create').length===6;`), 'keyboard cancellation created a Worker');

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
-const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"></head><body style="margin:0;padding:12px;box-sizing:border-box">
+const compact = process.argv.includes('--compact-controls');
+const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css">${compact ? '<style>:root{--control-height:32px;--control-primary-height:32px}@media(max-width:760px),(pointer:coarse){:root{--control-primary-height:44px}}</style>' : ''}</head><body style="margin:0;padding:12px;box-sizing:border-box">
 <script type="module">
 import { createAgentConnections } from '/assets/render-agent-connections.js';
 const at='2026-10-07T05:30:00Z';
@@ -69,7 +70,7 @@ try {
         const diagnostics=actions.querySelector('.diagnostics-link'),diagnosticRect=diagnostics?.getBoundingClientRect();
         if(buttons.map(b=>b.textContent).join(',')!=='刷新,详情'||diagnostics?.getAttribute('href')!=='/#model-sources-diagnostics?connection_id='+row.dataset.sourceId)errors.push('unexpected actions/source');
         if(!diagnosticRect||cache.bottom>refresh.top+.5||refresh.bottom>diagnosticRect.top+.5||diagnosticRect.bottom>detail.top+.5)errors.push('action order');
-        if(diagnosticRect&&(diagnosticRect.left<a.left||diagnosticRect.right>a.right||diagnosticRect.height!==(innerWidth<=760?44:32)))errors.push('diagnostic target dimensions');
+        if(diagnosticRect&&(diagnosticRect.left<a.left||diagnosticRect.right>a.right||diagnosticRect.height!==parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))))errors.push('diagnostic target dimensions');
         if(a.right>r.right||a.left<r.left||detail.bottom>r.bottom)errors.push('clipped actions');
         for(const part of ['.model-source-identity','.model-source-settings','.model-source-resource-summary']){
           const b=row.querySelector(part).getBoundingClientRect();if(b.right>a.left+.5||b.bottom>r.bottom+.5)errors.push('overlap/clipping '+part);
@@ -82,11 +83,13 @@ try {
         }
       }
       if(document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
-      return {errors,height,calls:window.calls};`);
+      return {errors,height,calls:window.calls,actions:[...rows[0].querySelectorAll('button,.diagnostics-link')].map(n=>({text:n.textContent,height:n.getBoundingClientRect().height})),control:parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))};`);
     assert(!result.errors.length, `${theme} ${width}: ${JSON.stringify(result)}`);
     // The retained diagnostics entry owns a reserved third action row (W801).
     assert(result.height === (width <= 640 ? 268 : width <= 1100 ? 188 : 184), 'unexpected row height');
     assert(result.calls.length === 1, 'overview unexpectedly queried');
+    assert(result.actions.every(action=>action.height===result.control),'ordinary source actions must follow the configured height');
+    console.log('CONTROL',width,JSON.stringify(result.actions));
     console.log(`PASS ${theme} ${width}px: ${result.height}px rows, refresh/diagnostics/detail actions, reset countdowns, no overlap/overflow`);
   }
   assert(await execute(`const row=document.querySelector('.model-source-row');row.querySelector('.model-source-details-toggle').click();const pane=document.querySelector('.model-source-detail');return pane.parentNode===row.parentNode&&pane.previousElementSibling===row&&!pane.hidden;`), 'detail did not expand inline');

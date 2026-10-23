@@ -39,7 +39,7 @@
   .ui-list-page .ui-list-entry{padding:10px}
 }
 @media(max-width:760px),(pointer:coarse){
-  :is(.ui-list-tools,.ui-list-pagination) button{min-width:44px;min-height:44px}
-  .ui-list-tools :is(select,.filter-check,details>summary){min-height:44px}
-  .ui-list-tools select{font-size:16px}
+  :is(.ui-list-tools,.ui-list-pagination) button{min-width:var(--control-height);min-height:var(--control-height)}
+  .ui-list-tools :is(select,.filter-check,details>summary){min-height:var(--control-height)}
+  .ui-list-tools select{height:var(--control-height);padding-block:3px;font-size:16px;line-height:1.5}
 }

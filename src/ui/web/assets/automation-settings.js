@@ -119,7 +119,7 @@ export function renderAutomationSettings({ feature, catalogue: initial = null, o
       uncertain = submitted;
       if (owns() && request === generation) { status.textContent = `${error.message}；草稿及原 revision 保留，请重新读取核查，不自动重发。`; status.className = 'error automation-settings-status'; }
     } finally { if (request === generation) { busy = false; sync(); } }
-  }, 'primary', { busyLabel: '保存中…' });
+  }, 'primary control-primary', { busyLabel: '保存中…' });
   const saveHost = el('span', undefined, 'help-host'); saveHost.append(save);
   const reload = button('重新读取项目设置', load, 'ghost', { busyLabel: '读取中…' }), reloadHost = el('span', undefined, 'help-host'); reloadHost.append(reload);
   for (const control of [save, reload, ...choices.map(item => item.control)]) { const click = control.onclick; control.onclick = async () => { await click(); sync(); }; }

@@ -61,7 +61,7 @@ export function createAdministratorPage({ container, request = api, isCurrent = 
     if (worker.error) summary.append(reading(worker.error));
     originalFailure(summary, worker.original_failure);
     summary.append(el('p', '停止不会回滚已发生的副作用；unknown 不代表成功，也不能作为重放依据。', 'warn'));
-    const stop = button('安全停止旧管理员', () => stopWorker(worker.id), 'danger', { help: '请求停止这个旧身份并撤销未执行授权；保留历史，stopping 不代表真实退出，不重放未知操作。' });
+    const stop = button('安全停止旧管理员', () => stopWorker(worker.id), 'danger control-primary', { help: '请求停止这个旧身份并撤销未执行授权；保留历史，stopping 不代表真实退出，不重放未知操作。' });
     stop.disabled = stopping.has(worker.id) || uncertainStops.has(worker.id) || ['stopping', 'stopped', 'cancelled'].includes(worker.status);
     const host = el('span', undefined, 'help-host'); host.append(stop);
     if (stop.disabled) { host.dataset.help = uncertainStops.has(worker.id) ? '停止结果未知，请只读核对，不自动重发。' : '已停止或正在收尾，请只读核对真实状态。'; host.tabIndex = 0; }

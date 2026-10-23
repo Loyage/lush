@@ -17,7 +17,7 @@
 .registry-advanced:not([open]) > :not(summary), .registry-targets:not([open]) > :not(summary) { display: none; }
 .registry-mount, .registry-registration { grid-template-columns: minmax(0, 1fr); }
 .registry-mount button, .registry-registration button, .registered-mount-picker button { justify-self: start; max-width: 100%; }
-@media (max-width: 600px) { .registry-automation button, .registered-mount-picker button, .registry-targets button { min-height: 44px; max-width: 100%; } .registry-facts .badge { white-space: normal; } }
+@media (max-width: 600px) { .registry-automation button, .registered-mount-picker button, .registry-targets button { min-height: var(--control-height); max-width: 100%; } .registry-facts .badge { white-space: normal; } }
 .automation-feature-head { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
 .automation-feature-description { color: var(--muted); font-size: .9rem; }
 .automation-feature-open { color: var(--accent); font-size: .85rem; }
@@ -51,7 +51,9 @@
 @media (max-width: 760px) {
   .automation-directory-tools > .hook-actions { flex-basis: 100%; justify-content: flex-start; }
   .project-automation .automation-settings-controls > .hook-field { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
-  .project-automation .hook-field :is(input:not([type="checkbox"]), select, textarea) { font-size: 16px; }
+  .project-automation .hook-field :is(input:not([type="checkbox"]), select, textarea) { font-size: 16px; line-height:1.5; }
+  .project-automation .hook-field :is(input:not([type="checkbox"]),select),
+  .registry-registration :is(input:not([type="checkbox"]),select),.registry-mount select,.registered-mount-picker select { min-height:var(--control-height);height:var(--control-height);padding-block:3px;line-height:1.5; }
   .automation-detail-navigation { justify-content: flex-start; }
 }
 .hooks-page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
@@ -128,9 +130,9 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .automation-settings-extra, .push-main-settings { min-width: 0; }
 .automation-settings .hook-actions, .convergence-defaults .hook-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .automation-settings .hook-actions > button, .automation-settings .hook-actions > .help-host { flex: 0 0 auto; width: auto; max-width: 100%; }
-.automation-settings select { box-sizing: border-box; width: 100%; max-width: 32rem; min-height: 44px; }
+.automation-settings select { box-sizing: border-box; width: 100%; max-width: 32rem; min-height: var(--control-height); height:var(--control-height); padding-block:3px; }
 .automation-settings .hook-completion-levels { justify-self: start; }
-.automation-settings .hook-completion-level { min-height: 36px; }
+.automation-settings .hook-completion-level { min-height: var(--control-height); }
 .acceptance-notice-state[hidden], .convergence-worker-status[hidden] { display: none; }
 .convergence-defaults { display: grid; gap: .7rem; padding-block: 1rem; margin-top: 1rem; border-top: 1px solid var(--line); min-width: 0; }
 .convergence-defaults h3, .convergence-defaults p { margin: 0; overflow-wrap: anywhere; }
@@ -154,8 +156,8 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .automation-module-body { min-width: 0; }
 .automation-module-summary { margin-block: .5rem; overflow-wrap: anywhere; }
 .automation-module-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.hooks-page button.hook-enable:not(.agent-call) { background: var(--green-soft); border: 2px solid var(--completed); color: var(--text); font-weight: 700; }
-.hooks-page button.hook-disable:not(.agent-call) { background: var(--red-soft); border: 2px solid var(--failed); color: var(--text); font-weight: 700; }
+.hooks-page button.hook-enable:not(.agent-call) { padding-block:5px; background: var(--green-soft); border: 2px solid var(--completed); color: var(--text); font-weight: 700; }
+.hooks-page button.hook-disable:not(.agent-call) { padding-block:5px; background: var(--red-soft); border: 2px solid var(--failed); color: var(--text); font-weight: 700; }
 .hooks-page .help-host[tabindex="0"] { display: inline-flex; max-width: 100%; }
 .hooks-page .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .automation-module button { white-space: normal; max-width: 100%; } }

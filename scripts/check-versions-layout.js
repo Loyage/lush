@@ -108,6 +108,8 @@ async function narrowCheck(theme, event, prefix, width = 390) {
   const context = "document.querySelector('#narrow-check').contentDocument";
   const narrow = await execute(geometryScript(context));
   assert(narrow.width === width && narrow.module <= 1 && narrow.page <= 1 && narrow.dual && narrow.aligned && narrow.gutter===96 && narrow.descriptionWidth>96 && narrow.laneSpacing>=48 && narrow.touch>=44, `${width}px overflow/tracks ${theme}: ${JSON.stringify(narrow)}`);
+  narrow.controls = await execute(`const d=${context},p=d.querySelector('.worker-versions'),refresh=p.querySelector('.versions-refresh');return {refresh:refresh.getBoundingClientRect().height,token:d.defaultView.getComputedStyle(refresh).getPropertyValue('--control-height'),child:[...p.querySelectorAll('.lineage-child-toggle,.lineage-child-heading button,.lineage-child-locate')].map(n=>({height:n.getBoundingClientRect().height,expected:parseFloat(d.defaultView.getComputedStyle(n).getPropertyValue('--control-height'))}))};`);
+  assert(narrow.controls.refresh===parseFloat(narrow.controls.token)&&narrow.controls.child.every(n=>n.height>=n.expected), `version ordinary density ${width}: ${JSON.stringify(narrow.controls)}`);
   narrow.mappings = await mappingGeometry(context);
   if (await execute(`return !!${context}.querySelector('.lineage-child-panel')`)) narrow.child = await childGeometry(context);
   await screenshot(`${prefix}-${theme}-${width}-dual-track`);
@@ -123,7 +125,7 @@ async function narrowCheck(theme, event, prefix, width = 390) {
     await execute(`${context}.querySelector('.version-node-detail').scrollIntoView({block:'start'});`); await screenshot(`${prefix}-${theme}-${width}-node-detail`);
   }
   await execute('window.narrowMappings.dispose();window.narrowChildPath?.dispose();document.querySelector("#narrow-check").remove();');
-  console.log(`PASS genuine ${width}px mapping endpoints ${prefix}/${theme}`); return { theme, ...narrow };
+  console.log(`PASS genuine ${width}px mapping endpoints ${prefix}/${theme}, ordinary geometry ${JSON.stringify(narrow.controls)}`); return { theme, ...narrow };
 }
 try {
   f = await setup({ auth: { version: 2, username: 'browser-fixture', password: 'temporary-browser-fixture-password' } });

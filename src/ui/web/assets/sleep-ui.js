@@ -34,18 +34,18 @@ export function renderSleepBanner(state) {
     el('p', usageLabel(state), 'hint'));
   if (state.enabled) host.append(el('p', '（旧称「我去睡觉了」）', 'hint'));
   if (state.reason) host.append(el('p', state.reason, 'hint'));
-  if (state.enabled) host.append(button('立即关闭托管模式', stop, 'danger',
+  if (state.enabled) host.append(button('立即关闭托管模式', stop, 'danger control-primary',
     { help: '立即停止管家值守；排队中的 Worker 不会恢复，需要你自己处理。' }));
   if (state.paused) host.append(button('恢复排队 Worker', resume, 'ghost',
     { agent: true, help: agentHelp('只恢复排队 Worker，不重新开启托管模式；它们对应的 Agent 会重新开始运行。') }));
 }
 
 export function sleepSettings() {
-  const host = block('托管模式');
+  const host = block('托管模式'); host.classList.add('sleep-settings');
   const state = ui.lastSnapshot?.status?.sleep;
   const status = el('p', state?.enabled ? `已开启 · ${modeLabel(state.mode)} · ${usageLabel(state)}` : state?.paused ? '预算保护：开发已暂停' : '未开启', 'hint');
   host.append(status, el('p', '离开界面后仍持续运行，直到你主动关闭或预算保护触发。每次代理决定都会留在「待我处理 → 管家选择」。（也有人叫它「我去睡觉了」——反正它不睡。）'));
-  if (state?.enabled) { host.append(button('立即关闭托管模式', async () => { await stop(); status.textContent = '已关闭；历史选择仍保留'; }, 'danger',
+  if (state?.enabled) { host.append(button('立即关闭托管模式', async () => { await stop(); status.textContent = '已关闭；历史选择仍保留'; }, 'danger control-primary',
     { help: '立即停止管家值守；排队中的 Worker 不会恢复，需要你自己处理。' })); return host; }
   if (state?.paused) { host.append(button('恢复排队 Worker', resume, undefined,
     { agent: true, help: agentHelp('只恢复排队 Worker，不重新开启托管模式；它们对应的 Agent 会重新开始运行。') })); return host; }
@@ -78,7 +78,7 @@ export function sleepSettings() {
       const next = await action('sleep.start', { options, confirmed: true });
       if (ui.lastSnapshot?.status) ui.lastSnapshot.status.sleep = next;
       renderSleepBanner(next);
-      host.replaceChildren(el('h2', '托管模式 · 已开启'), el('p', usageLabel(next)), button('立即关闭托管模式', stop, 'danger',
+      host.replaceChildren(el('h2', '托管模式 · 已开启'), el('p', usageLabel(next)), button('立即关闭托管模式', stop, 'danger control-primary',
         { help: '立即停止管家值守；排队中的 Worker 不会恢复，需要你自己处理。' }));
     } finally { enable.disabled = false; }
   }, undefined, { agent: true, help: agentHelp('开启托管模式后，管家会代理你处理 Notice，可能自动批准计划或合并。') });

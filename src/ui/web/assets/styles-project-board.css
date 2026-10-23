@@ -13,7 +13,7 @@
 :root[data-theme="dark"] .project-board>.project-board-card{--board-ink:var(--board-dark);background:color-mix(in srgb,var(--board-ink) 8%,var(--panel))}
 .project-board-content{box-sizing:border-box;min-width:0;min-height:0;max-width:100%;align-self:stretch;overflow:visible;padding:10px 10px 12px;border-radius:6px}
 .project-board-editing .project-board-content{padding-bottom:56px}
-.project-board .project-open{display:grid;gap:3px;min-height:44px;padding-right:0;min-width:0;color:var(--board-ink);text-decoration:none}
+.project-board .project-open{display:grid;gap:3px;min-height:var(--control-height);padding-right:0;min-width:0;color:var(--board-ink);text-decoration:none}
 .project-board .project-open strong{font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .project-open small{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:ltr}
 .project-board .project-open:hover strong{text-decoration:underline;text-underline-offset:4px}

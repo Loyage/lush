@@ -110,7 +110,7 @@ try{
     assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
     const valet=await execute(`const card=document.querySelector('[data-task-id="1"]'),links=[...document.querySelectorAll('.task-graph-valet-link')],link=links[0],r=link.getBoundingClientRect(),label=link.querySelector('.task-graph-link-label').getBoundingClientRect(),c=card.getBoundingClientRect();return {count:links.length,id:link.dataset.valetId,text:link.textContent,height:r.height,labelHeight:label.height,contained:r.left>=c.left&&r.right<=c.right&&r.top>=c.top&&r.bottom<=c.bottom,panel:!!document.querySelector('.project-management')};`);
     assert(valet.count===1&&valet.id==='4'&&valet.text==='Valet V21 · 运行中'&&!valet.panel, 'only a running Valet tag should remain on main');
-    assert(valet.contained&&(width>760?valet.height<=20:valet.height>=44&&valet.labelHeight<=20),`Valet label/touch targets: ${JSON.stringify(valet)}`);
+    assert(valet.contained&&(width>760?valet.height<=20:valet.height===32&&valet.labelHeight<=20),`Valet label/touch targets: ${JSON.stringify(valet)}`);
     for(const card of geometry){
       if(width<=640){
         assert(card.metaTop>=card.noteBottom&&card.usageTop>=card.noteBottom,`metadata covers progress: ${JSON.stringify(card)}`);
@@ -149,10 +149,10 @@ try{
       return {height:c.height,text:status.textContent,tracking:!!card.querySelector('.source-delivery'),contained:s.left>=c.left&&s.right<=c.right&&s.bottom<=c.bottom,relationHeight:r.height,
         links:[...relations.querySelectorAll('button')].map(link=>{const b=link.getBoundingClientRect();return {height:b.height,labelHeight:link.querySelector('.task-graph-link-label').getBoundingClientRect().height,contained:b.top>=r.top&&b.bottom<=r.bottom&&b.bottom<=c.bottom};})};`);
     assert(card.height<=baselineHeight&&!card.tracking&&card.contained,`active delivery adds a row/overflows (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
-    assert((width<=760||card.relationHeight<=20)&&card.links.length===2&&card.links.every(link=>link.contained&&(width<=760?link.height>=44&&link.labelHeight<=20:link.height<=20)),`merge target/conflict link height (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
+    assert((width<=760||card.relationHeight<=20)&&card.links.length===2&&card.links.every(link=>link.contained&&(width<=760?link.height===32&&link.labelHeight<=20:link.height<=20)),`merge target/conflict link height (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
     assert(card.text===({requested:'冻结 · 等待合并',executing:'合并中 · 尚未完成',resolving:'合并中 · 源侧分歧修复'})[stage],'delivery stage lost');
   }
-  console.log('PASS merge target/conflict labels stay below 20px, retain 44px mobile targets, and active delivery adds no height in both themes at 320–1440px');
+  console.log('PASS merge target/conflict labels stay below 20px, retain 32px ordinary mobile targets, and active delivery adds no height in both themes at 320–1440px');
   await execute(`window.graph=normalGraph;window.paint();`);
   await resize(390);
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();`);

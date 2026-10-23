@@ -9,7 +9,7 @@ export function syncDialog(content) { updates.get(content)?.(); }
 /** Explicit programmatic dismissal; an old asynchronous submission cannot close its replacement. */
 export function closeDialog() { active?.(null); }
 
-function open({ title, message = null, detail = null, confirmLabel, cancelLabel, danger = false, field = null,
+function open({ title, message = null, detail = null, confirmLabel, cancelLabel, confirmPrimary = true, danger = false, field = null,
   content = null, cardClass = '', agent = false, confirmHelp = null, onConfirm = null, canConfirm = null, initialFocus = null, busyLabel = '处理中…' }) {
   active?.(null);
   const previous = globalThis.document?.activeElement ?? null, root = $('modal');
@@ -50,6 +50,8 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   const actions = el('div', undefined, 'modal-actions');
   const cancel = button(cancelLabel, cancelRequest, 'ghost'); cancel.classList.add('modal-cancel');
   const confirm = button(confirmLabel, submit, danger ? 'danger' : undefined, { agent, help: confirmHelp }); confirm.classList.add('modal-confirm');
+  // Read-only dialogs can explicitly mark their close action as ordinary, without guessing from its label.
+  confirm.classList.toggle('control-secondary', !confirmPrimary && !agent && !danger);
   const feedback = onConfirm ? buttonFeedback(confirm, busyLabel) : null;
   // The dialog owns disabling; button()'s generic finally-unlock would erase a caller retry gate.
   cancel.onclick = cancelRequest; confirm.onclick = async () => { await submit(); };
@@ -107,8 +109,8 @@ export function promptDialog({ title, message = null, value = '', label = '内�
 /** Optional asynchronous confirmation closes only on true; false retains the exact form draft.
  * While submitting, duplicate clicks/Esc/backdrop cannot dismiss the request. canConfirm preserves
  * caller-owned failure gates after the request. Programmatic replacement/navigation remains safe. */
-export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', danger = false, cardClass = '', agent = false, confirmHelp = null,
+export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', confirmPrimary = true, danger = false, cardClass = '', agent = false, confirmHelp = null,
   onConfirm = null, canConfirm = null, initialFocus = null, busyLabel = '处理中…' }) {
-  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null, agent, confirmHelp, onConfirm, canConfirm, initialFocus, busyLabel })
+  return open({ title, message, detail: null, confirmLabel, cancelLabel, confirmPrimary, danger, content, cardClass, field: null, agent, confirmHelp, onConfirm, canConfirm, initialFocus, busyLabel })
     .then(value => value === true);
 }

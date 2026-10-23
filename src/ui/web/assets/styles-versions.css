@@ -108,10 +108,10 @@
 .lineage-child-arrow{stroke-dasharray:none}
 .lineage-child-symbol{fill:var(--panel);stroke:var(--accent);stroke-width:2}
 .lineage-node.is-child-path .lineage-node-symbol{outline:2px solid var(--accent);outline-offset:3px}
-@media(max-width:640px){.lineage-child-toggle,.lineage-child-heading button,.lineage-child-locate{min-height:44px}.lineage-child-panel{padding:8px;margin-top:8px}.lineage-child-heading{align-items:flex-start}.lineage-child-endpoints>li{align-items:center}}
+@media(max-width:640px){.lineage-child-toggle,.lineage-child-heading button,.lineage-child-locate{min-height:var(--control-height)}.lineage-child-panel{padding:8px;margin-top:8px}.lineage-child-heading{align-items:flex-start}.lineage-child-endpoints>li{align-items:center}}
 .lineage-page .version-node-detail{padding:10px;margin-top:10px;scroll-margin-top:120px}
 .lineage-page .version-node-detail h3{font-size:13px}
 .lineage-page .version-node-detail pre{font-size:12px}
 .lineage-page .version-input{padding:8px}
 @media(max-width:760px){#detail[data-view="task"]>.worker-versions>.section-title{top:var(--module-mobile-sticky-top,calc(var(--mobile-header-height,53px) + var(--versions-banner-height,0px)))}}
-@media(max-width:640px){.worker-versions{padding:12px}.version-body{padding:10px}.version-node-detail{padding:12px}.version-graph-lanes-3 .version-commit{grid-template-columns:60px minmax(0,1fr)}.lineage-page{--lineage-gutter:96px;--lineage-worker-left:48px}.lineage-body{padding:6px 8px}.lineage-body h4{font-size:12px}.lineage-body .version-task-link,.lineage-body time{font-size:11px}.lineage-page .version-node-detail{padding:8px}.lineage-page .section-title .versions-controls button{min-height:44px}.lineage-mapping>summary,.lineage-landing-receipts>summary{min-height:44px;box-sizing:border-box;padding:10px 0}}
+@media(max-width:640px){.worker-versions{padding:12px}.version-body{padding:10px}.version-node-detail{padding:12px}.version-graph-lanes-3 .version-commit{grid-template-columns:60px minmax(0,1fr)}.lineage-page{--lineage-gutter:96px;--lineage-worker-left:48px}.lineage-body{padding:6px 8px}.lineage-body h4{font-size:12px}.lineage-body .version-task-link,.lineage-body time{font-size:11px}.lineage-page .version-node-detail{padding:8px}.lineage-page .section-title .versions-controls button{min-height:var(--control-height)}.lineage-mapping>summary,.lineage-landing-receipts>summary{min-height:var(--control-height);box-sizing:border-box;padding:var(--control-padding-y) 0}}

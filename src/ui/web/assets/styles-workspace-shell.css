@@ -28,7 +28,7 @@ html[data-lush-space="global"] .help-host:focus-visible,
 @media (max-width: 680px) {
   .project-maintenance { align-items: flex-start; flex-direction: column; gap: .4rem; padding: .55rem .75rem; }
   .project-maintenance-actions { width: 100%; }
-  .project-maintenance-actions button { min-height: 44px; }
+  .project-maintenance-actions button { min-height: var(--control-height); }
 }
 @media (max-width: 480px) {
   .workspace-automation-card { padding: .75rem; }

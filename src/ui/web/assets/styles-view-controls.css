@@ -44,8 +44,9 @@ button.view-control:disabled { opacity: .55; cursor: not-allowed; }
 .view-sort-icon i:nth-child(3) { width: 40%; }
 [data-order="asc"] > .view-sort-icon { flex-direction: column-reverse; }
 @media (max-width: 760px), (pointer: coarse) {
-  button.view-control, button.view-control.view-disclosure, #sidebar-toggle.view-control { min-height: 44px; min-width: 44px; }
+  button.view-control, button.view-control.view-disclosure, #sidebar-toggle.view-control { min-height: var(--control-height); min-width: var(--control-height); }
   button.step-head, button.code-directory-toggle,
-  :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary { min-height: 44px; }
+  :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary { min-height: var(--control-height); }
+  :where(.ui-module, .transcript, .code-view, .performance-view, .dashboard-account-card) details > summary:not(.management-call-head) { padding-block:4px; line-height:1.5; }
 }
 button.view-control.view-control[hidden] { display: none; }

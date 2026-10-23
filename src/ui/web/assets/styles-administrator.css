@@ -6,16 +6,17 @@
 .administrator-card h2,.administrator-card h3{margin-bottom:10px}
 .administrator-summary h2{overflow-wrap:anywhere}
 .administrator-create{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
-.administrator-name{width:min(100%,40em);max-width:100%;min-width:0;min-height:44px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--code)}
+.administrator-name{width:min(100%,40em);max-width:100%;min-width:0;min-height:var(--control-height);padding:4px 10px;border:1px solid var(--line);border-radius:8px;background:var(--code)}
 .administrator-page button,.administrator-page summary,.administrator-modal button{min-height:var(--control-height);white-space:normal;overflow-wrap:anywhere;text-align:left}
 .administrator-page button{max-width:100%}
+.administrator-summary button.control-primary,.administrator-modal .modal-actions button.agent-call{min-height:var(--control-primary-height,var(--control-height))}
 .administrator-rows{display:flex;flex-direction:column;gap:8px}
 .administrator-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%}
 .administrator-row[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 .administrator-detail{display:flex;flex-direction:column;gap:16px;min-width:0}
 .administrator-page .administrator-reading,.administrator-modal .administrator-reading{max-height:none;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-width:0;max-width:100%}
 .administrator-instruction{width:100%;min-height:150px;max-width:100%;resize:vertical}
-.administrator-page summary{cursor:pointer;font-weight:650;padding:9px 0}
+.administrator-page summary{cursor:pointer;font-weight:650;padding:4px 0}
 .administrator-record,.administrator-event{padding:12px 0;border-top:1px solid var(--line-soft)}
 .administrator-uncertain{border-color:var(--failed);background:var(--red-soft)}
 .administrator-uncertain[hidden]{display:none}
@@ -24,5 +25,5 @@
 .administrator-confirmation{min-width:0;max-width:100%}
 .administrator-modal .administrator-confirmed-content{max-height:none;overflow:visible}
 .administrator-confirm-outcome{color:var(--failed)}
-@media(max-width:640px){.administrator-hero,.administrator-card,.administrator-detail>details{padding:14px}.administrator-page{gap:14px}.administrator-page button{width:100%}.administrator-create{align-items:stretch}.administrator-modal .modal-actions{display:flex;flex-direction:column;align-items:stretch}.administrator-modal .modal-actions button{width:100%;min-height:44px}.administrator-name{width:100%}}
+@media(max-width:640px){.administrator-hero,.administrator-card,.administrator-detail>details{padding:14px}.administrator-page{gap:14px}.administrator-page button{width:100%}.administrator-create{align-items:stretch}.administrator-modal .modal-actions{display:flex;flex-direction:column;align-items:stretch}.administrator-modal .modal-actions button{width:100%;min-height:var(--control-height)}.administrator-name{width:100%}}
 @media(forced-colors:active){.administrator-hero,.administrator-risk,.administrator-uncertain{border-color:CanvasText}.administrator-identity{color:CanvasText}}

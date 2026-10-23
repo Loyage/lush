@@ -128,7 +128,7 @@ export function usageConfigForm(config, accounts, { changed, save }) {
   };
   for (const source of list(config.custom)) addSource(source);
   controls.append(sourcesNode, button('添加自定义查询', () => { addSource({ items: [{}] }); changed(); }));
-  const saveButton = button('保存查询设置', () => save(read()), 'agent-usage-save');
+  const saveButton = button('保存查询设置', () => save(read()), 'agent-usage-save control-primary');
   form.append(controls, saveButton); form.onsubmit = event => { event.preventDefault(); return saveButton.onclick(); };
   node.append(form);
   function read() {

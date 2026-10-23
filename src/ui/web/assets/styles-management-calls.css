@@ -4,7 +4,7 @@
 .management-calls-order button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .management-calls-list { list-style: none; padding: 0; margin: 0; }
 .management-call { min-width: 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.management-call-head { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; min-height: 44px; padding: 4px 0; box-sizing: border-box; cursor: pointer; list-style: none; font-size: 12px; line-height: 20px; }
+.management-call-head { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; min-height: var(--control-height); padding: 4px 0; box-sizing: border-box; cursor: pointer; list-style: none; font-size: 12px; line-height: 20px; }
 .management-call-fold:not([open]) > :not(summary) { display: none; }
 .management-call-head::-webkit-details-marker { display: none; }
 .management-call-head:hover { background: var(--panel-2); }

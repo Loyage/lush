@@ -55,8 +55,8 @@ async function clickText(text) {
   await click(selector); await execute(`document.querySelector('[data-browser-click="target"]')?.removeAttribute('data-browser-click');`);
 }
 async function checkMobileSelects(width) {
-  const selects = await execute(`return [...document.querySelectorAll('.code-toolbar select,.code-file-controls select')].filter(n=>n.getClientRects().length).map(n=>({label:n.getAttribute('aria-label'),height:n.getBoundingClientRect().height}));`);
-  assert(selects.length>0&&selects.every(n=>n.height>=44), `mobile code selectors must match adjacent touch controls (${width}): ${JSON.stringify(selects)}`);
+  const selects = await execute(`return [...document.querySelectorAll('.code-toolbar select,.code-file-controls select')].filter(n=>n.getClientRects().length).map(n=>({label:n.getAttribute('aria-label'),height:n.getBoundingClientRect().height,expected:parseFloat(getComputedStyle(n).getPropertyValue('--control-height'))}));`);
+  assert(selects.length>0&&selects.every(n=>n.height===n.expected), `code selectors must follow the actual ordinary-control input (${width}): ${JSON.stringify(selects)}`);
   console.log(`PASS mobile selector geometry ${width}: ${JSON.stringify(selects)}`);
 }
 async function resize(width, height) {
@@ -164,7 +164,7 @@ try {
         await checkMobileSelects(width);
         assert(await execute(`const side=document.querySelector('.code-sidebar'),checkbox=side.querySelector('input[type=checkbox]');
           checkbox.scrollIntoView({block:'nearest'});const r=checkbox.getBoundingClientRect(),s=side.getBoundingClientRect();
-          return getComputedStyle(side).overflowY==='auto'&&r.top>=s.top&&r.bottom<=s.bottom+1&&[...side.querySelectorAll('.search-field-row>button')].every(n=>n.getBoundingClientRect().height>=44);`), 'mobile file filter not scroll reachable or touch sized');
+          return getComputedStyle(side).overflowY==='auto'&&r.top>=s.top&&r.bottom<=s.bottom+1&&[...side.querySelectorAll('.search-field-row>button')].every(n=>n.getBoundingClientRect().height>=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')));`), 'mobile file filter not scroll reachable or touch sized');
         assert(await execute(`const side=document.querySelector('.code-sidebar'),file=side.querySelector('.code-file-entry');
           file.scrollIntoView({block:'nearest'});const r=file.getBoundingClientRect(),s=side.getBoundingClientRect();
           return r.top>=s.top&&r.bottom<=s.bottom+1&&getComputedStyle(side.querySelector('.code-tree-scroll')).overflowY==='visible';`), 'mobile file list clipped or nested scrolling');

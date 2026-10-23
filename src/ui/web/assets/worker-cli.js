@@ -53,7 +53,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   label.append(input, shortcut, purpose, suggestions);
   auxiliary.append(guide);
   const runHost = el('span', undefined, 'help-host');
-  const run = el('button', '执行', 'worker-cli-run'); run.type = 'button';
+  const run = el('button', '执行', 'worker-cli-run control-primary'); run.type = 'button';
   run.dataset.help = '先预览命令与真实工作目录；有副作用或调用 Agent 时确认后才执行，不会自动重试。';
   const checkOnly = el('button', '预检', 'ghost'); checkOnly.type = 'button';
   checkOnly.dataset.help = '只读取命令分类、实际目录与安全检查，不执行；执行时仍重新预检。';

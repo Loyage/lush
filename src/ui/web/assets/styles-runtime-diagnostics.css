@@ -2,8 +2,8 @@
 .diagnostic-filters{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:12px 0}
 .diagnostic-filters label{display:flex;flex:1 1 190px;flex-direction:column;gap:6px;min-width:0;font-size:12px}
 .diagnostic-filters label[hidden]{display:none}
-.diagnostic-filters input,.diagnostic-filters select{box-sizing:border-box;min-width:0;max-width:100%;width:100%;min-height:44px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
-.diagnostic-filters button,.runtime-diagnostics-page summary,.runtime-diagnostics-page button.module-toggle{min-height:44px}
+.diagnostic-filters input,.diagnostic-filters select{box-sizing:border-box;min-width:0;max-width:100%;width:100%;height:var(--control-height);min-height:var(--control-height);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.diagnostic-filters button,.runtime-diagnostics-page summary,.runtime-diagnostics-page button.module-toggle{min-height:var(--control-height)}
 .diagnostic-status{font-weight:600;color:var(--accent)}
 .diagnostic-coverage{border:1px solid var(--line);border-left:3px solid var(--awaiting);border-radius:8px;padding:12px;font-size:12px;background:var(--panel)}
 .diagnostic-coverage p{margin:4px 0}
@@ -29,8 +29,8 @@
 .diagnostic-speed-track{height:8px;background:var(--panel-2);border-radius:4px;overflow:hidden}
 .diagnostic-speed-track span{display:block;height:100%;background:var(--accent)}
 .diagnostic-quota-note{font-size:13px;color:var(--muted)}
-.model-source-row-actions .diagnostics-link{min-height:32px;justify-content:center;padding:6px 8px;box-sizing:border-box}
+.model-source-row-actions .diagnostics-link{min-height:var(--control-height);justify-content:center;padding:6px 8px;box-sizing:border-box}
 .model-source-row:has(.diagnostics-link){height:184px}
 @media(max-width:1100px){.diagnostic-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.model-source-row:has(.diagnostics-link){height:188px}}
-@media(max-width:760px){.diagnostic-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.model-source-row-actions .diagnostics-link{min-height:44px}}
+@media(max-width:760px){.diagnostic-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.model-source-row:has(.diagnostics-link){height:268px}.diagnostic-filters label{flex-basis:100%}.diagnostic-metrics>div{padding:10px}.diagnostic-metrics strong{font-size:20px}}

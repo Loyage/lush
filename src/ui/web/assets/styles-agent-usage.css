@@ -5,6 +5,7 @@
 .agent-usage-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .agent-usage-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;color:var(--muted);margin:8px 0}
 .agent-usage-field :is(input,select,textarea){box-sizing:border-box;min-width:0;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;color:var(--text);background:var(--bg);font:inherit}
+.agent-usage-field :is(input,select){min-height:var(--control-height);height:var(--control-height);padding:0 11px}
 .agent-usage-field textarea{min-height:90px;resize:vertical;font-family:monospace}
 .agent-usage-field :is(input,select,textarea):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .agent-usage-toggle{display:flex;gap:9px;align-items:center;font-size:13px}
@@ -14,7 +15,7 @@
 .agent-usage-provider-chooser button{margin-bottom:8px}
 .agent-usage-source>.agent-usage-remove{margin-left:12px}
 .agent-usage-form button{font-size:12px}
-.agent-usage-form .agent-usage-save{margin-top:12px}
+.agent-usage-form .agent-usage-save{margin-top:12px;min-height:var(--control-height)}
 .agent-usage-source{background:var(--bg)}
 .agent-usage-metric{background:var(--panel)}
 .agent-usage-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:12px 0}
@@ -32,7 +33,7 @@
 .agent-usage-dot:focus-visible{outline:none;stroke:var(--text);stroke-width:3}
 .agent-usage-reset{stroke:var(--awaiting);stroke-width:1.5;stroke-dasharray:3 4}
 .agent-usage-data{margin-top:14px}
-.agent-usage-data summary{cursor:pointer;font-size:13px;padding:8px 0}
+.agent-usage-data summary{cursor:pointer;font-size:13px;min-height:var(--control-height);padding:4px 0}
 .agent-usage-data .agent-status-table-scroll{max-height:380px}
 .agent-usage-data td{white-space:nowrap}
 @media(max-width:600px){.agent-usage-grid{grid-template-columns:minmax(0,1fr)}.agent-usage-header-row{grid-template-columns:minmax(0,1fr)}.agent-usage-header-row button{justify-self:start}.agent-usage-filters>.agent-usage-field:first-child{flex:1 1 130px}.agent-usage-form fieldset{padding:10px}.agent-usage-form .agent-usage-controls{padding:0}}

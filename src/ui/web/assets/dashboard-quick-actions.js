@@ -2,6 +2,7 @@ import { el } from './dom.js';
 import { formDialog, confirmDialog, closeDialog } from './dialog.js';
 import { serviceRestartControls } from './service-restart.js';
 import { createAutoSelectAction } from './auto-select-action.js';
+import { dashboardSizing } from './dashboard-widget-model.js';
 import { QUICK_ACTIONS, DEFAULT_QUICK_ACTION_BUTTONS, normalizeQuickActionButtons } from '../../../shared/dashboard-quick-actions.js';
 
 export const QUICK_ACTIONS_ID = 'widget:quick-actions';
@@ -27,8 +28,15 @@ export function createQuickActionsCard({ ownsPage, canAct, buttons = DEFAULT_QUI
   const details = el('button', '详情', 'ghost dashboard-quick-actions-details'); details.type = 'button'; footer.append(summary, details);
   root.append(header, body, footer);
   function projectSlots() {
-    const capacity = Math.max(0, Math.floor(((geometry?.h || 12) * 24 - 140 - 36 + 6) / 50));
+    const size = dashboardSizing(), available = Math.max(0, (geometry?.h || 12) * 24 - size.shell - 36);
     const actions = [...controls.actions.children];
+    let used = 0, capacity = 0;
+    for (const node of actions) {
+      const primary = node.matches?.('button.agent-call,button.control-primary') || node.querySelector?.('button.agent-call,button.control-primary');
+      const next = (primary ? size.primary : size.control) + (capacity ? 6 : 0);
+      if (used + next > available) break;
+      used += next; capacity++;
+    }
     actions.forEach((node, index) => { const hidden = !inDetails && index >= capacity; if (node.hidden !== hidden) node.hidden = hidden; });
     const more = Math.max(0, actions.length - capacity);
     details.textContent = more ? `详情 · ${more}项操作` : '详情';
@@ -37,6 +45,7 @@ export function createQuickActionsCard({ ownsPage, canAct, buttons = DEFAULT_QUI
   }
   const paintDetails = () => {
     if (!active()) return;
+    projectSlots();
     summary.textContent = auto ? auto.status.textContent : '离页停止后续步骤';
     if (!detailsContent?.isConnected) return;
     detailsContent.textContent = controls.status.textContent;
@@ -65,7 +74,7 @@ export function createQuickActionsCard({ ownsPage, canAct, buttons = DEFAULT_QUI
     inDetails = true; projectSlots(); placeholder.hidden = false;
     content.append(controls.root);
     const status = el('p', controls.status.textContent, 'dashboard-quick-actions-result'); detailsContent = status; content.append(status);
-    const result = formDialog({ title: '快捷操作详情', content, confirmLabel: '关闭', cardClass: 'dashboard-quick-actions-modal' });
+    const result = formDialog({ title: '快捷操作详情', content, confirmLabel: '关闭', confirmPrimary: false, cardClass: 'dashboard-quick-actions-modal' });
     const identity = document.getElementById('modal')?.firstElementChild; dialog = identity;
     paintDetails();
     void result.finally(() => {

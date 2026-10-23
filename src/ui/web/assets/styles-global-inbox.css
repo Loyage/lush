@@ -19,4 +19,4 @@
 .global-inbox-worker{display:inline-block;margin:8px 0}
 .global-inbox .help-host:has(button:disabled){display:inline-flex;align-items:stretch;min-width:0}
 .global-inbox .help-host:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-@media(max-width:600px){.global-inbox-detail{padding:10px}.global-inbox .resource-tools{align-items:stretch}.global-inbox .filters{width:100%}.global-inbox .filters button{flex:1 1 auto}.global-inbox-row{padding:10px}}
+@media(max-width:600px){.global-inbox-detail{padding:10px}.global-inbox .resource-tools{align-items:stretch}.global-inbox .filters{width:100%}.global-inbox .filters button{flex:1 1 auto;min-height:var(--control-height)}.global-inbox-row{padding:10px}}

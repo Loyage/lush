@@ -192,7 +192,7 @@ try {
     assert(await rpc(`/session/${session}/execute/async`, {script:`const done=arguments[0];window.motionFixture.refreshDevicePreferences().then(()=>{
       const s=window.speedControl,root=document.documentElement;done(window.motionFixture.readPref('motionSpeed')==='${speed}'&&
         s===document.querySelector('[data-pref="motionSpeed"]')&&document.activeElement===s&&
-        Math.abs(parseFloat(getComputedStyle(s).transitionDuration)-.18/${speed})<.001&&root.scrollWidth<=innerWidth&&s.getBoundingClientRect().height>=(innerWidth<=760?44:32));
+        Math.abs(parseFloat(getComputedStyle(s).transitionDuration)-.18/${speed})<.001&&root.scrollWidth<=innerWidth&&s.getBoundingClientRect().height>=32);
     });`,args:[]}), 'readback, CSS speed, focus or narrow layout failed: '+JSON.stringify(await execute(`return {speed:window.motionFixture.readPref('motionSpeed'),same:speedControl===document.querySelector('[data-pref="motionSpeed"]'),focus:document.activeElement.tagName,duration:getComputedStyle(speedControl).transitionDuration,width:document.documentElement.scrollWidth,innerWidth}`)));
     await rpc(`/session/${session}/execute/async`, {script:`const done=arguments[0];Promise.allSettled(document.getAnimations().filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished)).then(()=>done(true));`,args:[]});
     if (process.env.BROWSER_EVIDENCE_DIR) await writeFile(join(process.env.BROWSER_EVIDENCE_DIR, `motion-settings-${width}-${theme}.png`),
@@ -358,10 +358,10 @@ try {
       return getComputedStyle(search).display===(${width}<=760?'none':'flex')&&
         (getComputedStyle(toggle).display!=='none')===(${width}<=760)&&toggle.getAttribute('aria-expanded')==='false'&&
         toggle.getAttribute('aria-controls')===search.id&&(${width}>760||
-          [...root.querySelectorAll('.conversation-filter,.conversation-order button,.conversation-search-toggle')].every(n=>n.getBoundingClientRect().height>=44));`), 'responsive search disclosure default or touch targets');
+          [...root.querySelectorAll('.conversation-filter,.conversation-order button,.conversation-search-toggle')].every(n=>n.getBoundingClientRect().height===32));`), 'responsive search disclosure default or touch targets');
     assert(await execute(`const root=document.querySelector('.conversation-panel');
       return !!root.querySelector('.ui-list-pagination .conversation-more')&&[...root.querySelectorAll('.conversation-filters button,.ui-list-pagination button')].every(n=>{
-        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='9px'&&s.fontWeight==='600'&&r.height>=(innerWidth<=760?44:32));
+        const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.hidden||(s.fontSize==='12px'&&s.borderRadius==='9px'&&s.fontWeight==='600'&&r.height>=32);
       });`), 'conversation shared filter/pagination sizes or wiring');
     assert(await execute(`return [...document.querySelectorAll('#detail>.ui-module>.section-title')].every(head=>{
       const group=head.querySelector('.module-actions');if(!group||!group.getClientRects().length)return true;
@@ -370,8 +370,9 @@ try {
         [...group.children].filter(n=>n.getClientRects().length).every(n=>getComputedStyle(n).marginLeft==='0px');
     });`), 'module heading actions must share one right-aligned group, including wrapped narrow headings');
     assert(await execute(`const root=document.querySelector('.conversation-panel');return [...root.querySelectorAll('.conversation-order button,.conversation-filters button,.search-field-row>button')]
-      .filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().height===(innerWidth<=760?44:32));`), 'standalone reading/search/filter buttons must share the compact height');
-    assert(await execute(`return [...document.querySelectorAll('.module-toggle,.conversation-expand')].filter(n=>!n.hidden&&n.getClientRects().length).every(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.classList.contains('view-disclosure')&&s.fontSize==='12px'&&s.fontWeight==='400'&&s.borderTopColor==='rgba(0, 0, 0, 0)'&&r.height===(innerWidth<=760?44:28);});`), 'reading disclosures must stay lighter and more compact than toolbar buttons');
+      .filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().height===32);`), 'standalone reading/search/filter buttons must share the compact height');
+    if(width<=760)assert(await execute(`return document.querySelector('.lifecycle-advanced>summary').getBoundingClientRect().height===32;`),'native lifecycle disclosure must actually shrink to 32px');
+    assert(await execute(`return [...document.querySelectorAll('.module-toggle,.conversation-expand')].filter(n=>!n.hidden&&n.getClientRects().length).every(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return n.classList.contains('view-disclosure')&&s.fontSize==='12px'&&s.fontWeight==='400'&&s.borderTopColor==='rgba(0, 0, 0, 0)'&&r.height===(innerWidth<=760?32:28);});`), 'reading disclosures must stay lighter and more compact than toolbar buttons');
     if(width<=760){
       await execute(`const root=document.querySelector('.conversation-panel');root.querySelector('.conversation-search-toggle').click();
         window.savedSearch=root.querySelector('.conversation-search');window.savedSearch.querySelector('input').focus();`);
@@ -533,7 +534,7 @@ try {
       !document.querySelector('.conversation-panel').textContent.includes('查看完整原文')&&
       [...document.querySelectorAll('.conversation-copy,.code-copy')].every(button=>{
         const box=button.getBoundingClientRect(),parent=button.closest('.conversation-message').getBoundingClientRect();
-        return box.width>0&&box.left>=parent.left&&box.right<=parent.right+1&&(${width}>760||box.height>=44);
+        return box.width>0&&box.left>=parent.left&&box.right<=parent.right+1&&box.height>=32;
       })&&document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'copy controls overflow or raw-view entry retained');
     console.log('PASS exact raw/code clipboard payloads and responsive copy controls',width,height,theme);
   }

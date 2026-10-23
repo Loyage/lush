@@ -68,7 +68,7 @@ export function registeredMountPicker({ catalogue, workerId, model, mount = null
       try { await onSaved(result); } catch (error) { if (ownsPage()) status.textContent = `挂载已保存，但刷新失败：${error.message}；不要重复挂载。`; }
     } catch (error) { if (ownsPage()) { status.className = 'error settings-error'; status.textContent = `${error.message}；${submitted ? '结果须只读核验，不自动重发；请刷新 Worker 挂载。' : '未提交挂载。'}`; } }
     finally { busy = false; if (ownsPage()) paint(); }
-  }, 'hook-button');
+  }, 'hook-button control-primary');
   const host = locked(save, () => busy ? '正在确认或保存。' : submitted ? saved ? '已保存；不重复提交。' : '结果待核验，请刷新 Worker 挂载，不自动重发。' : !selected() || !version.input.value ? '须先选择登记功能及明确版本。' : model.can_attach === false && !mount ? '当前 Worker 不允许新增挂载。' : mount && (mount.editable !== true || mount.locked) ? mount.reason || '挂载已锁定。' : null);
   const pageStatus = el('p', '', 'hint');
   const more = button('继续读取可挂载功能', async () => {
@@ -167,7 +167,7 @@ export function registrationEditor({ catalogue, item = null, ownsPage, onSaved }
       try { const refreshed = await onSaved(); if (!refreshed) throw Error('目录读取未成功'); } catch (error) { if (ownsPage()) status.append(el('span', ` 登记已成功，但刷新失败：${error.message}；仅刷新目录，不重新登记。`, 'error')); }
     } catch (error) { if (ownsPage()) { status.className = 'error'; status.textContent = `${error.message}；${retryRequest ? '同一草稿可按原请求重试，client_request_id 与参数保持不变；不会重复注册。' : '结果须先只读核验；请返回目录刷新，不自动重新登记。'}`; } }
     finally { busy = false; if (ownsPage()) paint(); }
-  }, 'hook-button', { help: '只登记新定义或修订版本，不挂载、不执行，不改变已有固定授权。' });
+  }, 'hook-button control-primary', { help: '只登记新定义或修订版本，不挂载、不执行，不改变已有固定授权。' });
   const saveHost = locked(save, () => busy ? '正在确认或登记。' : saved ? '已登记成功；不要重复注册。' : submitted && !retryRequest ? '写结果须先核验，请只读刷新目录。' : null);
   kind.input.onchange = paint;
   node.append(el('h2', item ? '修订登记定义' : '登记新功能'), el('p', '登记和挂载是两次独立明确操作。私有运行覆盖未重设且动作位置、类型不变时保留；不从安全摘要重建。', 'hint'), kind.wrap, purpose.wrap, form.node, shell, saveHost, status); paint(); return node;
