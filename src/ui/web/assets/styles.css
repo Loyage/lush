@@ -690,7 +690,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph .resource-hero p{flex-basis:100%}.task-graph-summary{display:flex;flex-wrap:wrap;align-items:center;gap:7px}.task-graph-fold-controls{display:flex;flex-wrap:wrap;gap:8px}
 .task-graph-node{margin:10px 0;min-width:300px}.task-graph-children{margin-left:10px;padding-left:10px;border-left:2px solid var(--line)}
 .task-graph-children>.task-graph-node{position:relative}.task-graph-children>.task-graph-node::before{content:'';position:absolute;left:-10px;top:24px;width:9px;border-top:2px solid var(--line)}
-.task-graph-card{padding:13px 15px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--dim);border-radius:10px;overflow-wrap:anywhere}
+.task-graph-card{--task-graph-header-height:26px;padding:13px 15px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--dim);border-radius:10px;overflow-wrap:anywhere}
 .task-graph-card.task-graph-running{border-left-color:var(--running);box-shadow:0 0 0 1px color-mix(in srgb,var(--running) 22%,transparent)}
 .task-graph-card.task-graph-queued{border-left-color:var(--queued)}
 .task-graph-card.task-graph-paused{border-left-color:var(--violet)}
@@ -732,15 +732,18 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-mode{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;white-space:nowrap}
 .task-graph-mode input{width:16px;height:16px;margin:0;flex:none}
 .task-graph-minimal .task-graph-node{margin:5px 0;min-width:300px}
-.task-graph-minimal .task-graph-card{height:68px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) 30px;grid-template-rows:26px 20px;gap:4px 7px;border-radius:7px}
+.task-graph-minimal .task-graph-card{height:68px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) 30px;grid-template-rows:var(--task-graph-header-height) 20px;gap:4px 7px;border-radius:7px}
 .project-main-anchor{padding:12px;border:1px solid var(--line);border-radius:7px;min-width:0}
 .task-graph-minimal .task-graph-head{grid-column:1;grid-row:1;flex-wrap:nowrap;gap:3px;min-width:0;margin:0}
 .task-graph-minimal .task-graph-head>button{padding:2px 5px;flex:none}
 /* A node caret is a tree affordance, not a labelled toolbar button. */
 .task-graph-head>button.task-graph-fold{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:24px;margin-left:-4px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted)}
 .task-graph-head>button.task-graph-fold:hover{background:var(--panel-2);box-shadow:none;filter:none}
-/* Reuse the card's left inset, keeping the 44px touch target clear of the title. */
-@media(max-width:760px),(pointer:coarse){.task-graph-head>button.task-graph-fold{width:44px;height:44px;margin-left:-8px}}
+/* D787: shrink the whole phone header to 32px, keeping wide, non-overlapping targets. */
+@media(max-width:760px),(pointer:coarse){
+  .task-graph-card{--task-graph-header-height:32px}
+  .task-graph-head>button.task-graph-fold{width:44px;height:var(--task-graph-header-height);margin-left:-8px}
+}
 
 .task-graph-minimal .task-graph-head>.task-graph-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:48px;font-size:12px}
 .task-graph-minimal .badge{flex:none;padding:1px 4px;font-size:10px}
@@ -757,6 +760,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 /* Keep the visible label compact; the transparent button still owns the touch target. */
 @media(max-width:760px),(pointer:coarse){
   .task-graph-head>button.task-graph-title,.task-graph-merge-relations .task-graph-merge-link{min-height:44px;padding:0;border-color:transparent;background:transparent}
+  .task-graph-head>button.task-graph-title{min-height:var(--task-graph-header-height);height:var(--task-graph-header-height)}
   .task-graph-head>button.task-graph-title:hover,.task-graph-merge-relations .task-graph-merge-link:hover{box-shadow:none}
   .task-graph-title>.task-graph-link-label,.task-graph-merge-link>.task-graph-link-label{border:1px solid var(--line);border-radius:5px;padding:1px 4px}
   .task-graph-title>.task-graph-link-label{display:block;overflow:hidden;text-overflow:ellipsis;line-height:18px}
@@ -777,20 +781,20 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-actions-title{font-size:13px;white-space:normal}
 .task-graph-actions-popover .delivery-controls,.task-graph-actions-popover .iteration-controls{margin:0}
 .task-graph-actions-popover button{white-space:normal;text-align:left}
-/* Match the title's compact visible label while retaining a full-size touch target. */
+/* Header controls and grid tracks share the height, so compact labels also save row space. */
 @media(max-width:760px),(pointer:coarse){
-  .task-graph-minimal .task-graph-card{height:auto;min-height:86px;grid-template-columns:minmax(0,1fr) 44px;grid-template-rows:44px auto}
+  .task-graph-minimal .task-graph-card{height:auto;min-height:calc(var(--task-graph-header-height) + 42px);grid-template-columns:minmax(0,1fr) 44px;grid-template-rows:var(--task-graph-header-height) auto}
   .task-graph-more{display:flex;align-items:center}
   .task-graph-minimal .task-graph-more{grid-row:1;align-self:start}
   .task-graph-minimal-summary{grid-column:1/-1}
-  button.task-graph-more-trigger{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-color:transparent;background:transparent}
+  button.task-graph-more-trigger{display:inline-flex;align-items:center;justify-content:center;width:44px;min-height:var(--task-graph-header-height);height:var(--task-graph-header-height);border-color:transparent;background:transparent}
   button.task-graph-more-trigger:hover{background:transparent;border-color:transparent;box-shadow:none}
   .task-graph-more-label{display:inline-flex;align-items:center;justify-content:center;width:30px;height:22px;border:1px solid var(--line);border-radius:5px}
   .task-graph-more-trigger:hover>.task-graph-more-label{background:var(--panel-2);border-color:var(--dim)}
 }
 @media(max-width:640px){
   .task-graph-actions-popover{right:16px;bottom:16px}
-  .task-graph-minimal .task-graph-card{height:auto;min-height:68px;grid-template-rows:44px auto}
+  .task-graph-minimal .task-graph-card{height:auto;min-height:calc(var(--task-graph-header-height) + 24px);grid-template-rows:var(--task-graph-header-height) auto}
   .task-graph-minimal-summary{flex-direction:column;align-items:stretch;gap:4px}
   .task-graph-minimal-progress{flex:none}
   .task-graph-minimal-note,.task-graph-minimal-progress>.task-graph-merge-relations{white-space:normal;overflow:visible;overflow-wrap:anywhere}

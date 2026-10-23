@@ -4,7 +4,7 @@
 .integration-control,.integration-summary,.integration-details{min-width:0;max-width:100%;overflow-wrap:anywhere}
 .integration-control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}
 .integration-control>.help-host>button{white-space:nowrap}
-.task-graph-minimal .task-graph-card:has(>.integration-summary,>.integration-control){height:auto;grid-template-rows:26px auto auto auto}
+.task-graph-minimal .task-graph-card:has(>.integration-summary,>.integration-control){height:auto;grid-template-rows:var(--task-graph-header-height) auto auto auto}
 .task-graph-minimal .task-graph-card>.integration-summary{grid-column:1/-1;grid-row:3}
 .task-graph-minimal .task-graph-card>.integration-control{grid-column:1/-1;grid-row:4}
 .task-graph-minimal .task-graph-card:not(:has(>.integration-summary,>.source-delivery))>.integration-control{grid-row:3}

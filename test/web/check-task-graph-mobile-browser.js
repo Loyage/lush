@@ -56,13 +56,21 @@ async function checkMoreActions(width){
     const target=button.getBoundingClientRect(),label=(button.firstElementChild||button).getBoundingClientRect(),bounds=card.getBoundingClientRect();
     const style=getComputedStyle(button);
     return {width:target.width,height:target.height,labelHeight:label.height,titleHeight:title.height,
+      headHeight:card.querySelector('.task-graph-head').getBoundingClientRect().height,minimal:!!card.closest('.task-graph-minimal'),
       transparent:style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.borderTopColor==='rgba(0, 0, 0, 0)',
       aligned:!card.closest('.task-graph-minimal')||Math.abs((target.top+target.bottom-title.top-title.bottom)/2)<=1,
       clear:(target.left>=title.right||target.top>=title.bottom)&&target.left>=bounds.left&&target.right<=bounds.right&&target.top>=bounds.top&&target.bottom<=bounds.bottom};
   });`);
   assert(actions.length>0&&actions.every(action=>width<=760
-    ? action.width===44&&action.height===44&&action.labelHeight<=22&&action.transparent&&action.titleHeight===action.height&&action.aligned&&action.clear
-    : action.width===30&&action.height===36),`more actions must match the compact header without shrinking touch targets (${width}): ${JSON.stringify(actions)}`);
+    ? action.width===44&&action.height===32&&action.labelHeight<=22&&action.transparent&&action.titleHeight===32&&(!action.minimal||action.headHeight===32)&&action.aligned&&action.clear
+    : action.width===30&&action.height===36),`more actions and the whole header must use the confirmed compact height (${width}): ${JSON.stringify(actions)}`);
+  if(width<=760&&actions.every(action=>action.minimal)){
+    const reduction=await execute(`const cards=[...document.querySelectorAll('.task-graph-card')],compact=cards.map(card=>card.getBoundingClientRect().height);
+      const baseline=document.createElement('style');baseline.textContent='.task-graph-card{--task-graph-header-height:44px!important}';document.head.append(baseline);
+      try{return cards.map((card,index)=>({height:compact[index],saved:card.getBoundingClientRect().height-compact[index]}));}finally{baseline.remove();}`);
+    assert(reduction.every(card=>Math.abs(card.saved-12)<=1),`the entire card must shrink by 12px, not just the button (${width}): ${JSON.stringify(reduction)}`);
+    console.log('PASS 32px header and 12px whole-card reduction',width,JSON.stringify(reduction));
+  }
 }
 async function resize(width){
   await rpc(`/session/${session}/frame`,{id:null});
@@ -96,8 +104,8 @@ try{
         foldWidth:f.width,foldHeight:f.height,foldInside:f.left>=c.left&&f.right<=t.left,gap:t.left-f.right};`);
     assert(compact.chips.every(height=>height<=17)&&compact.archived==='已回收 2'&&!compact.blank,`filter/entry density: ${JSON.stringify(compact)}`);
     assert(compact.indent===(width<=640?10:22),`tree indentation: ${JSON.stringify(compact)}`);
-    assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
-    assert(width>760||(compact.titleHeight>=44&&compact.titleLabelHeight<=22),`compact title label/clear touch target: ${JSON.stringify(compact)}`);
+    assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?32:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
+    assert(width>760||(compact.titleHeight===32&&compact.titleLabelHeight<=22),`compact title label/clear touch target: ${JSON.stringify(compact)}`);
     await checkMoreActions(width);
     assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
     const valet=await execute(`const card=document.querySelector('[data-task-id="1"]'),links=[...document.querySelectorAll('.task-graph-valet-link')],link=links[0],r=link.getBoundingClientRect(),label=link.querySelector('.task-graph-link-label').getBoundingClientRect(),c=card.getBoundingClientRect();return {count:links.length,id:link.dataset.valetId,text:link.textContent,height:r.height,labelHeight:label.height,contained:r.left>=c.left&&r.right<=c.right&&r.top>=c.top&&r.bottom<=c.bottom,panel:!!document.querySelector('.project-management')};`);
@@ -109,7 +117,7 @@ try{
         assert(!card.noteOverflow&&!card.metaOverflow&&card.contained,`mobile overflow: ${JSON.stringify(card)}`);
         assert(card.usageBottom<card.bottom&&card.moreTop<card.metaTop,`usage/actions outside card: ${JSON.stringify(card)}`);
       }else{
-        assert((width<=760?card.height>=86&&card.height<=(card.id==='1'?112:88):card.height===68)&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
+        assert((width<=760?card.height>=74&&card.height<=(card.id==='1'?100:76):card.height===68)&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
         assert(card.usageTop<card.noteBottom,'desktop no longer inline');
       }
     }
@@ -159,7 +167,7 @@ try{
     await checkMoreActions(width);
     assert(await execute(`const fold=document.querySelector('.task-graph-fold'),f=fold.getBoundingClientRect(),t=fold.nextElementSibling.getBoundingClientRect(),c=fold.closest('.task-graph-card').getBoundingClientRect();
       const title=document.querySelector('.task-graph-title'),label=title.querySelector('.task-graph-link-label').getBoundingClientRect();
-      return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&(innerWidth>760||(t.height>=44&&label.height<=22))&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/title/filter spacing');
+      return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&(innerWidth>760||(t.height===32&&label.height<=22))&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/title/filter spacing');
   }
   console.log('PASS compact detail-mode actions, caret and filter badges at mobile/desktop widths');
   for(const width of [320,1440]){

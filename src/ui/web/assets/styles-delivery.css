@@ -17,7 +17,7 @@
 .source-delivery{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 0;min-width:0;font-size:12px}
 .source-delivery .hint,.source-delivery .delivery-warnings{flex-basis:100%}
 .source-delivery p{margin:2px 0}
-.task-graph-minimal .task-graph-card:has(.source-delivery){height:auto;grid-template-rows:26px auto auto}
+.task-graph-minimal .task-graph-card:has(.source-delivery){height:auto;grid-template-rows:var(--task-graph-header-height) auto auto}
 .task-graph-minimal .source-delivery{grid-column:1 / -1;grid-row:3}
 @media(max-width:640px){
   .delivery-header,.delivery-target{padding:8px}
