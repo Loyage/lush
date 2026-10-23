@@ -70,6 +70,7 @@ test('real Valet detail -> authenticated HTTP/RPC rejects busy input intact, the
     input.onkeydown({ key: 'Enter', preventDefault() { throw Error('plain Enter must not submit'); } });
     await dom.node('input-form').onsubmit({ preventDefault() {} });
     expect(dom.node('error').textContent).toContain('已有管家'); expect(input.value).toBe('本轮新增需求');
+    expect(dom.node('input-form').hidden).toBe(false);
     expect(dom.node('draft-commit').disabled).toBe(true);
     expect(f.store.unread(manager.id)).toEqual([]);
     expect(f.store.task(manager.id).calls).toBe(1);
@@ -80,6 +81,7 @@ test('real Valet detail -> authenticated HTTP/RPC rejects busy input intact, the
     expect(input.value).toBe('本轮新增需求');
     await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     expect(input.value).toBe(''); expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(dom.node('input-form').hidden).toBe(true); expect(ui.composerWorkspace.open).toBe(false);
     expect(f.store.task(manager.id)).toMatchObject({ goal: manager.goal, worker_number: manager.worker_number, status: 'queued' });
     const created = writes.find(write => write.method === 'draft.add');
     expect(created.params).toMatchObject({ mode: 'management', target_id: manager.id, content: '本轮新增需求' });

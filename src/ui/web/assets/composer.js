@@ -191,6 +191,8 @@ async function acceptedDraft(result, untouched, saved) {
   if (untouched) {
     $('input').value = ''; setComposerReferences([]); textEditor?.reset();
     ui.composerProfile = ui.composerManagementProfile = null; finishComposerEdit({ consume: true });
+    // The accepted version is consumed; only in-flight new edits should stay open.
+    await collapseComposer({ savedLeave: true });
   } else finishComposerEdit({ detached: true, options });
   rememberComposer();
   show(saved.mode === 'management' ? '管理输入已可靠接受；不代表 Agent 或管理操作执行成功。下一条默认普通权限。' : emissionAcknowledgement(result, saved.mode === 'append'));

@@ -30,7 +30,7 @@ function editorDom() {
   form.insertBefore(input, null); dom.node('composer-shell').insertBefore(form, null);
 }
 
-test('real detail DOM submits an explicit append through HTTP/RPC and returns composer to create mode', async () => {
+test('real detail DOM submits an explicit append through HTTP/RPC and collapses the consumed composer', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {}, detail: async () => {} });
   try {
@@ -46,12 +46,16 @@ test('real detail DOM submits an explicit append through HTTP/RPC and returns co
     await input.onkeydown({ key: 's', ctrlKey: true, repeat: true, preventDefault() {} });
     expect(fixture.store.all('SELECT * FROM drafts')).toHaveLength(0);
     await input.onkeydown({ key: 's', metaKey: true, preventDefault() {} });
-    expect(input.value).toBe('后续要求');
+    expect(input.value).toBe('后续要求'); expect(dom.node('input-form').hidden).toBe(false);
     expect(fixture.store.all('SELECT * FROM drafts')).toHaveLength(1);
     expect(fixture.store.all('SELECT * FROM inputs')).toHaveLength(1); // Saving does not authorize the append.
     await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     expect(fixture.store.all('SELECT * FROM drafts')).toHaveLength(1);
     expect(input.value).toBe(''); expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(dom.node('input-form').hidden).toBe(true);
+    expect(dom.node('composer-shell').dataset.open).toBe('false');
+    expect(dom.node('composer-launcher').getAttribute('aria-expanded')).toBe('false');
+    expect(requests.filter(request => request.method === 'draft.add')).toHaveLength(1);
     expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
   } finally { restore(); await fixture.close(); }
 });
@@ -126,6 +130,7 @@ test('real composer resumes, updates and emits an order draft through HTTP/RPC a
     expect(body.value).toBe('原位续写后的正文！');
     body.value += '最终'; body.oninput();
     await key({ key: 'Enter', ctrlKey: true });
+    expect(ui.inputEditor.inDetail).toBe(false); expect(dom.node('input-form').hidden).toBe(true);
     expect(requests.find(request => request.method === 'input.emit').params).toMatchObject({ draft_id: draft.id, expected_revision: 4, profile: { agent: 'pi', config_mode: 'pi' } });
     fixture.project.stopping = false; await fixture.project.drainInputEmissions(); fixture.project.stopping = true;
     const receipt = fixture.project.inputGet('draft', draft.id); expect(receipt.dispatch.state).toBe('succeeded');

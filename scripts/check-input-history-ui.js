@@ -374,9 +374,12 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         return win.calls.length===3&&add.method==='draft.add'&&update.method==='draft.update'&&emit.method==='input.emit'
           &&update.params.id===row.id&&emit.params.expected_revision===row.revision&&row.revision===2
           &&row.content==='native-first\\ndirty-end'&&doc.querySelector('#input').value===''
+          &&doc.querySelector('#input-form').hidden&&doc.querySelector('#composer-shell').getBoundingClientRect().height===0
+          &&doc.querySelector('#composer-launcher').getAttribute('aria-expanded')==='false'&&doc.activeElement!==doc.querySelector('#input')
           &&trusted.some(event=>event.key==='Enter'&&!event.ctrl)&&trusted.some(event=>event.key==='s'&&event.ctrl)&&trusted.some(event=>event.key==='Enter'&&event.ctrl);`), 'native Ctrl+Enter must save dirty text then authorize its exact version once');
       console.log('PASS WebDriver native trusted Enter → newline/no request; Ctrl+S → one retained draft; dirty Ctrl+Enter → update then one exact-version authorization');
       assert(await frame(`
+        win.workspace.openComposer({focus:false});
         const receipt=doc.querySelector('.composer-receipt'),meta=doc.querySelector('#composer-meta'),count=win.calls.length;
         const compactReceipt=receipt.parentElement===meta&&receipt.textContent==='收据'&&!receipt.hidden&&receipt.getAttribute('data-help').includes('不是当前编辑');
         receipt.click();await until(()=>doc.querySelector('.input-original')&&!win.ui.inputEditor.inDetail);
