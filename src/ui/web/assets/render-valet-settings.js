@@ -5,7 +5,6 @@ import { activateDetailView } from './sidebar-ui.js';
 import { projectRoute } from './route.js';
 import { confirmDialog } from './dialog.js';
 import { loadCliCatalog, searchCommands, commandType, commandGuide } from './cli-catalog.js';
-import { renderCliTrial } from './cli-trial.js';
 
 const permissionsEndpoint = '/api/host/management/permissions';
 const labels = { read: '只读', automatic: '自动执行', confirmation: '逐次确认', unavailable: '禁止' };
@@ -30,14 +29,14 @@ function validatePermissions(value, catalog) {
 }
 
 // Historical filename/state slot retained; the independent settings page is replaced.
-export async function openCliInterfaces({ registerPageLeaveGuard, renderWorkerCli }) {
+export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const view = activateDetailView({ view: 'cli-interfaces' });
   const owner = globalThis.document, identity = globalThis.location?.pathname;
   const existing = ui.valetSettingsPage;
   if (existing?.view === view && existing.owner === owner && existing.pathname === identity) return existing.ready;
   ui.disposeValetSettings?.();
   const state = { view, owner, pathname: identity, disposed: false, generation: 0, catalogGeneration: 0, catalog: null, data: null,
-    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, trail: [null], trailIndex: 0, trial: null, trialGeneration: 0, expanded: new Set(), permissionsExpanded: new Set() };
+    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, trail: [null], trailIndex: 0, expanded: new Set(), permissionsExpanded: new Set() };
   ui.valetSettingsPage = state;
   const owns = () => !state.disposed && globalThis.document === owner && ui.view === view
     && ui.valetSettingsPage === state && globalThis.location?.pathname === identity && !projectRoute();
@@ -88,8 +87,8 @@ export async function openCliInterfaces({ registerPageLeaveGuard, renderWorkerCl
   const crumbs = el('div', undefined, 'cli-breadcrumbs'); navigation.append(back, forward, up, crumbs);
   const directory = el('details', undefined, 'cli-directory'); directory.open = globalThis.innerWidth > 700;
   directory.append(el('summary', '本级目录'), results);
-  const browser = el('div', undefined, 'cli-document-browser'), trialSlot = el('aside', undefined, 'cli-trial-slot'); trialSlot.hidden = true;
-  browser.append(directory, detail, trialSlot);
+  const browser = el('div', undefined, 'cli-document-browser');
+  browser.append(directory, detail);
   root.append(hero, catalogNotice, searchBox, navigation, browser, unconfigured, globalPermissions); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
@@ -211,16 +210,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard, renderWorkerCl
           try { await navigator.clipboard.writeText(item.format); if (owns() && state.selected === item.path) copied.textContent = '已复制模板；请补全参数并核对真实目标，复制不会执行。'; }
           catch { if (owns()) copied.textContent = '复制失败，请手动选择调用格式复制。'; }
         };
-        const trial = el('button', '试运行…', 'ghost'); trial.type = 'button'; trial.dataset.help = '打开编辑器并选择在线项目与 Worker；不会自动执行，修改操作仍需明确确认。';
-        trial.onclick = async () => {
-          const turn = ++state.trialGeneration;
-          await Promise.resolve();
-          if (!owns() || turn !== state.trialGeneration) return;
-          state.trial?.dispose(); trialSlot.replaceChildren(); trialSlot.hidden = false; browser.classList.add('with-trial');
-          const close = el('button', '关闭试运行', 'ghost'); close.type = 'button'; close.onclick = () => { state.trialGeneration++; state.trial?.dispose(); state.trial = null; trialSlot.replaceChildren(); trialSlot.hidden = true; browser.classList.remove('with-trial'); };
-          state.trial = renderCliTrial({ ownsPage: owns, renderWorkerCli, command: item.format }); trialSlot.append(close, state.trial);
-        };
-        detail.append(copy, trial, copied);
+        detail.append(copy, el('p', '复制后到对应 Worker 的 CLI 交互页粘贴，补全参数并执行。', 'hint'), copied);
       }
       if (item.example) detail.append(el('h3', '示例（仅说明，不执行）'), el('code', item.example, 'cli-command-code'));
       detail.append(el('h3', '风险与边界'), el('p', item.risk));
@@ -317,6 +307,6 @@ export async function openCliInterfaces({ registerPageLeaveGuard, renderWorkerCl
   }, { stay: () => { if (owns()) window.history.replaceState(null, '', '#cli-interfaces'); return false; } });
   const beforeUnload = event => { if (owns() && (dirty() || state.busy || state.uncertain)) { event.preventDefault?.(); event.returnValue = ''; } };
   globalThis.addEventListener?.('beforeunload', beforeUnload);
-  ui.disposeValetSettings = () => { state.trialGeneration++; state.trial?.dispose(); state.disposed = true; ++state.generation; unregister(); globalThis.removeEventListener?.('beforeunload', beforeUnload); if (ui.valetSettingsPage === state) ui.valetSettingsPage = null; };
+  ui.disposeValetSettings = () => { state.disposed = true; ++state.generation; unregister(); globalThis.removeEventListener?.('beforeunload', beforeUnload); if (ui.valetSettingsPage === state) ui.valetSettingsPage = null; };
   state.ready = loadCatalog(); return state.ready;
 }

@@ -115,6 +115,22 @@ test('fourth CLI tab → overview polling → real lush/lushw → encrypted hist
     c.edit('lush status'); await c.click();
     expect(calls).toHaveLength(callCount); // disposed old node cannot send, even if a caller retained its controls
     await loadDetail(1); expect(dom.node('detail').querySelector('.worker-cli')).toBeNull();
+    // Main execution remains on the independent CLI page, never the docs page.
+    dom.location.hash = `#worker-${task.parent_id}-execution-cli`;
+    const main = await openWorkerCliPage({ taskId: task.parent_id }); await main.ready;
+    const mainControls = controls(main);
+    mainControls.edit('lushw --json self show'); await mainControls.send();
+    expect(main.querySelector('.worker-cli-status').textContent).toBe('执行成功。');
+    expect(JSON.parse(main.querySelector('.worker-cli-output').textContent).data.id).toBe(task.parent_id);
+    mainControls.edit(`lush worker rename ${task.id} 'independent main CLI'`); pending = mainControls.send();
+    await until(() => dialogText(dom).includes('确认真实 CLI 执行'));
+    expect(f.store.task(task.id).display_title).toBe('from CLI panel');
+    await dialogButton(dom, '确认执行').onclick(); await pending;
+    expect(f.store.task(task.id).display_title).toBe('independent main CLI');
+    ui.disposeWorkerCli();
+    const mainReload = await openWorkerCliPage({ taskId: task.parent_id }); await mainReload.ready;
+    expect(mainReload.querySelectorAll('.worker-cli-result')).toHaveLength(2);
+    expect(mainReload.querySelector('.worker-cli-history-disclosure').open).not.toBe(true);
   } finally {
     closeDialog(); await pending; disposePolling(); ui.disposeWorkerCli?.(); ui.disposeDetailRequests?.(); disposeWorkerCli(); restore(); resetUiState(); dom.restore(); await f.close();
   }

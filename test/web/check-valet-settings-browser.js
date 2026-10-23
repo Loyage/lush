@@ -22,7 +22,7 @@ const screenshot = async name => fs.writeFileSync(path.join(evidence, `${name}.p
 const select = (method, access) => run(`const s=document.querySelector('[data-method="${method}"] select');s.value='${access}';s.dispatchEvent(new Event('change',{bubbles:true}));`);
 const search = text => run(`const s=document.querySelector('.cli-search input');s.value=${JSON.stringify(text)};s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
 const choose = command => run(`const row=document.querySelector('.cli-results [data-command="${command.startsWith('lush') ? command : `lush ${command}`}"]');if(!row)throw Error(${JSON.stringify(`Missing command: ${command}`)});row.click();document.querySelectorAll('.cli-permissions-disclosure').forEach(n=>n.open=true);`);
-const layouts = [], mutations = [], permissionWrites = [], catalogueRequests = [];
+const layouts = [], mutations = [], permissionWrites = [], catalogueRequests = [], discoveryReads = [];
 let permissionReads = 0;
 try {
   await repo(f.root);
@@ -34,6 +34,7 @@ try {
     const url = new URL(req.url);
     if (url.pathname === '/fixture') return new Response(`<!doctype html><html><body style="margin:0"><iframe id="viewport" style="border:0;width:1440px;height:950px" src="/#valet-settings"></iframe></body></html>`, { headers: { 'Content-Type': 'text/html' } });
     const body = req.method === 'POST' ? await req.text() : null;
+    if (/\/api\/(?:host\/projects$|overview$|workers$|worker\/)/.test(url.pathname)) discoveryReads.push(url.pathname);
     if (body && url.pathname.endsWith('/api/action')) mutations.push(JSON.parse(body));
     if (url.pathname.endsWith('-cli-catalog.json')) catalogueRequests.push(url.pathname);
     if (url.pathname === '/api/host/management/permissions') {
@@ -67,10 +68,14 @@ try {
   await press('后退'); assert(await run(`return document.querySelector('.cli-command-detail h2').textContent==='lush worker merge request'`), 'back did not restore document');
   await press('前进'); await press('上一级');
   assert(await run(`return document.querySelector('.cli-command-detail h2').textContent==='lush'`), 'up must reach executable root');
-  await search('worker show'); await choose('worker show'); await press('试运行…');
-  assert(await wait(`document.querySelector('.cli-trial select')?.options.length===1`), 'no-project trial should preserve static documentation');
-  assert(await run(`return !!document.querySelector('.cli-command-detail .cli-inline-guide')&&!document.querySelector('.cli-trial textarea')`), 'no-project documentation incorrectly requires execution context');
-  await press('关闭试运行'); await search('');
+  await search('worker show'); await choose('worker show');
+  assert(await run(`return !!document.querySelector('.cli-command-detail .cli-inline-guide')&&!document.querySelector('.cli-interfaces-page textarea')&&![...document.querySelectorAll('.cli-interfaces-page button')].some(n=>/试运行|^执行$|^预检$/.test(n.textContent))`), 'documentation must not contain an execution surface');
+  await run(`window.copiedTemplate=null;Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:async text=>{window.copiedTemplate=text;}});`);
+  await press('复制模板（须补全参数）');
+  assert(await wait(`window.copiedTemplate==='lush worker show ID'&&document.querySelector('.cli-command-detail').textContent.includes('对应 Worker 的 CLI 交互页')`), 'copy must preserve placeholders and explain the manual execution destination');
+  assert(mutations.length===0, 'reading/copying documentation dispatched a project action');
+  assert(discoveryReads.length===0, `documentation loaded project/Worker data: ${JSON.stringify(discoveryReads)}`);
+  await search('');
   await screenshot('desktop-directory');
   await run(`location.hash='#projects'`); assert(await wait(`document.querySelector('#detail').dataset.view==='projects'&&document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'leave missing');
   await run(`location.hash='#cli-interfaces'`); assert(await wait(`document.querySelectorAll('.cli-command-link').length>0`), 'return missing');
@@ -154,9 +159,29 @@ try {
     }
     assert(await run(`const button=document.querySelector('.cli-permissions-save button'),footer=document.querySelector('.cli-permissions-save');return innerWidth>760||Math.abs(button.getBoundingClientRect().width-(footer.clientWidth-parseFloat(getComputedStyle(footer).paddingLeft)-parseFloat(getComputedStyle(footer).paddingRight)))<=1`), 'mobile save button not full width');
     layouts.push({ kind: 'detail', theme, ...layout }); await screenshot(`${width}-${theme}-detail`);
+    // Desktop scrolls #detail beneath its toolbar; mobile scrolls the document
+    // beneath the sticky rail. Keep the complete wrapped navigation at that edge.
+    for (const offset of [650, 900, 650]) {
+      await run(`const detail=document.querySelector('#detail');if(getComputedStyle(detail).overflowY==='auto')detail.scrollTop=${offset};else window.scrollTo(0,${offset});`);
+      const sticky = await run(`const nav=document.querySelector('.cli-browser-nav'),r=nav.getBoundingClientRect(),detail=document.querySelector('#detail'),mobile=innerWidth<=760;
+        const edge=mobile?document.querySelector('#sidebar').getBoundingClientRect().bottom:detail.getBoundingClientRect().top;
+        const button=nav.querySelector('.cli-breadcrumbs button'),b=button.getBoundingClientRect();
+        return {top:r.top,bottom:r.bottom,edge,width:innerWidth,right:r.right,background:getComputedStyle(nav).backgroundColor,hit:button.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)),buttons:[...nav.querySelectorAll('button')].map(n=>{const q=n.getBoundingClientRect();return {top:q.top,bottom:q.bottom,right:q.right,height:q.height};})};`);
+      assert(Math.abs(sticky.top-sticky.edge)<=2&&sticky.bottom<950&&sticky.right<=width&&sticky.hit&&sticky.background!=='rgba(0, 0, 0, 0)', `navigation not sticky/opaque/clickable: ${JSON.stringify(sticky)}`);
+      assert(sticky.buttons.every(button=>button.top>=sticky.top&&button.bottom<=sticky.bottom&&button.right<=width&&(width>760||button.height>=44)), 'wrapped sticky navigation clipped');
+      layouts.push({ kind: 'sticky', theme, offset, ...sticky });
+    }
+    await screenshot(`${width}-${theme}-sticky-navigation`);
+    const crumb = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.cli-breadcrumbs button' });
+    await rpc(`/session/${session}/element/${crumb['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
+    assert(await run(`return document.querySelector('.cli-command-detail h2').textContent==='lush'`), 'sticky word navigation could not be clicked');
+    await press('后退');
+    assert(await run(`return document.querySelector('.cli-command-detail h2').textContent==='lush order'`), 'sticky history navigation lost selected document');
   }
   await select('order.submit', 'unavailable'); await run(`location.hash='#projects'`);
-  assert(await wait(`!document.querySelector('#modal').hidden`), 'dirty leave did not confirm'); await press('取消');
+  assert(await wait(`!document.querySelector('#modal').hidden`), 'dirty leave did not confirm');
+  assert(await run(`const nav=document.querySelector('.cli-browser-nav'),r=nav.getBoundingClientRect();return !nav.contains(document.elementFromPoint(r.left+10,Math.max(0,r.top)+10))`), 'sticky navigation covered the confirmation layer');
+  await press('取消');
   assert(await wait(`location.hash==='#cli-interfaces'`), 'cancel did not restore route'); await screenshot('390-leave-guard');
   await run(`location.hash='#projects'`); assert(await wait(`!document.querySelector('#modal').hidden`), 'discard missing'); await press('丢弃并离开');
   assert(await wait(`document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`), 'discard destination not ready');
@@ -189,50 +214,6 @@ try {
     await rpc(`/session/${session}/window`, undefined, 'DELETE'); await rpc(`/session/${session}/window`, { handle: handles[0] }); await frame();
     assert(await run(`return location.pathname==='/p/${projectId}/'&&location.hash==='#${hash}'&&document.querySelector('#input').value==='preserve project input'`), 'native global link changed project source input or route');
   }
-  // Real Host document → explicit project route → main/Worker lease → fixed CLI.
-  const trialWorker = (await f.project.order('browser CLI target', null, [], null, false)).task;
-  await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').src='/?trial=1#cli-interfaces'`);
-  assert(await wait(`document.querySelector('#viewport').contentWindow.location.search==='?trial=1'&&document.querySelector('#viewport').contentDocument.querySelectorAll('.cli-command-link').length>0`), 'trial page missing'); await frame();
-  await search('worker show'); await choose('worker show'); await press('试运行…');
-  assert(await wait(`document.querySelector('[aria-label="试运行项目"]')?.options.length>1`), 'registered project missing');
-  await run(`const s=document.querySelector('[aria-label="试运行项目"]');s.value='${projectId}';s.dispatchEvent(new Event('change'));`);
-  assert(await wait(`!!document.querySelector('.cli-trial textarea')`), 'main editor did not load');
-  assert(await run(`return document.querySelector('[aria-label="试运行 Worker"]').value==='${trialWorker.parent_id}'&&document.querySelector('.worker-cli-workspace').textContent.includes('预检')`), 'trial must default to real main without inventing workspace');
-  const editTrial = command => run(`const i=document.querySelector('.cli-trial textarea');i.value=${JSON.stringify(command)};i.dispatchEvent(new Event('input'));`);
-  const rename = `lush worker rename ${trialWorker.id} browser-main-cli`;
-  await editTrial(rename); await press('预检');
-  assert(await wait(`document.querySelector('.worker-cli-status').textContent.includes('预检通过')`), 'real main preflight failed');
-  assert(f.store.task(trialWorker.id).display_title === null, 'preview executed mutation');
-  await press('执行'); assert(await wait(`!document.querySelector('#modal').hidden`), 'main modification lacked confirmation');
-  await press('确认执行'); assert(await wait(`document.querySelector('.worker-cli-status').textContent==='执行成功。'`), 'real main execution failed');
-  assert(f.store.task(trialWorker.id).display_title === 'browser-main-cli', 'real CLI mutation did not persist');
-  await editTrial(`lush worker show ${trialWorker.id}`);
-  const countBeforeSwitch = mutations.filter(row => row.method === 'worker.cli_execute').length;
-  await run(`const s=document.querySelector('[aria-label="试运行 Worker"]');s.value='${trialWorker.id}';s.dispatchEvent(new Event('change'));`);
-  assert(await wait(`document.querySelector('.cli-trial textarea')?.value==='lush worker show ${trialWorker.id}'`), 'target switch rewrote explicit target/draft');
-  assert(mutations.filter(row => row.method === 'worker.cli_execute').length === countBeforeSwitch, 'switch executed a command');
-  await editTrial('lushw --json self show'); await press('执行');
-  assert(await wait(`document.querySelector('.worker-cli-status').textContent==='执行成功。'`), 'real developer Worker execution failed');
-  assert(await run(`return JSON.parse(document.querySelector('.worker-cli-current .worker-cli-output').textContent).data.id===${trialWorker.id}`), 'context returned wrong Worker');
-  for (const width of [1440, 390, 320]) {
-    await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
-    assert(await run(`return document.documentElement.scrollWidth<=innerWidth&&document.querySelector('.cli-trial textarea').getBoundingClientRect().right<=innerWidth&&document.querySelector('.worker-cli-run').getBoundingClientRect().height>=44`), 'trial layout overflow/touch target');
-    await run(`document.querySelector('.cli-trial .worker-cli-controls').scrollIntoView({block:'start',behavior:'instant'})`);
-    await screenshot(`${width}-real-trial`);
-  }
-  await run(`const s=document.querySelector('[aria-label="试运行 Worker"]');s.value='${trialWorker.parent_id}';s.dispatchEvent(new Event('change'));`);
-  assert(await wait(`document.querySelector('.worker-cli-history')?.textContent.includes('browser-main-cli')`), 'main encrypted history did not reload');
-  assert(await run(`return !document.querySelector('.worker-cli-history-disclosure').open&&[...document.querySelectorAll('.worker-cli-history details')].every(n=>!n.open)`), 'old output must remain collapsed');
-  await editTrial(rename); await press('执行'); assert(await wait(`!document.querySelector('#modal').hidden`), 'target-switch confirmation missing');
-  const beforeTargetChange = mutations.filter(row => row.method === 'worker.cli_execute').length;
-  await run(`const s=document.querySelector('[aria-label="试运行 Worker"]');s.value='${trialWorker.id}';s.dispatchEvent(new Event('change'));`);
-  assert(await wait(`document.querySelector('#modal').hidden&&!!document.querySelector('.cli-trial textarea')`), 'target switch retained obsolete confirmation');
-  await run(`const s=document.querySelector('[aria-label="试运行项目"]');s.value='';s.dispatchEvent(new Event('change'));`);
-  assert(await run(`return !document.querySelector('.cli-trial textarea')`), 'clearing project retained executable editor');
-  await run(`const s=document.querySelector('[aria-label="试运行项目"]');s.value='${projectId}';s.dispatchEvent(new Event('change'));`);
-  assert(await wait(`document.querySelector('.cli-trial textarea')?.value===${JSON.stringify(rename)}`), 'project switch lost or rewrote draft');
-  assert(mutations.filter(row => row.method === 'worker.cli_execute').length === beforeTargetChange, 'target/project switch dispatched obsolete command');
-  await press('关闭试运行');
   // Close only the isolated fixture's RPC service; the root page remains fully writable.
   await f.rpc.close();
   await rpc(`/session/${session}/frame`, { id: null });

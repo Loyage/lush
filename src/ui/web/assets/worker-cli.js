@@ -361,8 +361,6 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
       && task.execution_retired !== true) root.ready = readHistory();
     return root;
   };
-  root.getDraft = () => input.value;
-  root.setDraft = command => { if (!disposed) { input.value = command; edited(); } };
   root.dispose = () => {
     if (disposed) return;
     disposed = true; generation++; historyGeneration++; busy = false; dismissConfirmation();

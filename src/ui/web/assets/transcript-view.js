@@ -7,7 +7,6 @@ import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searc
 import { createCodeView } from './code-view.js';
 import { createPerformanceView } from './performance-view.js';
 import { detailWorkerCli, disposeWorkerCli } from './worker-cli-detail.js';
-export { renderWorkerCli } from './worker-cli.js';
 import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange } from './prefs.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';

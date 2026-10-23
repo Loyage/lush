@@ -40,8 +40,6 @@
 .worker-cli-confirm-detail { white-space:pre-wrap; overflow-wrap:anywhere; }
 .execution-tabs,.execution-navigation { flex-wrap:wrap; }
 @media(max-width:360px) { .execution-tabs { flex:1 1 100%; } .execution-tabs button { flex:1 1 calc(50% - 4px); } }
-.cli-trial .worker-cli-layout { grid-template-columns:minmax(0,1fr); }
-.cli-trial .worker-cli { padding:0; }
 @media(max-width:700px) {
  .worker-cli-layout { grid-template-columns:minmax(0,1fr); }
  .worker-cli-auxiliary { max-height:none; overflow:visible; }

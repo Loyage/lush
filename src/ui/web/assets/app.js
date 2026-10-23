@@ -24,7 +24,7 @@ import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
 import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
-import { closeTranscriptView, renderWorkerCli } from './transcript-view.js';
+import { closeTranscriptView } from './transcript-view.js';
 import { ensureProject, openProjectManager, openProjectOverview, workbenchStatus } from './project-picker.js';
 import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
@@ -79,7 +79,7 @@ async function openPage(load, open, view, options = {}) {
   try { const module = await load(); if (current()) return await open(module); }
   catch (error) { if (current()) show(`${error.message}（若界面已更新，请刷新后重试）`, 'error'); }
 }
-const openCliInterfaces = () => openPage(() => import('./render-valet-settings.js'), module => module.openCliInterfaces({ registerPageLeaveGuard, renderWorkerCli }), 'cli-interfaces');
+const openCliInterfaces = () => openPage(() => import('./render-valet-settings.js'), module => module.openCliInterfaces({ registerPageLeaveGuard }), 'cli-interfaces');
 const openAdministrator = () => openPage(() => import('./administrator-page.js'), module => {
   ui.disposeAdministratorPage = module.disposeAdministratorPage;
   return module.openAdministrator();
