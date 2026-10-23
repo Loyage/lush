@@ -113,6 +113,18 @@ test('real development graph pages branches, links only running Valets on main, 
     const links = () => panel.querySelectorAll('.task-graph-valet-link');
     expect(deepText(panel)).toContain('开发树');
     expect(panel.querySelector('.project-management')).toBeNull();
+    const mainCard = panel.querySelector(`[data-task-id="${main.id}"]`);
+    mainCard.querySelector('.task-graph-more-trigger').onclick();
+    const integration = mainCard.querySelector('.integration-control');
+    const integrate = integration.querySelector('button');
+    expect(integrate.textContent).toBe('归并分支');
+    expect(integrate.classList.contains('agent-call')).toBe(true);
+    const help = integrate.getAttribute('data-help');
+    expect(help).toContain('当普通合并无法完成时');
+    expect(help).toContain('归并方式');
+    expect(help).toContain('不会自动验收来源');
+    expect(help).toContain('token');
+    expect(integration.querySelector('.help-host').getAttribute('data-help')).toBe(help);
     expect(deepText(panel)).not.toContain('不显示历史管理诊断');
     expect(ui.taskGraphPage.graph.nodes).toHaveLength(200);
     expect(ui.taskGraphPage.graph.management_count).toBe(1);

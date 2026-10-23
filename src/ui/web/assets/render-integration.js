@@ -14,7 +14,7 @@ const positive = value => Number.isSafeInteger(value) && value > 0;
 const stage = operation => STAGES[operation?.state] || '状态未知，请核查';
 const valid = operation => positive(operation?.id) && typeof operation.revision === 'string' && operation.revision.length > 0
   && typeof operation.target_branch === 'string' && Array.isArray(operation.members) && Number.isSafeInteger(operation.member_count);
-const START_HELP = agentHelp('固定此刻可准入的直接来源，创建一个整合 Worker 自主合并与验证，最终一次性合入此分支；不会改变来源父子关系，也不会自动验收来源。');
+const START_HELP = agentHelp('当普通合并无法完成时，可用归并方式整合来源分支：固定此刻可准入的直接来源，由一个整合 Worker 统一适配并验证，成功后一次性合入此分支；不会改变来源父子关系，也不会自动验收来源。');
 
 function linkWorker(worker, label = null) {
   if (!positive(worker?.id)) return el('span', '整合 Worker 身份尚未提供', 'warn');
@@ -77,7 +77,7 @@ export function integrationControl(task, { refresh = () => {}, ownsPage = () => 
     || ['completed', 'failed', 'cancelled'].includes(task.status) || task.archived || task.branch_archive?.archived) return null;
   const root = el('section', undefined, 'integration-control'), current = lifetime(root, ownsPage);
   const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', START_HELP);
-  const control = button('整合全部', () => {}, 'ghost', { agent: true, help: START_HELP });
+  const control = button('归并分支', () => {}, 'ghost', { agent: true, help: START_HELP });
   const active = task.merge_operation && !ENDED.has(task.merge_operation.state);
   if (active) { control.disabled = true; host.setAttribute('data-help', '已有整合操作，请打开整合 Worker 查看进度、待决或失败原因。'); host.tabIndex = 0; }
   host.append(control); root.append(host);
@@ -102,9 +102,9 @@ export function integrationControl(task, { refresh = () => {}, ownsPage = () => 
         throw Error('来源清单不完整，不能据此确认整合范围。');
       const detail = [`本次纳入 ${plan.count} 个来源：`, ...plan.members.map(member => `${workerLabel(member)} ${member.title || ''} · ${member.source_commit.slice(0, 12)}`),
         ...(plan.excluded.length ? ['', `未纳入 ${plan.excluded.length} 个来源：`, ...plan.excluded.map(member => `${workerLabel(member)} · ${member.reason}`)] : [])].join('\n');
-      const confirmed = await confirmDialog({ title: `整合 ${task.branch} 的 ${plan.count} 个来源？`,
+      const confirmed = await confirmDialog({ title: `归并 ${task.branch} 的 ${plan.count} 个来源？`,
         message: '只固定本清单，之后完成的来源不加入。一个整合 Worker 自主选择顺序、适配并验证；全部成功后一次性合入目标。任一成员失败或待决会阻挡本次整体完成；源代码与父子关系保持不变，验收仍独立。',
-        detail, confirmLabel: '开始整合', agent: true, confirmHelp: START_HELP });
+        detail, confirmLabel: '开始归并', agent: true, confirmHelp: START_HELP });
       if (!confirmed || !current()) return;
       const result = await action('branch.integrate_start', { branch: task.branch, expected_revision: plan.revision }, { refresh: false });
       if (!current()) return;
