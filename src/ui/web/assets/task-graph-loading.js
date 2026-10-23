@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { projectBase } from './route.js';
 import { readPref } from './prefs.js';
 import { ui } from './state.js';
+import { isValet } from './work-type.js';
 
 const filterKey = () => JSON.stringify([[...readPref('taskGraphStatuses')].sort(), ui.taskGraphShowArchived]);
 const STALE_CURSOR = 'Worker graph cursor stale; refresh from first page';
@@ -47,7 +48,8 @@ const currentPage = page => ui.taskGraphPage === page && ui.view === page.view &
  * samples, not a claim that the whole loaded range was revalidated. */
 function applyBatch(page, response, { summary, next, restart, previousCursor }) {
   const [hidden, archived] = JSON.parse(page.filter);
-  const matches = node => !ui.deletedWorkerIds.has(node.id) && (node.management_attention || (!hidden.includes(node.status)
+  const matches = node => !ui.deletedWorkerIds.has(node.id) && (isValet(node) ? node.status === 'running' && !node.graph_cached
+    : (!hidden.includes(node.status)
     && (archived || node.acceptance_recovery === true || !(node.archived || node.branch_info?.archived))));
   const paginated = typeof response.has_more === 'boolean';
   const nodes = (response.nodes || []).map(node => paginated ? { ...node, graph_cached: false } : node);
@@ -118,7 +120,7 @@ export async function readTaskGraph({ summary = false, next = false, retry = fal
         page.restartRequired = true;
         if (page.staleRestarts >= 1) {
           page.hasMore = false;
-          throw new Error('项目树结构连续变化，已停止自动重开；请手动重试。');
+          throw new Error('开发树结构连续变化，已停止自动重开；请手动重试。');
         }
         page.staleRestarts++;
         restart = true;
@@ -174,7 +176,7 @@ export function paintGraphStatus() {
 
 export function graphTail(loadNext) {
   const tail = el('section', undefined, 'task-graph-page-tail');
-  tail.setAttribute('aria-label', '项目树分页');
+  tail.setAttribute('aria-label', '开发树分页');
   tail.append(el('p', undefined, 'task-graph-page-count'));
   const note = el('p', undefined, 'hint task-graph-page-note'); note.setAttribute('role', 'status');
   const control = button('加载下一批', () => loadNext(), 'ghost');

@@ -6,7 +6,7 @@
 
 Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父Worker、子Worker、状态、权限与交付生命周期不变。实体名称不再与历史 `role='worker'` 混为一谈：新 指令/child 的角色仍为 `agent`，历史角色值不改写。界面区分开发 Worker 与受限管家 Valet，二者共享持久执行底座和读取接口，不共享 Git、权限和交付契约；Valet 的内部 manager/management 身份与接口保留，见[Valet 契约](hook-signals-management.md)。
 
-W383／D761、D762：新 Valet 的 `parent_id` 归属项目真实 main Worker（按 `task_kind='main'`、`branch='main'` 查找，不假定内部 ID）；仍为 `role='manager'`／`task_kind='management'`、独立真实 V 编号，不带 `branch`／`target_branch`／`base_commit`。父关系仅表达项目归属，不继承开发上下文、工具、权限或 child／Git 合并生命周期。即时、信号、草稿及密码提权的新建入口均要求已有真实本地 `refs/heads/main`；无 Git／无 main 明确拒绝，不自动初始化或创建分支。精确旧请求仍返回原身份与收据，不因 main 后来缺失而重放或新建；历史行不回写，图归属只读投影见[项目树](task-graph.md#阅读项目树)。
+W383／D761、D762：新 Valet 的 `parent_id` 归属项目真实 main Worker（按 `task_kind='main'`、`branch='main'` 查找，不假定内部 ID）；仍为 `role='manager'`／`task_kind='management'`、独立真实 V 编号，不带 `branch`／`target_branch`／`base_commit`。父关系仅表达项目归属，不继承开发上下文、工具、权限或 child／Git 合并生命周期。即时、信号、草稿及密码提权的新建入口均要求已有真实本地 `refs/heads/main`；无 Git／无 main 明确拒绝，不自动初始化或创建分支。精确旧请求仍返回原身份与收据，不因 main 后来缺失而重放或新建；历史行不回写，图归属只读投影见[开发树](task-graph.md#阅读开发树)。
 
 这是**破坏性的公开接口命名变更**，旧入口不保留别名：
 
@@ -37,7 +37,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ## Worker 自定义标题
 
-用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web 项目树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
+用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web 开发树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
 
 ### Agent 自动标题（W202／决定 D471）
 

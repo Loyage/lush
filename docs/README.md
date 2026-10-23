@@ -19,7 +19,7 @@
 | --- | --- |
 | 创建任务、追加需求、审阅、合并、验收 | [指令交付流程](task-flow.md) |
 | 先保存想法，找回草稿或已发送原话 | [历史输入与草稿](input-history.md) |
-| 看懂项目树里的父子关系、连线与合并箭头 | [阅读工作树](engineering/task-graph.md#阅读工作树) |
+| 看懂开发树里的父子关系、连线与合并箭头 | [阅读开发树](engineering/task-graph.md#阅读开发树) |
 | 设置自动合并／验收，或等条件满足再执行 | [自动化与预约发射](hooks.md)；详细参数见[Hook 参考](reference/rpc/hooks.md) |
 | 了解问题与告知、已读和提醒的区别 | [通知理念](design/notices.md)；操作接口见[Notice 参考](reference/rpc/notices.md) |
 | 管理账号来源、选择模型、查看额度 | [Agent 配置](reference/agent-configuration.md)与[账号连接参考](reference/rpc/agents.md#托管账号连接) |

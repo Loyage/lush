@@ -1,8 +1,7 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
-import { batchDisclosure, disclosureIcon, paintDisclosure } from './view-controls.js';
+import { batchDisclosure, disclosureIcon } from './view-controls.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
 import { isValet } from './work-type.js';
-import { managementEmergencyLabel } from './management-state.js';
 import { projectBase } from './route.js';
 import { graphPage, readTaskGraph, paintGraphStatus, graphTail, observeGraphTail } from './task-graph-loading.js';
 import { bindWorkerPreview } from './entity-preview.js';
@@ -113,7 +112,7 @@ function graphMergeStatus(node) {
   return label ? badge(label, ['merged', 'integrated'].includes(state) ? 'b-completed' : 'b-awaiting') : null;
 }
 
-function taskCard(node, folded, refresh, queueNote = null, minimal = false, inputWorkers = []) {
+function taskCard(node, folded, refresh, queueNote = null, minimal = false, inputWorkers = [], valets = []) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
   row.classList.add(`task-graph-${taskVisualState(node)}`);
@@ -150,11 +149,11 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
     : sourceDelivery(node.delivery_summary, { showStage: false, showInputQueue: false });
   if (tracking) row.append(tracking);
   if (minimal) {
-    row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, inputWorkers));
+    row.append(minimalSummary(node, queueNote, folded, valets), taskActionsMenu(node, inputWorkers));
     return row;
   }
 
-  const relations = mergeRelations(node);
+  const relations = graphRelations(node, valets);
   if (relations) row.append(relations);
   if (node.goal_preview && node.goal_preview !== node.title) row.append(el('p', node.goal_preview, 'task-graph-goal'));
   const interruptHint = interruptReason(node);
@@ -273,7 +272,7 @@ function appendTaskActions(row, node, inputWorkers) {
   }
 }
 
-function minimalSummary(node, queueNote, folded = new Set()) {
+function minimalSummary(node, queueNote, folded = new Set(), valets = []) {
   const line = el('div', undefined, 'task-graph-minimal-summary');
   const reporting = progressReportingEnabled();
   const stats = progressStats(reporting ? node.progress : null);
@@ -286,11 +285,12 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   const note = (waitingFirstInput(node) ? '等待首条输入 · 尚未调用 Agent' : null) || interruptHint || (node.integration_error ? `集成受阻：${node.integration_error}`
     : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step);
   const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
-  const relations = mergeRelations(node);
+  const relations = graphRelations(node, valets);
   const progress = el('div', undefined, 'task-graph-minimal-progress');
   const git = graphGitStatus(node);
   if (git) progress.append(git);
-  progress.append(interruptHint ? text : relations || text);
+  if (valets.length && interruptHint) relations.prepend(text);
+  progress.append(valets.length ? relations : interruptHint ? text : relations || text);
   line.append(progress);
   // Desktop keeps these inline; mobile gives progress and metadata separate rows.
   const meta = el('div', undefined, 'task-graph-minimal-meta');
@@ -368,65 +368,21 @@ function taskActionsMenu(node, inputWorkers) {
   return wrap;
 }
 
-const managementFoldByView = new WeakMap();
-
-/** Valets are project management records inside main, never development cards or edges. */
-function projectManagement(graph) {
-  const records = (graph.nodes || []).filter(node => isValet(node) && !ui.deletedWorkerIds.has(node.id))
-    .filter(node => node.management_attention || ((!isArchivedTask(node) || ui.taskGraphShowArchived) && !hiddenStatuses().has(node.status)))
-    .sort((a, b) => Number(Boolean(b.management_attention)) - Number(Boolean(a.management_attention)) || b.id - a.id);
-  const section = el('section', undefined, 'project-management');
-  section.setAttribute('aria-label', '项目管理 · Valet');
-  const head = el('div', undefined, 'project-management-head');
-  head.append(el('strong', '项目管理 · Valet'), el('span', `已加载 ${records.length} / ${graph.management_count ?? records.length}`, 'hint'));
-  // A resumed older Valet can be newer than the highest ID. Status/acceptance
-  // updates are not executions; historical rows without a run time sort last.
-  const latest = [...records].sort((a, b) => (Date.parse(b.agent_last_seen_at) || 0) - (Date.parse(a.agent_last_seen_at) || 0)
-    || (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0) || b.id - a.id)[0];
-  if (!ui.taskGraphLocated && records.some(node => node.id === ui.taskGraphLocator)) managementFoldByView.set(ui.view, false);
-  const rows = [];
-  const paintFold = () => {
-    const folded = managementFoldByView.get(ui.view) !== false;
-    paintDisclosure(toggle, !folded, { expand: '展开管理记录', collapse: '收起管理记录', compact: true,
-      help: '收起时仅显示已加载范围内最近运行的一个 Valet；展开查看其余记录及待决、异常，不读取更多历史或调用 Agent。' });
-    for (const [row, node] of rows) row.hidden = folded && node !== latest;
-  };
-  const toggle = button('', () => {
-    managementFoldByView.set(ui.view, managementFoldByView.get(ui.view) === false);
-    paintFold();
-  }, 'ghost');
-  head.append(toggle); section.append(head);
-  for (const node of records) {
-    const row = el('div', undefined, 'project-management-row'); row.dataset.valetId = String(node.id);
-    const identity = el('div', undefined, 'project-management-identity');
-    identity.append(el('strong', `${workerLabel(node)} ${node.title || node.name || 'Valet'}`),
-      badge(node.accepted ? '已验收' : statusOf(node).label, `b-${node.status}`));
-    if (node.notice_count) identity.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
-    row.append(identity);
-    const binding = node.management;
-    const diagnostic = [managementEmergencyLabel(binding), node.error, binding?.reason,
-      binding?.first_failure?.detail, node.acceptance_recovery ? '资源回收未完成 · 请续办验收' : null,
-      binding?.acceptance_blocked ? binding.acceptance_reason || '验收记录不完整 · 请检查持久记录' : null,
-      binding?.state === 'unknown' || binding?.operation_states?.includes('unknown') ? '结果未知，不自动重放' : null,
-      binding?.state === 'failed' ? '管理调用失败' : null,
-      binding?.operation_states?.includes('failed') ? '受控操作失败，请查看收据' : null,
-      binding?.operation_states?.includes('running') ? '受控操作仍在执行' : null,
-      !binding || node.details_unavailable ? '管理状态暂不可用，请查看详情核对。' : null,
-      node.graph_cached ? '旧采样缓存，待更新' : null].filter(Boolean);
-    if (diagnostic.length) row.append(el('p', [...new Set(diagnostic)].join(' · '),
-      `project-management-diagnostic${node.management_attention || node.acceptance_recovery ? ' warn' : ' hint'}`));
-    const actions = el('div', undefined, 'project-management-actions');
-    actions.append(button('详情 →', () => detail(node.id), 'nav-link', { worker: node }));
-    const iteration = iterationControls(node, { refresh: () => loadTaskGraph({ retry: true }) });
-    if (iteration) actions.append(iteration);
-    row.append(actions); section.append(row);
-    rows.push([row, node]);
+/** Reuse compact merge-target links, without a management panel. */
+function graphRelations(node, valets = []) {
+  let line = mergeRelations(node);
+  if (!valets.length) return line;
+  line ||= el('div', undefined, 'task-graph-merge-relations');
+  line.classList.add('task-graph-has-valets');
+  for (const valet of valets) {
+    const link = button('', () => detail(valet.id), 'ghost task-graph-merge-link task-graph-valet-link', { worker: valet });
+    link.append(el('span', `Valet ${workerLabel(valet)} · 运行中`, 'task-graph-link-label'));
+    link.dataset.valetId = String(valet.id);
+    link.dataset.graphFocus = `valet-${valet.id}`;
+    line.append(link);
   }
-  paintFold();
-  if (!records.length) section.append(el('p', graph.management_count ? '尚未读到匹配的 Valet；请继续加载项目分页。' : '当前筛选没有管理记录。', 'hint'));
-  if (graph.has_more) section.append(button('加载下一批项目记录', () => loadNextTaskGraph(), 'ghost', {
-    help: '沿项目树的同一真实游标读取下一批开发及管理记录；计数来自完整筛选范围，不把当前页当作全量。' }));
-  return section;
+  line.setAttribute('aria-label', '合并关系与运行中的 Valet');
+  return line;
 }
 
 export function renderTaskGraph(graph) {
@@ -436,8 +392,8 @@ export function renderTaskGraph(graph) {
   const minimal = ui.taskGraphMinimal;
   const records = (graph.nodes || []).filter(node => !ui.deletedWorkerIds.has(node.id));
   const raw = records.filter(node => !isValet(node));
-  // A filtered/paged-out main remains only a clearly labelled management host;
-  // its development card must not silently bypass the user's status filter.
+  const runningValets = records.filter(node => isValet(node) && node.status === 'running' && !isArchivedTask(node) && !node.graph_cached);
+  // A filtered/paged-out main remains a labelled anchor, not a development card.
   const main = graph.project_main || raw.find(node => node.task_kind === 'main' && node.branch === 'main');
   rememberWorkers(records);
   for (const node of raw) rememberWorkers(node.merge_queue?.items);
@@ -464,7 +420,7 @@ export function renderTaskGraph(graph) {
   const listed = ui.taskGraphShowArchived ? all : all.filter(node => !isArchivedTask(node));
   // 状态计数用筛选前的口径：关掉一个状态后它的开关还得留在表头上，否则再也点不回来。
   const counts = new Map(Object.entries(graph.counts || {}));
-  if (!graph.counts) for (const node of [...listed, ...records.filter(isValet)]) counts.set(node.status, (counts.get(node.status) || 0) + 1);
+  if (!graph.counts) for (const node of listed) counts.set(node.status, (counts.get(node.status) || 0) + 1);
   const hidden = hiddenStatuses();
   const nodes = listed.filter(node => !hidden.has(node.status));
   const view = { ...full, nodes };
@@ -485,9 +441,9 @@ export function renderTaskGraph(graph) {
   const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', '项目树'));
+  hero.append(el('h1', '开发树'));
   const summary = el('div', undefined, 'task-graph-summary');
-  const decisions = [...nodes, ...records.filter(isValet)].reduce((count, node) => count + (node.notice_count || 0), 0);
+  const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
   // 状态计数本身兼作图例与开关：点一下隐藏 / 显示该状态，只改显示、不写库、不改任务状态。
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) || 0;
@@ -576,7 +532,7 @@ export function renderTaskGraph(graph) {
     save(next); renderTaskGraph(full);
   };
   const foldControls = el('div', undefined, 'task-graph-fold-controls');
-  foldControls.setAttribute('role', 'group'); foldControls.setAttribute('aria-label', '项目树展开与折叠');
+  foldControls.setAttribute('role', 'group'); foldControls.setAttribute('aria-label', '开发树展开与折叠');
   const foldControl = batchDisclosure({ getItems: () => branches, isExpanded: id => !saved.has(id), setExpanded: open => bulkFold(!open),
     scope: '作用于当前已加载且符合筛选的全部子 Worker 层级，含被祖先收起的层级；未加载层级不受影响。保留筛选、归档显示与详情模式，不改变 Worker 状态或调用 Agent。',
     empty: '当前筛选范围没有可展开或收起的子 Worker 层级。' });
@@ -588,8 +544,8 @@ export function renderTaskGraph(graph) {
   if (view.truncated && typeof view.has_more !== 'boolean') box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
-    const card = taskCard(node, saved, () => renderTaskGraph(full), mergeQueue.get(node.id) ?? null, minimal, raw);
-    if (node.id === main?.id) { card.classList.add('task-graph-with-management'); card.append(projectManagement(graph)); }
+    const card = taskCard(node, saved, () => renderTaskGraph(full), mergeQueue.get(node.id) ?? null, minimal, raw,
+      node.id === main?.id ? runningValets : []);
     wrap.append(card);
     if (node.children.length && !saved.has(node.id)) {
       const children = el('div', undefined, 'task-graph-children');
@@ -598,15 +554,11 @@ export function renderTaskGraph(graph) {
     }
     parent.append(wrap);
   };
-  if (main && !nodes.some(node => node.id === main.id) && (graph.management_count || records.some(isValet))) {
+  if (main && !nodes.some(node => node.id === main.id) && runningValets.length) {
     const anchor = el('section', undefined, 'project-main-anchor');
     anchor.append(button(`${workerLabel(main)} ${main.title || 'main'}`, () => detail(main.id), 'nav-link', { worker: main }),
-      el('p', 'main 开发节点在当前筛选或分页之外；以下仅为项目管理区。', 'hint'), projectManagement(graph));
+      el('p', 'main 开发节点在当前筛选或分页之外。', 'hint'), graphRelations(main, runningValets));
     box.append(anchor);
-  } else if (!main && records.some(isValet)) {
-    const unavailable = el('section', undefined, 'project-main-anchor');
-    unavailable.append(el('p', '真实 main 归属暂不可用；管理历史仅作只读展示，不创建开发枝叶。', 'warn'), projectManagement(graph));
-    box.append(unavailable);
   }
   for (const node of forest) paint(node, box);
   if (typeof graph.has_more === 'boolean') box.append(graphTail(loadNextTaskGraph));
@@ -642,7 +594,7 @@ export function renderTaskGraph(graph) {
 }
 
 function graphFailure(error) {
-  show(`项目树更新失败：${error.message}`, 'error');
+  show(`开发树更新失败：${error.message}`, 'error');
 }
 export async function loadTaskGraph(options = {}) {
   const view = ui.view;
@@ -719,7 +671,7 @@ export async function openTaskGraph({ workerId = null, push = true } = {}) {
       void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
     }
   } catch (error) {
-    if (ui.view === view) $('detail').textContent = `项目树加载失败：${error.message}`;
+    if (ui.view === view) $('detail').textContent = `开发树加载失败：${error.message}`;
     throw error;
   }
 }

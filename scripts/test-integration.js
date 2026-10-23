@@ -43,7 +43,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/version-lineage.test.js', // compact lineage -> selected child endpoints -> same-snapshot page navigation
     'test/web/dom-inputs-api.test.js', // persisted draft editing and submission
     'test/web/dom-transcript-view.test.js', // single-button order, mixed/bulk fold and live tool results
-    'test/web/dom-task-graph-integration.test.js', // real graph pagination/filter -> Valets inside main -> shared acceptance control
+    'test/web/dom-task-graph-integration.test.js', // real development pagination/filter -> running-only main Valet links -> detail
     'test/web/reading-conversation-integration.test.js', // shared reading controls -> real HTTP history/record pagination
     'test/web/dom-management-diagnostic.test.js', // shared heading actions -> real Provider/HTTP call records and safe diagnostic reading
     'test/web/transcript-reader.test.js', // shared search and explicit full-record reads

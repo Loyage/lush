@@ -85,16 +85,16 @@ try{
     assert(compact.foldInside&&compact.gap<=3&&compact.foldWidth===(width<=760?44:20)&&compact.foldHeight===(width<=760?44:24),`compact caret/clear touch target: ${JSON.stringify(compact)}`);
     assert(width>760||(compact.titleHeight>=44&&compact.titleLabelHeight<=22),`compact title label/clear touch target: ${JSON.stringify(compact)}`);
     assert(geometry.length===3,'missing nested cards or Valet incorrectly drawn as a branch');
-    const management=await execute(`const section=document.querySelector('[data-task-id="1"]>.project-management');return {expanded:section.querySelector('button').getAttribute('aria-expanded'),rows:[...section.querySelectorAll('.project-management-row')].filter(row=>!row.hidden).map(row=>{const r=row.getBoundingClientRect();return {id:row.dataset.valetId,overflow:row.scrollWidth>row.clientWidth+1,buttons:[...row.querySelectorAll('button')].map(b=>b.getBoundingClientRect().height),contained:r.right<=section.getBoundingClientRect().right};})};`);
-    assert(management.expanded==='false'&&management.rows.length===1&&management.rows[0].id==='4', 'management should default to only the most recently run Valet');
-    assert(management.rows.every(row=>!row.overflow&&row.contained&&(width>760||row.buttons.every(h=>h>=44))),`management overflow/touch targets: ${JSON.stringify(management)}`);
+    const valet=await execute(`const card=document.querySelector('[data-task-id="1"]'),links=[...document.querySelectorAll('.task-graph-valet-link')],link=links[0],r=link.getBoundingClientRect(),label=link.querySelector('.task-graph-link-label').getBoundingClientRect(),c=card.getBoundingClientRect();return {count:links.length,id:link.dataset.valetId,text:link.textContent,height:r.height,labelHeight:label.height,contained:r.left>=c.left&&r.right<=c.right&&r.top>=c.top&&r.bottom<=c.bottom,panel:!!document.querySelector('.project-management')};`);
+    assert(valet.count===1&&valet.id==='4'&&valet.text==='Valet V21 · 运行中'&&!valet.panel, 'only a running Valet tag should remain on main');
+    assert(valet.contained&&(width>760?valet.height<=20:valet.height>=44&&valet.labelHeight<=20),`Valet label/touch targets: ${JSON.stringify(valet)}`);
     for(const card of geometry){
       if(width<=640){
         assert(card.metaTop>=card.noteBottom&&card.usageTop>=card.noteBottom,`metadata covers progress: ${JSON.stringify(card)}`);
         assert(!card.noteOverflow&&!card.metaOverflow&&card.contained,`mobile overflow: ${JSON.stringify(card)}`);
         assert(card.usageBottom<card.bottom&&card.moreTop<card.metaTop,`usage/actions outside card: ${JSON.stringify(card)}`);
       }else{
-        assert((card.hasManagers|| (width<=760?card.height>=86&&card.height<=88:card.height===68))&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
+        assert((width<=760?card.height>=86&&card.height<=(card.id==='1'?112:88):card.height===68)&&card.metaDisplay==='contents',`inline layout changed: ${JSON.stringify(card)}`);
         assert(card.usageTop<card.noteBottom,'desktop no longer inline');
       }
     }
@@ -146,15 +146,13 @@ try{
       return f.left>=c.left&&f.right<=t.left&&t.left-f.right<=4&&(innerWidth>760||(t.height>=44&&label.height<=22))&&[...document.querySelectorAll('.task-graph-summary>.badge')].every(n=>n.getBoundingClientRect().height<=17);`),'detail mode caret/title/filter spacing');
   }
   console.log('PASS compact detail-mode caret and filter badges at mobile/desktop widths');
-  await execute(`window.graph=structuredClone(normalGraph);window.graph.nodes.push({id:7,parent_id:1,worker_number:'V24',title:'可收起的已收口管理记录',role:'manager',task_kind:'management',status:'completed',management:{state:'succeeded'}});window.graph.management_count=4;window.graph.total++;window.paint();`);
-  for(const width of [390,1440]){
-    await resize(width);
-    await execute(`document.querySelector('.project-management-head button').click();window.graph.sample='expanded-'+innerWidth;window.paint();`);
-    assert(await execute(`const section=document.querySelector('.project-management');return section.querySelector('button').getAttribute('aria-expanded')==='true'&&[...section.querySelectorAll('.project-management-row')].every(row=>getComputedStyle(row).display!=='none')&&section.textContent.includes('结果未知')&&section.textContent.includes('资源回收未完成');`),'expanded management records or diagnostics unavailable after repaint');
-    await execute(`document.querySelector('.project-management-head button').click();window.graph.sample='collapsed-'+innerWidth;window.paint();`);
-    assert(await execute(`const section=document.querySelector('.project-management'),visible=[...section.querySelectorAll('.project-management-row')].filter(row=>getComputedStyle(row).display!=='none');return section.querySelector('button').getAttribute('aria-expanded')==='false'&&visible.length===1&&visible[0].dataset.valetId==='4';`),'management collapse should retain only the most recently run Valet after repaint');
+  for(const width of [320,1440]){
+    await resize(width);await execute(`window.graph=structuredClone(normalGraph);window.paint();`);
+    assert(await execute(`const link=document.querySelector('.task-graph-valet-link'),r=link.getBoundingClientRect(),c=link.closest('.task-graph-card').getBoundingClientRect();return r.left>=c.left&&r.right<=c.right&&r.bottom<=c.bottom&&!document.querySelector('.project-management')&&document.querySelectorAll('.task-graph-valet-link').length===1;`),'detail mode must keep only the running link inside main');
+    await execute(`graph.nodes.find(node=>node.id===4).status='completed';window.paint();`);
+    assert(await execute(`return !document.querySelector('.task-graph-valet-link')&&!document.querySelector('.project-management');`),'stopped Valet must disappear without an empty management panel');
   }
-  console.log('PASS management defaults to one recent Valet, survives repaint and expands all diagnostics at mobile/desktop widths');passed=true;
+  console.log('PASS compact running-only main Valet tags in both modes; stopped/failed/unknown history stays absent');passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});
   driver.kill();await driver.exited;server.stop(true);

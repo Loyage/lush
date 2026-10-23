@@ -164,7 +164,7 @@ async function runRefresh(session, currentResponse) {
       && ![...$('detail').querySelectorAll('textarea')].some(node => node === document.activeElement || node.value)) {
       // Heavy Git/session reads have their own single flight, not the global refresh lock.
       void loadTaskGraph().catch(error => {
-        if (ui.view?.id === 'task-graph') show(`项目树更新失败：${error.message}`, 'error');
+        if (ui.view?.id === 'task-graph') show(`开发树更新失败：${error.message}`, 'error');
       });
     }
     const current = data.tasks.find(task => task.id === ui.selected);

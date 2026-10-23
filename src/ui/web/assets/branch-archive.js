@@ -9,7 +9,7 @@ import { projectBase, routeContext } from './route.js';
 
 export const BRANCH_ARCHIVE_HELP = '清理这条分支及它下面的全部后代分支资源：删除 worktree 与本地 ref，'
   + '未提交改动会随 worktree 一起丢失；Worker、消息、事件与会话记录都保留。这不是成果验收，也不等于删除 Worker。'
-  + '历史内部合并队列随父 Worker 一起归档；之后可在项目树表头“已回收”里查看记录。';
+  + '历史内部合并队列随父 Worker 一起归档；之后可在开发树表头“已回收”里查看记录。';
 
 export async function runBranchArchive(branch, { refresh } = {}) {
   const view = ui.view, scope = projectBase(), owner = globalThis.document;

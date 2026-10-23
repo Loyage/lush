@@ -170,6 +170,7 @@ export default {
       row.archived = recovery.get(row.id)?.archived ?? archivedIds.has(row.id);
     }
     const priority = row => ['main','owner'].includes(row.task_kind) ? 0
+      : options.scope === 'tree' && (row.task_kind === 'management' || row.role === 'manager') && row.status === 'running' ? 0.5
       : row.management_attention || ['running','queued','waiting','awaiting'].includes(row.status) ? 1 : 2;
     metadata.sort((a, b) => priority(a) - priority(b) || b.id - a.id);
     const page = graphPage(this.config.home, metadata, options);

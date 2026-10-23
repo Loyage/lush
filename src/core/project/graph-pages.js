@@ -17,6 +17,10 @@ export function graphPage(project, metadata, options) {
   const counts = Object.fromEntries(STATUSES.map(status => [status, 0]));
   let archived_count = 0;
   const filtered = metadata.filter(row => {
+    // The development tree keeps only running Valets as main-node links, not
+    // historical management rows or management status/archive counters.
+    if (options.scope === 'tree' && (row.task_kind === 'management' || row.role === 'manager'))
+      return row.status === 'running' && !row.archived;
     // Keep historical RPC/CLI nodes, but UI counters describe drawable kinds only.
     const drawable = row.role === 'manager' || ['main', 'owner', 'order', 'say', 'child', 'merge', 'management'].includes(row.task_kind);
     if (options.scope === 'tree' && !drawable) return false;

@@ -1,16 +1,16 @@
-# 项目树与输入规则（增量实现）
+# 开发树与输入规则（增量实现）
 
 Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界读面：节点是 Worker（含 main、owner、旧Worker），边来自当前 `parent_id`；当前 version 2 父自有交付队列不创建 merge Worker、不改源 Worker 的 `parent_id`，父子边始终表达委派关系；排队、源侧修复和落地待验收的 Worker 都留在直接父 Worker 下，不靠展示层抬升。旧 version 2 在途重挂仅凭明确预约／审计恢复原父，历史身份与事件保留，不猜父关系。落地不自动归档。卡片显示目标摘要、Agent 类型、分支合并状态（`integration`：待合并 / 已合并 / 合并中等，与Worker详情同源，做成首行标签）、工作/静息与冻结原因、结果预览、计划进度、子 Worker 数、分支/worktree、当前 HEAD、已提交与未提交诊断、交付预约与就地待决；指令交付操作复用Worker详情，普通问答/计划审批使用 `task-graph-parts.js` 的就地处理按钮，问卷跳到Worker详情按完整选项作答。点标题看完整Worker详情；历史独立解分歧 Worker 用父子边挂在负责集成的活动 Worker 下，另以「正在解决 Worker #ID」链接被修复的历史 Worker，不能把后者的终态/父子身份改掉。每批最多返回 200 条，并受真实 JSON UTF-8 字节预算限制；可继续加载全部匹配 Worker，优先返回分支所有者和活动 Worker。画成卡片的只有自己拥有分支/worktree 的 main / owner / 指令 / child，以及**旧 version 2 的历史 merge 队列身份**：已有 `task_kind='merge'` 卡片与类型过滤保留，摘要明确标为历史；空闲记录仍可查看，父 Worker 分支归档后随父归档、默认隐藏，可通过「显示已归档」查看。新请求由父自有队列的 runtime 串行处理，不额外调用父 Agent；按持久入队顺序、代码依赖优先，取得父执行位后才固定父基线。源侧修复期间保留父执行位，挂起释放，恢复重新排队并固定新基线；完整协议见[分支合并](merge.md)。被状态筛选或归档筛掉的父节点不制造孤儿：还在图上的子 Worker 按「最近的可见祖先」上浮，找不到可见祖先时顶成根；当前请求始终保留原父关系；历史在途请求由 runtime 受检恢复，不依赖展示层猜测。只有真的找不到父节点（被截断的那页或数据缺失）才画为根并说明。诊断/正文未知时明示不可用或截断，不能当作零。旧「分支与合并」视图与 `/api/graph` HTTP 路由已删除，旧 `#graph` 回概览；完整谱系与本地未绑定分支绑定保留在 CLI / RPC。Worker 卡片增加真实 Git 父分支、当前检出、领先/落后与一致/分歧/缺失等精简诊断，边仍只表示 Worker 父子关系。历史分支引用保留快照，但 Web 定位入口明确报已移除；Worker 图不新增语义引用，仍可通用选区引用。分支已由用户显式归档的 Worker 默认不画在图上，表头提供「显示已归档（N）」开关，只在当前页面临时显示、不写库、不改Worker状态，重开页面仍默认隐藏；只有无独立分支的历史内部 merge 队列继承直接父 Worker 的归档事实（读模型的 `archived`，父节点被截断时也有效，兼容已归档的历史父 Worker，不写新状态）；其它未归档子 Worker 会顶成根，不会仅因父 Worker 归档而消失。表头的状态计数同时就是筛选开关：点某个状态就隐藏 / 恢复该状态的 Worker，偏好按项目存在 `lush.taskGraph.hiddenStatuses`（`prefs.js` 管理的受管键，会被「恢复默认设置」清空），默认全部显示；筛选与归档开关一样只改这一页的显示，不写库、不改Worker状态。
 
 交付后的 Worker 显示指令「待验收」/ child「待父确认」（`awaiting_acceptance`），使用独立状态色与筛选/计数，不当作已完成。Worker 图与详情通过 `render-iteration.js` 共用单一「验收」、历史继续开发、同步父分支和紫色 Agent 解决同步冲突；追加输入继续当前 Worker，验收表示无异议并安全归档回收开发资源，脏现场阻止，保留运行历史。acceptance_recovery:true 表示持久审计确认有未完成验收，可显示显式续办候选，不按目录缺失猜测；部分回收不得被普通已归档过滤隐藏。已完成回收不重建。详见[持续迭代](task-iteration.md)。
 
-## 阅读项目树
+## 阅读开发树
 
-W383／D761 将页面展示名从「工作树」统一为「项目树」；内部 Worker 实体及 `#worker-graph`／RPC／HTTP 身份不更名。
+W402 将页面及相关入口改名为「开发树」；内部 Worker 实体及 `#worker-graph`／RPC／HTTP 身份不更名。
 
-main 节点内部的「项目管理 · Valet」区默认收起，仅显示当前已加载且符合筛选范围内最近运行的一个 Valet：按节点的 `agent_last_seen_at` 降序选择，缺少调用时间的记录排后，同时间按创建时间及 ID 降序兜底，不把状态更新或验收当成运行。展开显示其余管理记录（含运行、待决、失败、unknown 与验收回收异常），同一页面刷新保留选择，重新进入默认收起；来源定位到已加载的 Valet 时先展开，避免定位隐藏行。管理记录与开发卡片共用真实有界分页，不另取前 100 条冒充全量。每行保留真实 V 编号、标题、状态、待决与必要异常，详情直达，适用验收复用 `iterationControls`／`worker.accept`。Valet 不是独立枝叶，不产生开发连线，也不进入开发折叠层级；main 的开发子树收起时，内部管理区仍可见。窄屏单列自然换行，操作触控至少 44px。普通状态筛选仍不排除管理关注项，收起时不额外保留这些行；已验收且无异常的管理历史依 `task.accepted`／`accepted` 证据纳入「已回收」，未完成验收或需关注的异常不按归档排除。
+页面不再提供 Valet 管理区或历史列表。仅 `status='running'` 的项目 Valet 在真实 main 节点上显示「Valet V编号 · 运行中」标签，沿用合并目标的紧凑链接样式，点击打开该 Valet 详情，不调用 Agent。两种显示模式和开发子树折叠下均保留标签；窄屏自然换行、触控至少 44px。非运行记录（包括待决、失败、unknown、已验收和回收异常）均不在此页显示，管理历史、诊断和验收仍从原 Valet 入口与详情访问。开发状态筛选不隐藏运行标签，已回收开关也不会恢复管理历史。
 
-管理记录的真实 `parent_id` 保留；图的 `project_parent_id` 只读指向真实 main，历史无父记录不回写。响应另给有界 `project_main` 身份摘要，main 开发卡片被筛选或分页排除时，仅作为明确标注的管理区宿主，不伪造开发卡片或父子边。真实 main 缺失时明示归属不可用，不猜内部 ID。管理读面不投影开发合并、分支或 Git 动作，也不读取其开发会话；编号、身份、工具及权限仍按原管理契约。
+管理记录的真实 `parent_id` 保留；图的 `project_parent_id` 只读指向真实 main，历史无父记录不回写。响应另给有界 `project_main` 身份摘要，main 开发卡片被筛选或分页排除时，仅提供明确标注的 main 定位宿主和运行标签，不伪造开发卡片或父子边；没有真实 main 时不猜内部 ID。标签仍使用同一有界分页，运行 Valet 优先于普通开发记录返回，旧采样管理节点不冒称正在运行。管理读面不投影开发合并、分支或 Git 动作，也不读取其开发会话；编号、身份、工具及权限仍按原管理契约。
 
 页面表头只保留标题、当前 Worker 数量与状态计数、待决数量、筛选／展示模式和刷新操作，以及采样时间／加载状态。连线、排序与交付机制等读一遍即可理解的固定说明留在文档，不常驻主要使用页面；截断、读取失败等影响当前判断的信息仍就地显示。
 
@@ -25,9 +25,9 @@ main 节点内部的「项目管理 · Valet」区默认收起，仅显示当前
 
 ### 字节分页与服务端筛选
 
-`worker.graph` 接受 `details:boolean`（默认 true）、`hidden_statuses:string[]`（默认 []）、`include_archived:boolean`（默认 true，Web 显式传 false）、`scope:"all"|"tree"`（默认 all，Web 显式 tree）和不透明 `cursor:string`。tree 分页读取 main/owner/order/历史 say/child/历史 merge 卡片及 management 管理记录，all 另保留历史 RPC/CLI 节点兼容；种类范围不能由归档开关暗中推断。HTTP 同名参数：布尔为 `0/1`，状态数组为 JSON 查询字符串（如 `hidden_statuses=%5B%22completed%22%5D`）；未知、多次出现或非法参数拒绝。每批至多 200 节点，整个响应序列化后严格低于 900000 字节，为 1 MiB RPC 帧预留 envelope 空间，Unicode 和转义按真实字节计算；单节点过大降为身份/状态/布局摘要，带 `node_truncated:true`、`details_unavailable:true` 与有界 `details_unavailable_reason`，不冒充完整或零用量，游标仍继续推进。记录本身不截断、不写库。
+`worker.graph` 接受 `details:boolean`（默认 true）、`hidden_statuses:string[]`（默认 []）、`include_archived:boolean`（默认 true，Web 显式传 false）、`scope:"all"|"tree"`（默认 all，Web 显式 tree）和不透明 `cursor:string`。tree 分页读取 main/owner/order/历史 say/child/历史 merge 卡片及未归档的运行中 management 标签记录；后者不受开发状态筛选影响，不返回非运行管理历史。all 保留原 RPC/CLI 管理历史、关注态及筛选兼容，不由页面改名改变历史读面。HTTP 同名参数：布尔为 `0/1`，状态数组为 JSON 查询字符串（如 `hidden_statuses=%5B%22completed%22%5D`）；未知、多次出现或非法参数拒绝。每批至多 200 节点，整个响应序列化后严格低于 900000 字节，为 1 MiB RPC 帧预留 envelope 空间，Unicode 和转义按真实字节计算；单节点过大降为身份/状态/布局摘要，带 `node_truncated:true`、`details_unavailable:true` 与有界 `details_unavailable_reason`，不冒充完整或零用量，游标仍继续推进。记录本身不截断、不写库。
 
-响应保留 `nodes/edges/total/truncated/details_pending`，新增 `cursor:string|null`、`has_more:boolean`、`matched_total:number`、`counts:{[status]:number}`、`archived_count:number`。`total` 仍是全库 Worker 行数；`matched_total` 为实际按 scope、状态与归档筛选匹配的节点总数：tree 计可绘制种类及管理记录，all 兼容保留其他历史行。`management_count` 为本筛选完整管理记录数。`counts` 是项目树种类（main/owner/order/历史 say/child/历史 merge/management）应用归档开关、但尚未排除隐藏状态的完整计数（含已知状态的零项），状态开关不能因隐藏而消失；`archived_count` 为同一完整可绘制范围的已回收历史数，不受状态/归档开关影响。未完成验收的恢复记录不按归档隐藏。`has_more` 表示可以继续读取，`truncated` 表示本批仍有后续或含异常巨型节点的降级摘要。
+响应保留 `nodes/edges/total/truncated/details_pending`，新增 `cursor:string|null`、`has_more:boolean`、`matched_total:number`、`counts:{[status]:number}`、`archived_count:number`。`total` 仍是全库 Worker 行数；`matched_total` 为实际按 scope、状态与归档筛选匹配的节点总数：tree 计开发节点及运行中的管理标签记录，all 兼容保留其他历史行。`management_count` 为本筛选完整管理记录数。tree 的 `counts`／`archived_count` 仅统计开发节点，不含 Valet；all 保留原含管理记录的计数。`counts` 应用归档开关、但尚未排除隐藏状态（含已知状态的零项），状态开关不能因隐藏而消失；`archived_count` 为同一范围的全部已回收历史数，不受状态/归档开关影响。未完成验收的恢复记录不按归档隐藏。`has_more` 表示可以继续读取，`truncated` 表示本批仍有后续或含异常巨型节点的降级摘要。
 
 真实 `parent_id` 不变；`layout_parent_id` 由轻量父关系求最近满足筛选的祖先，可以指向另一页的 Worker；不存在/成环时 null。`edges` 仍仅包含本批两端都出现的开发真实父子边，明确排除 Valet，不把布局祖先或管理归属冒充开发父子边。隐藏节点不发送正文，也不执行其 Git 诊断/会话正文读取；必要全量轻量父关系、运行区间与 SQL 队列聚合仍用于准确计数。完整字段先按结构摘要的真实字节选批，只有本批候选才执行 Git/会话重型读取，不读取整个匹配范围；已知巨型结构节点直接降级、不扫描其正文。诊断补充后再按完整序列化字节收口，正文膨胀可能使少量已读候选顺延至下一批，游标仅按实际返回节点推进。隐藏及批外后代的用量只复用签名有效的紧凑缓存，缓存缺失/过期时可见祖先 `subtree.incomplete=true`，费用/token 明示未知；运行时长仍来自全量轻量调用记录。
 
@@ -39,7 +39,7 @@ main 节点内部的「项目管理 · Valet」区默认收起，仅显示当前
 
 累计用量使用项目 `.lush/usage-index.sqlite` 中可重建的每会话文件紧凑摘要，不保存正文、凭证或请求行，不改历史事实。索引版本与项目身份严格隔离；旧版本、损坏记录或缓存文件可由原会话重建，不能冒充完整统计。daemon 启动自动后台补齐全部旧会话，单飞逐文件流式处理，每 8 个来源让出事件循环；此后每 5 秒检查来源签名，仅解析新增／变化文件、清除删除文件的摘要。后台与图中的本批读取共享每文件单飞；关闭停止新文件准入，排空在途读取后关闭缓存库，单文件错误隔离，不新增用户配置、模型或外网调用。签名包含 dev/ino/size/mtime/ctime，解析后复核签名；变化文件目前仍完整流式解析，不声称字节级尾部增量。内存紧凑缓存仍有界 4096 项、与统计页面的 128 文件正文行缓存分离；重启的有效持久摘要不重解析所有旧会话。
 
-图分页、筛选和迟到响应复用项目树代表性真实 HTTP／RPC → DOM 主流程，不扩建独立矩阵；资源缓存等按需专项验证，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。修改这些行为时须补做受影响的真实 RPC／HTTP 与 DOM 验证。
+图分页、筛选和迟到响应复用开发树代表性真实 HTTP／RPC → DOM 主流程，不扩建独立矩阵；资源缓存等按需专项验证，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。修改这些行为时须补做受影响的真实 RPC／HTTP 与 DOM 验证。
 
 ## 展示模式
 
