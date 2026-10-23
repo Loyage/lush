@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
+import { cliCatalog } from '../../src/rpc/cli-catalog.js';
 
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -19,6 +20,7 @@ window.errors=[]; addEventListener('error',e=>errors.push(e.message)); addEventL
 window.calls=[];
 const task={id:77,worker_number:'W324',task_kind:'order',workspace:'/project/'+('very-long-worker-directory/').repeat(12)};
 window.fetch=async(url,options)=>{
+ if(String(url).includes('/cli/catalog'))return Response.json(${JSON.stringify(cliCatalog())});
  if(String(url).endsWith('/api/worker/77'))return Response.json(task);
  if(String(url).includes('/code-state'))return Response.json({availability:'unavailable',reason:'fixture',changes:[]});
  if(!options?.body)return Response.json({steps:[],files:[],next:0,oldest:0,has_more:false,has_older:false});
@@ -64,6 +66,15 @@ try {
   await rpc(`/session/${session}/window/rect`,{width:1600,height:1000});
   await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});await frame();
   assert(await untilScript('window.ready'),'fixture did not load');
+  assert(await untilScript('panel.querySelector(".worker-cli-discovery").textContent.includes("输入命令路径")'),'catalog not loaded');
+  await execute('const i=panel.querySelector("textarea");i.value="lush worker sh";i.dispatchEvent(new Event("input"));i.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown"}));i.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter"}));');
+  assert(await execute('return calls.length===0&&panel.querySelector("textarea").value==="lush worker show"&&panel.querySelector(".worker-cli-guide").textContent.includes("风险");'),'selected suggestion must fill and explain, not execute');
+  await execute('const i=panel.querySelector("textarea");i.value="lush worker message W1 原始正文";i.dispatchEvent(new Event("input"));');
+  assert(await execute('return !panel.querySelector(".worker-cli-suggestions").children.length'),'body must not be guessed');
+  await execute('const s=panel.querySelector(".worker-cli-discovery input");s.value="合并";s.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",isComposing:true}));');
+  assert(await execute('return !panel.querySelector(".worker-cli-candidates").children.length'),'IME search submitted');
+  await execute('panel.querySelector(".worker-cli-discovery button").click();');
+  assert(await execute('return panel.querySelector(".worker-cli-candidates").children.length>0&&calls.length===0'),'Chinese static search missing');
   assert(await execute('return panel.tagName==="SECTION" && calls.length===0 && panel.querySelector("textarea").checkVisibility() && !panel.querySelector(".worker-cli-advanced").open;'),'CLI page must show input without requests and keep advanced help collapsed');
   await execute('panel.querySelector(".worker-cli-advanced").open=true;panel.querySelector(".worker-cli-examples button").click();');
   assert(await execute('return calls.length===0 && panel.querySelector("textarea").value==="lush help";'),'example executed instead of filling');
@@ -87,7 +98,7 @@ try {
       const a=input.getBoundingClientRect(),b=run.getBoundingClientRect();
       if(innerWidth<=600 && b.top<a.bottom)errors.push('narrow controls not stacked');
       const result=panel.querySelector('.worker-cli-result'),advanced=panel.querySelector('.worker-cli-advanced');
-      if(!(panel.querySelector('.worker-cli-history').compareDocumentPosition(panel.querySelector('.worker-cli-controls'))&Node.DOCUMENT_POSITION_FOLLOWING))errors.push('history must precede bottom editor');
+      if(!(panel.querySelector('.worker-cli-controls').compareDocumentPosition(panel.querySelector('.worker-cli-history'))&Node.DOCUMENT_POSITION_FOLLOWING))errors.push('input and guide must precede history');
       const parts=[...result.children];
       if(!parts[0].classList.contains('worker-cli-result-command')||!parts.at(-1).classList.contains('worker-cli-result-meta'))errors.push('command/output/status order');
       const tabs=[...document.querySelectorAll('.execution-tabs button')];

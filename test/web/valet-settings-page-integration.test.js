@@ -30,12 +30,12 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     expect(writes).toEqual([]);
     const search = dom.node('detail').querySelector('input');
     expect(deepText(dom.node('detail'))).toContain('支持 lush / lushw 完整命令');
-    search.value = 'lushc'; search.oninput({});
+    search.value = 'lushc'; button('搜索').onclick();
     expect(dom.node('detail').querySelectorAll('.cli-command-link')).toHaveLength(0);
-    search.value = 'lushw'; search.oninput({});
+    search.value = 'lushw'; button('搜索').onclick();
     expect(dom.node('detail').querySelectorAll('.cli-command-link').length).toBeGreaterThan(0);
     expect(dom.node('detail').querySelectorAll('.cli-command-link').every(node => node.dataset.command.startsWith('lushw '))).toBe(true);
-    search.value = 'input draft create'; search.oninput({});
+    search.value = 'input draft create'; button('搜索').onclick();
     dom.node('detail').querySelector('[data-command="lush input draft create"]').onclick();
     // The minimal DOM fixture does not parse descendant selectors or dotted
     // attribute values; inspect the rendered method rows before selecting.
@@ -72,9 +72,9 @@ test('global CLI page reads and saves default Valet permissions through real Hos
     // The same shipped CLI catalogue now explains typed query parameters in the
     // existing advanced section; browsing never executes the examples.
     await button('返回搜索结果').onclick();
-    search.value = 'worker list'; search.oninput({});
+    search.value = 'worker list'; button('搜索').onclick();
     dom.node('detail').querySelector('[data-command="lush worker list"]').onclick();
-    const advanced = dom.node('detail').querySelector('details');
+    const advanced = dom.node('detail').querySelector('.cli-command-detail').querySelector('.cli-advanced');
     expect(advanced.open).toBe(false);
     expect(deepText(advanced)).toContain('CLI 参数契约');
     expect(deepText(advanced)).toContain('recent');

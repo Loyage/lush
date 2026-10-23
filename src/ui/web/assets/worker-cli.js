@@ -28,14 +28,23 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   clearHost.append(clear); historyTools.append(older, clearHost);
   const historyStatus = el('p', '', 'worker-cli-history-status'); historyStatus.setAttribute('role', 'status');
   const history = el('div', undefined, 'worker-cli-history'); history.setAttribute('aria-label', '命令历史（时间正序）');
-  body.append(historyTools, historyStatus, history);
+  const discovery = el('section', undefined, 'worker-cli-discovery');
+  const searchLabel = el('label', '功能搜索（固定命令文档，不调用模型）');
+  const search = el('input'); search.type = 'search'; search.placeholder = '例如：合并、追加消息、查看状态'; search.setAttribute('aria-label', '搜索 CLI 功能'); searchLabel.append(search);
+  const searchButton = el('button', '搜索'); searchButton.type = 'button';
+  const clearSearch = el('button', '清空', 'ghost'); clearSearch.type = 'button';
+  const catalogStatus = el('p', '正在加载静态命令目录…'); catalogStatus.setAttribute('role', 'status');
+  const candidates = el('div', undefined, 'worker-cli-candidates');
+  discovery.append(searchLabel, searchButton, clearSearch, catalogStatus, candidates); body.append(discovery);
   const row = el('div', undefined, 'worker-cli-controls');
   const label = el('label', undefined, 'worker-cli-field'); label.append(el('span', '单次 Lush 命令'));
   const input = el('textarea', undefined, 'worker-cli-input'); input.rows = 2; input.placeholder = 'lush status';
   input.setAttribute('aria-label', '单次 Lush 命令'); input.spellcheck = false;
   input.setAttribute('aria-keyshortcuts', 'Enter');
-  const shortcut = el('span', 'Enter 执行 · Shift+Enter 换行 · 单次命令须为合法单行', 'worker-cli-shortcut');
-  label.append(input, shortcut);
+  const shortcut = el('span', '↑↓ 选择提示 · Tab 补全 · Esc 关闭 · 选中提示时 Enter 只填入；否则 Enter 执行 · Shift+Enter 换行', 'worker-cli-shortcut');
+  const suggestions = el('div', undefined, 'worker-cli-suggestions');
+  const guide = el('div', undefined, 'worker-cli-guide'); guide.setAttribute('aria-live', 'polite');
+  label.append(input, shortcut, suggestions, guide);
   const runHost = el('span', undefined, 'help-host');
   const run = el('button', '执行', 'worker-cli-run'); run.type = 'button';
   run.dataset.help = '先预览命令与真实工作目录；有副作用或调用 Agent 时确认后才执行，不会自动重试。';
@@ -50,9 +59,53 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     ? '服务器保存全量加密命令与输出，登录后自动解锁；密文和密钥一起泄露时无法保护内容。每页默认 10 条，本页最多保留最近 100 条。'
     : '历史接口尚未连接：仅在当前阅读页会话保留最近 100 条，离页即释放，不写入浏览器存储。'));
   advanced.append(el('p', '输出、耗时和执行上限以服务端返回为准。超时、信号、截断或连接中断不代表命令没有产生副作用；结果未知时请先核查，勿盲目再次执行。'));
-  body.insertBefore(advanced, row);
+  body.append(advanced, historyTools, historyStatus, history);
 
   let task, disposed = false, busy = false, generation = 0, draftVersion = 0, confirmation = null, visible = true;
+  let discoveryApi = null;
+  let catalogCommands = [], suggestionItems = [], selectedSuggestion = -1, suggestionsClosed = false;
+  function fillCommand(item) {
+    if (disposed || reason()) return;
+    input.value = item.path + (item.directory ? ' ' : ''); edited(); input.focus();
+  }
+  function paintSuggestions() {
+    suggestions.replaceChildren();
+    suggestionItems = suggestionsClosed ? [] : (discoveryApi?.pathSuggestions(catalogCommands, input.value) || []);
+    suggestionItems.forEach((item, index) => {
+      const node = el('button', `${item.path} — ${item.description}`, 'ghost'); node.type = 'button';
+      node.classList.toggle('selected', index === selectedSuggestion);
+      node.setAttribute('aria-pressed', String(index === selectedSuggestion));
+      node.onclick = () => fillCommand(item); suggestions.append(node);
+    });
+    guide.replaceChildren();
+    const item = suggestionItems[selectedSuggestion] || discoveryApi?.currentCommand(catalogCommands, input.value);
+    if (item) guide.append(discoveryApi.commandGuide(item));
+  }
+  function searchCatalog(event) {
+    if (disposed || event?.isComposing || event?.keyCode === 229) return;
+    candidates.replaceChildren();
+    const matches = discoveryApi?.searchCommands(catalogCommands, search.value) || [];
+    catalogStatus.textContent = `静态匹配 ${matches.length} 项，显示前 30 项；填入不执行，权限仍须服务端预检。`;
+    for (const item of matches.slice(0, 30)) {
+      const node = el('button', `${item.path} · ${discoveryApi.commandType(item, catalogCommands)} — ${item.description}`, 'ghost'); node.type = 'button';
+      node.onclick = () => fillCommand(item); candidates.append(node);
+    }
+  }
+  searchButton.onclick = searchCatalog;
+  search.onkeydown = event => { if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); searchCatalog(event); } };
+  clearSearch.onclick = () => { search.value = ''; searchCatalog(); };
+  const catalogReady = import('./cli-catalog.js').then(module => {
+    if (disposed) return null;
+    discoveryApi = module; return module.loadCliCatalog();
+  }).then(catalog => {
+    if (disposed) return;
+    // lushw discovery is restricted to the same declared user-context mapping as preview.
+    const leaves = catalog.commands.filter(item => !item.directory && (item.executable === 'lush' || item.user_context_rpc || item.command_path === 'help'));
+    catalogCommands = catalog.commands.filter(item => leaves.includes(item) || item.directory && leaves.some(leaf => leaf.path.startsWith(`${item.path} `)));
+    catalogStatus.textContent = `目录 ${catalog.catalog_version} · 输入命令路径可查看用途；搜索仅查固定文档。`;
+    fillExamples(); paintSuggestions();
+  }).catch(error => { if (!disposed) catalogStatus.textContent = `目录加载失败：${errorText(error)}。仍可手动输入，执行必须经过预检；重新打开页面可重试。`; });
+  root.catalogReady = catalogReady;
   let entries = [], before = null, hasMore = false, historyLoaded = false, reading = false, historyGeneration = 0;
   function summary(value, pending = false) {
     if (pending) return '正在真实执行，等待输出…';
@@ -164,13 +217,14 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
   function edited() {
     draftVersion++;
     if (confirmation) { dismissConfirmation(); status.textContent = '命令已修改，旧预览未执行；请重新执行以预览新命令。'; }
-    sync();
+    selectedSuggestion = -1; suggestionsClosed = false; paintSuggestions(); sync();
   }
   function fillExamples() {
     for (const [node, handler] of exampleHandlers.splice(0)) node.removeEventListener('click', handler);
     examples.replaceChildren();
-    // This is deliberately not a second CLI catalog: only three fixed starter commands.
-    for (const command of ['lush help', 'lush status', `lush worker show ${task.worker_number || task.id}`]) {
+    // Starter paths are also projected from the catalog, never a parallel command list.
+    for (const item of catalogCommands.filter(item => !item.directory && item.executable === 'lush' && item.operation === 'read').slice(0, 3)) {
+      const command = item.path;
       const node = el('button', `填入 ${command}`, 'ghost'); node.type = 'button';
       const handler = () => { if (disposed || reason()) return; input.value = command; edited(); input.focus(); };
       node.addEventListener('click', handler); exampleHandlers.push([node, handler]); examples.append(node);
@@ -215,7 +269,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
       executionEntry = { pending: true, value: { command, workspace: plan.workspace, created_at: new Date().toISOString(), status: 'unknown' } };
       entries.push(executionEntry); paintHistory();
       // Clear only the submitted draft at dispatch. Later typing belongs to the next command.
-      input.value = ''; draftVersion++; sync();
+      input.value = ''; draftVersion++; suggestionsClosed = true; paintSuggestions(); sync();
       status.textContent = '正在真实执行，请勿重复提交…';
       const outcome = await execute({ command, revision: plan.revision, confirm: needsConfirmation });
       if (!current()) return;
@@ -237,6 +291,16 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     }
   }
   function keydown(event) {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Escape') { suggestionsClosed = true; selectedSuggestion = -1; paintSuggestions(); return; }
+    if (suggestionItems.length && ['ArrowDown', 'ArrowUp', 'Tab', 'Enter'].includes(event.key) && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault(); selectedSuggestion = (selectedSuggestion + (event.key === 'ArrowDown' ? 1 : suggestionItems.length - 1)) % suggestionItems.length; paintSuggestions(); return;
+      }
+      if (event.key === 'Tab' || selectedSuggestion >= 0) {
+        event.preventDefault(); if (!event.repeat) fillCommand(suggestionItems[Math.max(0, selectedSuggestion)]); return;
+      }
+    }
     if (event.key !== 'Enter' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       || event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
@@ -256,6 +320,7 @@ export function renderWorkerCli(initialTask, { preview, execute, loadHistory, cl
     else if (contextChanged) status.textContent = '工作区或 Worker 类型已变化，旧请求不再更新此面板；已发出的命令仍可能执行，请先核查。';
     worker.textContent = workerNumber(task);
     if (contextChanged) workspace.textContent = present(task.workspace) ? task.workspace : '工作区不可用';
+    if (contextChanged) { selectedSuggestion = -1; suggestionsClosed = false; paintSuggestions(); }
     fillExamples(); sync();
     if (contextChanged && Number.isSafeInteger(task.id) && task.id > 0 && ['order', 'child'].includes(task.task_kind)
       && task.execution_retired !== true) root.ready = readHistory();

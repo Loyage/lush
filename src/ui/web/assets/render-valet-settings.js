@@ -4,7 +4,7 @@ import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { projectRoute } from './route.js';
 import { confirmDialog } from './dialog.js';
-import { loadCliCatalog } from './cli-catalog.js';
+import { loadCliCatalog, searchCommands, commandType, commandGuide } from './cli-catalog.js';
 
 const permissionsEndpoint = '/api/host/management/permissions';
 const labels = { read: '只读', automatic: '自动执行', confirmation: '逐次确认', unavailable: '禁止' };
@@ -36,7 +36,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   if (existing?.view === view && existing.owner === owner && existing.pathname === identity) return existing.ready;
   ui.disposeValetSettings?.();
   const state = { view, owner, pathname: identity, disposed: false, generation: 0, catalogGeneration: 0, catalog: null, data: null,
-    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, expanded: new Set() };
+    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, expanded: new Set(), permissionsExpanded: new Set() };
   ui.valetSettingsPage = state;
   const owns = () => !state.disposed && globalThis.document === owner && ui.view === view
     && ui.valetSettingsPage === state && globalThis.location?.pathname === identity && !projectRoute();
@@ -48,15 +48,17 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const clear = el('button', '清空', 'ghost'); clear.type = 'button'; clear.onclick = () => { if (!owns()) return; search.value = ''; state.query = ''; state.selected = null; paint(); search.focus(); };
   const searchField = el('span', undefined, 'cli-search-field');
   const searchIcon = el('span', '⌕', 'cli-search-icon'); searchIcon.setAttribute('aria-hidden', 'true');
-  searchField.append(searchIcon, search, clear);
-  const searchHint = el('p', '支持 lush / lushw 完整命令及关键词 · 实时匹配读写接口 · 空关键词显示顶层目录', 'hint'); searchHint.id = 'cli-search-hint';
+  const searchSubmit = el('button', '搜索', 'ghost'); searchSubmit.type = 'button';
+  searchField.append(searchIcon, search, searchSubmit, clear);
+  const searchHint = el('p', '支持 lush / lushw 完整命令及关键词 · 按搜索或 Enter 匹配固定文档 · 空关键词显示顶层目录', 'hint'); searchHint.id = 'cli-search-hint';
   searchBox.append(searchLabel, searchField, searchHint);
   const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); };
-  search.oninput = event => { if (!event?.isComposing) updateSearch(); };
+  searchSubmit.onclick = updateSearch;
+  search.onkeydown = event => { if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229 && !state.composing) { event.preventDefault(); updateSearch(); } };
   search.addEventListener('compositionstart', () => { state.composing = true; });
-  search.addEventListener('compositionend', () => { state.composing = false; updateSearch(); });
+  search.addEventListener('compositionend', () => { state.composing = false; });
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('h1', 'CLI 接口'), el('p', '管家默认开放全部可受控执行的接口；可在单条命令中收紧权限，也可请管家申请修改并由你审核。私有材料与任意 Shell 不开放。全局权限按需读取，浏览不执行 CLI、不调用 Agent。'));
+  hero.append(el('h1', 'CLI 接口'), el('p', '先搜索用途或浏览分类，再查看命令格式。分类须继续选择子命令；可调用命令仍需补全参数并核验身份。浏览不执行 CLI、不调用 Agent，也不搜索用户数据。'));
   const unconfigured = el('section', undefined, 'cli-permissions-unconfigured resource-card'); unconfigured.hidden = true; unconfigured.setAttribute('role', 'status');
   const configurationHeading = el('h2', '内建默认已生效');
   unconfigured.append(configurationHeading, el('p', '上次成功读取时，尚未保存自定义权限，所有项目的新旧管家已使用内建默认，无需先保存。受控写操作默认自动执行；管家修改接口权限始终须你审核。旧版设备和项目限制仅留历史，不再授权。修改下方选择后仍需保存。'));
@@ -70,7 +72,8 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const save = el('button', '保存全局管家权限', 'primary'); save.type = 'button'; save.onclick = saveDraft;
   const reload = el('button', '读取全局权限', 'ghost'); reload.type = 'button'; reload.onclick = () => loadPermissions(true);
   footer.append(el('h2', '全局权限 · 按需读取与统一保存'), el('p', '更改适用于此设备用户所有项目的新旧管家。可将自动执行收紧为逐次确认或禁止；管家修改权限本身不可设为自动执行。排队或待确认但尚未开始的操作，执行前重新检查；已开始的不强行中断、已执行的不撤销，失败不重放。权限改变不新建操作；已有未开始的请求可能继续或受阻。无需选择项目，所有项目后台离线也可配置。', 'hint'), status, save, reload);
-  root.append(hero, unconfigured, catalogNotice, searchBox, results, detail, footer); $('detail').replaceChildren(root);
+  const globalPermissions = el('details', undefined, 'cli-advanced'); globalPermissions.append(el('summary', '高级：设备全局管家权限'), footer);
+  root.append(hero, unconfigured, catalogNotice, searchBox, results, detail, globalPermissions); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function sync() {
@@ -109,11 +112,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   }
   function commandList(container, commands) {
     const headings = el('div', undefined, 'cli-command-columns'); headings.setAttribute('aria-hidden', 'true');
-    headings.append(el('span', '命令'), el('span', '简介', 'cli-command-description'), el('span', '读写'), el('span', '管家权限')); container.append(headings);
+    headings.append(el('span', '命令'), el('span', '简介', 'cli-command-description'), el('span', '读写'), el('span', '类型／下一步')); container.append(headings);
     const wordCount = item => item.command_path.trim().split(/\s+/).length;
     for (const item of [...commands].sort((a, b) => wordCount(a) - wordCount(b))) {
       const node = el('button', undefined, 'cli-command-link'); node.type = 'button'; node.dataset.command = item.path;
-      const summary = el('span', undefined, 'cli-command-access'); summaries.set(summary, item);
+      const summary = el('span', commandType(item, state.catalog.commands), 'cli-command-access');
       const operation = el('span', item.operations.length > 1 ? '读／写' : item.operations.includes('write') ? '写' : '读', 'cli-command-operation');
       operation.dataset.operation = item.operations.length > 1 ? 'mixed' : item.operations[0];
       node.append(el('strong', item.path), el('span', item.description, 'cli-command-description'), operation, summary);
@@ -152,13 +155,17 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     return section;
   }
   function paint() {
-    const previous = detail.querySelector('details');
+    const previous = detail.querySelector('.cli-advanced');
     if (previous) { if (previous.open) state.expanded.add(previous.dataset.command); else state.expanded.delete(previous.dataset.command); }
+    const previousPolicy = detail.querySelector('.cli-permissions-disclosure');
+    if (previousPolicy) {
+      if (previousPolicy.open) state.permissionsExpanded.add(previousPolicy.dataset.command);
+      else state.permissionsExpanded.delete(previousPolicy.dataset.command);
+    }
     results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
     const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-    const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushw'].includes(query)
-      ? item.executable === query : `${item.path} ${item.name} ${item.description} ${item.keywords ?? ''}`.toLocaleLowerCase().includes(query));
+    const matches = query ? searchCommands(commands, query) : commands.filter(item => !item.parent);
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
     results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
@@ -172,12 +179,23 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
         const parent = el('button', `上级：${item.parent}`, 'ghost'); parent.type = 'button';
         parent.onclick = () => { if (!owns()) return; state.selected = item.parent; paint(); }; nav.append(parent);
       }
-      detail.append(nav, el('h2', item.path), el('p', item.description), el('h3', '调用格式'), el('code', item.format, 'cli-command-code'));
+      detail.append(nav, el('h2', item.path), el('p', commandType(item, commands)), commandGuide(item));
+      if (!item.directory) {
+        const copy = el('button', '复制模板（须补全参数）', 'ghost'); copy.type = 'button';
+        const copied = el('p', '', 'hint'); copied.setAttribute('role', 'status');
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(item.format); if (owns() && state.selected === item.path) copied.textContent = '已复制模板；请补全参数并核对真实目标，复制不会执行。'; }
+          catch { if (owns()) copied.textContent = '复制失败，请手动选择调用格式复制。'; }
+        };
+        detail.append(copy, copied);
+      }
       if (item.example) detail.append(el('h3', '示例（仅说明，不执行）'), el('code', item.example, 'cli-command-code'));
       detail.append(el('h3', '风险与边界'), el('p', item.risk));
       const children = commands.filter(child => child.parent === item.path);
       if (children.length) { detail.append(el('h3', '子命令')); commandList(detail, children); }
-      if (!item.directory) detail.append(permissions(item));
+      if (!item.directory) {
+        const policy = el('details', undefined, 'cli-permissions-disclosure'); policy.dataset.command = item.path; policy.open = state.permissionsExpanded.has(item.path); policy.append(el('summary', '按需查看／设置管家权限'), permissions(item)); detail.append(policy);
+      }
       const advanced = el('details', undefined, 'cli-advanced'); advanced.dataset.command = item.path; advanced.open = state.expanded.has(item.path); advanced.append(el('summary', '高级参数、关联 RPC 与兼容限制'));
       advanced.append(el('code', item.usage, 'cli-command-code'));
       advanced.append(el('p', '通用选项：--project PATH 明确项目；--json 输出 version/data/page/outcome 结构化结果（终端 watch 不支持）；--help / -h 只打印帮助，-- 后均为正文。静态目录不代表实时授权。', 'hint'));

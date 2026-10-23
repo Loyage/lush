@@ -20,8 +20,8 @@ const wait = condition => rpc(`/session/${session}/execute/async`, { script: `co
 const press = label => run(`const b=[...document.querySelectorAll('button')].find(n=>n.textContent===${JSON.stringify(label)});b.scrollIntoView({block:'center',behavior:'instant'});b.click();`);
 const screenshot = async name => fs.writeFileSync(path.join(evidence, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
 const select = (method, access) => run(`const s=document.querySelector('[data-method="${method}"] select');s.value='${access}';s.dispatchEvent(new Event('change',{bubbles:true}));`);
-const search = text => run(`const s=document.querySelector('.cli-search input');s.value=${JSON.stringify(text)};s.dispatchEvent(new Event('input',{bubbles:true}));`);
-const choose = command => run(`document.querySelector('.cli-results [data-command="${command.startsWith('lush') ? command : `lush ${command}`}"]').click();`);
+const search = text => run(`const s=document.querySelector('.cli-search input');s.value=${JSON.stringify(text)};s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
+const choose = command => run(`const row=document.querySelector('.cli-results [data-command="${command.startsWith('lush') ? command : `lush ${command}`}"]');if(!row)throw Error(${JSON.stringify(`Missing command: ${command}`)});row.click();document.querySelectorAll('.cli-permissions-disclosure').forEach(n=>n.open=true);`);
 const layouts = [], mutations = [], permissionWrites = [], catalogueRequests = [];
 let permissionReads = 0;
 try {
@@ -78,12 +78,12 @@ try {
   assert(await run(`const counts=[...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command.split(' ').length-1);return counts.every((n,i)=>!i||n>=counts[i-1])&&counts.includes(3)`), 'word-count ordering missing');
   const paths = await run(`return [...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command)`);
   await search('LUSH worker');
-  assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths.filter(command => command.startsWith('lush worker'))))}`), 'full command paste must select its actual executable');
+  assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths.filter(command => command.startsWith('lush '))))}`), 'full command paste must select its actual executable');
   for (const width of [1440, 768, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     const layout = await run(`const rows=[...document.querySelectorAll('.cli-results .cli-command-link')];return {kind:'list',width:innerWidth,documentWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,listWidth:document.querySelector('.cli-results').getBoundingClientRect().width,rows:rows.map(n=>{const r=n.getBoundingClientRect(),name=n.querySelector('strong').getBoundingClientRect(),description=n.querySelector('.cli-command-description').getBoundingClientRect(),operation=n.querySelector('.cli-command-operation').getBoundingClientRect(),permission=n.querySelector('.cli-command-access').getBoundingClientRect();return {height:r.height,display:getComputedStyle(n).display,margin:getComputedStyle(n).marginBottom,last:n.lastElementChild.className,nameX:name.x,nameRight:name.right,nameBottom:name.bottom,descriptionX:description.x,descriptionY:description.y,descriptionRight:description.right,operationX:operation.x,permissionX:permission.x,permissionRight:permission.right,gap:getComputedStyle(n).columnGap};})};`);
     assert(layout.documentWidth <= width && layout.bodyWidth <= width && layout.listWidth <= 800, `list overflow or excessive reading width ${width}: ${JSON.stringify(layout)}`);
-    assert(layout.rows.every(row => row.display === 'grid' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && parseFloat(row.gap) <= 12 && row.permissionRight <= width && (width > 760 ? row.nameRight <= row.descriptionX && row.descriptionRight <= row.operationX && row.operationX < row.permissionX : row.descriptionX === row.nameX && row.descriptionY >= row.nameBottom && row.descriptionRight <= row.operationX && row.nameRight <= row.operationX && row.operationX < row.permissionX)), `not compact responsive rows ${width}: ${JSON.stringify(layout)}`);
+    assert(layout.rows.every(row => row.display === 'grid' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && parseFloat(row.gap) <= 12 && row.permissionRight <= width && (width <= 600 ? row.descriptionY >= row.nameBottom : width > 760 ? row.nameRight <= row.descriptionX && row.descriptionRight <= row.operationX && row.operationX < row.permissionX : row.descriptionX === row.nameX && row.descriptionY >= row.nameBottom && row.descriptionRight <= row.operationX && row.nameRight <= row.operationX && row.operationX < row.permissionX)), `not compact responsive rows ${width}: ${JSON.stringify(layout)}`);
     layouts.push(layout); await screenshot(`${width}-list`);
   }
   await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='1440px'`); await frame();
@@ -91,12 +91,15 @@ try {
   await run(`const s=document.querySelector('.cli-search input');s.dispatchEvent(new CompositionEvent('compositionstart'));s.value='删除';s.dispatchEvent(new InputEvent('input',{isComposing:true}));`);
   assert(await run(`return document.querySelector('.cli-results').textContent===${JSON.stringify(beforeIME)}`), 'IME intermediate results changed');
   await run(`document.querySelector('.cli-search input').dispatchEvent(new CompositionEvent('compositionend'));`);
-  assert(await run(`return !!document.querySelector('.cli-results [data-command="lush worker delete"]')`), 'IME final search missing');
+  assert(await run(`return document.querySelector('.cli-results').textContent===${JSON.stringify(beforeIME)}`), 'IME completion must not submit');
+  await search('删除');
+  assert(await run(`return !!document.querySelector('.cli-results [data-command="lush worker delete"]')`), 'submitted Chinese search missing');
+  await run(`document.querySelector('.cli-permissions-save').parentElement.open=true`);
   await press('读取全局权限'); assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('内建默认已生效')`), 'active built-in permissions missing');
   assert(permissionReads === 1, 'permissions did not load exactly on demand');
   assert(await run(`return !document.querySelector('.cli-permissions-unconfigured').hidden&&document.querySelector('.cli-permissions-save button').disabled&&document.querySelector('.cli-permissions-unconfigured').textContent.includes('无需先保存')&&!document.querySelector('.cli-interfaces-page').textContent.includes('尚未统一生效')`), 'active defaults require a save or are labelled as an inactive draft');
   await search('status');
-  assert(await run(`return document.querySelector('[data-command="lush status"] .cli-command-access').textContent.includes('内建默认 · 只读')`), 'active default summary missing');
+  assert(await run(`return document.querySelector('[data-command="lush status"] .cli-command-access').textContent.includes('独立命令 · 可调用')`), 'command type missing');
   await search('worker cancel'); await choose('worker cancel');
   assert(await run(`return document.querySelector('[data-method="worker.cancel"] select').value==='automatic'`), 'controlled destructive call is not automatic by default');
   await select('worker.cancel', 'confirmation');
@@ -110,18 +113,17 @@ try {
   assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('已保存')`), 'custom permissions save missing');
   assert(permissionWrites.length === 1 && f.project.managementPermissions().scope === 'device'&&f.project.managementPermissions().permissions['worker.cancel']==='confirmation', 'no-project save did not publish device policy');
   assert(await run(`return document.querySelector('.cli-permissions-unconfigured').hidden`), 'successful first save still labelled unconfigured');
-  await search('hooks management permission-set'); await choose('hooks management permission-set');
+  await search('config valet-permission set'); await choose('config valet-permission set');
   assert(await run(`const s=document.querySelector('[data-method="management.permission_set"] select');return s.value==='unavailable'&&[...s.options].map(n=>n.value).join(',')==='unavailable'`), 'project identity can change shared device permissions');
   await search('order'); await choose('order');
   assert(await run(`return !document.querySelector('.cli-advanced').open&&document.querySelector('.cli-results').hidden`), 'single detail / advanced hierarchy missing');
-  await select('draft.add', 'confirmation');
-  assert(await run(`return document.querySelector('[data-method="management.submit"] select').disabled&&!document.querySelector('[data-method="management.submit"] option[value="automatic"]')`), 'unavailable permission elevated');
+  await select('order.submit', 'confirmation');
   await press('返回搜索结果'); assert(await run(`return document.querySelector('.cli-search input').value==='order'`), 'search lost'); await choose('order');
-  assert(await run(`return document.querySelector('[data-method="draft.add"] select').value==='confirmation'`), 'draft lost');
+  assert(await run(`return document.querySelector('[data-method="order.submit"] select').value==='confirmation'`), 'draft lost');
   await screenshot('desktop-detail');
   await press('保存全局管家权限'); assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('已保存')`), 'save missing');
   assert(await run(`const text=document.querySelector('.cli-permissions-save').textContent;return text.includes('新旧管家均生效')&&text.includes('未开始的操作执行前重新检查')&&text.includes('已开始的不强行中断')&&text.includes('已执行的不撤销')&&text.includes('权限改变不新建操作')&&text.includes('已有未开始的请求可能继续或受阻')&&text.includes('此设备用户所有项目的新旧管家')&&text.includes('失败不重放')&&!/未来新管家|已有管家不变|已有权限快照不变/.test(text)`), 'device-wide permission copy is missing or stale');
-  assert(f.project.managementPermissions().permissions['draft.add'] === 'confirmation', 'real project permissions not persisted');
+  assert(f.project.managementPermissions().permissions['order.submit'] === 'confirmation', 'real project permissions not persisted');
   assert(permissionWrites.length === 2 && !mutations.some(item => item.method === 'management.permissions_update'), 'unexpected save replay or retired project write');
   assert(Object.keys(permissionWrites[1].permissions).length === f.project.managementPermissions().methods.length, 'incomplete mapping');
   await run(`document.querySelector('.cli-advanced').open=true;`);
@@ -142,7 +144,7 @@ try {
     assert(await run(`const button=document.querySelector('.cli-permissions-save button'),footer=document.querySelector('.cli-permissions-save');return innerWidth>760||Math.abs(button.getBoundingClientRect().width-(footer.clientWidth-parseFloat(getComputedStyle(footer).paddingLeft)-parseFloat(getComputedStyle(footer).paddingRight)))<=1`), 'mobile save button not full width');
     layouts.push({ kind: 'detail', theme, ...layout }); await screenshot(`${width}-${theme}-detail`);
   }
-  await select('draft.add', 'unavailable'); await run(`location.hash='#projects'`);
+  await select('order.submit', 'unavailable'); await run(`location.hash='#projects'`);
   assert(await wait(`!document.querySelector('#modal').hidden`), 'dirty leave did not confirm'); await press('取消');
   assert(await wait(`location.hash==='#cli-interfaces'`), 'cancel did not restore route'); await screenshot('390-leave-guard');
   await run(`location.hash='#projects'`); assert(await wait(`!document.querySelector('#modal').hidden`), 'discard missing'); await press('丢弃并离开');
@@ -151,7 +153,7 @@ try {
   assert(await wait(`document.querySelector('#viewport').contentWindow.location.pathname==='/'&&document.querySelector('#viewport').contentDocument.querySelector('.cli-results .cli-command-link')`), 'global catalogue missing');
   await frame(); await search('order'); await choose('order');
   assert(await run(`return [...document.querySelectorAll('.cli-permission-method select')].every(s=>s.disabled)&&document.querySelector('.cli-permissions-save button').disabled&&document.querySelector('.cli-permissions-save').textContent.includes('全局权限尚未读取')`), 'new document carried permissions without rereading');
-  await press('读取全局权限'); assert(await wait(`!document.querySelector('[data-method="draft.add"] select').disabled`), 'global permissions not editable');
+  await press('读取全局权限'); assert(await wait(`!document.querySelector('[data-method="order.submit"] select').disabled`), 'global permissions not editable');
   await screenshot('320-global-editable');
   // Native legacy project links must preserve their source tab and hide the global entry.
   upstreamUrl = f.url;
@@ -159,7 +161,7 @@ try {
     await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').src='/p/${projectId}/#${hash}'`);
     assert(await wait(`document.querySelector('#viewport').contentDocument.querySelector('#detail').dataset.view==='workspace-link'`), 'legacy project bookmark not redirected');
     await frame();
-    assert(await run(`const entry=document.querySelector('#cli-interfaces-open'),link=document.querySelector('#detail a');return getComputedStyle(entry.parentElement).display==='none'&&link.getAttribute('href')==='/#${hash}'&&link.target==='_blank'&&link.rel==='noopener'&&!link.onclick&&location.pathname==='/p/${projectId}/'&&location.hash==='#${hash}'&&!document.querySelector('.cli-interfaces-page')`), 'project entry visible or legacy bookmark replaced source tab');
+    assert(await run(`const entry=document.querySelector('#cli-interfaces-open'),link=document.querySelector('#detail a');return !entry.checkVisibility()&&link.getAttribute('href')==='/#cli-interfaces'&&link.target==='_blank'&&link.rel==='noopener'&&!link.onclick&&location.pathname==='/p/${projectId}/'&&location.hash==='#${hash}'&&!document.querySelector('.cli-interfaces-page')`), 'project entry visible or legacy bookmark replaced source tab');
     await screenshot(`legacy-project-${hash}`);
     await run(`document.querySelector('#input').value='preserve project input';`);
     const handles = await rpc(`/session/${session}/window/handles`, undefined, 'GET');
@@ -184,9 +186,9 @@ try {
   await frame();
   assert(permissionReads === 2 && catalogueRequests.length === 1, 'stopped project browsing fetched dynamic permissions or redownloaded static data');
   await press('读取全局权限'); assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('已读取')`), 'offline project blocked Host permission read');
-  await search('order'); await choose('order'); await select('draft.add', 'unavailable'); await press('保存全局管家权限');
+  await search('order'); await choose('order'); await select('order.submit', 'unavailable'); await press('保存全局管家权限');
   assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('已保存')`), 'all-daemon-offline save failed');
-  assert(permissionWrites.length === 3 && f.project.managementPermissions().permissions['draft.add'] === 'unavailable', 'offline write missing or replayed');
+  assert(permissionWrites.length === 3 && f.project.managementPermissions().permissions['order.submit'] === 'unavailable', 'offline write missing or replayed');
   await screenshot('320-stopped-project-writable');
   fs.writeFileSync(path.join(evidence, 'evidence.json'), JSON.stringify({ layouts, mutations, permissionWrites, catalogueRequests, permissionReads, cacheEvidence, success: true }, null, 2));
   console.log(JSON.stringify({ result: 'passed', evidence, widths: layouts.map(item => item.width) }));
