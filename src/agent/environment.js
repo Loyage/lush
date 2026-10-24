@@ -34,7 +34,7 @@ function readFile(file, scope = 'project') {
   check(!published.isSymbolicLink(), `unsafe agent environment file: ${file}`);
   let fd;
   try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     const stat = fs.fstatSync(fd);
     check(stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1
       && (scope !== 'device' || !(stat.mode & 0o077)), `unsafe agent environment file: ${file}`);

@@ -1,6 +1,8 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
+import { locateReference, referenceable } from '../../src/ui/web/assets/context-references.js';
+import { registerPageLeaveGuard } from '../../src/ui/web/assets/page-leave-guard.js';
 
 const world = makeWorld(), deviceReads = [];
 const dom = installDom({ fetch: (url, options) => {
@@ -23,6 +25,14 @@ test('project Worker list, detail and browser back navigate between independent 
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
   expect(dom.location.hash).toBe('#worker-1'); expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('view-title').textContent).toBe('Worker #1');
+  const reference = { kind: 'task', target: { task_id: 1 }, label: 'Worker #1' };
+  referenceable(dom.node('detail'), reference);
+  const stay = registerPageLeaveGuard(() => false);
+  try {
+    expect(await locateReference(reference)).toBe(false);
+    expect(dom.node('detail').classList.contains('locate-flash')).toBe(false);
+    expect(dom.location.hash).toBe('#worker-1');
+  } finally { stay(); }
   dom.location.hash = '#workers'; await dom.fire('hashchange');
   expect(dom.node('side-tasks').hidden).toBe(false); expect(dom.node('detail').hidden).toBe(true);
   expect(dom.node('device-valet-open').href).toBe('/#device-valet');

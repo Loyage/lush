@@ -136,21 +136,25 @@ export class WebPushService {
   }
   async bounded(work, timeout) {
     this.assertOpen();
-    const signal = this.controller.signal;
+    const signal = this.controller.signal, operation = new AbortController();
     let timer, abort;
     const interrupted = new Promise((_, reject) => {
       abort = () => reject(new Error('Web Push operation interrupted'));
       signal.addEventListener('abort', abort, { once: true });
       timer = setTimeout(abort, timeout);
     });
-    const promise = Promise.race([Promise.resolve().then(() => { this.assertOpen(); return work(); }), interrupted]);
+    const promise = Promise.race([Promise.resolve().then(() => { this.assertOpen(); return work(operation.signal); }), interrupted]);
     this.pending.add(promise);
     try { return await promise; }
-    finally { clearTimeout(timer); signal.removeEventListener('abort', abort); this.pending.delete(promise); }
+    finally {
+      // A timed-out source read must release its RPC connection, not accumulate
+      // sockets across periodic refreshes. This does not cancel a dispatched write.
+      operation.abort(); clearTimeout(timer); signal.removeEventListener('abort', abort); this.pending.delete(promise);
+    }
   }
   async deliver(subscription, keys, payload) {
-    return this.bounded(() => this.send({ subscription: subscription.subscription, keys, payload,
-      subject: subscription.origin.replace(/^http:/, 'https:'), signal: this.controller.signal, now: this.now() }), 8500);
+    return this.bounded(signal => this.send({ subscription: subscription.subscription, keys, payload,
+      subject: subscription.origin.replace(/^http:/, 'https:'), signal, now: this.now() }), 8500);
   }
   async test(endpoint, origin) {
     this.assertOpen(); pushEndpoint(endpoint); pushOrigin(origin);
@@ -186,7 +190,7 @@ export class WebPushService {
       for (let page = 0; page < this.pages; page++) {
         const snapshot = this.store.read()?.sources[row.id];
         if (!snapshot) break;
-        const model = await this.bounded(() => binding.client.request('notice.sync', { cursor: snapshot.cursor, limit: 100 }), this.sourceTimeout);
+        const model = await this.bounded(signal => binding.client.request('notice.sync', { cursor: snapshot.cursor, limit: 100 }, { signal }), this.sourceTimeout);
         check(isPlainObject(model) && model.version === 1 && model.project === row.project && HEX.test(model.epoch)
           && typeof model.reset === 'boolean' && typeof model.has_more === 'boolean' && typeof model.cursor === 'string'
           && model.cursor.length <= 1024 && Array.isArray(model.changes) && model.changes.length <= 100, 'invalid push source synchronization');

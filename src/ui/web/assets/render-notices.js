@@ -22,6 +22,7 @@ import { workerLabel } from './worker-label.js';
 import { linkWorkerNumbers } from './worker-links.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
+const acknowledgedNotice = row => ui.noticeSettledRows.get(noticeIdentity(row)) || ui.noticeReadRows.get(noticeIdentity(row)) || row;
 const answerSource = notice => ['answered', 'dismissed'].includes(notice.status) && ['question', 'questionnaire'].includes(notice.kind)
   ? notice.answer_source === 'lush' ? 'Lush 自动选择' : notice.answer_source === 'user' ? '用户答复' : '答复来源未记录' : null;
 
@@ -88,7 +89,7 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
     page = { ...page, notices: [...new Map(notices.map(row => [row.id, row])).values()] };
     if (!Array.isArray(page.notices)) throw new Error('请重启 Web 与 daemon 以加载 notice 历史');
     page.notices = page.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id))
-      .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row)
+      .map(acknowledgedNotice)
       .filter(row => noticeMatches(row, status));
     state.rows = state.rows.filter(row => !ui.deletedWorkerIds.has(row.task_id));
     state.rows = more || preserve
@@ -201,7 +202,7 @@ function paintNoticeRows(rows) {
 export function renderNotices(data) {
   // A poll already in flight can contain pre-ACK rows; never resurrect acknowledged notices.
   data.notices = data.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id))
-    .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
+    .map(acknowledgedNotice);
   // 告知与决策分开计数，不把 info 当作需要答复的问题。
   const open = data.notices.filter(notice => notice.status === 'open');
   const unread = data.notices.filter(unreadNotice);
@@ -335,7 +336,7 @@ export async function openNotice(noticeId, { record = false, push = true } = {})
     if (!current() || ui.deletedWorkerIds.has(row.task_id)) return;
     const task = await api(`/api/worker/${row.task_id}`, { signal: state.controller.signal });
     if (!current() || ui.deletedWorkerIds.has(row.task_id)) return;
-    state.task = task; state.notice = ui.noticeReadRows.get(noticeIdentity(row)) || row;
+    state.task = task; state.notice = acknowledgedNotice(row);
     state.worker.setAttribute('href', `#worker-${row.task_id}`); state.worker.hidden = false;
     ui.noticeIndex.set(noticeId, state.notice); state.message.replaceChildren(); paintRecordFocus();
     return true;
@@ -350,6 +351,7 @@ export async function openNotice(noticeId, { record = false, push = true } = {})
 /* ---------- detail ---------- */
 /** 独立事项详情与 Worker 内待决提醒共用原始正文、答复和历史回放。 */
 export function noticePanel(notice, task = null) {
+  notice = acknowledgedNotice(notice);
   const section = buildNoticePanel(notice, task), head = section.querySelector('.notice-head'), title = section.querySelector('h3');
   const meta = el('div', undefined, 'notice-meta');
   for (const node of [...head.childNodes]) meta.insertBefore(node, null);
@@ -395,11 +397,39 @@ function buildNoticePanel(notice, task = null) {
     if (!ownsPage()) return;
     ui.detailDirty = false;
     if (!inRecords) return detail(notice.task_id);
-    const current = await readNoticeRecord(notice.id);
+    const current = ui.noticeSettledRows.get(noticeIdentity(notice)) || await readNoticeRecord(notice.id);
     if (!ownsPage()) return;
     ui.noticeIndex.set(current.id, current);
     ui.noticePage.notice = current;
     paintRecordFocus();
+  };
+  // The write ACK is authoritative. Revalidation is neither part of the submit
+  // lock nor a reason to offer a second answer after the first one succeeded.
+  const settleRecord = async (method, params, ownsPage) => {
+    const source = projectBase(), rows = ui.noticeSettledRows;
+    const result = await action(method, params, { refresh: false });
+    const row = { ...notice, ...result };
+    if (result?.id !== notice.id || row.status !== (method === 'notice.dismiss' ? 'dismissed' : 'answered')) {
+      throw new Error('事项答复确认不完整，请刷新核验');
+    }
+    const ownsProject = () => source === projectBase() && ui.noticeSettledRows === rows;
+    if (!ownsProject()) return;
+    rows.set(noticeIdentity(notice), row);
+    ui.noticeIndex.set(row.id, row);
+    if (ui.noticeRecords) ui.noticeRecords.rows = ui.noticeRecords.rows.map(value => acknowledgedNotice(value));
+    if (ownsPage()) { ui.detailDirty = false; paintRecordFocus(); }
+    void Promise.resolve().then(() => {
+      if (ownsProject()) return refresh();
+    }).then(() => {
+      if (ownsProject() && ownsPage() && ui.offline) show('事项已处理，但页面刷新失败；可稍后刷新。', 'error');
+    }).catch(error => {
+      if (ownsProject() && ownsPage()) show(`事项已处理，但页面刷新失败：${error.message}`, 'error');
+    });
+  };
+  const refreshSettled = ownsPage => {
+    void Promise.resolve().then(() => refreshRecord(ownsPage)).catch(error => {
+      if (ownsPage()) show(`事项已处理，但详情刷新失败：${error.message}`, 'error');
+    });
   };
   const completedElsewhere = () => show('事项已处理；保留当前页面。');
   if (notice.kind === 'plan') {
@@ -421,14 +451,15 @@ function buildNoticePanel(notice, task = null) {
   if (notice.kind === 'questionnaire') {
     const settled = async (method, params) => {
       const ownsPage = actionIdentity();
-      await action(method, params);
+      await settleRecord(method, params, ownsPage);
       if (!ownsPage()) { completedElsewhere(); return; }
       ui.detailDirty = false;
-      if (inRecords) { await refreshRecord(ownsPage); return; }
+      if (inRecords) { refreshSettled(ownsPage); return; }
       const next = [...ui.noticeIndex.values()].filter(row => row.id !== notice.id && row.status === 'open').sort((a, b) => a.id - b.id)[0];
       ui.noticeFocus = next?.id ?? null;
-      try { await detail(next?.task_id ?? notice.task_id); }
-      catch (error) { $('error').textContent = `答案已提交，详情刷新失败：${error.message}`; }
+      void Promise.resolve().then(() => { if (ownsPage()) return detail(next?.task_id ?? notice.task_id); }).catch(error => {
+        if (ownsPage()) show(`答案已提交，详情刷新失败：${error.message}`, 'error');
+      });
     };
     section.append(questionnairePanel(notice, {
       settle: answer => settled('notice.answer', { id: notice.id, answer }),
@@ -453,21 +484,21 @@ function buildNoticePanel(notice, task = null) {
     const ownsPage = actionIdentity();
     actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
     try {
-      await action('notice.answer', { id: notice.id, answer: value });
+      await settleRecord('notice.answer', { id: notice.id, answer: value }, ownsPage);
       if (!ownsPage()) { completedElsewhere(); return; }
       ui.noticeFocus = null; ui.detailDirty = false;
-      await refreshRecord(ownsPage);
-    } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
+      refreshSettled(ownsPage);
+    } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = ui.noticeSettledRows.has(noticeIdentity(notice)); }); }
   };
   const dismiss = async () => {
     const ownsPage = actionIdentity();
     actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
     try {
-      await action('notice.dismiss', { id: notice.id });
+      await settleRecord('notice.dismiss', { id: notice.id }, ownsPage);
       if (!ownsPage()) { completedElsewhere(); return; }
       ui.noticeFocus = null; ui.detailDirty = false;
-      await refreshRecord(ownsPage);
-    } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
+      refreshSettled(ownsPage);
+    } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = ui.noticeSettledRows.has(noticeIdentity(notice)); }); }
   };
   if (resolutionDecision) actions.append(
     button('开始解冲突', () => settle('批准，开始解冲突'), undefined,

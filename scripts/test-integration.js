@@ -9,6 +9,7 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
     'test/web/assets.test.js', // startup graph and unchanged cold-loading budgets
+    'test/web/launcher.test.js', // registered project -> inbox cache -> in-flight source removal
     'test/web/dom-built-loading-assets.test.js', // compiled root and project boot
     'test/web/dom-administrator-page.test.js', // project/device Valet password authority, unknown receipts and page ownership
     'test/web/dom-detail.test.js', // Worker detail -> independent reader
@@ -26,6 +27,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
   ]),
   rpc: Object.freeze([
     'test/worker-context.test.js', // invocation -> fixed CLI -> authorized RPC effects
+    'test/integration/daemon.test.js', // daemon restart and real RPC backpressure -> shutdown drain
+    'test/workspaces/merge.test.js', // exact worktree path -> merge -> resource reclamation
     'test/project/management-cli.test.js', // Provider -> bridge -> CLI policy, execution and audit
     'test/project/management-append.test.js', // real main intake -> same Valet rounds -> acceptance and read-only history
     'test/project/administrator-execution.test.js', // native elevated occurrence -> isolated Provider/bridge -> current-project handler
@@ -61,6 +64,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/integration/questionnaire.test.js', // created question -> real CLI -> park and answer
     'test/integration/result-notice.test.js', // default info -> real CLI -> no parking
     'test/agent/capabilities.test.js', // shipped Skills and invocation prompt
+    'test/agent/packages-cli.test.js', // package lock/queue -> real subprocess -> install/list/remove
     'test/worker-cli-trial.test.js', // HTTP -> real lush/lushw -> query and confirmed write
     'test/project/management-cli.test.js', // model CLI permissions and actual effects
     'test/integration/pi.test.js', // daemon -> controlled Provider -> CLI delegation

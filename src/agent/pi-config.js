@@ -36,7 +36,7 @@ export function piConfigDirectory(config, scope) {
 export function readPiConfiguration(file) {
   let fd;
   try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     const stat = fs.fstatSync(fd);
     check(typeof process.getuid === 'function' && stat.isFile() && stat.uid === process.getuid()
       && !(stat.mode & 0o077) && stat.nlink === 1 && stat.size <= MAX_FILE, 'unsafe Lush Pi configuration file');

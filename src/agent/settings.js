@@ -138,7 +138,7 @@ export class AgentSettings {
       let published;
       try { published = fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
       check(!published.isSymbolicLink(), `unsafe Agent config file: ${file}`);
-      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       const stat = fs.fstatSync(fd);
       check(stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1, `unsafe Agent config file: ${file}`);
       check((stat.mode & 0o077) === 0, `${file} must only be readable by its owner (chmod 600)`);

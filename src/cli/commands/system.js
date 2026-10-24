@@ -47,7 +47,7 @@ function webUpdateHint(config, report) {
 
 function daemonUpdateHint(config, status, current) {
   if (!status || status.fingerprint === current.fingerprint && status.code_dir === current.code_dir) return null;
-  const command = ['bun', 'run', 'daemon-restart', '--project', config.project];
+  const command = ['bun', 'run', 'lush', 'daemon', 'restart', '--project', config.project];
   return { process: 'daemon', reason: 'code_mismatch', project: config.project, pid: status.pid ?? null, command,
     message: `项目 ${config.project} 的 daemon 与当前磁盘代码不一致；确认没有活动 invocation 后运行 ${commandText(command)}` };
 }

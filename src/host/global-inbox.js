@@ -199,18 +199,23 @@ export class GlobalInboxService {
   }
   async request(client, method, params, mutation = false) {
     this.assertOpen();
+    const controller = new AbortController();
     let cancel, timer;
     const interrupted = new Promise((_, reject) => {
       cancel = () => reject(new Error(mutation ? '提交结果未确认；请刷新来源记录核对，不要重复提交。' : '来源项目读取已中止'));
       timer = setTimeout(() => reject(new Error(mutation ? '提交结果未确认；请刷新来源记录核对，不要重复提交。' : '来源项目读取超时')), this.timeout);
     });
     this.pending.add(cancel);
-    try { return await Promise.race([client.request(method, params), interrupted]); }
+    try { return await Promise.race([client.request(method, params, { signal: controller.signal }), interrupted]); }
     catch (error) {
       const failure = new Error(mutation ? '提交结果未确认；请刷新来源记录核对，不要重复提交。' : '来源项目读取未完成；请稍后刷新。');
       if (error.code === -32601) failure.code = error.code;
       throw failure;
-    } finally { clearTimeout(timer); this.pending.delete(cancel); }
+    } finally {
+      // Releasing the waiter alone leaves the RPC socket alive until its much longer
+      // transport timeout. Aborting closes only the connection, never undoes a write.
+      controller.abort(); clearTimeout(timer); this.pending.delete(cancel);
+    }
   }
   state(row) {
     let state = this.states.get(row.id);
@@ -339,6 +344,9 @@ export class GlobalInboxService {
     const number = id(noticeId); check(number < Number.MAX_SAFE_INTEGER, 'Notice id exceeds supported range');
     const row = (await this.entries()).find(entry => entry.id === projectId); check(row, '未知或无权访问的来源项目');
     await this.refreshProject(row);
+    // A failed refresh may retain cached data while its source is removed. Recheck
+    // authority before the offline branch too, not only after successful reads.
+    check((await this.entries()).some(entry => entry.id === row.id), '来源项目已移除或不再允许访问');
     const state = this.state(row);
     if (!state.online) {
       const notice = state.records.get(number); check(notice, '来源离线，且没有这条事项的缓存');

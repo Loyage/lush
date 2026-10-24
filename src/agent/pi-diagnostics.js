@@ -91,7 +91,7 @@ export function installPiDiagnostics(pi, file, { clock = () => performance.now()
 export function readPiDiagnostics(file) {
   let fd;
   try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid() || stat.mode & 0o077 || stat.size > MAX_DIAGNOSTIC_BYTES) return null;
     const buffer = Buffer.alloc(stat.size + 1); let length = 0;

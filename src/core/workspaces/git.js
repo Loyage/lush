@@ -92,12 +92,12 @@ export const methods = {
   },
   /** 返回检出指定分支的 worktree；分支没有被检出时返回 null。 */
   async workspaceForBranch(branch) {
-    const list = await this.git(this.config.project, 'worktree', 'list', '--porcelain');
-    let workspace = null;
-    for (const line of list.split('\n')) {
-      if (line.startsWith('worktree ')) workspace = line.slice('worktree '.length);
-      else if (line === `branch refs/heads/${branch}`) return workspace;
-      else if (!line) workspace = null;
+    // NUL records preserve quoted/newline paths and trailing whitespace verbatim.
+    const list = await this.gitOutput(this.config.project, 'worktree', 'list', '--porcelain', '-z');
+    for (const record of list.split('\0\0')) {
+      const fields = record.split('\0');
+      if (fields.includes(`branch refs/heads/${branch}`))
+        return fields.find(field => field.startsWith('worktree '))?.slice('worktree '.length) ?? null;
     }
     return null;
   },

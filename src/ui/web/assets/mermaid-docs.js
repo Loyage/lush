@@ -8,6 +8,7 @@ let loading = null;
 let renderBatch = 0;
 let renderQueue = Promise.resolve();
 const sources = new WeakMap();
+const renderTickets = new WeakMap();
 
 function mermaidGlobal(doc) {
   return doc.defaultView?.mermaid || globalThis.mermaid || null;
@@ -49,6 +50,8 @@ function svgImage(doc, source) {
 /** 文档换页前释放这篇正文创建的 blob URL。 */
 export function clearMermaidDiagrams(root) {
   const URLType = root?.ownerDocument?.defaultView?.URL || globalThis.URL;
+  // Invalidate queued and in-flight work too: it may not own a blob URL yet.
+  for (const node of root?.querySelectorAll?.('.md-mermaid') || []) renderTickets.delete(node);
   for (const node of root?.querySelectorAll?.('[data-mermaid-url]') || []) {
     const url = node.getAttribute('data-mermaid-url');
     if (url) URLType?.revokeObjectURL?.(url);
@@ -71,9 +74,10 @@ function fallback(node, source, message) {
 }
 
 /** 实际渲染由下方队列串行调用：Mermaid 配置是全局的，主题切换不能与上一轮交错。 */
-async function renderNow(root) {
+async function renderNow(root, ticket, candidates) {
   const doc = root?.ownerDocument || globalThis.document;
-  const nodes = [...(root?.querySelectorAll?.('.md-mermaid[data-mermaid-state="pending"]') || [])];
+  const current = node => renderTickets.get(node) === ticket;
+  const nodes = candidates.filter(current);
   if (!nodes.length) return 0;
   const accepted = nodes.slice(0, MAX_DIAGRAMS);
   for (const node of nodes.slice(MAX_DIAGRAMS)) fallback(node, node.textContent, 'mermaid · 图表数量超限');
@@ -81,10 +85,11 @@ async function renderNow(root) {
   let mermaid;
   try { mermaid = await loadMermaid(doc); }
   catch (error) {
-    for (const node of accepted) fallback(node, node.textContent, `mermaid · ${error.message}`);
+    for (const node of accepted) if (current(node)) fallback(node, node.textContent, `mermaid · ${error.message}`);
     return 0;
   }
 
+  if (!accepted.some(current)) return 0;
   const dark = doc.documentElement?.dataset?.theme === 'dark';
   const themeVariables = dark ? {
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif', fontSize: '14px',
@@ -128,19 +133,22 @@ async function renderNow(root) {
   const batch = ++renderBatch;
   let rendered = 0;
   for (const [index, node] of accepted.entries()) {
+    if (!current(node)) continue;
     const source = node.textContent;
     sources.set(node, source);
     if (source.length > MAX_SOURCE_LENGTH) { fallback(node, source, 'mermaid · 源码过长'); continue; }
     try {
       await mermaid.parse(source);
+      if (!current(node)) continue;
       const result = await mermaid.render(`lush-mermaid-${batch}-${index + 1}`, source);
+      if (!current(node)) continue;
       const { image, url } = svgImage(doc, result.svg);
       node.replaceChildren(image);
       node.setAttribute('data-mermaid-url', url);
       node.setAttribute('data-mermaid-state', 'rendered');
       rendered++;
     } catch (error) {
-      fallback(node, source, `mermaid · ${error?.message || '渲染失败'}`);
+      if (current(node)) fallback(node, source, `mermaid · ${error?.message || '渲染失败'}`);
     }
   }
   return rendered;
@@ -148,7 +156,9 @@ async function renderNow(root) {
 
 /** 渲染 root 内待处理的图；返回实际成功渲染的数量。 */
 export function renderMermaidDiagrams(root) {
-  const next = renderQueue.then(() => renderNow(root), () => renderNow(root));
+  const ticket = {}, nodes = [...(root?.querySelectorAll?.('.md-mermaid[data-mermaid-state="pending"]') || [])];
+  for (const node of nodes) renderTickets.set(node, ticket);
+  const next = renderQueue.then(() => renderNow(root, ticket, nodes), () => renderNow(root, ticket, nodes));
   renderQueue = next.catch(() => 0);
   return next;
 }

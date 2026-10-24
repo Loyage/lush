@@ -72,7 +72,7 @@ function storedLocal(config) {
   let fd;
   try {
     const loc = location(config); if (!loc) return defaults();
-    try { fd = fs.openSync(loc.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+    try { fd = fs.openSync(loc.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK); }
     catch (error) { if (error.code === 'ENOENT') return defaults(); throw error; }
     const stat = fs.fstatSync(fd); verify(privateFile(stat));
     const source = fs.readFileSync(fd, 'utf8'), after = fs.fstatSync(fd);

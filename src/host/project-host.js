@@ -49,13 +49,13 @@ function maintenanceView(value) {
     ...(value.notify_completion !== undefined ? { notify_completion: value.notify_completion } : {}) };
 }
 
-async function readProjectSummary(client) {
-  try { return await client.request('system.summary', { development: true }); }
+async function readProjectSummary(client, signal) {
+  try { return await client.request('system.summary', { development: true }, { signal }); }
   catch (error) {
     // Older daemon: retain its online identity and clearly mark development details unavailable.
     // Retry only a proven read-only parameter mismatch, never a timeout or unknown write result.
     if (error.code !== -32602 || error.message !== 'unknown parameter') throw error;
-    return await client.request('system.summary');
+    return await client.request('system.summary', {}, { signal });
   }
 }
 
@@ -218,12 +218,13 @@ export function createProjectHost(initialConfig = null, options = {}) {
         const retryAt = summaryBackoff.get(row.project) ?? 0;
         if (retryAt > Date.now()) return { ...row, running: false, error: failures.get(row.project) ?? '项目暂时不可达' };
         let timer = null;
+        const controller = new AbortController();
         try {
           // 未打开的项目只探测已存在的 socket；列表读取绝不启动 lushd。
           const config = binding?.config || new Config({ project: row.project, env });
           if (!binding && !fs.existsSync(config.socket)) return { ...row, running: false };
           const status = await Promise.race([
-            readProjectSummary(binding?.client || new UIClient(config)),
+            readProjectSummary(binding?.client || new UIClient(config), controller.signal),
             new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('项目摘要读取超时')), SUMMARY_TIMEOUT_MS); timer.unref?.(); }),
           ]);
           check(status.project === row.project, 'lushd 项目身份与登记路径不符');
@@ -245,7 +246,7 @@ export function createProjectHost(initialConfig = null, options = {}) {
           summaryBackoff.set(row.project, Date.now() + SUMMARY_BACKOFF_MS);
           failures.set(row.project, '后台状态读取失败；未确认当前进程状态');
           return { ...row, running: false, error: '后台状态读取失败；未确认当前进程状态' };
-        } finally { if (timer) clearTimeout(timer); }
+        } finally { controller.abort(); if (timer) clearTimeout(timer); }
       }));
     },
     async select(value) { return await select(value); },

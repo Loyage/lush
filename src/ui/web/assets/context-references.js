@@ -172,7 +172,7 @@ export function renderComposerReferences() {
   ui.syncComposer?.();
 }
 
-let flashNode = null, flashTimer = null;
+let flashNode = null, flashTimer = null, locateRequest = 0;
 /** Clear the one-time locate highlight (boot / re-locate must not leave stale classes behind). */
 export function clearLocateFlash() {
   if (flashTimer !== null) { globalThis.clearTimeout?.(flashTimer); flashTimer = null; }
@@ -193,22 +193,28 @@ function flashLocated(node) {
 async function navigateForReference(reference) {
   const kind = reference?.kind, target = reference?.target || {};
   if (kind === 'intent' || kind === 'spec' || kind === 'notice') {
-    resource(kind === 'intent' ? 'intents' : kind === 'spec' ? 'specs' : 'notices');
-    return $(LOCATE_ROOTS[kind]);
+    const opened = await resource(kind === 'intent' ? 'intents' : kind === 'spec' ? 'specs' : 'notices');
+    return opened === true ? $(LOCATE_ROOTS[kind]) : null;
   }
   if (['task','task_subtree','result','diff','message','verification','history_event','transcript_step'].includes(kind)) {
     // 检验 / 历史事件的 target 只有实体 id，所属任务在 location.task_id。
     const taskId = target.task_id ?? reference?.location?.task_id;
     if (taskId === null || taskId === undefined) return null;
     // 执行步骤只在展开的执行过程里渲染；定位先展开它，否则只能报找不到。
+    const wasOpen = transcriptOpen.has(taskId);
     if (kind === 'transcript_step') transcriptOpen.add(taskId);
-    await detail(taskId);
+    const opened = await detail(taskId);
+    if (opened !== true) {
+      if (kind === 'transcript_step' && !wasOpen) transcriptOpen.delete(taskId);
+      return null;
+    }
     return $('detail');
   }
   return null;
 }
-async function waitForRef(root, token, attempts = 15) {
+async function waitForRef(root, token, current, attempts = 15) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (!current()) return null;
     const found = findByRef(root, token);
     if (found) return found;
     // 信息页列表按需加载：给异步渲染一点时间，找不到再如实报错。
@@ -224,18 +230,25 @@ export async function locateReference(reference) {
     show('分支引用的 Web 定位入口已移除；原始引用快照仍保留，可用 CLI 查看分支。', 'error');
     return false;
   }
+  const request = ++locateRequest, doc = document, boot = ui.workerNumbers;
+  const owns = () => request === locateRequest && document === doc && ui.workerNumbers === boot;
   let root = null;
   try { root = await navigateForReference(reference); }
-  catch (error) { show(`定位失败：${error.message}`, 'error'); return false; }
+  catch (error) { if (owns()) show(`定位失败：${error.message}`, 'error'); return false; }
+  if (!root || !owns()) return false;
+  const view = ui.view;
+  const current = () => owns() && ui.view === view;
   let revealed = null;
   if (['message', 'history_event', 'result'].includes(reference.kind)) {
     try {
       revealed = await root?.querySelector('.conversation-panel')?.revealConversationReference?.(reference);
+      if (!current()) return false;
       if (!revealed && reference.kind !== 'result') revealed = await root?.querySelector('.worker-timeline-panel')?.revealTimelineReference?.(reference);
     }
-    catch (error) { show(`定位读取失败：${error.message}`, 'error'); return false; }
+    catch (error) { if (current()) show(`定位读取失败：${error.message}`, 'error'); return false; }
   }
-  const found = revealed || await waitForRef(root, token);
+  const found = revealed || await waitForRef(root, token, current);
+  if (!current()) return false;
   if (!found) { show(`找不到这条引用的目标：${reference.label || token}。它可能已被移除或归档。`, 'error'); return false; }
   flashLocated(found);
   return true;

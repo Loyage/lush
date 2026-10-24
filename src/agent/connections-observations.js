@@ -29,7 +29,7 @@ export class ConnectionObservationFile {
     if (!parent) return {};
     let fd;
     try {
-      try { fd = fs.openSync(this.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)); }
+      try { fd = fs.openSync(this.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)); }
       catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
       const stat = fs.fstatSync(fd);
       if (!stat.isFile() || !owner(stat) || (stat.mode & 0o777) !== 0o600 || stat.nlink !== 1 || stat.size > MAX_BYTES) fail('auth_changed');

@@ -8,7 +8,48 @@ import { parseCLI, validateCLIParameters } from '../../src/cli/parser.js';
 import { Config } from '../../src/config.js';
 import { AgentSettings } from '../../src/agent/settings.js';
 import { ConnectionManager } from '../../src/agent/connections.js';
+import { AgentPackages } from '../../src/agent/packages.js';
+import { acquireConfigurationLock } from '../../src/core/device-config.js';
 import { temp, env } from '../helpers.js';
+
+// Package install/list/remove was not covered by the CLI source-management smoke below.
+// Exercise the real subprocess and queue with private local inputs, without network or Pi auth.
+test('package operations recover from lock contention and finish their subprocess groups', async () => {
+  const root = temp(), home = path.join(root, 'device'), source = path.join(root, 'local-package');
+  fs.mkdirSync(home, { mode: 0o700 }); fs.mkdirSync(source);
+  const executable = path.join(root, 'controlled-package-cli');
+  fs.writeFileSync(executable, `#!${process.execPath}
+import fs from 'node:fs';
+import path from 'node:path';
+import cp from 'node:child_process';
+const [action, source] = process.argv.slice(2);
+const file = path.join(process.env.PI_CODING_AGENT_DIR, 'settings.json');
+const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+if (action === 'list') {
+  console.log('User packages:');
+  for (const item of settings.packages || []) console.log('  ' + item + '\\n    ' + item);
+} else {
+  settings.packages = action === 'install' ? [source] : [];
+  fs.writeFileSync(file, JSON.stringify(settings), { mode: 0o600 });
+  // A background descendant retaining stdout used to turn a successful leader exit into timeout.
+  const child = cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 1, 2] });
+  child.unref();
+}
+`, { mode: 0o700 });
+  const manager = new AgentPackages({ home, project: root,
+    env: { PATH: process.env.PATH, HOME: root, LUSH_PI_COMMAND: executable } }, { timeoutMs: 2000 });
+  let lock = acquireConfigurationLock({ home }, 'project', 'packages');
+  try {
+    await expect(manager.install(source)).rejects.toThrow('busy');
+    expect(manager.isBusy()).toBe(false);
+    lock.release(); lock = null;
+    const installed = await manager.install(source);
+    expect(installed).toMatchObject({ action: 'install', packages: [{ source, installed: true }] });
+    expect((await manager.list()).packages).toHaveLength(1);
+    expect(await manager.remove(installed.packages[0].id)).toMatchObject({ action: 'remove', packages: [] });
+    expect(manager.isBusy()).toBe(false);
+  } finally { lock?.release(); await manager.stop(); fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('device config and core model sources use narrow CLI RPCs without private reads or retired workflows', async () => {
   const root = temp(), calls = [], network = [];

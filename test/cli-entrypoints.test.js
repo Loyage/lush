@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { AGENT_CAPABILITIES } from '../src/agent/capabilities.js';
 import { main } from '../src/cli/main.js';
+import { run as runSystem } from '../src/cli/commands/system.js';
 import { cliHelpDocument } from '../src/cli/catalog.js';
 import { CLI_MIGRATIONS } from '../src/cli/migrations.js';
 import { env, temp } from './helpers.js';
@@ -33,6 +34,12 @@ test('published bins and source scripts expose executable lushw', async () => {
     expect(management.code, management.err).toBe(0);
     expect(management.out).toContain('lush [--project PATH]');
     expect(management.out).toContain('order');
+    const diagnosis = await runSystem('doctor', [], { client: {
+      config: { project: cwd, home: cwd, socket: path.join(cwd, 'rpc.sock'), provider: 'mock' },
+      async request(method) { expect(method).toBe('system.status'); return { project: cwd, code_dir: root, fingerprint: 'old-code' }; },
+    } });
+    expect(diagnosis.daemon_code_match).toBe(false);
+    expect(diagnosis.update_hints[0].command).toEqual(['bun', 'run', 'lush', 'daemon', 'restart', '--project', cwd]);
     const machine = await invoke(bin, ['help', '--all', '--limit', '2', '--json'], cwd);
     const first = JSON.parse(machine.out);
     expect(first.data.kind).toBe('index');

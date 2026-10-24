@@ -272,6 +272,9 @@ export function spawnPackageCommand({ command, args, env, cwd, signal, timeoutMs
       stdout += chunk;
     });
     child.on('error', () => settle(new PackageCommandError('unavailable')));
+    // The CLI leader exiting is the operation boundary. Descendants must not retain
+    // its stdout (delaying close until timeout) or keep writing after the lock is released.
+    child.once('exit', kill);
     child.on('close', code => {
       if (settled) return;
       if (signal?.aborted) return settle(new PackageCommandError('cancelled'));
@@ -358,7 +361,9 @@ export class AgentPackages {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) { reject(new PackageCommandError('cancelled')); return; }
       this.mutations.push({ fn, signal, resolve, reject });
-      if (!this.activeMutation) this.activeMutation = this.drainMutations();
+      // Publish the active promise before draining: lock admission can fail synchronously
+      // and otherwise clear activeMutation before this assignment restores a stale promise.
+      if (!this.activeMutation) this.activeMutation = Promise.resolve().then(() => this.drainMutations());
     });
   }
 

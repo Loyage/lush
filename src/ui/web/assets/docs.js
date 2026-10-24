@@ -11,6 +11,8 @@
  * 返回 null，退回默认行为（显示成 `标题 (路径)` 的纯文本）。
  */
 import { api } from './api.js';
+import { $ } from './dom.js';
+import { clearMermaidDiagrams } from './mermaid-docs.js';
 import { renderDoc, renderDocError, renderDocsIndex } from './render-docs.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
@@ -73,8 +75,16 @@ export async function openDocs(id = null) {
  */
 let docsRequest = 0;
 export async function loadDocs(id = null) {
-  const view = ui.view, request = ++docsRequest;
-  const current = () => ui.view === view && request === docsRequest;
+  ui.disposeDetailRequests?.();
+  const view = ui.view, request = ++docsRequest, panel = $('detail');
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true; clearMermaidDiagrams(panel);
+    if (ui.disposeDetailRequests === dispose) ui.disposeDetailRequests = null;
+  };
+  ui.disposeDetailRequests = dispose;
+  const current = () => !disposed && ui.view === view && request === docsRequest;
   try {
     const index = await api('/api/docs');
     if (!current()) return;

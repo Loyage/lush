@@ -270,6 +270,7 @@ export class RPCServer {
       server.stop(false);
     }
     for (const [socket, conn] of [...this.connections]) this._close(socket, conn);
-    this.connections.clear();
+    // Keep state until the socket actually closes: drain callbacks need its
+    // writer to flush bytes queued before shutdown. _onClose removes it.
   }
 }

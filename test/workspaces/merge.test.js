@@ -7,10 +7,18 @@ import { setup, change } from './harness.js';
 test('worker branch is isolated, committed results stay pending until explicit merge', async () => {
   const f = await setup();
   try {
-    const cwd = await change(f, f.task);
+    let cwd = await change(f, f.task);
     expect(fs.readFileSync(path.join(f.root,'file.txt'),'utf8')).toBe('base\n');
     expect(f.store.task(f.task.id).integration).toBe('pending');
     expect(cwd).toStartWith(path.join(f.config.home,'worktrees'));
+    // Line-oriented output cannot safely delimit these legal path characters.
+    const moved = path.join(path.dirname(cwd), 'checkout\t"审查"\n ');
+    await git(f.root, 'worktree', 'move', cwd, moved); cwd = moved;
+    f.store.update(f.task.id, { workspace: cwd });
+    f.store.run('UPDATE inputs SET anchor_workspace=? WHERE id=?', cwd, f.task.input_id);
+    f.store.run('UPDATE branches SET worktree=? WHERE branch=?', cwd, f.task.branch);
+    expect(await f.project.workspaces.workspaceForBranch(f.task.branch)).toBe(cwd);
+    expect(await f.project.workspaces.workspaceForBranch('missing')).toBeNull();
     await f.project.workspaces.merge(f.task.id);
     expect(fs.readFileSync(path.join(f.root,'file.txt'),'utf8')).toBe('changed\n');
     expect(f.store.task(f.task.id).integration).toBe('merged');
