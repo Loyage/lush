@@ -91,6 +91,11 @@ test('device settings saves real Host preferences and reminders, profiles and en
     expect(panel.querySelector('[data-runtime-error=""]').textContent).toContain('controlled save failure');
   } finally { globalThis.fetch = fetch; }
   await save.onclick(); expect(world.state.runtimeSettings.call_timeout.value).toBe(180);
+  expect(panel.querySelector('.settings-save-receipt').textContent).toContain('调用与拆解限额已保存');
+  expect(panel.querySelector('.settings-save-receipt').hidden).toBe(false);
+  await panel.querySelector('[data-settings-tab="interface"]').onclick();
+  await panel.querySelector('[data-settings-tab="system"]').onclick();
+  expect(panel.querySelector('.settings-save-receipt').textContent).toContain('已保存');
   dom.location.hash = '#skills'; await dom.fire('hashchange');
   expect(panel.dataset.view).toBe('skills');
   expect(dom.node('skills-open').getAttribute('aria-current')).toBe('page');
@@ -134,6 +139,11 @@ test('device settings saves real Host preferences and reminders, profiles and en
     pending = profileSave.onclick(); prompt.value = 'edited during save'; release(); await pending;
     expect(profile.querySelector('[data-agent-field="append_prompt"]')).toBe(prompt);
     expect(prompt.value).toBe('edited during save'); expect(world.state.agentConfig.default.append_prompt).toBe('profile draft');
+    expect(panel.querySelector('.settings-save-receipt').textContent).toContain('保留你随后输入的未保存修改');
+    pending = profileSave.onclick(); release(); await pending;
+    expect(panel.querySelector('.settings-save-receipt').textContent).toContain('默认 Agent已保存');
+    expect(panel.querySelector('.settings-save-receipt').hidden).toBe(false);
+    expect(panel.querySelector('.agent-settings').children[0].classList.contains('agent-default-summary')).toBe(true);
 
     pendingMethod = 'agent/environment';
     let env = panel.querySelector('.agent-env-block'), load = env.querySelector('.agent-env-load');

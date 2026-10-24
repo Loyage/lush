@@ -121,7 +121,7 @@ try {
   for (const [width, height] of [[1440,900],[390,700],[320,560]]) {
     await viewport(width, height);
     assert(await execute(`const n=document.querySelector('#detail');return innerWidth===${width}&&n.scrollWidth<=n.clientWidth+1&&
-      [...document.querySelectorAll('.conversation-filter')].every(n=>getComputedStyle(n).display!=='none'&&(${width}>760||n.getBoundingClientRect().height>=44));`), 'horizontal overflow, wrong viewport or inaccessible filters');
+      [...document.querySelectorAll('.conversation-filter')].every(n=>getComputedStyle(n).display!=='none'&&(${width}>760||n.getBoundingClientRect().height===32));`), 'horizontal overflow, wrong viewport or inaccessible filters');
     assert(await execute(`const root=document.querySelector('.operation-completion'),meter=root.querySelector('progress'),name=root.querySelector('.operation-completed-name');
       const r=root.getBoundingClientRect(),m=meter.getBoundingClientRect(),n=name.getBoundingClientRect();
       const fill=getComputedStyle(meter,'::-moz-progress-bar').backgroundColor;

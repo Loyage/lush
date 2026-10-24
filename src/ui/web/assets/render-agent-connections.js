@@ -35,9 +35,10 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const projectHistory = client?.project !== false;
   const sharedSampling = client?.scope === 'device';
   const node = el('div', undefined, 'agent-connections-panel');
-  const intro = block(client ? '设备模型来源' : '项目模型来源'); intro.classList.add('model-source-intro');
-  if (client) note(intro, `${scopeImpact()} 连接操作只修改设备配置，不自动导入旧项目凭证。`);
-  note(intro, '仅显示来源与缓存摘要；点击“详情”查看完整配置、额度和使用情况。进入页面不联网，刷新不调用模型。');
+  const intro = block('来源管理'); intro.classList.add('model-source-intro');
+  const explanation = el('details', undefined, 'model-source-explanation'); explanation.append(el('summary', '读取、刷新与存储范围'));
+  if (client) note(explanation, `${scopeImpact()} 不自动导入旧项目凭证。`);
+  note(explanation, '进入页面只读本地配置与缓存，不访问服务商；显式刷新额度会联网，不调用模型。详情包含完整配置、额度与适用的项目使用情况。');
   const toolbar = el('div', undefined, 'agent-connection-actions');
   const feedback = el('p', '尚未读取本地连接。', 'hint agent-connections-feedback'); feedback.setAttribute('role', 'status');
   const layout = el('div', undefined, 'model-source-layout');
@@ -132,7 +133,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       try {
         const value = await read('/api/agent/connections');
         if (!apply(value, stamp)) return false;
-        message('本地连接已读取；额度可显式刷新，旧配置和历史保持不迁移。'); return true;
+        message(`已读取 ${data.connections.length} 个来源 · 本地配置与额度缓存，未查询服务商。`); return true;
       }
       catch { if (stamp === version) message('读取连接失败；已有编辑和缓存保留，请重试。', true); return false; }
       finally { if (listFlight === pending) listFlight = null; if (current() && stamp === version) node.setAttribute('aria-busy', 'false'); }
@@ -265,7 +266,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         if (panelKind === 'detail' && selectedId === connection.id && !detailPane.hidden) back.onclick();
         else selectConnection(connection.id);
       } })));
-    statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length}${projectHistory ? ` · 本项目使用中 ${all.filter(row => array(row.consumers).length).length}` : ' · 设备页不展示项目消费者'}（不合计不同币种或套餐）`;
+    statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length}${projectHistory ? ` · 本项目使用中 ${all.filter(row => array(row.consumers).length).length}` : ''}`;
     listFeedback.textContent = `显示 ${filtered.length} / ${all.length} 个来源${filtered.length ? '' : '；暂无匹配来源'}`;
     batchFeedback.replaceChildren(...all.filter(row => selected.has(row.id) && operationState.has(row.id)).map(row => el('p', `${row.label}：${operationState.get(row.id)}`, 'hint')));
     updateBatchControls(); paintSelection(); updateResets();
@@ -334,8 +335,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   if (!projectHistory) {
     for (const control of [...toolbar.querySelectorAll('button')]) if (['后台采样设置', '历史与已删除来源'].includes(control.textContent)) control.parentNode?.classList.contains('help-host') ? control.parentNode.remove() : control.remove();
   }
-  intro.append(toolbar); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
-  layout.append(listPane, detailPane); node.append(layout, intro, feedback);
+  intro.append(toolbar, explanation); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
+  layout.append(listPane, detailPane); node.append(feedback, layout, intro);
   // Construct the initial empty form for old callers, but keep it out of the visual/focus flow.
   const initialFocus = document.activeElement;
   paintEditor(null, null); closeEditor(); initialFocus?.focus(); detailPane.hidden = !connectionId; panelKind = connectionId ? 'detail' : '';

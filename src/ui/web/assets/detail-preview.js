@@ -19,7 +19,20 @@ export function limitDetailModules(panel, { taskId, from = 0 }) {
     const title = section.children[0]?.querySelector('h2')?.textContent || '模块';
     const occurrence = occurrences.get(title) || 0; occurrences.set(title, occurrence + 1);
     const key = `${title}:${occurrence}`;
+    if (section.classList.contains('detail-technical')) {
+      if (!expanded.has(key)) expanded.set(key, false);
+      const view = enhanceModule(section, { key, states: expanded, mode: 'fold' });
+      // Availability/errors are current facts, not hidden technical metadata.
+      const status = section.querySelector('.detail-usage-status');
+      if (status && status !== view.summary) {
+        view.summary.classList.add('detail-usage-status');
+        view.summary.textContent = status.textContent; status.remove();
+        view.summary.hidden = !view.summary.textContent;
+      }
+      views.push(view); continue;
+    }
     const view = enhanceModule(section, { key, states: expanded, mode: 'preview',
+      summary: section.dataset.progressSummary,
       id: `worker-${taskId}-preview-${++nextPreviewId}` });
     // Retain the detail DOM/CSS contract for conversation/progressive updates and references.
     section.classList.add('detail-preview');

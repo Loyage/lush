@@ -65,7 +65,8 @@ try {
     if (driver.exitCode !== null) throw Error('geckodriver exited'); await Bun.sleep(100);
   }
   assert(ready, 'geckodriver startup timed out');
-  session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
+  // Read terminal disclosure geometry, not an in-flight caret transition.
+  session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'], prefs: { 'ui.prefersReducedMotion': 1 } } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1000 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await enterViewport();
   assert(await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];let n=0;const check=()=>window.ready?done(true):++n>100?done(false):setTimeout(check,20);check();', args: [] }), 'fixture failed to load');
@@ -73,16 +74,16 @@ try {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px';`); await enterViewport();
     await execute(`document.documentElement.dataset.theme='${theme}';document.querySelectorAll('details').forEach(d=>d.open=true);`);
     const result = await execute(`
-      const errors=[...window.errors],cards=[...document.querySelectorAll('.dashboard-account-card')];
+      const errors=[...window.errors],cards=[...document.querySelectorAll('.dashboard-account-card')],control=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'));
       for(const card of cards){
         const r=card.getBoundingClientRect(),h=card.querySelector('h3').getBoundingClientRect(),button=card.querySelector('button'),b=button.getBoundingClientRect();
-        if(h.right>b.left+.5||b.right>r.right||b.left<r.left||b.height<(matchMedia('(pointer:coarse)').matches?44:28)||b.width<(matchMedia('(pointer:coarse)').matches?44:28))errors.push('header clipping/overlap');
+        if(h.right>b.left+.5||b.right>r.right||b.left<r.left||b.height!==control||b.width!==control)errors.push('header clipping/overlap');
         const age=card.querySelector('.dashboard-account-age');if(age){const a=age.getBoundingClientRect();if(a.right>b.left+.5||a.bottom>r.bottom+.5)errors.push('age clipping');}
         if(card.scrollWidth>card.clientWidth)errors.push('card overflow');
         if(getComputedStyle(card).overflowY!=='visible'||card.scrollHeight>card.clientHeight+1)errors.push('internally scrolling account');
         for(const child of card.querySelectorAll('progress,details,p')){const c=child.getBoundingClientRect();if(c.right>r.right+.5||c.left<r.left-.5||c.bottom>r.bottom+.5)errors.push('content clipping');}
         for(const summary of card.querySelectorAll('summary')){
-          if(summary.getBoundingClientRect().height<44)errors.push('small detail touch target');
+          if(summary.getBoundingClientRect().height!==control)errors.push('detail control must follow ordinary control size');
           const opened=getComputedStyle(summary,'::before');
           if(opened.content!=='\"\"'||parseFloat(opened.borderBottomWidth)<=0)errors.push('missing shared line caret');
           const shape=opened.transform;summary.parentNode.open=false;

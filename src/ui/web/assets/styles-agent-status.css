@@ -1,11 +1,14 @@
 /* Agent configuration and on-demand legacy diagnostics. */
-.agent-default-summary{padding:14px 16px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;font-size:13px;font-weight:600;line-height:1.7;overflow-wrap:anywhere}
+.agent-default-summary{padding:10px 12px;margin:0 0 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;font-size:13px;font-weight:600;line-height:1.7;overflow-wrap:anywhere}
+.settings-save-receipt:not([hidden]){padding:8px 10px;border-left:3px solid var(--accent);background:var(--accent-soft);overflow-wrap:anywhere}
+.settings-view .settings-runtime-actions button{padding-block:var(--control-padding-y);min-height:var(--control-height)}
+.agent-settings .agent-config-advanced>summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 /* The profile has no outer padding: common module headings' negative margin clips it. */
 .agent-profile.ui-module>.agent-profile-head{margin:0;padding:14px 16px;background:var(--panel-2)}
 .agent-profile-head>div{flex:1;min-width:0}
 .agent-profile-head>.badge{flex:none}
 @media(max-width:760px){.agent-profile.ui-module>.agent-profile-head{padding:11px 12px}}
-.agent-sources-link{margin:7px 0}
+.agent-sources-link{margin:0}
 .agent-config-section{min-width:0;margin:0;padding:12px 0;border-bottom:1px solid var(--line-soft)}
 .agent-config-section h4{font-size:13px;margin:0 0 5px}
 .agent-config-section>summary,.agent-config-advanced>summary{cursor:pointer;min-height:var(--control-height);padding:4px 0;font-size:13px;font-weight:600;color:var(--text)}
@@ -16,8 +19,8 @@
 .agent-status-page .agent-role-summary{min-width:0}
 .agent-status-page [hidden]{display:none!important}
 .agent-status-page{min-width:0;max-width:1180px;margin:auto}
-.agent-status-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:20px}
-.agent-status-head h1{margin:0 0 8px;font-size:clamp(24px,2.2vw,32px)}
+.agent-status-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.agent-status-head h1{margin:0;font-size:20px}
 .agent-status-head .hint{max-width:760px}
 .agent-status-refresh{flex:none;white-space:nowrap}
 .agent-status-feedback{margin:12px 0}

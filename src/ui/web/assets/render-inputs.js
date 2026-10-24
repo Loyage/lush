@@ -46,7 +46,7 @@ function stateBadges(item, compact = false) {
   const status = INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown;
   const merge = INPUT_MERGE[item.merge_status] ?? '状态未知';
   const taskTone = Object.hasOwn(INPUT_STATUS, item.status) && !['draft', 'created', 'unknown', 'waiting_conditions', 'emitted', 'sent', 'emission_failed', 'unknown_dispatch'].includes(item.status) ? item.status : 'neutral';
-  const taskBadge = el('span', `${compact ? '' : 'Worker 状态：'}${status}`, `badge b-${taskTone}`);
+  const taskBadge = el('span', `${compact ? 'Worker · ' : 'Worker 状态：'}${status}`, `badge b-${taskTone}`);
   const mergeBadge = el('span', `${compact ? '' : '合并状态：'}${merge}`, `badge ${item.merge_status === 'merged' ? 'b-completed' : item.merge_status === 'blocked' ? 'b-awaiting' : item.merge_status === 'merging' ? 'b-running' : 'b-neutral'}`);
   taskBadge.setAttribute('aria-label', `Worker 状态：${status}`); mergeBadge.setAttribute('aria-label', `合并状态：${merge}`);
   return [taskBadge, mergeBadge];
@@ -190,7 +190,8 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       };
     }
     const preview = (item.content ?? '').replace(/\s+/g, ' ').trim() || '（无正文）';
-    row.setAttribute('aria-label', `${recordLabel(item)}，${preview.slice(0, 120)}，Worker 状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}：${label}`);
+    const recordState = item.kind === 'draft' ? item.dispatch ? dispatchText(item.dispatch) : '未提交' : `Worker 状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}`;
+    row.setAttribute('aria-label', `${recordLabel(item)}，${preview.slice(0, 120)}，${recordState}：${label}`);
     const head = el('span', undefined, 'input-record-head');
     const mode = INPUT_MODES[modeOf(item)];
     head.append(el('span', recordLabel(item), 'tid'));
@@ -207,7 +208,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       row.classList.add('input-draft-row'); draftHint = hint;
       summary.append(...(item.dispatch ? stateBadges(item, true) : [el('span', '未提交', 'badge b-neutral')]), openLabel);
     } else summary.append(...stateBadges(item, true), openLabel);
-    row.append(head, el('span', preview, 'input-preview'));
+    row.append(el('span', preview, 'input-preview'), head);
     if (draftHint) row.append(draftHint);
     row.append(summary);
     card.append(listEntry(row)); return card;

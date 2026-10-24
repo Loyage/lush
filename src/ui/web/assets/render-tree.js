@@ -17,6 +17,7 @@ import { isDevelopmentWorker, isValet, workTypeLabel } from './work-type.js';
 import { workerCreateControl, waitingFirstInput } from './worker-create.js';
 import { valetEmergencyControl } from './valet-emergency.js';
 import { managementEmergencyLabel } from './management-state.js';
+import { inputQueueText } from './worker-input.js';
 
 // DOM-owned state is discarded with the node on boot/project changes. Signatures describe
 // rendered dependencies, not updated_at (child status/progress/config can change independently).
@@ -69,17 +70,21 @@ function depChips(task) {
 /** 已知等待原因优先；queued 可能受依赖、冻结或安全准入门限制。 */
 function whyLine(task, index) {
   if (isValet(task)) return managementEmergencyLabel(task.management) || task.management?.reason || ({ waiting_actions: '操作已提交，等待安全点', unknown: '结果未知，不自动重放', idle: '等待时间信号', consumed: '一次性授权已用完' }[task.management?.state]) || null;
+  if (task.error) return `诊断：${String(task.error).slice(0, 240)}${String(task.error).length > 240 ? '…（详情查看完整诊断）' : ''}`;
+  const queuedInput = inputQueueText(task);
+  if (queuedInput) return queuedInput;
+  if (task.freeze?.reason) return `冻结：${task.freeze.reason}`;
   const interruptHint = interruptReason(task);
   if (interruptHint) return interruptHint;
   const waiting = waitingDeps(task);
-  if (task.status === 'running') return '运行中';
+  if (task.status === 'running') return null;
   if (task.status === 'queued' && waiting.length) return `排队：等 ${waiting.map(dep => workerLabel(dep)).join('、')} 结束`;
   if (task.status === 'queued') return '排队：等待运行准入或安全边界';
   if (task.status === 'waiting') {
     const kids = index.children(task.id);
     const live = kids.filter(child => child.status === 'running').length;
     const pending = kids.filter(child => !TERMINAL_STATUS.has(child.status) && child.status !== 'awaiting_acceptance').length;
-    return pending ? `静息 · 等子 Worker：${live} 个在跑 · ${pending} 个未结束` : '静息 · 等待后续事件';
+    return pending ? `静息 · ${index.incomplete ? '已加载' : ''}子 Worker：${live} 个在跑 · ${pending} 个未结束` : '静息 · 等待后续事件';
   }
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
     ? `本轮工作完成，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认；无需你验收` : '本轮工作完成，待验收；可追加输入继续开发';
@@ -133,7 +138,7 @@ function renderWorkList(data, kind) {
   }
   const statuses = [...new Set([...Object.keys(STATUS), ...uniqueValues(records, 'status')])];
   (valet ? filterUi.valetStatus : filterUi.taskStatus)?.sync(statuses.map(statusOption), query.status);
-  const index = { children: taskId => fullByParent.get(taskId) || [] };
+  const index = { children: taskId => fullByParent.get(taskId) || [], incomplete: Boolean(data.task_page?.has_more) };
   const ordered = [];
   for (const task of orderTasks(visible, { mode: ui.sidebarSortMode, openNoticeIds })) {
     const node = known.get(task.id) || listEntry(button('', () => { ui.noticeFocus = null; return detail(task.id); }, 'task'));
@@ -143,7 +148,7 @@ function renderWorkList(data, kind) {
     if (node.className !== className) node.className = className;
     let state = rowState.get(node);
     if (!state) {
-      state = { row: el('span', undefined, 'row'), when: el('span', '', 'when'), goal: el('span', '', 'goal'),
+      state = { row: el('span', undefined, 'row'), identity: el('span', undefined, 'row worker-list-identity'), when: el('span', '', 'when'), goal: el('span', '', 'goal'),
         dot: el('span', '', 'dot'), tid: el('span', '', 'tid'), status: el('span', ''),
         reason: el('span', '', 'meta reason'), integration: el('span', '', 'meta') };
       rowState.set(node, state);
@@ -166,7 +171,7 @@ function renderWorkList(data, kind) {
       if (state.depsKey !== depsKey) { state.depsKey = depsKey; state.deps = depChips(task); }
       state.typeBadge ||= badge(''); patchText(state.typeBadge, workTypeLabel(task));
       state.typeBadge.classList.add('work-type-badge');
-      syncChildren(state.row, [state.dot, state.tid, state.status, state.typeBadge, ...(state.roleBadge ? [state.roleBadge] : []),
+      syncChildren(state.identity, [state.tid, state.typeBadge, ...(state.roleBadge ? [state.roleBadge] : []),
         ...(task.route ? [state.routeBadge] : []), ...state.deps, state.when]);
     }
     state.updatedAt = task.updated_at;
@@ -185,8 +190,9 @@ function renderWorkList(data, kind) {
     // 已经用一句话说了"等你批准合并"，就不用再挂一个"待合并"标签。
     const integrationText = integration && integration !== '待合并' ? integration : null;
     if (integrationText) patchText(state.integration, integrationText);
-    syncChildren(node, [state.row, state.goal, ...(state.progress ? [state.progress] : []),
-      ...(why ? [state.reason] : []), ...(integrationText ? [state.integration] : [])]);
+    syncChildren(state.row, [state.dot, state.status, ...(integrationText ? [state.integration] : [])]);
+    syncChildren(node, [state.goal, state.row, ...(why ? [state.reason] : []),
+      ...(state.progress ? [state.progress] : []), state.identity]);
     if (node.title) node.title = '';
     bindWorkerPreview(node, task);
     const referenceKey = JSON.stringify([task.id, label, task.goal, status.label, task.role]);

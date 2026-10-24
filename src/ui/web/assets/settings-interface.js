@@ -179,8 +179,10 @@ export function createInterfaceSettings({ renderSettings, isInterface }) {
     content.append(behavior);
 
     const notices = block('提醒方式');
-    notices.append(el('p', '所有项目共用这些提醒方式，只控制页面告知条与系统通知；是否生成待验收告知由项目自动化及具体 Worker 设置决定。系统通知还需设备总开关及当前浏览器权限。关闭提醒不删除记录、不改变未读计数；未知来源保持可见，待决事项独立显示，不能用「已知」消除。', 'settings-note'));
     for (const { id, label, note } of NOTICE_CATEGORIES) notices.append(row(label, note, noticeChannelControl(id, label)));
+    const noticeHelp = el('details'); noticeHelp.append(el('summary', '提醒范围与权限说明'),
+      el('p', '所有项目共用这些提醒方式，只控制页面告知条与系统通知；是否生成待验收告知由项目自动化及具体 Worker 设置决定。系统通知还需设备总开关及当前浏览器权限。关闭提醒不删除记录、不改变未读计数；未知来源保持可见，待决事项独立显示，不能用「已知」消除。', 'settings-note'));
+    notices.append(noticeHelp);
     content.append(notices);
 
     const reset = block('恢复界面默认');

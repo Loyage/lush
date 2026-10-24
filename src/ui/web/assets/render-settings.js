@@ -21,12 +21,22 @@ export function openSettings(options = {}) {
 }
 
 function tabBar() {
-  const nav = el('div', undefined, 'settings-tabs'); nav.setAttribute('role', 'tablist');
+  const nav = el('div', undefined, 'settings-tabs'); nav.setAttribute('role', 'tablist'); nav.setAttribute('aria-label', '设备设置');
   for (const tab of TABS) {
     const node = el('button', undefined, `settings-tab${activeTab === tab.id ? ' active' : ''}`); node.type = 'button'; node.dataset.settingsTab = tab.id;
+    node.id = `settings-tab-${tab.id}`; node.tabIndex = activeTab === tab.id ? 0 : -1;
     node.setAttribute('role', 'tab'); node.setAttribute('aria-selected', String(activeTab === tab.id));
+    node.setAttribute('aria-controls', 'settings-active-panel');
     node.append(el('strong', tab.label), el('span', tab.note));
-    node.onclick = () => { activeTab = tab.id; return renderSettings(); };
+    node.onclick = () => { activeTab = tab.id; const pending = renderSettings(); $(`settings-tab-${tab.id}`)?.focus(); return pending; };
+    node.onkeydown = event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const index = TABS.findIndex(item => item.id === tab.id);
+      activeTab = TABS[event.key === 'Home' ? 0 : event.key === 'End' ? TABS.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length].id;
+      renderSettings(); $(`settings-tab-${activeTab}`)?.focus();
+    };
     nav.append(node);
   }
   return nav;
@@ -38,10 +48,12 @@ export function renderSettings() {
   const panel = $('detail'); panel.dataset.view = 'settings';
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
-  const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '设备设置'),
-    el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、Skills 与模型来源各有独立设备页面。', 'hint'));
+  const intro = el('div'); intro.append(el('h1', '设备设置'));
   head.append(intro); view.append(head, tabBar());
-  view.append(activeTab === 'interface' ? interfaceSettings.render() : systemSettings.render());
+  const content = activeTab === 'interface' ? interfaceSettings.render() : systemSettings.render();
+  content.id = 'settings-active-panel'; content.setAttribute('role', 'tabpanel');
+  content.setAttribute('aria-labelledby', `settings-tab-${activeTab}`); content.tabIndex = 0;
+  view.append(content);
   if (activeTab === 'interface') pageBlocks(view.querySelector('.settings-tab-panel'), 'settings-interface', 'fold');
   replacePageContent(panel, view);
   return activeTab === 'system' ? systemSettings.pending : undefined;

@@ -14,14 +14,13 @@ import { referenceable } from './context-references.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { settledDecision } from './choice-snapshot.js';
 import { sleepChoiceCard } from './sleep-ui.js';
-import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity } from './notice-kind.js';
+import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity, noticeStateLabel, noticeExcerpt } from './notice-kind.js';
 import { searchField, noticeSearchText } from './search-field.js';
 import { listEntry, listSurface } from './list-surface.js';
 import { enhanceModule } from './shared-module.js';
 import { workerLabel } from './worker-label.js';
 import { linkWorkerNumbers } from './worker-links.js';
 
-const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
 const acknowledgedNotice = row => ui.noticeSettledRows.get(noticeIdentity(row)) || ui.noticeReadRows.get(noticeIdentity(row)) || row;
 const answerSource = notice => ['answered', 'dismissed'].includes(notice.status) && ['question', 'questionnaire'].includes(notice.kind)
   ? notice.answer_source === 'lush' ? 'Lush 自动选择' : notice.answer_source === 'user' ? '用户答复' : '答复来源未记录' : null;
@@ -36,7 +35,7 @@ export function initNoticeRecords() {
   const selectFilter = value => {
     state.status = value; state.page = null; state.rows = []; state.choices = [];
     state.stale = false; state.loadedPages = 0; state.request++; state.pending = false;
-    $('notices')?.replaceChildren();
+    $('notices')?.replaceChildren(el('p', '正在读取事项记录…', 'hint notice-empty'));
     for (const node of filters.children) node.setAttribute('aria-pressed', String(node.dataset.noticeFilter === value));
   };
   ui.selectNoticeFilter = selectFilter;
@@ -45,7 +44,7 @@ export function initNoticeRecords() {
     tab.dataset.noticeFilter = value;
     tab.setAttribute('aria-pressed', String(value === 'open')); filters.append(tab);
   }
-  state.searchControl = searchField({ label: '搜索事项记录', placeholder: '标题、正文、答复或编号', scope: '范围：当前筛选已加载记录；加载更早后继续按已提交词筛选，不是全库检索', onSubmit: value => {
+  state.searchControl = searchField({ label: '搜索事项记录', placeholder: '标题、正文、答复或编号', scope: '仅搜索当前筛选已加载记录，不是全库检索', onSubmit: value => {
     state.query = value.toLocaleLowerCase(); paintNoticeRows(state.rows.filter(row => noticeMatches(row, state.status))); paintNoticeFooter(state);
   } });
   tools.append(state.searchControl.root, filters, notificationControl());
@@ -69,7 +68,8 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
   if (!state) return;
   if (state.status === 'butler') return loadButlerChoices(state, { more, preserve });
   const request = ++state.request;
-  state.pending = true;
+  state.pending = true; state.error = null;
+  if (!state.page) paintNoticeFooter(state);
   const revision = state.observedRevision;
   const status = state.status;
   const pagesToRead = reload ? Math.max(1, state.loadedPages) : 1;
@@ -107,9 +107,9 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
     paintNoticeFooter(state);
   } catch (error) {
     if (ui.noticeRecords === state && request === state.request) {
+      state.error = { message: error.message, options: { more, preserve, reload } }; state.pending = false;
+      if (!state.rows.length) paintNoticeRows([]);
       paintNoticeFooter(state);
-      $('notice-pagination').append(el('p', `记录加载失败：${error.message}`, 'error'),
-        button('重试', () => loadNoticeRecords({ more, preserve, reload }), 'ghost', { busyLabel: '读取中…' }));
     }
   } finally { if (request === state.request) state.pending = false; }
 }
@@ -118,7 +118,12 @@ function paintNoticeFooter(state) {
   const footer = $('notice-pagination');
   const rows = state.rows.filter(row => noticeMatches(row, state.status));
   const count = searchedNoticeRows(rows).length;
-  footer.replaceChildren(el('p', count ? `已显示 ${count} / ${rows.length} 条已加载记录` : '当前筛选已加载记录中没有匹配；不代表全库无结果。', 'hint'));
+  const scope = state.page?.has_more ? '仍有更早记录未加载' : '当前筛选已加载完毕';
+  footer.replaceChildren(el('p', state.error ? '读取未完成，已有记录保留。'
+    : !state.page ? '正在读取事项记录…'
+      : `显示 ${count} / ${rows.length} 条已加载记录 · ${scope}`, 'hint'));
+  if (state.error) footer.append(el('p', `记录加载失败：${state.error.message}`, 'error'),
+    button('重试', () => loadNoticeRecords(state.error.options), 'ghost', { busyLabel: '读取中…' }));
   if (state.status === 'automatic') footer.append(el('p', '仅显示 Lush 自动选择处理的问答；不代表用户亲自决断。关闭自动选择后，记录仍保留。', 'hint'));
   if (state.stale) {
     const warning = el('p', '列表可能已过期；旧页未自动重查，打开事项时会核验当前状态。', 'hint');
@@ -184,17 +189,30 @@ function paintNoticeRows(rows) {
     };
     node.className = `notice-brief${notice.kind === 'info' ? ' notice-info' : ' notice-question'}`;
     listEntry(node);
-    node.replaceChildren();
-    const row = el('span', undefined, 'row');
-    row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
-      el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
-    if (answerSource(notice)) row.append(badge(answerSource(notice), 'b-neutral'));
-    node.append(row, el('span', notice.title, 'goal'));
+    const signature = JSON.stringify(notice);
+    if (node.dataset.signature !== signature) {
+      node.dataset.signature = signature;
+      const title = el('span', undefined, 'notice-title-line');
+      title.append(el('span', notice.title, 'goal'), badge(noticeStateLabel(notice), notice.status === 'open' ? 'b-awaiting' : 'b-neutral'));
+      const row = el('span', undefined, 'row notice-source-line');
+      row.append(el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
+      if (answerSource(notice)) row.append(badge(answerSource(notice), 'b-neutral'));
+      node.replaceChildren(title, row);
+      const excerpt = noticeExcerpt(notice);
+      if (excerpt) node.append(el('span', excerpt, 'notice-excerpt'));
+    }
     node.setAttribute('data-help', '打开这条记录的独立详情页；不自动答复、标记已读或启动 Agent。');
     referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 ${noticeNumber(notice)}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-list', notice_id: notice.id } });
     return node;
   });
+  if (!nodes.length) {
+    const state = ui.noticeRecords;
+    nodes.push(el('p', state?.error ? '事项记录读取失败，请重试。'
+      : !state?.page ? '事项记录尚未读取完成。'
+        : state.query ? '已加载记录中没有匹配。'
+          : state.page.has_more ? '此页没有可显示事项，仍可加载更早记录。' : '当前筛选没有事项。', 'hint notice-empty'));
+  }
   syncChildren(container, nodes);
 }
 
@@ -355,33 +373,35 @@ export function noticePanel(notice, task = null) {
   const section = buildNoticePanel(notice, task), head = section.querySelector('.notice-head'), title = section.querySelector('h3');
   const meta = el('div', undefined, 'notice-meta');
   for (const node of [...head.childNodes]) meta.insertBefore(node, null);
-  head.classList.add('section-title'); head.replaceChildren(meta); head.insertBefore(title, null);
+  head.classList.add('section-title'); head.replaceChildren(title, meta);
   ui.noticeModuleStates ||= new Map();
   enhanceModule(section, { key: `notice-${notice.id}`, mode: 'fold', states: ui.noticeModuleStates,
-    summary: `${STATUS[notice.status] || notice.status}${notice.status === 'open' && notice.kind !== 'info' ? ' · 等待明确答复，收起不表示已处理' : ''}` });
+    summary: '' });
   return linkWorkerNumbers(section);
 }
 function buildNoticePanel(notice, task = null) {
   const section = el('section', undefined, `notice focus${notice.kind === 'info' ? ' notice-info' : ''}`);
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');
-  head.append(el('span', noticeNumber(notice), 'tid'), badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker ${workerLabel(task || notice.task_id, notice.task_worker_number)}`, 'tid'),
-    el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
+  head.append(badge(noticeStateLabel(notice), notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(task || notice.task_id, notice.task_worker_number), 'tid'),
+    el('span', absolute(notice.created_at), 'when'));
   if (answerSource(notice)) head.append(badge(answerSource(notice), 'b-neutral'));
   section.append(head, el('h3', notice.title));
   if (notice.status !== 'open') {
     if (notice.kind === 'questionnaire') section.append(settledDecision(notice));
     else {
       section.append(el('p', notice.body || '（没有补充说明）', 'notice-body'));
-      section.append(el('p', notice.answer ? `处理结果：${notice.answer}` : notice.status === 'dismissed' ? '已忽略 · 不代表批准' : '无需答复', 'notice-body'));
+      if (notice.answer || notice.status === 'dismissed') section.append(el('p', notice.answer ? `处理结果：${notice.answer}` : '已忽略 · 不代表批准', 'notice-body'));
     }
     if (lifecycleNotice(notice)) {
-      if (unreadNotice(notice)) section.append(button('已知', () => readNotice(notice), 'ghost', {
+      const actions = el('div', undefined, 'actions notice-actions');
+      if (unreadNotice(notice)) actions.append(button('已知', () => readNotice(notice), 'ghost', {
         help: '只将这条告知标为已读，不提交答案、不批准合并或调用 Agent。',
       }));
-      section.append(button('查看 Worker', () => openNotice(notice.id), 'ghost', {
+      actions.append(button('查看 Worker', () => openNotice(notice.id), 'ghost', {
         worker: task || notice.task_id,
       }));
+      section.append(actions);
     }
     return section;
   }
@@ -465,8 +485,8 @@ function buildNoticePanel(notice, task = null) {
       settle: answer => settled('notice.answer', { id: notice.id, answer }),
       dismiss: () => settled('notice.dismiss', { id: notice.id }),
     }));
-    section.append(button(inRecords ? '查看 Worker 上下文' : '收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
-      inRecords ? { worker: task || notice.task_id } : { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
+    if (!inRecords) section.append(button('收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+      { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
     referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 ${noticeNumber(notice)}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
     return section;
@@ -477,6 +497,7 @@ function buildNoticePanel(notice, task = null) {
   const answer = resolutionDecision ? null : el('textarea');
   if (answer) {
     answer.placeholder = '你的决定；⌘/Ctrl+回车提交'; answer.rows = 3;
+    answer.setAttribute('aria-label', `${notice.title}的答复`);
     answer.addEventListener('input', () => { ui.detailDirty = true; });
   }
   const actions = el('div', undefined, 'actions');
@@ -508,8 +529,8 @@ function buildNoticePanel(notice, task = null) {
     button('回复并继续 Worker', () => settle(answer.value), undefined,
       { agent: true, help: agentHelp('把你的答复发给该 Worker 的 Agent，它会继续当前工作。') }),
     button('忽略', dismiss, 'ghost', { help: '忽略这条待决事项，不代表批准；它不会再出现在待处理列表。' }));
-  actions.append(button(inRecords ? '查看 Worker 上下文' : '收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
-    inRecords ? { worker: task || notice.task_id } : { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
+  if (!inRecords) actions.append(button('收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+    { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
   if (answer) answer.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;

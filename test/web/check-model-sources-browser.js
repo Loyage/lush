@@ -94,8 +94,12 @@ try {
   }
   assert(await execute(`const row=document.querySelector('.model-source-row');row.querySelector('.model-source-details-toggle').click();const pane=document.querySelector('.model-source-detail');return pane.parentNode===row.parentNode&&pane.previousElementSibling===row&&!pane.hidden;`), 'detail did not expand inline');
   assert(await execute(`const pane=document.querySelector('.model-source-detail');[...pane.querySelectorAll('button')].find(b=>b.textContent==='编辑').click();return window.panel.node.dataset.sourcePanel==='editor'&&!pane.hidden;`), 'detail editor failed');
+  assert(await execute(`const input=document.querySelector('[data-connection-field=label]');input.value='公开草稿';input.dispatchEvent(new Event('input'));return document.querySelector('.agent-connection-editor-feedback').checkVisibility()&&document.querySelector('.agent-connection-editor-feedback').textContent.includes('未保存修改')&&!document.querySelector('.model-source-editor-advanced').open;`), 'Draft feedback/default advanced disclosure failed');
   assert(await execute(`document.querySelector('.model-source-back').click();return document.querySelector('.model-source-detail').hidden&&window.calls.length===1;`), 'return/networking failed');
-  console.log('PASS inline detail -> editor -> return; no network mutations'); passed = true;
+  assert(await execute(`document.querySelector('.model-source-details-toggle').click();[...document.querySelector('.model-source-detail').querySelectorAll('button')].find(b=>b.textContent==='编辑').click();return document.querySelector('[data-connection-field=label]').value==='公开草稿'&&document.querySelector('.model-source-editor-advanced').open&&document.activeElement===document.querySelector('[data-connection-field=label]');`), 'Editor re-entry discarded draft/focus');
+  const editorGeometry = await execute(`const save=[...document.querySelectorAll('button')].find(b=>b.textContent==='保存连接'),cancel=[...document.querySelectorAll('button')].find(b=>b.textContent==='取消编辑');return {save:save.getBoundingClientRect().height,cancel:cancel.getBoundingClientRect().height,overflow:document.documentElement.scrollWidth-innerWidth,widths:[save,cancel].map(n=>n.getBoundingClientRect().width)};`);
+  assert(editorGeometry.save===44&&editorGeometry.cancel===32&&editorGeometry.overflow<=0, `Narrow editor submit/cancel sizing or overflow failed: ${JSON.stringify(editorGeometry)}`);
+  console.log('PASS inline detail -> editor -> retained draft/focus; narrow submit 44px/cancel 32px; no network mutations'); passed = true;
 } catch (error) { console.error(`Browser check failed; full driver log: ${log}`); throw error; }
 finally {
   if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} }

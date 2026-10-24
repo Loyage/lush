@@ -131,16 +131,21 @@ details.dashboard-account-metric-details>summary,details.dashboard-account-old>s
 .project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-accounts-items{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:calc(var(--control-height) + 44px);align-content:start;gap:4px;list-style:none;margin:0;padding:0;min-width:0;min-height:0}
 .project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-widget-slot{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:var(--control-height) 38px;gap:4px;min-height:0;height:calc(var(--control-height) + 44px);margin:0;padding:0;background:transparent;border:0;border-bottom:1px solid var(--line-soft);border-radius:0;box-shadow:none}
 .project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header{height:var(--control-height);min-width:0;padding-right:0;gap:4px}
-.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-identity{flex:1;flex-wrap:nowrap;align-items:center;min-width:0;gap:4px}
-.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header h3{flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-age{max-width:60px;min-width:0;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-state{max-width:70px;min-width:0;font-size:10px;color:var(--failed);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-identity{flex:1;display:grid;grid-template-columns:auto minmax(0,1fr);align-content:center;align-items:baseline;min-width:0;gap:0 6px}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header h3{grid-column:1/-1;min-width:0;font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-age{grid-column:1;max-width:90px;min-width:0;font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-state{grid-column:2;min-width:0;font-size:10px;line-height:14px;color:var(--failed);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header button{flex:none;box-sizing:border-box;min-width:var(--control-height);min-height:var(--control-height);padding:4px;font-size:11px}
 .project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-metrics-bounded{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:38px;gap:6px;min-width:0;min-height:0}
 .project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-metric-slot{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 5px;gap:2px;height:38px;min-width:0;min-height:0;margin:0;padding:0;background:transparent;border:0;border-radius:0}
 .project-board .dashboard-account-metric-slot .dashboard-account-reset-inline{display:block;min-width:0;font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-account-metric-slot h4,.project-board .dashboard-account-metric-slot .dashboard-account-value{margin:0;min-width:0;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-account-metric-slot .dashboard-card-note,.project-board .dashboard-account-metric-slot .dashboard-card-warning{margin:0;min-width:0;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The top of each project is actionable news, then current work. Routine
+   distribution/delivery summaries stay legible without competing with titles. */
+.project-board .dashboard-project-summary .dashboard-widget-title{font-size:11px;font-weight:400;color:var(--muted)}
+.project-board .dashboard-project-alert .dashboard-widget-title{color:var(--failed);font-weight:650}
+.project-board .dashboard-widget-message-error{color:var(--failed);background:var(--panel-2)}
 /* Direct navigation uses only fixed reserved rows; details remain the narrow fallback. */
 .project-board .dashboard-project-direct-links{display:none;border:0;padding:0;gap:4px;flex:none}
 .project-board .dashboard-project-direct-links a{flex:none;min-height:var(--control-height);padding:4px 6px;white-space:nowrap;font-size:11px}

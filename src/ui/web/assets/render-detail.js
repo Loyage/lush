@@ -19,7 +19,7 @@ import { renderAgent } from './render-agent.js';
 import { renderConversation } from './render-conversation.js';
 import { renderWorkerTimeline } from './render-worker-timeline.js';
 import { disposeDetailModules, limitDetailModules, revealDetailPreview } from './detail-preview.js';
-import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
+import { captureDetailReading, restoreDetailReading, detailNavigation } from './detail-reading.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
 import { renderWorkerVersions, disposeWorkerVersions } from './render-versions.js';
@@ -88,6 +88,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') || panel.querySelector('.worker-hooks[data-convergence-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const automationTitleFocus = sameTask && [...panel.querySelectorAll('.worker-feature-title')].find(node => node === document.activeElement);
+  const previousNotice = sameTask ? panel.querySelector('.notice.focus') : null;
+  const previousFormFocus = sameTask && document.activeElement?.matches?.('input, textarea, select') ? document.activeElement : null;
   const previousDecisions = new Map(sameTask ? [...panel.querySelectorAll('.decision-record')].map(node => [node.dataset.noticeId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `${workTypeLabel(task)} ${workerLabel(task)}`,
@@ -103,7 +105,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const integration = management ? null : INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
-  if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
   const toolbar = detailActions(task, { open: moreActionsOpen });
   const actions = toolbar.work;
@@ -120,9 +121,28 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       : 'Valet 身份不一致，仅提供只读记录；请核对持久身份，不开放开发或管理写操作。', 'hint management-readonly'));
   }
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
-  if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
+  if (!readOnly && notice && notice.task_id === task.id) {
+    const signature = JSON.stringify(notice);
+    const focus = previousNotice?.dataset.noticeSignature === signature ? previousNotice : noticePanel(notice, task);
+    focus.dataset.noticeSignature = signature;
+    panel.append(focus);
+  }
+  // Pending decisions stay outside every reading preview, including when no Notice is focused.
+  const pendingNotices = (task.notices || []).filter(row => row.status === 'open' && ['question', 'questionnaire', 'plan'].includes(row.kind));
+  if (!readOnly && pendingNotices.length) {
+    const pending = block('待处理', String(pendingNotices.length)); pending.classList.add('detail-pending');
+    const controls = el('div', undefined, 'actions');
+    for (const row of pendingNotices) {
+      const control = button(`待回答 ${noticeNumber(row)}：${row.title}`, () => {
+        ui.noticeIndex.set(row.id, row); ui.noticeFocus = row.id; return detail(task.id);
+      }, 'ghost');
+      control.style.maxWidth = '100%'; control.style.overflowWrap = 'anywhere';
+      controls.append(control);
+    }
+    pending.append(controls); panel.append(pending);
+  }
 
-  const creationFacts = workerCreationFacts(task); if (creationFacts) panel.append(creationFacts);
+  const creationFacts = workerCreationFacts(task);
   const childCreate = workerCreateControl(task); if (!readOnly && childCreate) toolbar.add('collaboration', childCreate);
   if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
     const help = waitingFirstInput(task) ? FIRST_INPUT_HELP : '展开向该 Worker 追加输入的独立编辑；其他去向的文字保留在本页，不会随切换改投。现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
@@ -136,7 +156,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   for (const [label, text] of [['错误', management ? null : task.error], ['合并错误', task.integration_error]]) {
     if (!text) continue;
     const value = String(text), snippet = value.slice(0, 240);
-    panel.append(el('p', `${label}：${snippet}${value.length > snippet.length ? '…' : ''}（完整诊断见页末）`, 'error task-error-summary'));
+    panel.append(el('p', `${label}：${snippet}${value.length > snippet.length ? '…' : ''}（完整诊断见下方错误模块）`, 'error task-error-summary'));
   }
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
@@ -290,14 +310,17 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const hooks = readOnly ? null : previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
   if (hooks) {
     if (hookManagementOpen) hooks.querySelector('.hook-management').open = true;
-    panel.append(hooks);
-    if (automationTitleFocus && [...hooks.querySelectorAll('.worker-feature-title')].includes(automationTitleFocus)) automationTitleFocus.focus({ preventScroll: true });
   }
 
-  // Only reading modules below this point get height-limited previews, never actions/forms above.
+  // Navigation never changes the route or fetches history. Safety/actions above remain uncut.
+  const navigation = el('div'); panel.append(navigation);
   const readingStart = panel.children.length;
-  // Primary modules: automation, plan, input/output, lifecycle, Agent, code, decisions, relations.
   const supplemental = [];
+  for (const [label, text] of [['错误', management ? null : task.error], ['合并错误', task.integration_error]]) {
+    if (!text) continue;
+    const error = block(label); error.classList.add('error-panel');
+    error.append(agentText(text, { className: 'error', plain: 'pre' })); panel.append(error);
+  }
   const conversation = renderConversation(task, history, previousConversation);
   const timeline = renderWorkerTimeline(task, history, previousTimeline, { onOutput: async row => {
     const node = await conversation?.revealConversationRun?.(row.run_id)
@@ -309,9 +332,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
   if (conversation) panel.append(conversation);
+  if (hooks) {
+    panel.append(hooks);
+    if (automationTitleFocus && [...hooks.querySelectorAll('.worker-feature-title')].includes(automationTitleFocus)) automationTitleFocus.focus({ preventScroll: true });
+  }
   panel.append(timeline);
-  if (task.error && !management) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
-  if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
 
   let managementCalls = null;
   if (management) {
@@ -323,6 +348,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   }
   const agent = task.calls || management ? renderAgent(task, usage) : null;
   if (agent) {
+    agent.classList.add('detail-technical');
     panel.append(agent);
     if (progressive) agent.append(el('p', !task.calls ? '尚未调用 Agent。' : progressive.loaded?.usage ? '' : '用量加载中…', 'hint detail-usage-status'));
   }
@@ -341,6 +367,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   grid.append(kv('创建', `${absolute(task.created_at)}`, 'mono'));
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
   stats.append(grid);
+  if (creationFacts) stats.append(creationFacts);
   if (task.specs) supplemental.push(renderTaskSpecs(task));
   if ((task.resolutions || []).length) supplemental.push(renderResolutions(task));
 
@@ -379,34 +406,31 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const relationsOptions = { data: progressive?.loaded?.relations, current: progressive?.current ?? (() => true), signal: progressive?.signal };
   const relations = management ? null : previousRelations || renderWorkerRelations(task, relationsOptions);
   if (previousRelations && relations) relations.bindRelations(task, relationsOptions);
-  const decisions = (task.notices || []).filter(notice => notice.kind === 'questionnaire');
+  const decisions = (task.notices || []).filter(notice => notice.kind === 'questionnaire' && (readOnly || notice.status !== 'open'));
   if (decisions.length) {
     const record = block('决策记录', String(decisions.length));
     for (const notice of decisions) {
-      if (notice.status === 'open' && !readOnly) record.append(button(`待回答 ${noticeNumber(notice)}：${notice.title}`, () => {
-        ui.noticeIndex.set(notice.id, notice); ui.noticeFocus = notice.id; return detail(task.id);
-      }, 'ghost'));
-      else {
-        const signature = JSON.stringify([notice, readOnly]);
-        const previous = previousDecisions.get(String(notice.id));
-        if (previous?.dataset.signature === signature) { record.append(previous); continue; }
-        const fold = el('details', undefined, 'decision-record');
-        fold.open = previous ? previous.open : true;
-        fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
-        const label = { open: management ? '待用户确认（尚未执行）' : '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
-        fold.append(el('summary', `${noticeNumber(notice)} · ${notice.title} · ${label}`),
-          readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice));
-        if (management && notice.status === 'open') {
-          const link = el('a', '查看确认请求', 'nav-link'); link.setAttribute('href', `#notices-${notice.id}`); fold.append(link);
-        }
-        record.append(fold);
+      const signature = JSON.stringify([notice, readOnly]);
+      const previous = previousDecisions.get(String(notice.id));
+      if (previous?.dataset.signature === signature) { record.append(previous); continue; }
+      const fold = el('details', undefined, 'decision-record');
+      fold.open = previous ? previous.open : true;
+      fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
+      const label = { open: management ? '待用户确认（尚未执行）' : '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
+      fold.append(el('summary', `${noticeNumber(notice)} · ${notice.title} · ${label}`),
+        readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice));
+      if (management && notice.status === 'open') {
+        const link = el('a', '查看确认请求', 'nav-link'); link.setAttribute('href', `#notices-${notice.id}`); fold.append(link);
       }
+      record.append(fold);
     }
     panel.append(record);
   }
   panel.append(...(relations ? [relations] : []), stats, ...supplemental);
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
+  detailNavigation(navigation, panel);
+  if (previousFormFocus && panel.contains?.(previousFormFocus)) previousFormFocus.focus({ preventScroll: true });
   restoreCallsInteraction();
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
@@ -476,13 +500,14 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
           const grid = agent.querySelector('.grid');
           if (grid) grid.remove();
           const nextGrid = next.querySelector('.grid');
-          if (nextGrid) (agent.querySelector('.detail-preview-content') || agent).insertBefore(nextGrid, null);
+          if (nextGrid) (agent.querySelector('.module-content') || agent).insertBefore(nextGrid, null);
           // Same-Worker refresh already renders the cached preview; replace it, never append a duplicate.
           agent.querySelector('.last-step')?.remove();
           const last = next.querySelector('.last-step');
           if (last) agent.querySelector('.block').insertBefore(last, null);
           const status = agent.querySelector('.detail-usage-status');
           status.textContent = available ? (value?.files?.length ? '' : '未记录会话用量。') : '用量不可用；未读取到数据。';
+          status.hidden = !status.textContent;
         }
         if (kind === 'diff' && diffSection) {
           const next = renderDiff(available ? value : null, task.id, task, { unavailable: !available });

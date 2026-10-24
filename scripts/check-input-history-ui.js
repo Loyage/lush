@@ -13,7 +13,7 @@ window.rows=[
  {...base,kind:'message',id:21,mode:'append',content:'已入箱追加',task_id:1,append_number:'A20-1'},
  {...base,kind:'management',id:22,mode:'management',content:'已提交管理原文',task_id:9,task_worker_number:'V3'},
  {...base,id:1,draft_number:12,content:'工作暂存',conditions:[{kind:'worker_merged',worker_id:17,worker_number:'W17'}]},
- {...base,id:2,content:'未知授权',dispatch:{state:'unknown',reason:'等待核验',conditions:[]}},
+ {...base,id:2,content:'未知授权',dispatch:{state:'unknown',reason:'等待核验：原提交的投递结果尚未确认，请查看精确收据；不能将已保存授权视作 Agent 已执行，也不要重复提交。',conditions:[]}},
  {...base,id:3,mode:'append',content:'追加暂存',target_id:1,target_worker_number:'W20'},
  {...base,id:4,mode:'management',parent_id:null,branch:null,target_id:9,target_worker_number:'V3',content:'原管家管理暂存'}
 ];window.calls=[];window.reads=[];window.errors=[];window.nativeKeyEvents=[];
@@ -105,7 +105,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
     const result = await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0],win=document.querySelector('#view').contentWindow,doc=win.document;
       const until=async test=>{for(let i=0;i<300;i++){if(test())return;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('UI condition timed out');};
       const button=text=>[...doc.querySelectorAll('button')].find(node=>node.textContent===text);
-      (async()=>{${script}})().then(done).catch(error=>done({error:error.message,stack:error.stack,errors:win.errors}));`, args: [] });
+      (async()=>{${script}})().then(done).catch(error=>done({error:error.message,stack:error.stack,errors:win.errors,hash:win.location.hash,view:win.ui?.view,detail:doc.querySelector('#detail')?.textContent.slice(-2500),entry:win.workspace?.currentEdit()?.saved,calls:win.calls?.slice(-3)}));`, args: [] });
     if (result?.error) throw Error(JSON.stringify(result)); return result;
   }
   try {
@@ -149,6 +149,11 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         submit.scrollIntoView({block:'center',behavior:'instant'});const submitRect=submit.getBoundingClientRect();
         const formalActions=submitRect.top>=0&&submitRect.bottom<=win.innerHeight+1&&[...doc.querySelector('#input-form').querySelectorAll('button')].filter(node=>node.getClientRects().length).every(node=>node.getBoundingClientRect().height>=expectedHeight(node));
         box.value+=' · 详情修改';box.dispatchEvent(new win.Event('input'));
+        const dirtyState=doc.querySelector('#composer-draft-status').textContent==='有未保存修改';
+        const imeWrites=win.calls.length;box.dispatchEvent(new win.CompositionEvent('compositionstart'));
+        box.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true,cancelable:true}));
+        box.dispatchEvent(new win.CompositionEvent('compositionend'));
+        const imeSafe=win.calls.length===imeWrites;
         const plain=new win.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});box.dispatchEvent(plain);
         const savedRevision=win.workspace.currentEdit().saved.revision;
         const saveKey=new win.KeyboardEvent('keydown',{key:'s',ctrlKey:true,bubbles:true,cancelable:true});box.dispatchEvent(saveKey);
@@ -211,7 +216,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
           &&choose.parentNode===parent&&choose.nextElementSibling===next;
         choose.click();await until(row);row().click();await until(()=>list.hidden);
         const picker=chooseVisible&&initial&&expanded&&folded&&collapsed()&&win.workspace.currentEdit().saved.id===id&&doc.querySelector('#input')===before;
-        return {retained,basic,agent,formal,hierarchy,manualAvailable,runtimeVisible,aligned,formalFits,formalActions,bidirectional,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,menuOnly,counts,menuFits,picker,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
+        return {retained,basic,agent,formal,hierarchy,manualAvailable,runtimeVisible,aligned,formalFits,formalActions,bidirectional,dirtyState,imeSafe,shortcuts,sharedUndo,fits,controlsFit,compact,resizePreserved,helpAvailable,referenceEntry,menuOnly,counts,menuFits,picker,shellHeight,width:win.innerWidth,context:{actual:win.location.hash,expected:contextHash,view:win.ui.view.id,expectedView:contextView,scroll:doc.querySelector('#detail').scrollTop,expectedScroll:readingScroll},errors:win.errors};
       `);
       assert(layout.width === width && Object.entries(layout).filter(([key]) => !['width', 'errors', 'shellHeight'].includes(key)).every(([, value]) => value), `${scope}/${theme}/${width}: ${JSON.stringify(layout)}`);
       if (width === 390 || width === 1440) {
@@ -245,12 +250,17 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
       `), 'embedded conditional editor must share state and keep its receipt/routing local');
       console.log('PASS embedded conditional editor shares the component, defaults conditions closed, and keeps authorization receipt local');
       assert(await frame(`
-        await win.ui.inputEditor.leave();win.location.hash='#drafts';await until(()=>win.ui.view.id==='drafts'&&doc.querySelector('.inputs-browse')&&!doc.querySelector('.inputs-browse').hidden);
+        await win.ui.inputEditor.leave();await doc.querySelector('#drafts-open').onclick();await until(()=>win.ui.view.id==='drafts'&&doc.querySelector('.inputs-browse')&&!doc.querySelector('.inputs-browse').hidden);
         await win.ui.draftsPage.pending;
         const modes=[...doc.querySelectorAll('.input-mode-toggle')],mode=value=>modes.find(node=>node.dataset.mode===value);
         const selected=()=>modes.filter(node=>node.getAttribute('aria-pressed')==='true').map(node=>node.dataset.mode).join(',');
         const check=(value,message)=>{if(!value)throw Error(message);};
         check(modes.length===3&&selected()==='order','draft default must remain order only');
+        const draftRow=doc.querySelector('[data-input="draft:1"] .input-row');
+        check(draftRow.firstElementChild.classList.contains('input-preview')&&!draftRow.getAttribute('aria-label').includes('Worker 状态'),'draft content first; draft authorization is not Worker execution');
+        const unknown=doc.querySelector('[data-input="draft:2"] .input-summary .badge');
+        check(unknown.scrollHeight<=unknown.clientHeight+1&&unknown.textContent.includes('待核验'),'unknown authorization must remain readable');
+        check(doc.querySelector('.search-field-scope').textContent.includes('全部未发送草稿'),'search must state full project draft scope');
         await mode('append').onclick();check(selected()==='order,append'&&doc.querySelector('[data-input="draft:3"]'),'independent draft multiselect');
         const search=doc.querySelector('.search-field-input'),status=doc.querySelector('[aria-label="暂存状态"]');
         search.value='追加';search.dispatchEvent(new win.Event('input'));const reads=win.reads.length;
@@ -276,7 +286,7 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
         await mode('order').onclick();await mode('append').onclick();await mode('management').onclick();
         await win.inputPages.openInputs({item:{kind:'draft',id:4}});
         check(selected()==='management','deep link must reveal its category from empty selection');
-        await until(()=>win.ui.inputEditor.inDetail&&win.workspace.currentEdit().saved?.id===4);
+        await until(()=>win.ui.inputEditor.inDetail&&win.workspace.currentEdit().saved?.id===4&&!doc.querySelector('#draft-commit').disabled);
         const management=!doc.querySelector('#input-buffer').hidden&&doc.querySelector('.unified-editor-condition-section').hidden&&doc.querySelector('.unified-editor-conditions').children.length===0;
         doc.querySelector('#input').value='管理修改';doc.querySelector('#input').dispatchEvent(new win.Event('input'));
         await win.ui.inputEditor.submit();await until(()=>!win.ui.inputEditor.inDetail&&doc.querySelector('.input-original'));
@@ -392,6 +402,20 @@ export async function runInputBrowserCheck({ scope = 'history', output = `/tmp/l
       console.log('PASS compact last-submission receipt shares metadata and opens read-only without another write');
     }
     const errors = await frame('return win.errors;'); assert(!errors.length, `browser errors: ${JSON.stringify(errors)}`);
+    if (scope === 'history') {
+      const recovery = await frame(`
+        await win.workspace.selectComposerMode('order');await win.workspace.newComposerEntry();
+        const box=doc.querySelector('#input');box.value='刷新恢复的项目草稿';box.dispatchEvent(new win.Event('input'));
+        await win.ui.inputEditor.save();const saved=win.workspace.currentEdit().saved;
+        box.value+=' · 本地未保存修改';box.dispatchEvent(new win.Event('input'));win.workspace.rememberComposer();
+        return {id:saved.id,revision:saved.revision,content:box.value};`);
+      await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0],iframe=document.querySelector('#view');iframe.addEventListener('load',()=>done(true),{once:true});iframe.contentWindow.history.replaceState(null,'','#inputs');iframe.contentWindow.location.reload();`, args: [] });
+      assert(await frame(`await until(()=>win.ready&&win.ui.inputEditor);win.workspace.openComposer({focus:false});
+        const entry=win.workspace.currentEdit();return entry.saved.id===${recovery.id}&&entry.saved.revision===${recovery.revision}
+          &&doc.querySelector('#input').value===${JSON.stringify(recovery.content)}&&entry.branch==='main'
+          &&doc.querySelector('#composer-draft-status').textContent==='有未保存修改'&&win.calls.length===0;`), 'reload must recover original draft identity/target and unsaved text without authorizing');
+      console.log('PASS real browser reload retains saved draft ID/version/target and unsaved text without any write or authorization');
+    }
   } finally {
     if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} }
     driver.kill(); await driver.exited; server.stop(true); await rm(temp, { recursive: true, force: true });

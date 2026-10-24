@@ -51,6 +51,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-management-diagnostic.test.js', // shared heading actions -> real Provider/HTTP call records and safe diagnostic reading
     'test/web/transcript-reader.test.js', // shared search and explicit full-record reads
     'test/web/dom-questionnaire.test.js', // choices -> review -> answer
+    'test/web/notice-records.test.js', // stored Notice states -> filtered pages and continuation scope
     'test/web/settings.test.js', // device preferences
     'test/web/dom-model-sources.test.js', // model/source/diagnostics tabs, filtered reads and cancellation
   ]),

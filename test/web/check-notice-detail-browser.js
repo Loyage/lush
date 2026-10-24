@@ -99,10 +99,20 @@ try {
     if (mobile) await enterViewport(width, height);
     assert(await wait('document.querySelector("#notices a")'), 'list did not load');
     await execute(`document.documentElement.dataset.theme='${theme}';`);
+    if (theme==='light'&&width===1440) {
+      await execute(`window.failRead=true;document.querySelector('[data-notice-filter="all"]').click();`);
+      assert(await wait(`document.querySelector('#notice-pagination').textContent.includes('fixture read failure')`), 'list read failure was not shown');
+      assert(await execute(`return document.querySelector('#notices').textContent.includes('读取失败')&&!document.querySelector('#notice-pagination').textContent.includes('已加载完毕');`), 'failed list was presented as empty or complete');
+      await execute(`window.failRead=false;`); await click('#notice-pagination button');
+      assert(await wait(`document.querySelector('#notices a[href="#notices-9"]')`), 'list retry did not restore records');
+      await click('[data-notice-filter="open"]');
+      assert(await wait(`document.querySelector('#notices a[href="#notices-9"]')`), 'default pending filter did not restore');
+    }
     await click('#notices a[href="#notices-9"]');
     assert(await wait('document.querySelector("#notice-record-detail textarea")'), 'record did not open');
     const layout = await execute(`return {view:ui.view.id,hash:location.hash,listHidden:document.querySelector('#resource-panels').hidden,detailHidden:document.querySelector('#detail').hidden,inline:!!document.querySelector('#side-notices #notice-record-detail'),writes:writes.length,width:innerWidth,scroll:document.documentElement.scrollWidth,overflow:[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,10).map(e=>({tag:e.tagName,class:e.className,right:e.getBoundingClientRect().right}))};`);
     assert(layout.view === 'notice' && layout.hash === '#notices-9' && layout.listHidden && !layout.detailHidden && !layout.inline && layout.writes === 0 && layout.scroll <= layout.width, 'detail navigation/layout failed: '+JSON.stringify(layout));
+    assert(await execute(`const section=document.querySelector('#notice-record-detail .notice'),head=section.querySelector('.notice-head'),submit=[...section.querySelectorAll('button')].find(b=>b.textContent==='回复并继续 Worker'),refresh=[...document.querySelectorAll('.notice-detail-page button')].find(b=>b.textContent==='刷新记录');return head.firstElementChild.tagName==='H3'&&head.textContent.includes('待答复')&&head.textContent.includes('W238')&&section.classList.contains('module-fold')&&!section.querySelector('.module-body').hidden&&refresh.getBoundingClientRect().height===32&&submit.getBoundingClientRect().height>=(${mobile}?44:32);`), 'notice title/state/source hierarchy, unclipped form or control geometry failed');
     await execute(`window.reply=document.querySelector('#notice-record-detail textarea');reply.value='保留未提交答复';poll();`);
     assert(await execute(`return document.querySelector('#notice-record-detail textarea')===reply&&reply.value==='保留未提交答复';`), 'poll erased the reply');
     if (theme==='light'&&width===1440) {

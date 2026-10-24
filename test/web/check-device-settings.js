@@ -154,6 +154,8 @@ try {
   await execute(`return window.openSources()`);
   assert(await execute(`return window.oldSecret.value===''&&!document.querySelector('.agent-connections-panel').checkVisibility()`), 'Leaving source tab retained a login secret');
   async function layout(name, width) {
+    const tabs = await execute(`return [...document.querySelectorAll('.settings-tab')].filter(n=>n.getClientRects().length).map(n=>({height:n.getBoundingClientRect().height,overflow:n.scrollWidth-n.clientWidth}));`);
+    assert(tabs.every(n=>n.height===32&&n.overflow<=1), `settings tabs must use compact 32px geometry ${name}: ${JSON.stringify(tabs)}`);
     if (compact) {
       const ordinary=await execute(`return [...document.querySelectorAll('.model-source-row-actions button,.registered-model-field input,.skill-toggle,.skill-source summary,.skills-tools button')].filter(n=>n.getClientRects().length).map(n=>({text:(n.textContent||n.getAttribute('aria-label')||n.tagName).slice(0,30),height:n.getBoundingClientRect().height}));`);
       assert(ordinary.every(n=>n.height===32),`ordinary device controls/rows must be 32px ${name}: ${JSON.stringify(ordinary)}`);
@@ -187,9 +189,14 @@ try {
     await checkAgentHeader('collapsed');
     await screenshot(`agent-header-collapsed-${theme}-${width}`);
     await execute(`return document.querySelector('.agent-profile .module-toggle').onclick()`);
-    await execute(`return document.querySelector('[data-agent-tab=status]').onclick()`);
-    await execute(`return document.querySelector('[data-agent-tab=settings]').onclick()`);
-    assert(await execute(`return document.querySelector('[data-agent-field=append_prompt]').value==='device-draft'`), 'Agent tab switch lost draft');
+    const checksBefore = calls.filter(route => route.endsWith('/agent/status')).length;
+    await execute(`document.querySelector('[data-agent-tab=settings]').focus()`);
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'agent-keyboard', actions: [{ type: 'keyDown', value: '\uE014' }, { type: 'keyUp', value: '\uE014' }] }] });
+    await waitFor(`document.querySelector('.agent-status-feedback')?.textContent.includes('检查完成')`);
+    assert(await execute(`const tab=document.activeElement,panel=document.getElementById(tab.getAttribute('aria-controls'));return tab.dataset.agentTab==='status'&&tab.tabIndex===0&&panel.getAttribute('role')==='tabpanel'&&panel.getAttribute('aria-labelledby')===tab.id&&panel.checkVisibility()&&document.querySelector('[data-agent-tab=settings]').tabIndex===-1;`), 'Agent ArrowRight/tab/panel linkage failed');
+    assert(calls.filter(route => route.endsWith('/agent/status')).length===checksBefore+1, 'Agent diagnostic activation must perform one explicit software read');
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'agent-keyboard', actions: [{ type: 'keyDown', value: '\uE011' }, { type: 'keyUp', value: '\uE011' }] }] });
+    assert(await execute(`return document.activeElement.dataset.agentTab==='settings'&&document.querySelector('[data-agent-field=append_prompt]').value==='device-draft'&&document.querySelector('.agent-management-status').hidden`), 'Agent Home/tab switch lost draft or focus');
     await layout(`agent-${theme}-${width}`,width);
     await execute('return window.openInterface()'); await waitFor('document.querySelector("[data-notice-type=reported]")');
     assert(await execute(`return document.querySelector('.settings-view').textContent.includes('提醒方式')&&document.querySelector('.settings-view').textContent.includes('Worker 待验收')&&document.querySelectorAll('[data-notice-type]').length===10&&[...document.querySelectorAll('[data-notice-type]')].every(n=>n.checked&&!n.disabled)`), 'Reminder categories or default channels missing');
@@ -198,6 +205,17 @@ try {
     assert(await execute(`return [...document.querySelectorAll('.settings-scope-pane>.block')].every(n=>n.classList.contains('module-fold')&&!n.classList.contains('module-preview'));`), 'runtime forms are not explicit folds');
     assert(await execute(`return !document.querySelector('[data-runtime-input="concurrency"],[data-runtime-input="control_concurrency"]') && !document.querySelector('.settings-view').textContent.includes('并发额度')`), 'Removed concurrency settings remain visible');
     assert(await execute(`return !document.querySelector('[data-runtime-input="progress_reporting"]')&&document.querySelector('a[href="/#skills"]')`),'System settings still duplicates Skills controls');
+    await execute(`const input=document.querySelector('[data-runtime-input=call_timeout]');input.value='181';document.querySelector('[data-settings-tab=system]').focus()`);
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'settings-keyboard', actions: [{ type: 'keyDown', value: '\uE012' }, { type: 'keyUp', value: '\uE012' }] }] });
+    assert(await execute(`return document.activeElement.dataset.settingsTab==='interface'&&document.activeElement.tabIndex===0&&document.querySelector('[data-settings-tab=system]').tabIndex===-1&&document.querySelector('[role=tabpanel]').getAttribute('aria-labelledby')===document.activeElement.id`), 'Settings ArrowLeft/focus/tabpanel semantics failed');
+    await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'settings-keyboard', actions: [{ type: 'keyDown', value: '\uE010' }, { type: 'keyUp', value: '\uE010' }] }] });
+    assert(await execute(`return document.activeElement.dataset.settingsTab==='system'&&document.querySelector('[data-runtime-input=call_timeout]').value==='181'`), 'Settings End/return discarded draft');
+    await execute(`document.querySelector('[data-runtime-input=call_timeout]').value='0';document.querySelector('.settings-runtime-save').click()`);
+    assert(await execute(`return document.querySelector('[data-runtime-error]').checkVisibility()&&document.querySelector('[data-runtime-error]').getAttribute('role')==='alert'`), 'Runtime validation was hidden');
+    await execute(`document.querySelector('[data-runtime-input=call_timeout]').value='181';document.querySelector('.settings-runtime-save').click()`);
+    await waitFor(`document.querySelector('.settings-save-receipt')?.textContent.includes('调用与拆解限额已保存')`);
+    const savedRuntime = await execute(`const receipt=document.querySelector('.settings-save-receipt'),save=document.querySelector('.settings-runtime-save');return {visible:receipt.checkVisibility(),folded:!!receipt.closest('.module-body'),height:save.getBoundingClientRect().height}`);
+    assert(savedRuntime.visible && !savedRuntime.folded && savedRuntime.height === (width <= 760 ? 44 : 32), `Runtime save receipt/primary height failed ${theme}/${width}: ${JSON.stringify(savedRuntime)}`);
     await layout(`runtime-${theme}-${width}`,width);
     await execute('return window.openSkills()'); await waitFor('document.querySelectorAll(".skill-card").length===5');
     assert(await execute(`const cards=[...document.querySelectorAll('.skill-card')];return cards.every((card,i)=>{const box=card.getBoundingClientRect(),previous=cards[i-1]?.getBoundingClientRect();return !previous||(box.top>=previous.bottom&&Math.abs(box.left-previous.left)<1&&Math.abs(box.width-previous.width)<1)})`), 'Skills must use one column at every viewport width');

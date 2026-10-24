@@ -312,7 +312,18 @@ try {
       const gap=grid.getBoundingClientRect().top-card.getBoundingClientRect().bottom;
       return Math.abs(gap-parseFloat(getComputedStyle(grid).rowGap))<=1&&card.scrollWidth<=card.clientWidth+1;`), 'workspace card must retain the grid card gap and wrap long paths');
     assert(await execute(`const titles=[...document.querySelector('#detail').children].filter(n=>n.matches('.block')).map(n=>n.matches('.worker-hooks')?'自动化':n.querySelector('h2')?.textContent).slice(0,9).join('/');
-      if(titles!=='自动化/计划/输入输出/时间线/Agent/代码与提交/版本迭代/决策记录/Worker 关系')throw new Error('primary order: '+titles);return true;`), 'primary module order');
+      if(titles!=='计划/输入输出/自动化/时间线/Agent/代码与提交/版本迭代/决策记录/Worker 关系')throw new Error('primary order: '+titles);
+      const plan=document.querySelector('.task-progress-panel'),summary=plan.querySelector('.module-summary'),body=plan.querySelector('.module-body');
+      plan.scrollIntoView({block:'start',behavior:'instant'});
+      const s=summary.getBoundingClientRect(),b=body.getBoundingClientRect(),p=plan.getBoundingClientRect();
+      if(!summary.textContent.includes('等待中 · 当前步骤：'+window.task.progress.items[5].label)||summary.hidden||
+        summary.parentElement!==plan||s.height<=0||s.top<0||s.bottom>innerHeight||s.bottom>b.top+1||s.left<p.left-1||s.right>p.right+1||
+        summary.scrollWidth>summary.clientWidth+1||plan.classList.contains('module-expanded'))throw new Error('current long-plan phase hidden, clipped or expanded: '+JSON.stringify({text:summary.textContent,hidden:summary.hidden,parent:summary.parentElement===plan,summary:s.toJSON(),body:b.toJSON(),plan:p.toJSON(),width:summary.scrollWidth,client:summary.clientWidth,expanded:plan.classList.contains('module-expanded')}));
+      const nav=document.querySelector('.detail-navigation'),reader=document.querySelector('.conversation-panel'),agent=document.querySelector('.agent-panel');
+      if(!agent.querySelector('.module-body').hidden||[...nav.querySelectorAll('button')].some(n=>n.getBoundingClientRect().height!==32))throw new Error('technical default or navigation geometry');
+      const hash=location.hash;[...nav.querySelectorAll('button')].find(n=>n.textContent==='输入输出').click();
+      if(document.activeElement!==reader.querySelector('h2')||location.hash!==hash||reader.classList.contains('module-expanded'))throw new Error('in-page positioning changed reading state');
+      document.activeElement.blur();return true;`), 'primary module order');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,
@@ -412,6 +423,34 @@ try {
     }
     console.log('PASS bounded modules, clipped-only fade, accessible note and 120px margin', width, height, theme);
   }
+  // Reuse this detail fixture for the current-action lane; no backend writes or model calls.
+  for (const width of [1440, 320]) {
+    await viewport(width, 900);
+    assert(await execute(`window.savedTask=window.task;
+      const notice={id:72,task_id:7,kind:'question',status:'open',title:'需要明确答复',body:'保留未保存答复',created_at:window.task.created_at};
+      window.task={...window.task,error:'当前失败诊断',notices:[...window.task.notices,notice]};
+      window.ui.noticeIndex.set(72,notice);window.ui.noticeFocus=72;window.paint();
+      const panel=document.querySelector('#detail'),children=[...panel.children],pending=panel.querySelector('.detail-pending'),failure=panel.querySelector('.error-panel');
+      if(children.indexOf(panel.querySelector('.task-actions'))>children.indexOf(panel.querySelector('.notice.focus'))||
+        children.indexOf(pending)>children.indexOf(panel.querySelector('.conversation-panel'))||
+        children.indexOf(failure)>children.indexOf(panel.querySelector('.task-progress-panel'))||pending.classList.contains('detail-preview'))throw new Error('current actions/errors buried or clipped');
+      const editor=panel.querySelector('.notice textarea');editor.value='未发送的决定';editor.focus();editor.setSelectionRange(1,4);
+      window.paint();const restored=panel.querySelector('.notice textarea');
+      if(restored!==editor||document.activeElement!==editor||editor.value!=='未发送的决定'||editor.selectionStart!==1||editor.selectionEnd!==4)throw new Error('reply draft/focus/selection lost');
+      if(panel.scrollWidth>panel.clientWidth+1||(${width}<=760&&panel.querySelector('.notice .agent-call').getBoundingClientRect().height!==44))throw new Error('pending action narrow layout');
+      editor.blur();window.task={...window.task,status:'failed'};window.paint();
+      if(!panel.querySelector('.task-progress-panel .module-summary').textContent.includes('失败时中止 · 当前步骤：'+window.task.progress.items[5].label))throw new Error('stopped current plan lost phase');
+      const technical=panel.querySelector('.agent-panel');technical.querySelector('.module-toggle').click();window.paint();
+      if(document.querySelector('.agent-panel .module-body').hidden)throw new Error('technical fold lost on refresh');
+      document.querySelector('.agent-panel .module-toggle').click();
+      window.ui.noticeFocus=null;window.ui.noticeIndex.delete(72);window.task=window.savedTask;window.paint();return true;`), 'current actions, failure priority, answer draft and technical fold retention');
+    console.log('PASS current actions/error priority, reply draft/focus/selection, technical fold and primary action geometry',width);
+    if (process.env.BROWSER_EVIDENCE_DIR) {
+      await execute(`document.querySelector('#detail').scrollTop=0;window.scrollTo(0,0);`);
+      await writeFile(join(process.env.BROWSER_EVIDENCE_DIR, `detail-hierarchy-${width}.png`),
+        Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+    }
+  }
   await viewport(1440, 900);
   await execute(`window.resizeProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='状态');
     const fixed=document.createElement('div');fixed.style.height='400px';fixed.textContent='短模块高度响应测试';
@@ -434,8 +473,8 @@ try {
   assert(await execute(`const n=document.querySelector('.conversation-panel');return !n.classList.contains('detail-preview-expanded')&&
     n.querySelector('.detail-preview-body').getBoundingClientRect().height<=400&&
     getComputedStyle(n.querySelector('.detail-preview-body')).maskImage.includes('linear-gradient');`), 'collapse not bounded or missing fade');
-  assert(await execute(`const n=document.querySelector('.agent-panel');const target=document.createElement('button');target.textContent='隔离焦点目标';n.querySelector('.detail-preview-content').append(target);target.focus();
-    return n.classList.contains('detail-preview-expanded')&&document.activeElement===target;`), 'keyboard focus stayed clipped');
+  assert(await execute(`const n=document.querySelector('.agent-panel');const target=document.createElement('button');target.textContent='隔离焦点目标';n.querySelector('.module-content').append(target);window.reveal(target);target.focus();
+    return n.classList.contains('module-expanded')&&!n.querySelector('.module-body').hidden&&document.activeElement===target;`), 'technical reference/focus reveal stayed hidden');
   assert(await execute(`const n=document.querySelector('.conversation-panel');
     n.revealConversationReference({kind:'message',target:{message_id:20}});
     const last=n.querySelector('[data-ref~="message-20"]');window.reveal(last);
@@ -579,7 +618,7 @@ try {
       assert(await execute(`const {panel,section,head}=window.noticeFixture,title=head.querySelector('h3'),meta=head.querySelector('.notice-meta'),toggle=head.querySelector('.module-toggle');
         const h=head.getBoundingClientRect(),t=title.getBoundingClientRect(),m=meta.getBoundingClientRect(),b=toggle.getBoundingClientRect();
         return getComputedStyle(head).backgroundColor===getComputedStyle(section).backgroundColor&&
-          getComputedStyle(head).backgroundColor!=='rgba(0, 0, 0, 0)'&&m.bottom<=t.top+1&&t.right<=b.left+1&&
+          getComputedStyle(head).backgroundColor!=='rgba(0, 0, 0, 0)'&&t.bottom<=m.top+1&&b.bottom<=m.top+1&&t.right<=b.left+1&&
           t.left>=h.left-1&&t.bottom<=h.bottom+1&&b.right<=h.right+1&&title.scrollWidth<=title.clientWidth+1&&
           panel.scrollWidth<=panel.clientWidth+1;`),`Notice tint/title geometry ${width}/${theme}/${scope}/${kind}`);
       await execute(`const {panel,head}=window.noticeFixture;const mobile=matchMedia('(max-width:760px)').matches;

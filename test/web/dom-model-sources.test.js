@@ -11,11 +11,17 @@ const source = id => ({ id, label: `来源 ${id}`, provider: 'deepseek', auth_ty
 
 test('model source overview opens details and the editor on demand', async () => {
   const requests = [];
-  let rejectSave, writes = 0;
+  let rejectSave, writes = 0, failSave = true;
+  const connections = [source('a'), source('b')];
   const dom = installDom({ fetch: async (url, options) => {
     requests.push(String(url));
-    if (options?.body) { writes++; return new Promise((_, reject) => { rejectSave = reject; }); }
-    return Response.json({ version: 1, sampling: { enabled: false, interval_minutes: 5, retention_days: 90 }, connections: [source('a'), source('b')],
+    if (options?.body) {
+      writes++; if (failSave) return new Promise((_, reject) => { rejectSave = reject; });
+      const action = JSON.parse(options.body); expect(action.method).toBe('agent.connections.save');
+      connections.push({ ...source('c'), ...action.params.connection, id: 'c', credential: { status: 'unconfigured' } });
+      return Response.json(connections.at(-1));
+    }
+    return Response.json({ version: 1, sampling: { enabled: false, interval_minutes: 5, retention_days: 90 }, connections,
       configuration_scope: { selected: 'device', source: 'device', project_override: false } });
   } });
   const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
@@ -41,6 +47,14 @@ test('model source overview opens details and the editor on demand', async () =>
     await save.onclick(); expect(writes).toBe(1); rejectSave(Error('controlled connection failure')); await saving;
     expect(editor.textContent).toContain('保存连接失败'); expect(name.value).toBe('retained public draft');
     expect(key.value).toBe(''); expect(save.textContent).toBe('保存连接');
+    await button(root, '返回来源列表').onclick(); await button(root, '添加连接').onclick();
+    expect(root.querySelector('[data-connection-field="label"]').value).toBe('retained public draft');
+    expect(root.querySelector('[data-connection-field="api_key"]').value).toBe('');
+    expect(root.querySelector('.model-source-editor-advanced').open).toBe(true);
+    failSave = false; await button(root, '保存连接').onclick();
+    expect(writes).toBe(2); expect(root.querySelectorAll('.model-source-row')).toHaveLength(3);
+    expect(root.querySelector('.agent-connections-feedback').textContent).toContain('连接已保存');
+    expect(root.children[0].classList.contains('agent-connections-feedback')).toBe(true);
     panel.dispose();
     const reads = []; let held, fail = false;
     const diagnostic = createDiagnosticsPage({ ownsPage: () => true, client: { read: async () => ({ connections: [], models: [] }) },

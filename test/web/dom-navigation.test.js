@@ -22,7 +22,12 @@ test('project Worker list, detail and browser back navigate between independent 
   await dom.node('side-nav').querySelector('[data-side="tasks"]').onclick();
   expect(dom.location.hash).toBe('#workers'); expect(dom.node('resource-panels').hidden).toBe(false);
   expect(dom.node('view-title').textContent).toBe('工作列表');
-  await dom.node('tasks').querySelector('[data-id="1"]').onclick();
+  const row = dom.node('tasks').querySelector('[data-id="1"]');
+  expect(row.children[0].classList.contains('goal')).toBe(true);
+  expect(row.children[1].children[1].textContent).toContain('运行');
+  expect(row.children.at(-1).classList.contains('worker-list-identity')).toBe(true);
+  expect(row.querySelector('.reason')).toBeNull(); // The status already says running; no duplicate line.
+  await row.onclick();
   expect(dom.location.hash).toBe('#worker-1'); expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('view-title').textContent).toBe('Worker #1');
   const reference = { kind: 'task', target: { task_id: 1 }, label: 'Worker #1' };

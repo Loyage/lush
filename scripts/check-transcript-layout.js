@@ -26,7 +26,7 @@ window.fetch = async (url, opts) => {
 };
 // A direct management-page entry need not select a Worker detail first.
 ui.selected = null;
-ui.lastSnapshot={tasks:[{id:101,worker_number:'W165-1-1',status:'running'}]};
+ui.lastSnapshot={tasks:[{id:101,worker_number:'W165-1-1',status:'running',auto_title:'深入改进界面信息展示与交互体验'}]};
 transcriptCache.set(101, {order:'desc', steps:[step(1),call,output,
   {...call,seq:4,call_id:'long',tool_name:'functions.a_very_long_tool_name_that_must_wrap_without_moving_metadata',tokens:undefined},
   {...output,seq:5,call_id:'long',is_error:false,at:'2026-01-01T01:30:00Z'},
@@ -131,6 +131,7 @@ try {
       return {sidebar:rect('.transcript-sidebar'),body:rect('.transcript-viewport'),query:rect('.search-field-row'),dialog:rect('.transcript-dialog'),width:innerWidth,height:innerHeight,area:getComputedStyle(document.querySelector('.transcript-sidebar')).gridArea};`);
     assert(box.width === width && box.height === height, `wrong test viewport: ${JSON.stringify(box)}`);
     assert(await execute(`const group=document.querySelector('.transcript-order'),buttons=[...group.querySelectorAll('button')];return group.getAttribute('role')==='group'&&group.getAttribute('aria-label')==='执行过程排序'&&buttons.length===1&&buttons[0].textContent==='最新在前'&&buttons[0].dataset.order==='desc'&&(buttons[0].disabled?buttons[0].parentNode.dataset.help.includes('设备偏好当前不可用'):buttons[0].dataset.help.includes('设备统一'))&&buttons.every(n=>{const r=n.getBoundingClientRect(),style=getComputedStyle(n);return style.fontSize==='12px'&&style.borderRadius==='9px'&&style.fontWeight==='600'&&r.width>=32&&r.height>=parseFloat(style.getPropertyValue('--control-height'))&&r.x>=0&&r.right<=innerWidth&&r.bottom<=document.querySelector('.execution-navigation').getBoundingClientRect().bottom;})&&!document.querySelector('.transcript-reading-tools select');`), `sort control missing, clipped or incorrectly selected at ${width}`);
+    assert(await execute(`const topic=document.querySelector('.transcript-topic'),r=topic.getBoundingClientRect();return topic.textContent==='深入改进界面信息展示与交互体验'&&!topic.hidden&&r.width>0&&r.right<=innerWidth&&topic.scrollWidth<=topic.clientWidth+1;`), `Worker title missing or overflowing at ${width}`);
     assert(box.area.startsWith('search'), 'sidebar must not inherit app navigation grid-area');
     assert(box.body.w > 0 && box.body.h > 80, `empty reading area at ${width}: ${JSON.stringify(box)}`);
     if (box.width > 760) {
@@ -187,6 +188,7 @@ try {
     assert(await execute(`return document.querySelector('input[type=checkbox]').getBoundingClientRect().width<24;`), 'failure checkbox inherited text input flex sizing');
     await capture('-mobile-' + theme + '-search');
     assert(await execute(`document.querySelectorAll('.search-hit')[5].querySelector('button').click(); const card=document.querySelector('[data-match-seq="15"]');const view=document.querySelector('.transcript-viewport');return getComputedStyle(document.querySelector('.transcript-sidebar')).display==='none' && document.activeElement===view && card.getBoundingClientRect().top>=view.getBoundingClientRect().top-1 && document.querySelector('.search-field-input').value==='needle';`), 'mobile hit did not close search, focus reader and locate body');
+    assert(await execute(`return document.querySelector('.transcript-search-toggle').textContent.includes('已筛选');`), 'collapsed mobile search must retain the active search indicator');
     await execute(`document.querySelector('.transcript-search-toggle').click();`);
     await resize(600, 400);
     assert(await execute(`const side=document.querySelector('.transcript-sidebar'),body=document.querySelector('.transcript-viewport');return body.getBoundingClientRect().height>80&&side.scrollWidth<=innerWidth&&document.querySelector('.transcript-reader').scrollHeight>=document.querySelector('.transcript-reader').clientHeight;`), 'short mobile search must remain scrollable without overflowing body');

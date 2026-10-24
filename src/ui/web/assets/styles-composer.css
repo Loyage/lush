@@ -36,8 +36,9 @@ html[data-lush-space="project"] body:has(#detail) #composer-shell { display:bloc
 #input-form .composer-meta button { font-size:11px; padding:4px 6px; white-space:nowrap; }
 #input-form .composer-help { min-width:32px; }
 #input-form #composer-draft-status { margin:0; white-space:nowrap; font-size:11px; }
+#composer-draft-status[data-dirty="true"] { color:var(--waiting); }
 #composer-draft-status[data-error="true"] { color:var(--failed); font-weight:650; }
-#input-form[data-mode] .composer-mode-target { font-weight:650; font-size:12px; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#input-form[data-mode] .composer-mode-target { font-weight:650; font-size:12px; flex:1 1 auto; min-width:0; white-space:normal; overflow-wrap:anywhere; }
 #composer-shell .composer-target-status { margin:4px 0 6px; font-size:12px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere; }
 #composer-shell #input-form[data-blocked="true"] .composer-target-status { color:var(--failed); }
 #input-form .composer-mode-behavior { display:none; }
@@ -137,10 +138,9 @@ html[data-lush-space="global"] #composer-shell { display:none; }
   #composer-project { max-width:9ch; }
   #input-form .composer-meta { font-size:11px; }
   #input-form .composer-context { gap:0 8px; }
-  /* While typing over an overlay keyboard, keep the target, body and primary actions together.
-     Advanced controls reappear on leaving the text field; their values/expanded state are untouched. */
+  /* The portable host already omits advanced forms. Keep errors and recovery visible
+     while typing; a keyboard must not hide an unresolved or unsaved input. */
   #composer-shell[data-keyboard="true"]:has(#input:focus) { max-height:calc(var(--composer-visible-height) * .8); }
-  #composer-shell[data-keyboard="true"]:has(#input:focus) :is(#composer-details,.composer-recovery,.composer-mode-behavior,#input-history,#input-drafts,.composer-run-settings,#composer-reset,.composer-management-result) { display:none !important; }
   #composer-shell[data-keyboard="true"]:has(#input:focus) textarea { height:64px; }
   #composer-shell[data-keyboard="true"]:has(#input:focus) .composer-mode { max-height:60px; overflow:auto; }
   #composer-shell[data-keyboard="true"]:has(#input:focus) .composer-references { max-height:36px; overflow:auto; }

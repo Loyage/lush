@@ -166,7 +166,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
     ui.detailDirty = true;
     try { sessionStorage.setItem(key, JSON.stringify(draft)); } catch { /* memory fallback */ }
   };
-  const advance = () => { draft.step = Math.min(questions.length, draft.step + 1); save(); paint(); };
+  const advance = () => { draft.step = Math.min(questions.length, draft.step + 1); save(); paint('heading'); };
   const send = async discard => {
     if (busy || readOnly) return;
     if (!discard && !questions.every((q, i) => complete(q, draft.answers[i]))) return;
@@ -176,7 +176,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       confirmLabel: '忽略问卷',
       danger: true,
     })) return;
-    busy = true; error = ''; paint();
+    busy = true; error = ''; paint('status');
     try {
       if (discard) await dismiss();
       else await settle({ answers: draft.answers.map(a => ({ selected: a.custom.trim() ? [] : [...a.selected], custom: a.custom.trim() })) });
@@ -184,24 +184,31 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       try { sessionStorage.removeItem(key); } catch { /* unavailable */ }
     } catch (e) {
       error = failureMessage(e);
-      busy = false; paint();
+      busy = false; paint('error');
     }
   };
-  function paint() {
+  function paint(focusKey = null) {
     content.replaceChildren();
+    const status = el('p', '', 'hint decision-status');
+    status.dataset.decisionFocus = 'status'; status.setAttribute('tabindex', '-1'); status.setAttribute('role', 'status');
+    const updateStatus = () => { status.textContent = busy ? '正在提交整份问卷…'
+      : `已填写 ${questions.filter((q, i) => complete(q, draft.answers[i])).length} / ${questions.length} 题 · 尚未提交`; };
+    updateStatus(); content.append(status);
     const progress = el('div', undefined, 'decision-progress');
+    progress.setAttribute('role', 'group'); progress.setAttribute('aria-label', '问卷全部题目与汇总');
     questions.forEach((q, i) => {
-      const tab = button(`${complete(q, draft.answers[i]) ? '✓ ' : ''}${i + 1}. ${q.header}`, () => { draft.step = i; save(); paint(); }, draft.step === i ? '' : 'ghost');
+      const tab = button(`${complete(q, draft.answers[i]) ? '✓ ' : ''}${i + 1}. ${q.header}`, () => { draft.step = i; save(); paint('heading'); }, draft.step === i ? '' : 'ghost');
       tab.setAttribute('aria-current', draft.step === i ? 'step' : 'false'); progress.append(tab);
     });
-    progress.append(button('汇总确认', () => { draft.step = questions.length; save(); paint(); }, draft.step === questions.length ? '' : 'ghost'));
+    const review = button('汇总确认', () => { draft.step = questions.length; save(); paint('heading'); }, draft.step === questions.length ? '' : 'ghost');
+    review.setAttribute('aria-current', draft.step === questions.length ? 'step' : 'false'); progress.append(review);
     content.append(progress);
     if (draft.step === questions.length) {
       content.append(el('h3', '确认你的全部选择'), el('p', reviewMessage, 'hint'));
       questions.forEach((q, i) => {
         const a = draft.answers[i], item = el('div', undefined, 'decision-summary');
         item.append(el('strong', q.question), el('p', a.custom.trim() || a.selected.map(n => q.options[n]?.label).filter(Boolean).join('、') || '尚未回答'));
-        item.append(button('修改', () => { draft.step = i; save(); paint(); }, 'ghost'));
+        item.append(button('修改', () => { draft.step = i; save(); paint('heading'); }, 'ghost'));
         for (const n of a.custom.trim() ? [] : a.selected) {
           const o = q.options[n];
           if (!o) continue;
@@ -217,15 +224,16 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       submit.disabled = readOnly || !questions.every((q, i) => complete(q, draft.answers[i]));
       // 未答完时按钮禁用，data-help 放外层 span.help-host 才能悬停看到。
       const submitHost = el('span', undefined, 'help-host');
-      submitHost.setAttribute('data-help', readOnly ? disabledReason : submitHelp);
+      const submitReason = readOnly ? disabledReason : submit.disabled ? '还有题目未回答，请通过题目导航补齐后再提交。' : submitHelp;
+      submitHost.setAttribute('data-help', submitReason);
       if (submit.disabled) {
         submitHost.setAttribute('tabindex', '0'); submitHost.setAttribute('role', 'group');
-        submitHost.setAttribute('aria-label', readOnly ? disabledReason : submitHelp);
+        submitHost.setAttribute('aria-label', submitReason);
       }
       submitHost.append(submit); content.append(submitHost);
     } else {
       const i = draft.step, q = questions[i], a = draft.answers[i];
-      content.append(el('h3', q.question), el('p', q.multiSelect ? '可多选 · 点选后按“下一题”' : '单选 · 点击选项即完成本题；悬停、聚焦或点“预览”先看效果', 'hint'));
+      content.append(el('h3', q.question), el('p', q.multiSelect ? '多选 · 选好后继续' : '单选 · 选择后进入下一题，汇总时才提交', 'hint'));
       const layout = el('div', undefined, 'decision-layout'), choices = el('div', undefined, 'decision-choices'), pane = el('div');
       const hasPreview = q.options.some(o => o.preview || o.previewHtml);
       const show = n => { if (hasPreview) pane.replaceChildren(preview(notice, i, n, q.options[n], sourceProjectId, previewOnline)); };
@@ -233,9 +241,10 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
         const row = el('div', undefined, 'decision-option-row');
         const choice = optionCard(o, () => {
           a.custom = '';
-          if (q.multiSelect) { a.selected = a.selected.includes(n) ? a.selected.filter(v => v !== n) : [...a.selected, n]; save(); paint(); }
+          if (q.multiSelect) { a.selected = a.selected.includes(n) ? a.selected.filter(v => v !== n) : [...a.selected, n]; save(); paint(`option-${n}`); }
           else { a.selected = [n]; advance(); }
         }, `decision-option${!a.custom && a.selected.includes(n) ? ' selected' : ''}`, sourceProjectId);
+        (choice.querySelector('.decision-option-select') || choice).dataset.decisionFocus = `option-${n}`;
         choice.addEventListener('mouseenter', () => show(n)); choice.addEventListener('focusin', () => show(n));
         row.append(choice);
         if (o.preview || o.previewHtml) row.append(button('预览', () => show(n), 'ghost decision-preview-button'));
@@ -250,7 +259,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       next.disabled = !complete(q, a);
       custom.addEventListener('input', () => {
         a.custom = custom.value; if (a.custom.trim()) a.selected = []; save();
-        next.disabled = !complete(q, a);
+        next.disabled = !complete(q, a); updateStatus();
         choices.querySelectorAll('.decision-option').forEach(node => {
           node.classList.remove('selected');
           (node.querySelector('.decision-option-select') || node).setAttribute('aria-pressed', 'false');
@@ -259,7 +268,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       content.append(el('p', '也可以输入你自己的决定：', 'hint'), custom, next);
     }
     const controls = el('div', undefined, 'actions');
-    if (draft.step > 0) controls.append(button('上一题', () => { draft.step--; save(); paint(); }, 'ghost'));
+    if (draft.step > 0) controls.append(button('上一题', () => { draft.step--; save(); paint('heading'); }, 'ghost'));
     if (allowDismiss) {
       const dismissHelp = '忽略整份问卷，不代表批准任何选项；Worker 会收到「未做决定」的消息。';
       const dismissButton = button('忽略问卷', () => send(true), 'ghost',
@@ -272,12 +281,18 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       } else controls.append(dismissButton);
     }
     content.append(controls);
-    if (error) { const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); content.append(message); }
+    if (error) {
+      const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); message.setAttribute('tabindex', '-1');
+      message.dataset.decisionFocus = 'error'; content.append(message);
+    }
+    const heading = content.querySelector('h3');
+    if (heading) { heading.setAttribute('tabindex', '-1'); heading.dataset.decisionFocus = 'heading'; }
     linkNumbers(root, sourceProjectId);
     if (busy) {
       content.querySelectorAll('button').forEach(node => { node.disabled = true; });
       content.querySelectorAll('textarea').forEach(node => { node.disabled = true; });
     }
+    if (focusKey) content.querySelector(`[data-decision-focus="${focusKey}"]`)?.focus({ preventScroll: focusKey.startsWith('option-') });
   }
   paint();
   return root;

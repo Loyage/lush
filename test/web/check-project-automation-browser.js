@@ -175,7 +175,11 @@ try {
   const beforePress = mutations.length;
   await pointer(title, [{ type: 'pointerDown', button: 0 }, { type: 'pause', duration: 750 }, { type: 'pointerUp', button: 0 }]);
   assert(await wait(visibleTitleHelp), 'long-press title help missing'); assert(mutations.length === beforePress, 'help press mutated settings'); await recordHelp('long-press');
-  await click('[data-notice-enabled="true"]'); assert(await wait(`document.querySelector('[data-notice-enabled="true"]').getAttribute('aria-pressed')==='true'`), 'Worker notice ACK missing');
+  await execute(`window.beforeNoticeSave=document.querySelector('.worker-hooks');`);
+  await click('[data-notice-enabled="true"]');
+  // The save ACK updates the old controls before its awaited detail refresh replaces them.
+  // Wait for that refresh too, so the next native click cannot race the retiring node.
+  assert(await wait(`document.querySelector('.worker-hooks')!==window.beforeNoticeSave&&document.querySelector('[data-notice-enabled="true"]')?.getAttribute('aria-pressed')==='true'`), 'Worker notice ACK/refresh missing');
   assert(f.project.taskHooks(child.id).acceptance_notice.enabled && f.project.taskHooks(child.id).completion.locked, 'child notice save unlocked completion');
   await click('.worker-hooks .module-toggle');
   assert(await execute(`return !document.querySelector('.hook-management').hidden&&!document.querySelector('.delivery-handler')&&!document.querySelector('.worker-convergence-control')`), 'retired handler/settings visible');
@@ -207,7 +211,8 @@ try {
   assert(await wait(`document.querySelector('.registered-mount-picker')`), 'upgrade picker missing'); await fill('授权版本', '2');
   await execute(`window.upgradePicker=document.querySelector('.registered-mount-picker');document.querySelector('[aria-label="授权版本"]').focus()`);
   await click('.worker-hooks .module-toggle'); await click('.worker-hooks .module-toggle');
-  assert(await execute(`return upgradePicker===document.querySelector('.registered-mount-picker')&&upgradePicker.querySelector('[aria-label="授权版本"]').value==='2'`), 'fold discarded active editor/version draft');
+  await execute(`return import('/navigate.js').then(({detail})=>detail(${old.id}));`);
+  assert(await execute(`return upgradePicker===document.querySelector('.registered-mount-picker')&&upgradePicker.querySelector('[aria-label="授权版本"]').value==='2'`), 'fold/refresh discarded active editor/version draft');
   await press('确认升级挂载版本'); await press('授权升级版本');
   assert(await wait(`document.querySelector('.worker-hooks')?.textContent.includes('固定 v2')`), 'Worker explicit upgrade not visible');
   for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {

@@ -40,8 +40,8 @@ window.fetch=async (url,options={})=>{
    if(window.holdNextList){window.holdNextList=false;return new Promise(resolve=>{window.releaseList=()=>response.then(resolve);});}
    return response;
  }
- if(options.body){writes.push(JSON.parse(options.body));record.notice.status='answered';record.notice.answer=JSON.parse(options.body).answer;record.notice.answer_source='user';record.notice.sync_revision++;return Response.json(record);}
- if(url.includes('/notice?'))return Response.json(url.includes('id=8')?info:record);
+ if(options.body){const write=JSON.parse(options.body);writes.push(write);if(write.method==='notice.read'){info.notice.read_at='2026-10-09T11:00:00Z';return Response.json(info);}record.notice.status='answered';record.notice.answer=JSON.stringify(write.answer);record.notice.answer_source='user';record.notice.sync_revision++;return Response.json(record);}
+ if(url.includes('/notice?')){record.checked_at=new Date().toISOString();return Response.json(url.includes('id=8')?info:record);}
  return Response.json({version:1,items:url.includes('&before=')?[]:[record,info],cursor:'older',has_more:!url.includes('&before='),complete:record.online,projects:[{id:'${B}',name:'来源项目 B',online:record.online,complete:true,checked_at:record.checked_at,error:record.online?null:'离线'}]});
 };
 window.paint=async online=>{record.online=online;await openGlobalInbox({projectId:'${B}',noticeId:7,push:false});};
@@ -114,6 +114,7 @@ try {
     assert(layout.viewportOverflow<=0&&layout.pageOverflow<=0&&!layout.nested&&layout.preview===`/p/${B}/api/worker/21/notice/7/preview/0/0`&&layout.workerTarget==='_blank'&&layout.hostOnly, `layout/source routing/CSP preview/nested control failed: ${JSON.stringify(layout)}`);
     assert(await execute(`const rows=document.querySelectorAll('.global-inbox-row'),q=rows[0],i=rows[1];return q.tagName==='A'&&q.getAttribute('href')==='/p/${B}/#notices-7'&&i.getAttribute('href')==='/p/${B}/#notices-8'&&i.target==='_blank'&&getComputedStyle(q.querySelector('.goal')).color!==getComputedStyle(i.querySelector('.goal')).color&&getComputedStyle(q).backgroundColor!==getComputedStyle(i).backgroundColor;`), 'source record links or decision/info colors are indistinguishable');
     assert(await execute(`const controls=[...document.querySelectorAll('.ui-list-tools button,.ui-list-pagination button')].filter(n=>n.getClientRects().length);const input=document.querySelector('.search-field-input'),row=input.closest('.search-field-row');return controls.every(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return r.height===parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))&&s.fontSize==='12px'&&s.borderRadius==='9px'&&s.fontWeight==='600';})&&(innerWidth>760||(getComputedStyle(input).fontSize==='16px'&&input.getBoundingClientRect().width>=row.clientWidth-1&&row.querySelector('button').getBoundingClientRect().top>=input.getBoundingClientRect().bottom));`), 'shared inbox toolbar sizing or narrow input row failed');
+    assert(await execute(`const focus=document.querySelector('.global-inbox-focus'),list=document.querySelector('.global-inbox-list'),row=list.firstElementChild;return focus.getBoundingClientRect().top<list.getBoundingClientRect().top&&row.firstElementChild.classList.contains('notice-title-line')&&row.textContent.includes('待答复')&&row.textContent.includes('来源项目 B')&&row.querySelector('.notice-excerpt')&&document.querySelector('.decision-status').textContent.includes('0 / 1')&&!document.querySelector('.questionnaire').closest('.module-preview');`), 'current detail/content/status/source hierarchy or uncut questionnaire failed');
     const questionColor = await execute(`return getComputedStyle(document.querySelector('.global-inbox-detail')).backgroundColor;`);
     await asyncExecute('const done=arguments[0];paintInfo().then(done);');
     assert(await execute(`return getComputedStyle(document.querySelector('.global-inbox-detail')).backgroundColor!==${JSON.stringify(questionColor)}&&!document.querySelector('textarea')&&writes.length===0;`), 'info detail uses decision color or performs a mutation');
@@ -121,6 +122,7 @@ try {
     assert(await execute(`return !document.querySelector('iframe')&&detail.textContent.includes('静态预览暂不可读取')&&writes.length===0;`), 'offline preview/mutation guard failed');
     await execute(`const input=document.querySelector('textarea');input.value='离线草稿';input.dispatchEvent(new Event('input',{bubbles:true}));`);
     await execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='汇总确认').click();`);
+    assert(await execute(`const final=[...document.querySelectorAll('button')].find(b=>b.textContent==='确认全部选择并继续 Worker'),ordinary=document.querySelector('.decision-progress button');return final.getBoundingClientRect().height>=(matchMedia('(max-width:760px), (pointer:coarse)').matches?44:32)&&ordinary.getBoundingClientRect().height===32&&document.activeElement.textContent==='确认你的全部选择';`), 'questionnaire focus or ordinary/final control geometry failed');
     await execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认全部选择并继续 Worker').parentElement.scrollIntoView({block:'center'});`);
     await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
     await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE004' }, { type: 'keyUp', value: '\uE004' }] }] });
@@ -138,6 +140,10 @@ try {
     assert(await execute(`return detail.textContent.includes('离线草稿')&&Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认全部选择并继续 Worker').classList.contains('agent-call');`), 'source-scoped draft or Agent label was lost');
     console.log(`PASS ${theme} ${width}x${height}: layout, source links/preview, offline guard, accessible help, draft restoration`);
   }
+  await execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='修改').click();window.editing=document.querySelector('.questionnaire textarea');editing.focus();Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='刷新记录').click();`);
+  assert(await wait(`![...document.querySelectorAll('button')].some(b=>b.textContent==='刷新中…')`), 'refresh during editing did not settle');
+  assert(await execute(`return editing===document.querySelector('.questionnaire textarea')&&document.activeElement===editing&&editing.value==='离线草稿'&&writes.length===0;`), 'successful refresh lost the editor, focus or draft');
+  await execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='汇总确认').click();`);
   await execute(`window.inboxFetch=window.fetch;window.detailReads=0;window.savedDraft=document.querySelector('textarea');window.savedDetail=document.querySelector('.global-inbox-detail');
     window.refreshButton=[...document.querySelectorAll('button')].find(n=>n.textContent==='刷新记录');
     window.fetch=(url,options)=>String(url).includes('/notice?')?new Promise(resolve=>{window.detailReads++;window.failInboxRefresh=()=>resolve(Response.json({error:'controlled inbox failure'},{status:500}));}):window.inboxFetch(url,options);
@@ -148,6 +154,7 @@ try {
   assert(await execute(`return window.savedDetail&&window.savedDetail===document.querySelector('.global-inbox-detail')&&window.savedDraft===document.querySelector('textarea')&&detail.textContent.includes('离线草稿')&&writes.length===0;`),'inbox refresh failure destroyed the draft or performed writes');
   await click('.global-inbox .error button');
   assert(await wait(`!detail.textContent.includes('controlled inbox failure')`),'inbox retry did not clear its local error');
+  assert(await execute(`return savedDetail===document.querySelector('.global-inbox-detail')&&detail.textContent.includes('离线草稿');`), 'new observation timestamp replaced the editing DOM');
   // Existing browser main flow now also exercises the real read-side HTTP route,
   // user-services and GlobalInboxService against a controlled notice.sync source.
   await asyncExecute('const done=arguments[0];window.liveSearch=true;paint(true).then(done);');
@@ -205,6 +212,12 @@ try {
   assert(await wait(`detail.textContent.includes('用户答复')&&!document.querySelector('textarea')`), 'durable questionnaire ACK was not applied immediately');
   assert(await execute(`return writes.length===1&&writes[0].project_id==='${B}'&&writes[0].id===7&&writes[0].method==='notice.answer'&&writes[0].expected_identity==='${'1'.repeat(32)}';`), 'questionnaire write lost source identity or ran twice');
   console.log('PASS explicit final questionnaire confirmation and ACK/read-only transition');
+  await asyncExecute('const done=arguments[0];paintInfo().then(done);');
+  assert(await execute(`return writes.length===1&&document.querySelector('.global-inbox-detail').textContent.includes('未读告知');`), 'opening info marked it read');
+  await execute(`Array.from(document.querySelectorAll('.global-inbox-detail button')).find(b=>b.textContent==='已知').click();`);
+  assert(await wait(`document.querySelector('.global-inbox-detail').textContent.includes('已读告知')`), 'explicit read ACK did not update info status');
+  assert(await execute(`return writes.length===2&&writes[1].method==='notice.read'&&writes[1].id===8&&writes[1].project_id==='${B}'&&writes[1].expected_identity==='${'1'.repeat(32)}'&&!document.querySelector('.global-inbox-detail textarea');`), 'read action lost source identity or answered info');
+  console.log('PASS info reading remains read-only until explicit source-scoped known ACK');
   passed = true;
 } catch (error) {
   console.error(`Browser failure; geckodriver log: ${log}`);

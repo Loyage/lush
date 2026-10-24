@@ -41,8 +41,8 @@ export function openAgentStatus() {
   ui.agentStatusPage = state;
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
   const page = el('div', undefined, 'agent-status-page'), header = el('header', undefined, 'agent-status-head');
-  const copy = el('div'); copy.append(el('h1', 'Agent 配置'), el('p', '决定 Agent 如何工作、默认使用哪个模型来源。保存只影响后续调用，不改变正在运行的调用。账号、API、登录和最新额度请到设备“模型来源”；历史留在来源项目；软件诊断仅在显式点击后检查。', 'hint'));
-  const link = el('a', '管理模型和来源', 'nav-link agent-sources-link'); link.href = '/#model-sources'; copy.append(link); header.append(copy);
+  const copy = el('div'); copy.append(el('h1', 'Agent 配置'));
+  const link = el('a', '管理模型和来源', 'nav-link agent-sources-link'); link.href = '/#model-sources'; header.append(copy, link);
   const host = el('div'), tabs = el('div', undefined, 'settings-tabs'), tabButtons = new Map();
   tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Agent 配置');
   function paneFor(scope) {
@@ -50,6 +50,9 @@ export function openAgentStatus() {
     const client = settingsClient(scope), active = () => ownsPage() && state.scope === scope && client.isCurrent();
     const settings = el('div', undefined, 'agent-management-settings'); settings.id = 'agent-management-settings';
     const status = el('div', undefined, 'agent-management-status'); status.id = 'agent-management-status';
+    for (const [id, panel] of [['settings', settings], ['status', status]]) {
+      panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `agent-tab-${id}`); panel.tabIndex = 0;
+    }
     const scopeInfo = el('div'), feedback = el('p', undefined, 'hint agent-status-feedback'), result = el('div');
     feedback.setAttribute('role', 'status');
     const pane = { client, active, settings, status, config: null, configPending: null, pending: null, data: null, rendered: false };
@@ -78,7 +81,7 @@ export function openAgentStatus() {
     async function loadStatus() {
       if (!active()) return;
       if (pane.pending) return pane.pending;
-      refresh.disabled = true; feedback.textContent = '正在检查 Pi / Codex 软件…'; status.setAttribute('aria-busy', 'true');
+      refresh.disabled = true; feedback.textContent = '正在检查 Pi / Codex 软件…'; feedback.setAttribute('role', 'status'); status.setAttribute('aria-busy', 'true');
       const pending = (async () => {
         try {
           const data = await client.read('/api/agent/status'); if (!active()) return;
@@ -91,13 +94,15 @@ export function openAgentStatus() {
     }
     const refreshHost = el('span', undefined, 'help-host'); refreshHost.setAttribute('data-help', REFRESH_HELP);
     const refresh = button('刷新软件检查', loadStatus, 'agent-status-refresh', { help: REFRESH_HELP }); refreshHost.append(refresh);
-    status.append(el('p', '软件诊断：只检查执行机器上安装的 Pi / Codex 命令、路径、版本与可用性，不联网、不读取账号或凭证，也不是 Lush 工作配置或当前 Worker 调用快照。诊断失败不影响配置编辑。', 'hint'), refreshHost, feedback, result);
+    status.append(el('p', '仅检查执行机器的软件安装；不联网、不读取凭证。诊断失败不影响配置编辑。', 'hint'), refreshHost, feedback, result);
     pane.loadConfig = loadConfig; pane.loadStatus = loadStatus; pane.refreshHost = refreshHost;
     state.panes.set(scope, pane); return pane;
   }
   function selectTab(id) {
     if (!ownsPage()) return Promise.resolve(); state.tab = id;
-    for (const [key, node] of tabButtons) { node.classList.toggle('active', key === id); node.setAttribute('aria-selected', String(key === id)); }
+    for (const [key, node] of tabButtons) {
+      node.classList.toggle('active', key === id); node.setAttribute('aria-selected', String(key === id)); node.tabIndex = key === id ? 0 : -1;
+    }
     const pane = paneFor(state.scope); pane.settings.hidden = id !== 'settings'; pane.status.hidden = id !== 'status'; pane.refreshHost.hidden = id !== 'status';
     const pending = id === 'settings' ? pane.loadConfig() : pane.data ? Promise.resolve() : pane.loadStatus();
     state.pending = pending; return pending;
@@ -110,7 +115,15 @@ export function openAgentStatus() {
   }
   for (const [id, label, detail] of [['settings', '模型与工作方式', '设备默认、Prompt 与资源'], ['status', '高级与诊断', '显式检查 Pi / Codex 软件']]) {
     const node = button('', () => selectTab(id), 'settings-tab', id === 'status' ? { help: REFRESH_HELP } : {});
-    node.dataset.agentTab = id; node.setAttribute('role', 'tab'); node.append(el('strong', label), el('span', detail)); tabButtons.set(id, node); tabs.append(node);
+    node.dataset.agentTab = id; node.id = `agent-tab-${id}`; node.setAttribute('role', 'tab');
+    node.setAttribute('aria-controls', `agent-management-${id}`);
+    node.onkeydown = event => {
+      if (!ownsPage() || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const target = event.key === 'Home' ? 'settings' : event.key === 'End' ? 'status' : id === 'settings' ? 'status' : 'settings';
+      tabButtons.get(target).focus(); void selectTab(target);
+    };
+    node.append(el('strong', label), el('span', detail)); tabButtons.set(id, node); tabs.append(node);
   }
   page.append(header, tabs, host); $('detail').replaceChildren(page);
   return changeScope('device');

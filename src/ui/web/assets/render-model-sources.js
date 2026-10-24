@@ -26,6 +26,8 @@ export function openModelSources({ connectionId = '', tab = '', filters } = {}) 
   const page = el('div', undefined, 'model-sources-page'), head = el('header', undefined, 'model-sources-head');
   const description = el('p', '', 'hint');
   head.append(el('h1', '模型和来源'), description);
+  const explanation = el('details', undefined, 'model-source-explanation');
+  explanation.append(el('summary', '模型绑定与设备范围'), el('p', `${scopeImpact()} 模型是命名后的来源 + 具体模型；已有运行配置保留固定绑定。`, 'hint'));
   const tabs = el('div', undefined, 'model-source-actions'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '模型和来源');
   const content = el('div');
   if (!state.connections) state.connections = createAgentConnections({ ownsPage: () => ownsPage() && state.tab === 'sources', connectionId: id, client });
@@ -43,15 +45,15 @@ export function openModelSources({ connectionId = '', tab = '', filters } = {}) 
     controls.set(key, control); tabs.append(control);
   }
   for (const [key, panel] of [['models', state.models.node], ['sources', state.connections.node], ['diagnostics', state.diagnostics.node]]) {
-    panel.id = `model-sources-panel-${key}`; panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `model-sources-tab-${key}`); content.append(panel);
+    panel.id = `model-sources-panel-${key}`; panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `model-sources-tab-${key}`); panel.tabIndex = 0; content.append(panel);
   }
   state.selectTab = (key, selectedId = '', selectedFilters) => {
     if (!ownsPage()) return Promise.resolve();
     const changed = state.tab !== key;
     if (changed) { state.connections.dispose(); state.models.dispose(); state.diagnostics.dispose(); }
     state.tab = key;
-    description.textContent = key === 'diagnostics' ? '分析近 30 天内已报告的运行与额度观测；只读，不调用模型、不启动离线后台。'
-      : `${scopeImpact()} 模型是命名后的来源 + 具体模型；已有运行配置保留固定绑定。`;
+    description.hidden = key !== 'diagnostics';
+    description.textContent = key === 'diagnostics' ? '运行与额度观测 · 只读分析，不调用模型或启动离线后台。' : '';
     for (const [name, control] of controls) { control.setAttribute('aria-selected', String(name === key)); control.tabIndex = name === key ? 0 : -1; }
     state.models.node.hidden = key !== 'models'; state.connections.node.hidden = key !== 'sources'; state.diagnostics.node.hidden = key !== 'diagnostics';
     const hash = key === 'diagnostics' ? diagnosticsHash(selectedFilters) : key === 'models' ? '#model-sources' : selectedId ? `#model-source-${selectedId}` : '#model-sources-connections';
@@ -62,7 +64,7 @@ export function openModelSources({ connectionId = '', tab = '', filters } = {}) 
     const pending = panel.load(true).finally(() => { if (state.pending === pending) state.pending = null; });
     state.pending = pending; return pending;
   };
-  page.append(head, tabs, content);
+  page.append(head, tabs, content, explanation);
   $('detail').replaceChildren(page);
   return state.selectTab(selectedTab, id, filters);
 }

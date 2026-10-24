@@ -162,11 +162,12 @@ function renderMetric(resource, sections, compact = false) {
   }
   const heading = el('h4', undefined, 'dashboard-account-reading');
   if (quota) {
-    heading.append(el('span', `${resource.scope === 'account' ? '' : `${kind} · `}${windowShort(resource.window_seconds)}`));
+    const unitValue = compact && unit !== '%';
+    heading.append(el('span', unitValue ? kind : `${resource.scope === 'account' ? '套餐 ' : `${kind} · `}${windowShort(resource.window_seconds)}`));
     if (showValue) {
       heading.append(el('span', ' · '));
-      const reading = el('strong', percent === null ? '比例未知' : `${amount(percent)}%`);
-      reading.setAttribute('aria-label', percent === null ? '已用比例未知' : `已用 ${amount(percent)}%`); heading.append(reading);
+      const reading = el('strong', unitValue ? `${amount(resource.remaining)} ${unit}` : percent === null ? '比例未知' : `${compact ? '已用 ' : ''}${amount(percent)}%`);
+      reading.setAttribute('aria-label', unitValue ? `剩余 ${amount(resource.remaining)} ${unit}` : percent === null ? '已用比例未知' : `已用 ${amount(percent)}%`); heading.append(reading);
     }
   } else {
     heading.append(el('span', kind));
@@ -187,7 +188,13 @@ function renderMetric(resource, sections, compact = false) {
       bar.setAttribute('aria-valuetext', `已用 ${amount(percent)}%`); root.append(bar);
     }
   }
-  if (sections.has('reset') && quota) {
+  if (compact && quota && showValue) {
+    const parts = [];
+    if (unit !== '%') parts.push(percent === null ? '已用未知' : `已用 ${amount(percent)}%`);
+    if (sections.has('reset')) parts.push(resetCountdown(resource.reset_at));
+    if (parts.length) heading.append(el('small', parts.join(' · '), 'dashboard-account-reset-inline'));
+  }
+  if (sections.has('reset') && quota && (!compact || !showValue)) {
     const reset = el('p', resetCountdown(resource.reset_at), 'dashboard-card-note dashboard-account-reset');
     reset.setAttribute('aria-label', `额度重置：${reset.textContent}`);
     if (compact) heading.append(el('small', reset.textContent, 'dashboard-account-reset-inline'));
@@ -213,9 +220,10 @@ function renderObservation(observation, sections) {
   if (sections.has('provenance')) {
     note(root, `观测来源：${SOURCES[observation.source] || '未知来源'}`);
     if (observation.source !== 'none') note(root, `观测时间：${time(observation.checked_at)}`);
-    if (observation.error_code) note(root, usageErrorLabels[observation.error_code] || '未取得完整数据', true);
-    if (observation.reason) note(root, observation.reason);
-  }
+  } else if (sections.has('observed')) note(root, `观测时间：${observation.source === 'none' ? '尚无观测' : time(observation.checked_at)}`);
+  // Diagnostic facts are not optional metadata: a content toggle must not hide query failures.
+  if (observation.error_code) note(root, usageErrorLabels[observation.error_code] || '未取得完整数据', true);
+  if (observation.reason) note(root, observation.reason);
   if (successful(observation)) {
     const resources = Array.isArray(observation.resources) ? observation.resources.filter(resource => ['balance', 'quota'].includes(resource?.kind)) : [];
     if (!resources.length) note(root, '暂无可展示指标；未知不等于零', true);
@@ -234,10 +242,11 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
   const connection = row.connection;
   const header = el('header', undefined, 'dashboard-account-header');
   const identity = el('div', undefined, 'dashboard-account-identity');
-  identity.append(el('h3', connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用'));
+  const accountName = connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用';
+  const name = el('h3', accountName); name.setAttribute('aria-label', accountName); identity.append(name);
   if (connection && selected.has('observed')) {
     // source:none may carry a list read timestamp; it is not a sample.
-    const age = el('span', observedAge(connection.observation), 'dashboard-account-age');
+    const age = el('span', `观测 ${observedAge(connection.observation)}`, 'dashboard-account-age');
     age.setAttribute('aria-label', `观测距今：${age.textContent}`); identity.append(age);
   }
   header.append(identity);
@@ -274,11 +283,9 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
       const metrics = el('div', undefined, 'dashboard-account-metrics-bounded');
       for (let i = 0; i < 2; i++) { const slot = el('div', undefined, 'dashboard-account-metric-slot'); if (i === 0) note(slot, '来源已删除或不可用', true); else slot.setAttribute('aria-hidden', 'true'); metrics.append(slot); }
       content.append(metrics);
-      if (selected.has('provenance') || selected.has('details')) {
-        const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
-        details.onclick = () => { if (ownsPage()) { const body = el('div'); note(body, `所选来源：${row.connection_id}`); void formDialog({ title: '来源已删除或不可用', content: body, confirmLabel: '关闭', confirmPrimary: false }); } };
-        header.append(details);
-      }
+      const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
+      details.onclick = () => { if (ownsPage()) { const body = el('div'); note(body, `所选来源：${row.connection_id}`); void formDialog({ title: '来源已删除或不可用', content: body, confirmLabel: '关闭', confirmPrimary: false }); } };
+      header.append(details);
     } else if (selected.has('provenance')) note(content, `所选来源：${row.connection_id}`);
     return root;
   }
@@ -306,7 +313,9 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
     const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
     details.onclick = () => {
       if (!ownsPage()) return;
-      const body = el('div'); if (failure) note(body, failure, true); body.append(renderObservation(observation, selected));
+      const body = el('div');
+      if (connection.enabled === false) note(body, '来源已停用', true);
+      if (failure) note(body, failure, true); body.append(renderObservation(observation, selected));
       if (selected.has('history') && successful(connection.last_success?.observation)) {
         note(body, '历史成功观测（非当前值）', true); body.append(renderObservation(connection.last_success.observation, selected));
       }
@@ -324,8 +333,9 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
         if (capacity === 1 && i === 0) note(slot, warning, true);
         else if (!resource) slot.setAttribute('aria-hidden', 'true'); metrics.append(slot);
       }
-      if (resources.length > capacity || warnings.length || warning || ['details', 'history', 'provenance'].some(key => selected.has(key))) { if (!details.parentNode) header.append(details); }
-      else details.remove();
+      // Two bounded previews can still clip a name, unit or amount on narrow screens.
+      // Keep one stable details target, independent of data and selected metadata.
+      if (!details.parentNode) header.append(details);
     };
     boundedPaint();
     return root;

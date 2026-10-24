@@ -153,6 +153,15 @@ export function renderTaskProgress(progress, { status = null, endedAt = null, hi
   section.classList.add('task-progress-panel');
   if (historical) section.classList.add('is-historical');
   if (terminal) section.classList.add('is-terminal', `is-terminal-${status}`);
+  // Current facts belong outside the detail preview; historical snapshots never claim a
+  // current phase. Reuse the same current/wait choice and stopped labels as the step list.
+  if (!historical && !embedded) {
+    const phase = terminal ? STOPPED_LABEL[status] : status === 'paused' ? '已暂停'
+      : status === 'waiting' ? '等待中' : null;
+    section.dataset.progressSummary = stats.current
+      ? `${phase ? `${phase} · ` : ''}${stats.current.kind === 'wait' ? '当前等待' : '当前步骤'}：${stats.current.label}`
+      : stats.completed === stats.total ? '计划已全部完成' : '仍有步骤未确认完成';
+  }
   const meter = el('progress', undefined, 'task-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
   section.append(meter);
   const list = el('ol', undefined, 'task-progress-list');

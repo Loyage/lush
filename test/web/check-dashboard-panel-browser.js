@@ -21,8 +21,8 @@ const entry = (await Bun.file(join(assets, 'index.html')).text()).replace('</hea
 const config = { deviceHome: join(temp, 'shared') }, P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb', R = 'cccccccccccccccc';
 const ids = Array.from({ length: 100 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
 const world = makeWorld(), calls = [], queries = [], saves = [], reads = [];
-const resources = Array.from({ length: 8 }, (_, i) => ({ id: `quota-${i}`, kind: i === 7 ? 'balance' : 'quota', scope: 'account',
-  label: `窗口${i} ${'较长指标名称'.repeat(10)}`, unit: i === 7 ? 'USD' : '%', remaining: i === 7 ? 12.5 : 75, used_percent: i === 7 ? null : 25,
+const resources = Array.from({ length: 8 }, (_, i) => ({ id: `quota-${i}`, kind: i === 7 ? 'balance' : 'quota', scope: i === 1 ? 'key' : 'account',
+  label: `窗口${i} ${'较长指标名称'.repeat(10)}`, unit: [1, 7].includes(i) ? 'USD' : '%', remaining: i === 7 ? 12.5 : 75, used_percent: i === 7 ? null : 25,
   reset_at: '2028-10-01T00:00:00Z', window_seconds: 18000 }));
 world.state.agentConnections.connections = ids.map((id, i) => ({ id, label: `账户${i + 1} ${'长名称'.repeat(16)}`, provider: 'deepseek', enabled: true,
   observation: { status: 'available', source: 'usage_api', checked_at: '2026-10-01T00:00:00Z', resources } }));
@@ -225,7 +225,18 @@ try {
     console.log('CONTROL',theme,width,JSON.stringify(controlGeometry));
     assert(await execute(`return document.querySelectorAll('.dashboard-project-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/')&&getComputedStyle(a).flexWrap==='nowrap')&&document.querySelector('[data-card-id="${P}"] .dashboard-widget-body').getBoundingClientRect().height===576-(52+2*parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height')))&&Number(document.querySelector('[data-card-id="${P}"]').dataset.workerSlots)===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))===32?6:3)&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'aggregate body/source links/two rows');
     assert(await execute(`const nav=document.querySelector('[data-card-id="${P}"] .dashboard-project-direct-links');return nav.querySelectorAll('a').length===3&&(innerWidth!==1440||getComputedStyle(nav).display!=='none')&&document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').querySelectorAll('a').length===(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-height'))===32?3:2)&&(innerWidth!==1440||getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display!=='none')`), 'flat project/global navigation or bounded pure navigation missing');
+    assert(await execute(`const card=document.querySelector('[data-card-id="${P}"]'),body=card.querySelector('.dashboard-widget-body'),account=document.querySelector('.dashboard-account-embedded');
+      const name=account.querySelector('h3').getBoundingClientRect(),age=account.querySelector('.dashboard-account-age').getBoundingClientRect();
+      return [...body.children].map(n=>n.dataset.section).join(',')==='messages,metrics,recent,distribution,delivery'
+        &&card.querySelector('.metric-label').textContent==='进行中'&&name.bottom<=age.top+1&&age.height>0
+        &&account.querySelector('.dashboard-account-details').getBoundingClientRect().height===32
+        &&account.querySelector('[data-metric-id="quota-1"]').textContent.includes('Key 预算 · 75 USD')
+        &&account.querySelector('[data-metric-id="quota-0"]').textContent.includes('套餐 5h');`), 'current facts first, two-line account identity, stable details or typed units missing');
     await screenshot(`${theme}-${width}`);
+    if ([1440, 320].includes(width)) {
+      await execute("document.querySelector('.dashboard-accounts-group').scrollIntoView({block:'center'})"); await settle();
+      await screenshot(`accounts-${theme}-${width}`);
+    }
     await execute("document.querySelector('.dashboard-diagnostics-card').scrollIntoView({block:'center'})"); await settle();
     assert(await execute("const bar=document.querySelector('.diagnostics-trend-output .diagnostics-trend-slot:last-child .diagnostics-trend-bar');return bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundColor!=='rgba(0, 0, 0, 0)'"), 'output trend is invisible');
     await screenshot(`diagnostics-${theme}-${width}`);
@@ -538,7 +549,8 @@ try {
   assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('第 2 页')`), 'Worker next page');
   await execute(`document.querySelector('[data-card-id="${R}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
   assert(await execute(`return document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').textContent.includes('待我处理')`), 'pure navigation page'); await containment('paged');
-  await execute("document.querySelector('.dashboard-account-details').click()"); assert(await wait("!document.getElementById('modal').hidden"), 'resource details'); await clickText('关闭');
+  await execute("document.querySelector('.dashboard-account-details').click()");
+  assert(await wait("!document.getElementById('modal').hidden&&document.querySelector('#modal').textContent.includes('现金余额 · 12.5 USD')&&document.querySelector('#modal').textContent.includes('Key 预算')&&document.querySelector('#modal').textContent.includes('75 USD')&&document.querySelector('#modal').textContent.includes('观测时间')"), 'resource details lost typed amounts, hidden metrics or observation time'); await clickText('关闭');
   rejectRead = true; await execute("document.querySelector('.dashboard-widget-notice-read').click()");
   assert(await wait("document.querySelector('.dashboard-project-messages').textContent.includes('已知失败')"), 'failed read not reported');
   assert(infos[0].read_at === null && reads.length === 1, 'failed read removed notice'); await containment('notice read failure'); rejectRead = false;
@@ -558,8 +570,18 @@ try {
   // Fixed business-state transitions, including long error/source text.
   for (const state of ['empty', 'error', 'offline', 'normal']) {
     sourceState = state; projects[0].running = state !== 'offline'; projects[0].error = state === 'error' ? '受控来源错误'.repeat(50) : null;
+    if (state === 'normal') { development.counts.push({ status: 'failed', count: 1 }); development.merge_conflicts = 1; }
     await execute("window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-toolbar button').click()"); await ready();
     assert(await execute("return window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))"), 'state changed fixed grid'); await containment(state);
+    if (state === 'normal') {
+      assert(await execute(`const body=document.querySelector('[data-card-id="${P}"] .dashboard-widget-body');return [...body.children].map(n=>n.dataset.section).join(',')==='messages,distribution,delivery,metrics,recent'&&body.querySelector('[data-section="distribution"]').textContent.startsWith('失败 1')&&body.querySelector('[data-section="delivery"]').textContent.startsWith('冲突 1')`), 'failure/conflict must precede routine metrics and workers');
+      development.counts.pop(); development.merge_conflicts = 0;
+    }
+    if (['error', 'offline'].includes(state)) {
+      assert(await execute(`return document.querySelector('[data-card-id="${P}"] .dashboard-project-messages').textContent.includes('离线 · 未确认')`), 'offline source became an empty message count');
+      await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-details').click()`);
+      assert(await execute(`return document.querySelector('#modal').textContent.includes(${JSON.stringify(state === 'error' ? projects[0].error : '后台未运行或不可达')})`), 'full source diagnostic unavailable'); await clickText('关闭');
+    }
   }
   assert(queries.every(id => ids.slice(0, 4).includes(id)), 'refresh queried unplaced source');
   phase = 'keyboard geometry and reload';
@@ -594,10 +616,15 @@ try {
   const connections = world.state.agentConnections.connections;
   for (const state of ['error', 'unknown', 'partial', 'disabled']) {
     connections[0].enabled = state !== 'disabled'; connections[0].observation.status = state === 'disabled' ? 'available' : state;
+    connections[0].observation.reason = state === 'error' ? '受控查询诊断：凭证未确认，不能作为余额耗尽。' : null;
     connections[1].observation.status = state; await clickText('刷新全部'); await ready();
     for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
       await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
       await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`account state ${state}/${theme}/${width}`);
+    }
+    if (state === 'error') {
+      await execute("document.querySelector('.dashboard-account-details').click()");
+      assert(await execute("return document.querySelector('#modal').textContent.includes('受控查询诊断')&&!document.querySelector('#modal').textContent.includes('现金余额 · 0')"), 'query diagnostic hidden by default metadata selection'); await clickText('关闭');
     }
   }
   await clickText('编辑模式');

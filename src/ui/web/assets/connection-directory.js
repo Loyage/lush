@@ -31,9 +31,9 @@ export function renderConnectionRow(connection, { selected, refreshing, operatio
   const cache = el('span', `上次刷新：${relativeTime(connection.observation?.checked_at, now())}`, 'model-source-cache-time');
   cache.setAttribute('data-help', `缓存观测（非实时）；观测时间：${time(connection.observation?.checked_at)}。查询失败不代表余额为零。`);
   refreshRow.append(cache, refresh); actions.append(refreshRow);
-  const status = el('p', operation || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); status.hidden = !status.textContent; actions.append(status);
+  const status = el('p', operation || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); status.hidden = !status.textContent;
   actions.append(diagnosticsLink(el, { connection_id: connection.id }), button('详情', onDetail, 'ghost model-source-details-toggle'));
-  row.append(identity, settings, resources, actions); return row;
+  row.append(identity, settings, resources, actions, status); return row;
 }
 
 export function renderConnectionCard(connection, { now, projectHistory, actions }) {
@@ -45,15 +45,16 @@ export function renderConnectionCard(connection, { now, projectHistory, actions 
     kv('认证', connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'), kv('本地凭证', CREDENTIALS[connection.credential?.status] || '未知'),
     kv('连接状态', connection.enabled ? '启用' : '停用'));
   const defaults = [connection.default_model, connection.default_thinking].filter(Boolean).join(' · ');
-  if (defaults) grid.append(kv('默认设定（运行设置快速填入）', defaults));
+  if (defaults) grid.append(kv('来源默认设定（不自动填入运行配置）', defaults));
   if (connection.credential?.identity) grid.append(kv('账号身份（脱敏）', connection.credential.identity));
   if (connection.credential?.expires_at) grid.append(kv('凭证到期', time(connection.credential.expires_at)));
   connectionSection.append(grid);
-  note(connectionSection, '密钥由 Lush 设备设置管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。托管来源可供 Pi 使用，Codex CLI 仍沿用自身认证；托管 Codex 登录不代表 Codex CLI 支持绑定。');
-  note(connectionSection, '查询、登录和采样均不调用 Agent 或模型；不自动切换模型，也不自动转用付费资源。');
+  const explanation = el('details', undefined, 'model-source-explanation'); explanation.append(el('summary', '凭证托管与使用边界'));
+  note(explanation, '密钥存放在严格权限的设备私有文件中，不提供静态加密；系统当前用户仍可读取。托管来源可供 Pi 使用，Codex CLI 沿用自身认证；托管 Codex 登录不代表 Codex CLI 支持绑定。');
+  note(explanation, '查询、登录和采样不调用 Agent 或模型；不自动切换模型或转用付费资源。');
   note(connectionSection, `额度刷新提醒：${connection.notify_reset === true ? '开启（页面内）' : '关闭'}`);
-  note(connectionSection, `模型列表：${array(connection.models).length ? connection.models.join('、') : '尚未填写；点击“编辑”添加，提交工作指令时即可从列表选择（留空不限制模型范围）'}`);
-  if (array(connection.models).length) note(connectionSection, '由用户填写，供 Worker 运行设置选择；同时限制此来源的模型范围，不代表已联网验证可用。');
+  note(connectionSection, `模型范围：${array(connection.models).length ? connection.models.join('、') : '未限制；可编辑范围后在“模型”页签注册'}`);
+  if (array(connection.models).length) note(explanation, '此范围由用户填写，用于模型注册并限制来源可调用模型，不代表已联网验证可用。');
   if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
   note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
   resourceSection.append(renderConnectionResources(connection.observation, { now, reminder: connection.notify_reset === true }));
@@ -76,7 +77,8 @@ export function renderConnectionCard(connection, { now, projectHistory, actions 
   if (!array(connection.consumers).length) note(consumers, '暂无运行中的显式绑定；不猜测其他客户端消耗。');
   if (projectHistory) consumerSection.append(consumers);
   else note(consumerSection, '设备来源页不显示项目实际消费者或历史；请到来源项目查看，不推测其它项目与客户端的消耗。');
-  card.append(connectionSection, resourceSection, consumerSection, actions);
+  connectionSection.append(explanation);
+  card.append(actions, resourceSection, connectionSection, consumerSection);
   pageBlocks(card, `model-source-${connection.id}`, 'preview', section => [...section.querySelectorAll('.agent-status-warning')].map(node => node.textContent).join('；'));
   return card;
 }

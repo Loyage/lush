@@ -1,0 +1,29 @@
+/* Notice content first; forms and question navigation use the page's main scroll. */
+.notice-title-line{display:flex;align-items:baseline;gap:8px;min-width:0}
+.notice-title-line>.goal{flex:1;min-width:0;margin:0;font-weight:650}
+.notice-title-line>.badge{flex:none;align-self:flex-start}
+.notice-brief .notice-source-line{margin-top:5px;color:var(--muted);font-size:12px}
+.notice-brief .notice-excerpt{display:block;margin-top:6px;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.notice-empty{margin:0;padding:12px 0}
+.notice.ui-module>.notice-head{align-items:baseline;gap:6px 10px}
+.notice.ui-module>.notice-head>h3{flex:1 1 70%;order:0}
+.notice.ui-module>.notice-head>.module-actions{order:1}
+.notice.ui-module>.notice-head>.notice-meta{order:2;flex:1 0 100%;gap:6px 10px;font-size:12px}
+.notice.focus{padding:16px}
+.notice.focus .notice-body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.notice.focus .notice-actions{display:flex;flex-wrap:wrap;gap:8px}
+.notice.focus .module-content>:last-child{margin-bottom:0}
+.questionnaire .decision-status{margin:0 0 8px}
+.questionnaire .decision-progress{margin-bottom:12px;gap:6px}
+.questionnaire h3{line-height:1.6;overflow-wrap:anywhere}
+.questionnaire .decision-summary>strong{display:block;line-height:1.6;overflow-wrap:anywhere}
+.questionnaire .decision-summary>p{white-space:pre-wrap;overflow-wrap:anywhere}
+.questionnaire .decision-option strong,.questionnaire .decision-option-card strong{overflow-wrap:anywhere}
+.questionnaire [data-decision-focus]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:600px){
+  .notice.focus{padding:12px}
+  .notice-title-line{flex-wrap:wrap;gap:4px 8px}
+  .notice-title-line>.goal{flex-basis:100%}
+  .questionnaire .decision-option,.questionnaire .decision-option-card{padding:10px}
+  .questionnaire .decision-summary{padding:10px}
+}

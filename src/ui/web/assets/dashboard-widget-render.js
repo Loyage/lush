@@ -102,6 +102,7 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
         if (confirmed && notice) {
           const target = link(undefined, projectHref(row.project_id, `/#notices-${notice.id}`), 'project-dashboard-message dashboard-widget-title');
           target.append(el('span', noticeNumber(notice), 'tid'), el('strong', notice.title || '未命名消息'), el('small', workerNumber({ id: notice.task_id, worker_number: notice.task_worker_number })));
+          target.setAttribute('aria-label', target.textContent);
           if (key === 'open' && !pendingDashboardNotice(notice)) { target.classList.add('dashboard-widget-unknown'); target.append(el('small', '类型未知')); }
           line.append(target);
           if (key === 'unread' && notice.kind === 'info' && unreadNotice(notice)) {
@@ -143,7 +144,11 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
               finally { readLocks.delete(id); for (const update of actionSync.values()) update(); }
             }; actionSync.set(`${viewKey}:${key}`, () => { if (current()) sync(); }); sync();
           }
-        } else line.append(el('span', confirmed ? (group.loadingNext ? '读取中…' : group.nextError || (group.total || (!group.exact && group.has_more) ? '最新记录未加载' : '暂无')) : '未确认', 'dashboard-widget-title'));
+        } else {
+          const pending = !onlineDashboardProject(row.source) || model?.offline ? '离线 · 未确认' : group?.error ? '读取失败' : '尚未读取';
+          line.append(el('span', confirmed ? (group.loadingNext ? '读取中…' : group.nextError || (group.total || (!group.exact && group.has_more) ? '最新记录未加载' : '暂无')) : pending, 'dashboard-widget-title'));
+          line.classList.toggle('dashboard-widget-message-error', !confirmed || !!group.nextError);
+        }
         if (key === 'unread' && !showFooter) line.append(error);
         body.append(line);
       }
@@ -164,6 +169,7 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
         if (task) {
           const target = link(undefined, projectHref(row.project_id, `/#worker-${task.id}`), 'dashboard-widget-title');
           target.append(el('span', workerNumber(task), 'tid'), el('span', taskTitle(task)));
+          target.setAttribute('aria-label', `${workerNumber(task)} · ${taskTitle(task)}`);
           slot.append(target, el('span', STATUS[task.status]?.label || '状态未知', `chip c-${task.status}`));
         } else { slot.dataset.empty = 'true'; slot.setAttribute('aria-hidden', 'true'); } slots.append(slot);
       }

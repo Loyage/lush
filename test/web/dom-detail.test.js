@@ -36,6 +36,16 @@ test('Worker detail links its original Input and opens the execution reader on d
     expect(actions.querySelector('.module-toggle')).toBeTruthy();
     expect(head.querySelector('h2').parentNode).toBe(head);
   }
+  const modules = [...detail.children];
+  expect(modules.indexOf(detail.querySelector('.conversation-panel'))).toBeLessThan(modules.indexOf(detail.querySelector('.worker-timeline-panel')));
+  const technical = detail.querySelector('.agent-panel');
+  expect(technical.querySelector('.module-body').hidden).toBe(true);
+  const navigation = detail.querySelector('.detail-navigation');
+  const conversation = detail.querySelector('.conversation-panel');
+  await findByText(navigation, '输入输出').onclick();
+  expect(dom.document.activeElement).toBe(conversation.querySelector('h2'));
+  expect(conversation.classList.contains('module-expanded')).toBe(false);
+  expect(world.state.transcriptAfter).toEqual([]);
   const toolbar = detail.querySelector('.task-actions');
   const entry = findByText(toolbar, '打开工作台');
   expect(entry.target).toBe('_blank'); expect(toolbar.children[0]).toBe(entry);

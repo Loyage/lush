@@ -16,7 +16,7 @@ const LIMIT_FIELDS = [
 ];
 
 /** 候选状态回写快照：保存 / 恢复成功后，不依赖下一次轮询就能重画出新值。 */
-function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, ownsPage) {
+function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, ownsPage, report) {
   const box = el('div', undefined, 'settings-runtime');
   const grid = el('div', undefined, 'settings-runtime-grid');
   const inputs = {};
@@ -30,12 +30,12 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
     const sourceText = { device: '设备配置', default: '环境默认' }[entry.source] || (entry.overridden ? '设备配置' : '环境默认');
     const source = el('span', sourceText, `settings-source${entry.overridden ? ' overridden' : ''}`);
     source.dataset.runtimeSource = spec.key;
-    const state = el('span', `生效 ${plain(entry.value)}${unit} · 环境默认 ${plain(entry.default)}${unit} · ${sourceText}`, 'settings-note');
+    const state = el('span', `当前 ${plain(entry.value)}${unit} · 环境默认 ${plain(entry.default)}${unit}`, 'settings-note');
     state.dataset.runtimeState = spec.key;
     cell.append(el('span', spec.label, 'settings-field-label'), input, source, state);
     grid.append(cell); inputs[spec.key] = input;
   }
-  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.runtimeError = '';
+  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.runtimeError = ''; errorBox.setAttribute('role', 'alert');
   const fail = message => { errorBox.textContent = message; errorBox.hidden = false; show(message, 'error'); };
   const actions = el('div', undefined, 'settings-runtime-actions');
   const save = button('保存', async () => {
@@ -55,10 +55,11 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
     try {
       const saved = await client.action('system.configure', { settings: patch });
       if (!ownsPage()) return;
-      show(`${scopeLabel()}${note}已保存；所有项目后续准入读取新配置，不打断当前调用。`);
-      if (draft === draftFingerprint(box)) repaint(saved);
+      const unchanged = draft === draftFingerprint(box);
+      report(`${scopeLabel()}${note}已保存；后续准入生效，当前调用不变。${unchanged ? '' : '保留随后输入的未保存修改。'}`);
+      if (unchanged) repaint(saved);
     } catch (error) { if (ownsPage()) fail(error.message); }
-  }, 'primary settings-runtime-save', { busyLabel: '保存中…' });
+  }, 'primary control-primary settings-runtime-save', { busyLabel: '保存中…' });
   save.dataset.runtimeAction = 'save';
   const reset = button('恢复环境默认', async () => {
     if (!ownsPage()) return;
@@ -68,7 +69,8 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
     try {
       const saved = await client.action('system.configure', { settings });
       if (!ownsPage()) return;
-      show(`${note}已恢复环境默认。`); if (draft === draftFingerprint(box)) repaint(saved);
+      const unchanged = draft === draftFingerprint(box);
+      report(`${note}已恢复环境默认。${unchanged ? '' : '保留随后输入的未保存修改。'}`); if (unchanged) repaint(saved);
     } catch (error) { if (ownsPage()) fail(error.message); }
   }, 'ghost settings-runtime-reset', { busyLabel: '恢复中…', help: `只清除设备设置中${note}的这些键，回到环境／内置默认；不删除历史或中断调用` });
   reset.dataset.runtimeAction = 'reset';
@@ -93,17 +95,21 @@ export function createSystemSettings({ isActive }) {
     const owns = () => ui.view === state.view && ui.settingsOpen && isActive();
     ui.clearSettingsSecrets = () => state.network?.clearSecrets?.();
     const plain = value => value == null || value === '' ? '—' : String(value);
+    state.receipt ||= el('p', undefined, 'hint settings-save-receipt');
+    state.receipt.setAttribute('role', 'status'); state.receipt.hidden = !state.receipt.textContent;
+    const report = message => { state.receipt.textContent = message; state.receipt.hidden = false; show(message); };
     const paint = runtime => {
       if (!owns()) return;
       state.loaded = true;
       const limits = block('调用与拆解限额');
-      limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, owns),
-        row('设置文件', '设备唯一运行设置的保存位置。', el('code', plain(runtime.file), 'settings-path')));
+      const storage = el('details'); storage.append(el('summary', '设置文件与作用范围'),
+        row('设置文件', '同一系统用户的所有项目共用；Worker 显式参数保留。', el('code', plain(runtime.file), 'settings-path')));
+      limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, owns, report), storage);
       state.network ||= renderNetworkSettings({ ownsPage: owns, scope: 'device' });
       state.migration ||= renderSettingsMigration({ ownsPage: owns, onMigrated: async () => {
         state.loaded = false; const value = await client.read('/api/settings/runtime'); if (owns()) paint(value);
       } });
-      replacePageContent(state.node, scopeSummary(runtime), limits, skillsLink(), state.network, state.migration,
+      replacePageContent(state.node, scopeSummary(runtime), state.receipt, limits, state.network, skillsLink(), state.migration,
         el('p', '项目运行状态、历史与后台控制在项目工作页管理；本页不会因配置读取启动项目。', 'settings-note'));
       pageBlocks(state.node, 'settings-system', 'fold');
     };

@@ -40,15 +40,17 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
     const label = field(form, '连接名称', 'label', 'text', connection?.label || ''); label.maxLength = 120;
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
     const endpoint = field(form, '模型端点（HTTPS，可留空）', 'endpoint', 'url', connection?.endpoint || '', '留空采用该服务商官方模型端点；代理密钥不能发往官方余额接口。'); endpoint.maxLength = 2048;
-    const models = field(form, '模型列表（模型 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '在此填写一次，保存后提交工作指令即可从所选来源的列表选择，无需重复输入。填写物理模型 ID，不加服务商前缀；非空时也限制模型范围，留空不限制，不进行付费可用性探测。'); models.maxLength = 8192;
-    const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型列表时须在列表内。已有 Worker 主动换源时自动填入此模型，思考深度不变；其他运行设置可一键填入，不代表已验证可用。');
+    const models = field(form, '模型范围（物理 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '如 gpt-6.1-sol 或 org/model，不加服务商前缀；填写后限制此来源范围，可在“模型”页签注册。留空不限制，不探测可用性。'); models.maxLength = 8192;
+    const advanced = el('details', undefined, 'model-source-editor-advanced'); advanced.append(el('summary', '来源默认值与刷新提醒'));
+    const defaults = el('div', undefined, 'agent-connection-form'); advanced.append(defaults);
+    const defaultModel = field(defaults, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写范围内的物理 ID；仅保留来源设定，不自动填入 Worker 运行配置或改变已注册模型。');
     defaultModel.maxLength = 256;
     const defaultModelList = el('datalist'); defaultModelList.id = 'connection-default-model-options';
     defaultModel.setAttribute('list', defaultModelList.id); defaultModel.parentNode.append(defaultModelList);
-    const defaultThinking = select(form, '默认思考深度（可选）', 'default_thinking',
+    const defaultThinking = select(defaults, '默认思考深度（可选）', 'default_thinking',
       [['', '不设置'], ...PI_THINKING_LEVELS.map(level => [level, level])], connection?.default_thinking || '');
     const enabled = field(form, '启用连接', 'enabled', 'checkbox', connection?.enabled ?? true);
-    const notifyReset = field(form, '额度刷新提醒（页面内）', 'notify_reset', 'checkbox', connection?.notify_reset ?? false,
+    const notifyReset = field(defaults, '额度刷新提醒（页面内）', 'notify_reset', 'checkbox', connection?.notify_reset ?? false,
       '开启后，页面在缓存观测的重置时间到达时标出该额度；系统通知开关已开启且已授权时另发浏览器通知。不新增后台调度，关闭页面不补发提醒。');
     const credentialWrap = el('div', undefined, 'agent-connection-secret');
     const key = field(credentialWrap, 'API Key（仅写入，更换时才填写）', 'api_key', 'password', '', '留空保留已有密钥。提交后立即清空，不回显、不保存到浏览器。');
@@ -57,7 +59,10 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
     const compatibleNote = el('p', '自定义 API 必须填写 HTTPS 模型端点（通常含 /v1）和至少一个物理模型 ID；仅支持 OpenAI Chat Completions 协议，未联网验证可用性。当前按文本/工具调用配置，32K 上下文、4K 输出为本地运行预算，不代表上游实际限额。余额查询尚不支持，不代表余额为零。', 'hint');
     form.append(credentialWrap, oauthNote, compatibleNote);
     const localFeedback = el('p', undefined, 'hint agent-connection-editor-feedback'); localFeedback.setAttribute('role', 'status');
-    const changed = () => { dirty = true; editorRevision++; login.invalidate(); };
+    const changed = () => {
+      dirty = true; editorRevision++; login.invalidate();
+      localFeedback.textContent = '有未保存修改；返回列表会保留公开草稿，密钥不保留。'; localFeedback.setAttribute('role', 'status');
+    };
     const rebuildDefaultModels = () => {
       const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
       defaultModelList.replaceChildren(...ids.map(id => { const option = el('option'); option.value = id; return option; }));
@@ -74,8 +79,7 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
     };
     provider.onchange = () => { endpoint.value = ''; changed(); syncAuth(); updatePreview(); }; syncAuth();
     const preview = el('p', undefined, 'model-source-call-preview');
-    note(form, '模型 ID 示例：gpt-6.1-sol（无需服务商前缀）。org/model 也可以是合法物理 ID，不会自动截断。');
-    form.append(preview);
+    form.append(preview, advanced);
     const prefixHelp = helped('修正当前服务商前缀', () => {
       const prefix = `${provider.value}/`;
       models.value = models.value.split(/[,，\n]/).map(id => id.trim().startsWith(prefix) ? id.trim().slice(prefix.length) : id.trim()).join(', ');
@@ -95,7 +99,7 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
         const value = draft[input.dataset.connectionField];
         if (value !== undefined && input.type !== 'password') input.type === 'checkbox' ? input.checked = value : input.value = value;
       }
-      dirty = true; syncAuth(); rebuildDefaultModels(); localFeedback.textContent = '已恢复本次会话的未保存公开草稿；秘密不保留。';
+      dirty = true; advanced.open = true; syncAuth(); rebuildDefaultModels(); localFeedback.textContent = '已恢复本次会话的未保存公开草稿；秘密不保留。';
     }
     updatePreview();
     note(form, '保存 / 登录成功后：已启用且有本地凭证的受支持连接会自动联网刷新余额 / 套餐；不调用模型。保存成功与查询失败分别报告。自定义兼容 API 不查询。');
@@ -136,10 +140,10 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
         if (current()) message(refreshed === false ? '连接已保存；自动查询失败或未知，旧值仅供参考（非零余额）。' : refreshed === true ? '连接已保存，资源已自动刷新。' : '连接已保存；此连接不触发自动资源查询。', refreshed === false);
       } catch { if (current() && generation === operations.generation()) { localFeedback.textContent = '保存连接失败；密钥输入已清空，请确认配置后重新提交。'; localFeedback.setAttribute('role', 'alert'); } }
       finally { saving = false; operations.endSave(savedEditId); }
-    }, undefined, { busyLabel: '保存中…' }), button('取消编辑', () => {
+    }, 'primary control-primary', { busyLabel: '保存中…' }), button('取消编辑', () => {
       if (current()) { dirty = false; drafts.delete(editId || ''); closeEditor(); panel.back(); }
-    }, 'ghost'));
-    editorHost.replaceChildren(form, localFeedback, actions);
+    }, 'ghost', { help: '丢弃此来源本次未保存的公开草稿并清空密钥输入，返回来源列表；已保存配置不变。' }));
+    editorHost.replaceChildren(localFeedback, form, actions);
     if (trigger !== null) label.focus();
   }
   return { node: editor, paint: paintEditor, close: closeEditor,

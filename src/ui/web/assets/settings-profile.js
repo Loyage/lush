@@ -6,7 +6,7 @@ import { createAgentConnectionPicker } from './agent-connection-picker.js';
 import { CONFIG_MODES, PI_MODE_HELP, normalizeConfigMode, profileForMode } from './agent-config-mode.js';
 import { settingsClientFor } from './settings-api.js';
 import { draftFingerprint } from './settings-scope.js';
-import { field, selectOptions, thinkingLabel } from './settings-controls.js';
+import { field, selectOptions, thinkingLabel, reportSettingsSave } from './settings-controls.js';
 import { createProfileResources } from './settings-profile-resources.js';
 import { createManagementProfileForm } from './management-profile-form.js';
 import { buttonFeedback } from './button-feedback.js';
@@ -25,9 +25,11 @@ function profileWriter(card, settings, client, repaint, ownsPage) {
     try {
       const saved = await client.action('agent.configure', { config });
       if (!current()) return;
-      show(message);
-      if (draft === draftFingerprint(card)) repaint(saved);
-      else { Object.assign(settings, saved); show('配置已保存；保留你随后输入的未保存修改。'); }
+      const unchanged = draft === draftFingerprint(card);
+      const receipt = unchanged ? message : '配置已保存；保留你随后输入的未保存修改。';
+      reportSettingsSave(ownsPage, receipt); show(receipt);
+      if (unchanged) repaint(saved);
+      else { Object.assign(settings, saved); }
     } catch (error) { fail(`配置保存未完成：${error.message}；草稿保留，请核对后重试。`); }
     finally { pending = false; }
   } };
@@ -242,7 +244,7 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
       ? { version: 1, default: next, roles }
       : { version: 1, default: settings.default, roles: { ...roles, [target]: next } };
     await writer.save(config, `${title}已保存；正在运行的调用不受影响，下一次调用使用新配置。`);
-  }, undefined, { busyLabel: '保存中…' }));
+  }, 'primary control-primary', { busyLabel: '保存中…' }));
   if (target !== 'default') actions.append(button('恢复继承默认', async () => {
     const roles = { ...settings.roles }; delete roles[target];
     if (!ownsPage()) return;
@@ -263,7 +265,7 @@ function valetProfileEditor(settings, profile, repaint, ownsPage) {
     const issue = form.validate(); if (issue) { writer.fail(issue); return; }
     await writer.save({ version: 1, default: settings.default,
       roles: { ...settings.roles, manager: form.collect() } }, 'Valet 默认配置已保存；仅新建管理工作生效。');
-  }, undefined, { busyLabel: '保存中…' }), button('恢复继承默认', async () => {
+  }, 'primary control-primary', { busyLabel: '保存中…' }), button('恢复继承默认', async () => {
     if (!ownsPage()) return;
     const roles = { ...settings.roles }; delete roles.manager;
     await writer.save({ version: 1, default: settings.default, roles }, 'Valet 已恢复继承默认；已创建的管理工作保持其固定配置。');

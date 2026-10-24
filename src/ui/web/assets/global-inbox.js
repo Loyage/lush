@@ -12,7 +12,7 @@ import { listEntry, listSurface } from './list-surface.js';
 import { workerLabel } from './worker-label.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { notificationControl } from './notice-notifications.js';
-import { unreadNotice } from './notice-kind.js';
+import { unreadNotice, noticeStateLabel, noticeExcerpt } from './notice-kind.js';
 import { refreshGlobalNotices } from './global-notice-notifications.js';
 import { inboxHash, inboxProjectHref, inboxIdentity, pendingNotice, sourceWorkerLinks,
   noticeSyncIdentity, sameInboxRecord, validProjectId, validateInboxItem, validateInboxPage } from './global-inbox-model.js';
@@ -21,13 +21,13 @@ const LABELS = { all: '全部状态', open: '需要我决定', unread: '未读�
   answered: '已回答', dismissed: '已忽略', read: '已读告知' };
 const CATEGORIES = { notice: { label: 'Notice 告知', tone: 'running' }, decision: { label: 'Decision 待决', tone: 'awaiting' } };
 const queryOf = state => ({ categories: state.categories, status: state.status, q: state.query, project_id: state.projectId });
-const STATUS = { open: '待决定', answered: '已回答', dismissed: '已忽略', sent: '告知' };
 let cache;
 function currentCache() {
   if (cache?.boot !== ui.workerNumbers) cache = { boot: ui.workerNumbers, acknowledged: new Map(), pending: new Map(), replies: new Map() };
   return cache;
 }
 const offlineReason = '来源项目离线，显示最后确认的记录；不能提交答案或标记已读。不会自动启动后台。';
+const offlineStatus = item => `${offlineReason} 最后确认：${item.checked_at ? absolute(item.checked_at) : '未知'}`;
 const noticeSource = notice => notice.answer_source === 'lush' ? 'Lush 自动选择'
   : notice.answer_source === 'user' ? '用户答复' : '答复来源未记录';
 function helpHost(control, reason) {
@@ -95,12 +95,12 @@ function buildDetail(state, item) {
   const notice = item.notice, root = el('section', undefined, `notice focus global-inbox-detail${item.notice.kind === 'info' ? ' notice-info' : ''}`);
   root.dataset.noticeIdentity = inboxIdentity(item);
   const head = el('div', undefined, 'notice-head');
-  head.append(badge(STATUS[notice.status] || notice.status, pendingNotice(notice) ? 'b-awaiting' : 'b-neutral'),
+  head.append(badge(noticeStateLabel(notice), pendingNotice(notice) ? 'b-awaiting' : 'b-neutral'),
     el('strong', item.project_name), el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'),
     el('span', absolute(notice.created_at), 'when'));
   if (['answered', 'dismissed'].includes(notice.status) && ['question', 'questionnaire'].includes(notice.kind)) head.append(badge(noticeSource(notice), 'b-neutral'));
-  root.append(head, el('h2', notice.title), workerLink(item));
-  if (!item.online) root.append(el('p', `${offlineReason} 最后确认：${item.checked_at ? absolute(item.checked_at) : '未知'}`, 'hint'));
+  root.append(el('h2', notice.title), head, workerLink(item));
+  if (!item.online) root.append(el('p', offlineStatus(item), 'hint global-inbox-source-status'));
   if (notice.kind === 'questionnaire') {
     root.append(questionnairePanel(notice, {
       sourceProjectId: item.project_id, draftScope: `global:${item.project_id}:${notice.created_at}`,
@@ -132,7 +132,7 @@ function buildDetail(state, item) {
       actions.append(helpHost(button('提交决定并继续 Worker', () => send(false), undefined,
         { agent: true, help: agentHelp('把决定发送给来源项目 Worker，使其继续执行。') }), item.online ? '' : offlineReason),
       helpHost(button('忽略问题', () => send(true), 'ghost', { agent: true, help: agentHelp('把未做决定的消息送给来源 Worker，不代表批准任何方案。') }), item.online ? '' : offlineReason));
-      input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(false); } });
+      input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(false); } });
       root.append(input, actions, error);
     } else if (notice.status === 'answered' || notice.status === 'dismissed') {
       if (notice.answer_source === 'lush') root.append(el('p', '这是 Lush 自动答复，不是用户亲自作出的决定。', 'hint'));
@@ -152,8 +152,13 @@ function buildDetail(state, item) {
 }
 function paintSelected(state) {
   if (!state.current() || !state.selected) return;
-  const signature = JSON.stringify(state.selected);
-  if (signature === state.selectedSignature) return;
+  // Observation timestamps change on refresh, not the editor's content or identity.
+  const signature = JSON.stringify({ ...state.selected, checked_at: null });
+  if (signature === state.selectedSignature) {
+    const status = state.focus.querySelector('.global-inbox-source-status');
+    if (status) status.textContent = offlineStatus(state.selected);
+    return;
+  }
   state.selectedSignature = signature;
   state.focus.replaceChildren(buildDetail(state, state.selected));
 }
@@ -173,12 +178,15 @@ function paintRows(state) {
     node.classList.toggle('selected', state.selected && inboxIdentity(state.selected) === key);
     if (node.dataset.signature !== signature) {
       node.dataset.signature = signature;
-      const line = el('span', undefined, 'row');
-      line.append(badge(item.project_name, 'b-neutral'), el('span', noticeNumber(item.notice), 'tid'), el('span', workerLabel(item.notice.task_id, item.notice.task_worker_number), 'tid'),
-        el('span', unreadNotice(item.notice) ? '未读告知' : STATUS[item.notice.status] || item.notice.status));
-      if (!item.online) line.append(badge('离线缓存', 'b-neutral'));
+      const title = el('span', undefined, 'notice-title-line');
+      title.append(el('span', item.notice.title, 'goal'), badge(noticeStateLabel(item.notice), pendingNotice(item.notice) ? 'b-awaiting' : 'b-neutral'));
+      const line = el('span', undefined, 'row notice-source-line');
+      line.append(el('strong', item.project_name), el('span', noticeNumber(item.notice), 'tid'), el('span', workerLabel(item.notice.task_id, item.notice.task_worker_number), 'tid'));
+      if (!item.online) line.append(badge(item.checked_at ? '离线缓存' : '来源未确认', 'b-neutral'));
       if (item.notice.answer_source === 'lush') line.append(badge('Lush 自动选择', 'b-neutral'));
-      node.replaceChildren(line, el('span', item.notice.title, 'goal'));
+      node.replaceChildren(title, line);
+      const excerpt = noticeExcerpt(item.notice);
+      if (excerpt) node.append(el('span', excerpt, 'notice-excerpt'));
     }
     node.setAttribute('data-help', '在独立项目标签打开这条消息的详情页，保留当前页面；不自动标已读、不提交答案或启动 Agent。');
     return node;
@@ -194,10 +202,11 @@ function paintRows(state) {
 function paintSources(state, projects, complete) {
   if (!state.current()) return;
   const confirmed = complete && projects.every(source => source.online && source.complete);
-  state.sources.replaceChildren(el('p', confirmed ? '已同步当前可访问项目。' : '部分项目离线或尚未同步完整；下面是已确认／缓存的记录，不代表所有项目的实时全量。', 'hint'));
+  state.sources.replaceChildren(el('p', confirmed ? `已同步 ${projects.length} 个可访问项目 · 仅含 Host 已同步记录`
+    : '来源未同步完整 · 当前仅含已确认／缓存记录，不代表实时全量', 'hint'));
   if (state.projectId) state.sources.prepend(el('p', `当前来源：${projects.find(source => source.id === state.projectId)?.name || state.projectId}`, 'hint'));
   for (const source of projects.filter(row => !row.online || !row.complete)) state.sources.append(el('p',
-    `${source.name}：${!source.online ? '离线' : '正在补齐'} · 最后确认 ${source.checked_at ? absolute(source.checked_at) : '未知'}${source.error ? ` · ${source.error}` : ''}`, 'hint'));
+    `${source.name}：${!source.online ? source.checked_at ? '离线缓存' : '尚未确认' : '正在补齐'} · 最后确认 ${source.checked_at ? absolute(source.checked_at) : '未知'}${source.error ? ` · 读取失败：${source.error}` : ''}`, source.error ? 'error' : 'hint'));
 }
 async function loadRows(state, more = false) {
   if (!state.current() || (more && (state.listBusy || !state.page?.has_more))) return;
@@ -272,7 +281,7 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
     && location.pathname === pathname && location.hash === routeHash;
   ui.disposeDetailRequests = () => { state.controller.abort(); state.listController?.abort(); };
   const root = el('div', undefined, 'workbench-view global-inbox');
-  const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；点击消息在来源项目的独立详情页查看和处理，不会自动启动已停止的项目后台。', 'hint'));
+  const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'));
   const filters = el('div', undefined, 'filters global-inbox-categories');
   filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', '收件箱分类');
   filters.append(el('span', '收件箱分类', 'input-mode-label'));
@@ -303,7 +312,7 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
   if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status: state.status, query: state.query, categories: state.categories }), 'ghost'));
   const refresh = button('刷新记录', () => Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]), 'ghost', { busyLabel: '刷新中…' });
   const search = searchField({ label: '搜索收件箱', placeholder: '项目、标题、正文、答复或编号', value: query,
-    scope: '范围：Host 已同步／缓存记录，按分类、状态和关键词分页检索；离线、容量限制或尚未同步完整时，不代表来源项目全库',
+    scope: '搜索 Host 已同步／缓存记录，不代表来源项目全库',
     onSubmit: value => { state.query = value.trim().toLowerCase(); return filterNow(); } });
   search.input.maxLength = 500;
   const tools = el('div', undefined, 'resource-tools'); tools.append(search.root, filters, statusField, refresh, notificationControl());
@@ -313,7 +322,7 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
   state.focus = el('div', undefined, 'global-inbox-focus');
   const card = el('section'), heading = el('div', undefined, 'section-title'); heading.append(el('h2', '事项记录'));
   card.append(heading, state.list);
-  root.append(head, tools, state.sources, state.message, card, state.footer, state.focus);
+  root.append(head, tools, state.sources, state.message, state.focus, card, state.footer);
   listSurface({ root, tools, card, heading, body: state.list, pagination: state.footer });
   $('detail').replaceChildren(root);
   await Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]);

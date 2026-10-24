@@ -29,8 +29,13 @@ test('questionnaire advances choices and settles the reviewed answer independent
   const restore = registerNavigation({ refresh: async () => { throw Error('controlled refresh failure'); }, detail: async () => true, overview: async () => {} });
   try {
     resetUiState(); await openNotice(notice.id, { record: true }); const root = ui.noticePage.focus;
+    expect(root.querySelector('.decision-status').textContent).toContain('0 / 2');
+    expect(root.querySelector('.decision-progress').querySelectorAll('button')).toHaveLength(3);
     await option(root, 'Tabs').onclick(); expect(deepText(root)).toContain('Which features?');
+    expect(document.activeElement?.textContent).toBe('Which features?');
+    expect(root.querySelector('.decision-status').textContent).toContain('1 / 2');
     await option(root, 'Search').onclick(); await option(root, 'Shortcuts').onclick();
+    expect(document.activeElement).toBe(option(root, 'Shortcuts'));
     await click(root, '查看全部选择'); expect(deepText(root)).toContain('确认你的全部选择'); expect(calls).toEqual([]);
     await click(root, '确认全部选择并继续 Worker');
     expect(calls).toEqual([{ answers: [{ selected: [1], custom: '' }, { selected: [0, 1], custom: '' }] }]);

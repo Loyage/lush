@@ -126,14 +126,14 @@ export function syncComposer() {
   if (!management) ui.composerElevated = false;
   if (!ui.composerElevated) elevationControl?.reset();
   syncProjectElevationSecrets(); paintManagementReceipts();
-  const label = missingTarget ? '尚未选择 Worker' : followup ? workerLabel(target.task || target.id, entry.saved?.target_worker_number) : management ? '当前项目' : target.task ? `${workerLabel(target.task)} · ${target.branch}` : entry.branch;
+  const label = missingTarget ? '尚未选择 Worker' : followup ? workerLabel(target.task || target.id, entry.saved?.target_worker_number) : management ? '当前项目' : target.task ? `${workerLabel(target.task)} · ${taskTitle(target.task)}` : entry.branch;
   $('input-form').dataset.mode = management ? 'management' : followup ? 'append' : 'create';
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   $('composer-mode-title').textContent = management ? '管理 Lush' : followup ? waitingFirstInput(target.task) ? '输入工作指令' : '追加输入' : '新建工作';
   $('composer-mode-icon').textContent = management ? '⚙' : followup ? '↳' : '＋';
   const destinationText = `${management ? followup ? '原管家 ' : '新管家 · ' : followup ? '' : '基于 '}${label}${followup && target.task ? ` · ${taskTitle(target.task)}` : ''}`;
   $('composer-mode-target').textContent = destinationText;
-  $('composer-mode-target').setAttribute('data-help', `本条去向：${destinationText}。更改去向请进入详细编辑；不会随当前阅读页面改变。`);
+  $('composer-mode-target').setAttribute('data-help', `本条去向：${destinationText}${target.branch ? ` · 分支 ${target.branch}` : ''}。更改去向请进入详细编辑；不会随当前阅读页面改变。`);
   $('composer-mode-target').setAttribute('tabindex', '0');
   $('composer-mode-behavior').textContent = target.reason || 'Enter / Shift+Enter 换行 · Ctrl/⌘+S 保存 · Ctrl/⌘+Enter 提交；保存与切换不执行。';
   const status = target.reason || target.queueText || target.wait || (target.freeze?.creation_commit
@@ -158,7 +158,10 @@ export function syncComposer() {
   const saved = entry.saved;
   $('composer-draft-status').hidden = false;
   const dirty = ui.inputEditor?.dirty;
-  $('composer-draft-status').textContent = entry.error ? '保存/提交失败' : entry.conflict ? '版本冲突' : busy ? '保存/提交中…' : saved && !dirty ? '已保存 · 未提交' : '未保存';
+  const saveState = entry.error ? '保存/提交失败' : entry.conflict ? '版本冲突' : busy ? '保存/提交中…' : saved ? dirty ? '有未保存修改' : '已保存 · 未提交' : empty && !composerReferences().length ? '尚未输入' : '未保存到项目';
+  const saveStatus = $('composer-draft-status');
+  if (saveStatus.textContent !== saveState) saveStatus.textContent = saveState;
+  saveStatus.dataset.dirty = String(!busy && Boolean(dirty) && (!empty || Boolean(saved) || composerReferences().length > 0));
   $('composer-draft-status').dataset.error = String(Boolean(entry.error || entry.conflict));
   $('composer-draft-status').setAttribute('data-help', entry.error ? `保存/提交失败：${entry.error}；本地编辑保留，请在下方恢复区处理。` : entry.conflict ? '服务器版本已变化；本地编辑保留，请在下方恢复区对照整理，不会静默覆盖。'
     : busy ? '正在保存或提交，请等待；不会重复请求。'

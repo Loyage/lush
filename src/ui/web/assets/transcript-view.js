@@ -70,18 +70,22 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   state.syncOrder = syncOrder; state.disposePreference = onDevicePreferences(syncOrder);
   const taskStatus = el('span', '状态未知', 'badge');
   const heading = el('strong', `${type} ${workerLabel(knownTask || taskId)}`);
+  const topic = el('span', '', 'transcript-topic'); topic.hidden = true;
   state.paintStatus = task => {
     if (!task || task.id !== taskId) return;
     // Overview polling sends a partial status summary: omitted fields are not
     // removals. Preserve inspect context, while explicit nulls still invalidate it.
     state.task = { ...state.task, ...task }; state.cli?.update(state.task);
-    taskStatus.textContent = statusOf(task).label; taskStatus.className = `badge b-${task.status}`;
-    heading.textContent = `${workTypeLabel(task)} ${workerLabel(task)}`;
-    panel.setAttribute('aria-label', `${workTypeLabel(task)} ${workerLabel(task)} 执行详情`);
+    const currentTask = state.task;
+    taskStatus.textContent = statusOf(currentTask).label; taskStatus.className = `badge b-${currentTask.status}`;
+    heading.textContent = `${workTypeLabel(currentTask)} ${workerLabel(currentTask)}`;
+    topic.textContent = currentTask.display_title || currentTask.auto_title || '';
+    topic.hidden = !topic.textContent;
+    panel.setAttribute('aria-label', `${heading.textContent}${topic.textContent ? ` · ${topic.textContent}` : ''} 执行详情`);
   };
   state.paintStatus(knownTask);
   const identity = el('div', undefined, 'transcript-identity');
-  identity.append(heading, el('span', '执行详情', 'transcript-view-label'), taskStatus);
+  identity.append(heading, taskStatus, topic);
   if (standalone) heading.tabIndex = -1;
   if (back) toolbar.append(back);
   toolbar.append(identity);
@@ -115,13 +119,16 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   toggleSearch.setAttribute('aria-controls', `execution-search-${taskId}`);
   state.searchOpen = false;
   const mobile = () => globalThis.matchMedia?.('(max-width:760px)').matches === true;
+  function paintSearch() {
+    paintDisclosure(toggleSearch, state.searchOpen, { expand: state.filtered ? '搜索 · 已筛选' : '搜索', collapse: '收起搜索' });
+  }
   function setSearchOpen(open, focus = false) {
     state.searchOpen = open;
     panel.classList.toggle('transcript-search-open', open);
-    paintDisclosure(toggleSearch, open, { expand: '搜索', collapse: '收起搜索' });
+    paintSearch();
     if (focus) (open ? reader.querySelector('input') : toggleSearch).focus?.({ preventScroll: true });
   }
-  paintDisclosure(toggleSearch, false, { expand: '搜索', collapse: '收起搜索' });
+  paintSearch();
   readingTools.append(orderHost, toggleSearch); navigation.append(tabs, readingTools);
   async function switchMode(mode) {
     if (current !== state || mode === state.mode || !viewTabs.some(([, value]) => value === mode)) return;
@@ -197,13 +204,13 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
       for (const item of holder.children) item.classList.toggle('step-located', item === card);
     },
     onStart: () => {
-      state.filtered = true; syncOrder(); notice.textContent = '搜索命中按步骤编号排列；包含配对输入输出。';
+      state.filtered = true; syncOrder(); paintSearch(); notice.textContent = '搜索命中按步骤编号排列；包含配对输入输出。';
       holder.replaceChildren(el('p', '正在搜索完整记录…', 'hint'));
       viewport.scrollTop = 0;
     },
     onError: error => holder.replaceChildren(el('p', `搜索未完成：${error.message}`, 'error')),
     onClear: () => {
-      state.filtered = false; syncOrder(); notice.textContent = '';
+      state.filtered = false; syncOrder(); paintSearch(); notice.textContent = '';
       paintTranscript(taskId); viewport.scrollTop = 0;
     },
     onPage: async (data, valid) => {

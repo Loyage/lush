@@ -46,8 +46,12 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
     const current = () => owner === globalThis.document && ownsPage() && root.parentNode != null;
     const header = el('header', undefined, 'dashboard-widget-header');
     const title = el('a', undefined, 'project-open dashboard-widget-title'); title.href = projectHref(row.id); title.target = '_blank'; title.rel = 'noopener';
-    title.append(el('strong', row.name || '未命名项目')); header.append(title);
-    if (!onlineDashboardProject(row)) header.append(el('span', row.error || '离线', 'project-status dashboard-widget-source-error'));
+    title.append(el('strong', row.name || '未命名项目')); title.setAttribute('aria-label', row.name || '未命名项目'); header.append(title);
+    const sourceError = onlineDashboardProject(row) ? null : row.error || '后台未运行或不可达，当前状态未确认。';
+    if (sourceError) {
+      const state = el('span', row.error ? '来源异常' : '离线 / 未确认', 'project-status dashboard-widget-source-error');
+      state.dataset.help = sourceError; header.append(state);
+    }
     if (openInput) {
       const input = el('button', '输入', 'ghost dashboard-project-input'); input.type = 'button';
       input.setAttribute('aria-label', `向${row.name || '此项目'}输入工作指令`);
@@ -61,7 +65,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
     const groups = new Map(), summary = onlineDashboardProject(row) ? row.summary?.development : null;
     if (row.sections.includes('metrics')) {
       const metrics = el('div', undefined, 'project-development-metrics dashboard-widget-metrics'); metrics.dataset.section = 'metrics';
-      for (const [label, number, tone] of [['Worker', summary?.workers_total, 'blue'], ['进行中', summary?.active, 'violet'], ['待验收', summary?.awaiting_acceptance, 'violet'], ['待我处理', summary ? row.summary?.notices : null, 'green'], ['待父确认', summary?.parent_confirmation, 'green'], ['Agent', summary?.agents_running, 'blue']]) {
+      for (const [label, number, tone] of [['进行中', summary?.active, 'violet'], ['待我处理', summary ? row.summary?.notices : null, 'amber'], ['待验收', summary?.awaiting_acceptance, 'violet'], ['Agent', summary?.agents_running, 'blue'], ['待父确认', summary?.parent_confirmation, 'neutral'], ['Worker', summary?.workers_total, 'neutral']]) {
         const metric = el('div', undefined, `project-development-metric dashboard-widget-metric tone-${tone}`);
         metric.append(el('span', label, 'metric-label'), el('strong', value(number), 'project-development-value')); metrics.append(metric);
       }
@@ -69,8 +73,13 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
     }
     for (const key of ['distribution', 'delivery']) if (row.sections.includes(key)) {
       const node = el('div', undefined, `project-development-${key} dashboard-project-summary dashboard-widget-row`); node.dataset.section = key;
-      const text = !summary ? '状态未确认' : key === 'distribution' ? (Array.isArray(summary.counts) ? summary.counts : []).filter(item => item.count > 0).map(item => `${STATUS[item.status]?.label || '未知'} ${item.count}`).join(' · ') || (summary.workers_total === 0 ? 'Worker 0' : '分布未确认')
-        : `待合并 ${value(summary.pending_merges)} · 合并中 ${value(summary.merging)} · 冲突 ${value(summary.merge_conflicts)}`;
+      const counts = (Array.isArray(summary?.counts) ? summary.counts : []).filter(item => item.count > 0);
+      // Failures precede routine totals even when the one-line preview is clipped.
+      counts.sort((a, b) => Number(b.status === 'failed') - Number(a.status === 'failed'));
+      const text = !summary ? '状态未确认' : key === 'distribution' ? counts.map(item => `${STATUS[item.status]?.label || '未知'} ${item.count}`).join(' · ') || (summary.workers_total === 0 ? 'Worker 0' : '分布未确认')
+        : `冲突 ${value(summary.merge_conflicts)} · 合并中 ${value(summary.merging)} · 待合并 ${value(summary.pending_merges)}`;
+      node.classList.toggle('dashboard-project-alert', !summary || (key === 'distribution' ? counts.some(item => item.status === 'failed') : summary.merge_conflicts > 0));
+      node.dataset.help = text;
       node.append(el('span', text, 'dashboard-widget-title')); groups.set(key, node);
     }
     if (row.sections.includes('messages')) {
@@ -81,11 +90,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
     function details() {
       if (!current()) return;
       const content = el('div', undefined, 'dashboard-project-details');
-      if (row.sections.some(section => ['metrics', 'distribution', 'delivery', 'recent'].includes(section))) {
-        const development = summary && { ...summary, counts: Array.isArray(summary.counts) ? summary.counts : [], recent_workers: Array.isArray(summary.recent_workers) ? summary.recent_workers : [] };
-        if (development) for (const key of ['workers_total', 'active', 'awaiting_acceptance', 'parent_confirmation', 'agents_running', 'pending_merges', 'merging', 'merge_conflicts']) development[key] = value(summary[key]);
-        content.append(projectDevelopment(development ? { ...row, summary: { ...row.summary, notices: value(row.summary?.notices), development } } : row, { sections: row.sections }));
-      }
+      if (sourceError) content.append(el('p', sourceError, 'error'));
       if (row.sections.includes('messages')) {
         const messageBody = el('section', undefined, 'project-dashboard-messages'); content.append(messageBody);
         const inModal = () => {
@@ -93,6 +98,11 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
           return false;
         };
         widgets.mountMessages(content, messageBody, row, () => current() && inModal(), { footer: false, viewKey: `${row.id}:details` });
+      }
+      if (row.sections.some(section => ['metrics', 'distribution', 'delivery', 'recent'].includes(section))) {
+        const development = summary && { ...summary, counts: Array.isArray(summary.counts) ? summary.counts : [], recent_workers: Array.isArray(summary.recent_workers) ? summary.recent_workers : [] };
+        if (development) for (const key of ['workers_total', 'active', 'awaiting_acceptance', 'parent_confirmation', 'agents_running', 'pending_merges', 'merging', 'merge_conflicts']) development[key] = value(summary[key]);
+        content.append(projectDevelopment(development ? { ...row, summary: { ...row.summary, notices: value(row.summary?.notices), development } } : row, { sections: row.sections }));
       }
       content.append(dashboardNavigation(navigationLinks(), { name: row.name }));
       void formDialog({ title: row.name || '项目详情', content, confirmLabel: '关闭', confirmPrimary: false });
@@ -116,7 +126,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
     function footer(footer) {
       // Wide normal cards keep selected shortcuts flat; CSS hides this region
       // at narrow/edit widths. The single details control remains the fallback.
-      const hasDetails = row.sections.some(section => section !== 'shortcuts'), key = hasDetails ? 'details' : 'links';
+      const hasDetails = !!sourceError || row.sections.some(section => section !== 'shortcuts'), key = hasDetails ? 'details' : 'links';
       if (hasDetails && directLinks.children.length) footer.append(directLinks);
       if (!hasDetails && !navigationLinks().length) return;
       if (!footerControls.has(key)) {
@@ -145,9 +155,12 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
           onNext() { if (current()) { navigationState.index++; reflow(navigationGeometry); } } }));
         return;
       }
-      const desired = [...['metrics', 'distribution', 'delivery', 'messages'].filter(key => visible.has(key)).map(key => groups.get(key)), ...(row.sections.includes('recent') && budget.workers > 0 ? [workerBody] : [])];
+      const alerts = ['distribution', 'delivery'].filter(key => groups.get(key)?.classList.contains('dashboard-project-alert'));
+      const order = ['messages', ...alerts, 'metrics', 'recent', ...['distribution', 'delivery'].filter(key => !alerts.includes(key))];
+      const desired = order.flatMap(key => key === 'recent'
+        ? row.sections.includes(key) && budget.workers > 0 ? [workerBody] : [] : visible.has(key) ? [groups.get(key)] : []);
       for (const child of [...body.children]) if (!desired.includes(child)) child.remove();
-      for (let i = desired.length - 1; i >= 0; i--) if (desired[i].parentNode !== body) body.insertBefore(desired[i], desired.slice(i + 1).find(node => node.parentNode === body) || null);
+      for (let i = 0; i < desired.length; i++) if (body.children[i] !== desired[i]) body.insertBefore(desired[i], body.children[i] || null);
       root.dataset.workerSlots = String(budget.workers);
       widgets.repaintMessages(row.id);
     }
